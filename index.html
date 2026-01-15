@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WheelHouse - Options Strategy Analyzer</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏠</text></svg>">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🏠 WheelHouse</h1>
+        <p class="subtitle">Wheel Strategy Options Analyzer</p>
+        
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="positions">📋 Positions</button>
+            <button class="tab-btn" data-tab="portfolio">💼 Portfolio</button>
+            <button class="tab-btn" data-tab="options">📈 Options</button>
+            <button class="tab-btn" data-tab="pnl">💰 P&L</button>
+            <button class="tab-btn" data-tab="greeks">Δ Greeks</button>
+            <button class="tab-btn" data-tab="data">📊 Data</button>
+            <button class="tab-btn" data-tab="simulator">🔬 Simulator</button>
+        </div>
+
+        <!-- SIMULATOR TAB -->
+        <div class="tab-content" id="simulator">
+            <div class="main-grid">
+                <div class="canvas-section">
+                    <canvas id="mainCanvas" width="800" height="220"></canvas>
+                    <div class="legend">
+                        <div class="legend-item"><div class="legend-color" style="background:#00ff88"></div>Path</div>
+                        <div class="legend-item"><div class="legend-color" style="background:rgba(0,217,255,0.4)"></div>Previous</div>
+                        <div class="legend-item"><div class="legend-color" style="background:#ff5252"></div>Walls</div>
+                        <div class="legend-item"><div class="legend-color" style="background:#ffaa00"></div>Start</div>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-card"><div class="stat-value" id="simCount">0</div><div class="stat-label">Simulations</div></div>
+                        <div class="stat-card"><div class="stat-value" id="avgTau">—</div><div class="stat-label">Avg τ</div></div>
+                        <div class="stat-card" style="background:rgba(255,82,82,0.15)"><div class="stat-value" id="hitZero">0%</div><div class="stat-label">Hit 0 (Assigned)</div></div>
+                        <div class="stat-card" style="background:rgba(0,255,136,0.15)"><div class="stat-value" id="hitOne">0%</div><div class="stat-label">Hit 1 (Expires OTM)</div></div>
+                    </div>
+                    <canvas id="histogramCanvas" height="60" style="margin-top:8px"></canvas>
+                    <div id="batchStats" style="margin-top: 10px;"></div>
+                </div>
+                <div class="controls-panel">
+                    <div class="control-group">
+                        <label>p (Starting Position) <input type="number" class="value-input" id="pInput" min="0.01" max="0.99" step="0.01" value="0.50"></label>
+                        <input type="range" id="pSlider" min="0.01" max="0.99" step="0.01" value="0.5">
+                    </div>
+                    <div class="control-group">
+                        <label>q (Drift) <input type="number" class="value-input" id="qInput" min="0" max="2" step="0.01" value="0.50"></label>
+                        <input type="range" id="qSlider" min="0" max="2" step="0.01" value="0.5">
+                    </div>
+                    <div class="control-group">
+                        <label>σ (Volatility) <input type="number" class="value-input" id="sigmaInput" min="0.01" max="0.5" step="0.01" value="0.10"></label>
+                        <input type="range" id="sigmaSlider" min="0.01" max="0.5" step="0.01" value="0.1">
+                    </div>
+                    <div class="control-group">
+                        <label>Paths per Batch <span class="value-display" id="pathsInput">1000</span></label>
+                        <input type="range" id="pathsSlider" min="100" max="10000" step="100" value="1000">
+                    </div>
+                    
+                    <div style="display: flex; gap: 8px; margin-top: 15px;">
+                        <button class="btn-primary" id="runSingleBtn" style="flex: 1;">▶ Single</button>
+                        <button class="btn-primary" id="runBatchBtn" style="flex: 1;">⚡ Batch</button>
+                        <button class="btn-danger" id="resetBtn" style="flex: 1;">🗑 Reset</button>
+                    </div>
+                    
+                    <div class="running" id="runningIndicator"><div class="spinner"></div>Running...</div>
+                    <div class="progress-bar" id="progressBar" style="display:none"><div class="progress-fill" id="progressFill"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- OPTIONS TAB -->
+        <div class="tab-content" id="options">
+            <!-- Position Context Banner -->
+            <div id="positionContext" style="display:none; background:rgba(0,217,255,0.15); border:2px solid #00d9ff; border-radius:6px; padding:8px 12px; margin-bottom:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; align-items:center; gap:15px;">
+                        <div style="color:#00d9ff; font-weight:600; font-size:12px;">📊 ANALYZING POSITION</div>
+                        <div id="contextTicker" style="font-weight:bold; color:#fff; font-size:14px;">—</div>
+                        <div id="contextDetails" style="color:#888; font-size:12px;">—</div>
+                    </div>
+                    <button id="clearContextBtn" class="btn-secondary" style="padding:4px 8px; font-size:11px;">✕ Clear</button>
+                </div>
+            </div>
+            
+            <div class="options-layout">
+                <!-- LEFT: Inputs -->
+                <div class="options-inputs">
+                    <div class="control-group">
+                        <label>Ticker</label>
+                        <div style="display:flex; gap:4px;">
+                            <input type="text" id="tickerInput" placeholder="AAPL..." style="flex:1; padding:5px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; text-transform:uppercase; font-size:12px;">
+                            <button id="fetchTickerBtn" class="btn-secondary" style="padding:5px 8px; font-size:11px;">📊</button>
+                        </div>
+                        <div id="priceStatus" style="font-size:10px; color:#888; margin-top:2px;"></div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Spot (S₀) <input type="number" id="spotInput" class="value-input" min="1" max="1000" step="1" value="100"></label>
+                        <input type="range" id="spotSlider" min="20" max="500" step="1" value="100">
+                    </div>
+                    <div class="control-group">
+                        <label>Strike (K) <input type="number" id="strikeInput" class="value-input" min="1" max="1000" step="1" value="100"></label>
+                        <input type="range" id="strikeSlider" min="20" max="500" step="1" value="100">
+                    </div>
+                    <div class="control-group">
+                        <label>Lower Barrier <input type="number" id="lowerInput" class="value-input" min="1" max="500" step="1" value="80"></label>
+                        <input type="range" id="lowerSlider" min="10" max="480" step="1" value="80">
+                    </div>
+                    <div class="control-group">
+                        <label>Upper Barrier <input type="number" id="upperInput" class="value-input" min="1" max="1000" step="1" value="120"></label>
+                        <input type="range" id="upperSlider" min="30" max="600" step="1" value="120">
+                    </div>
+                    <div class="control-group">
+                        <label>Volatility (σ) <input type="number" id="optVolInput" class="value-input" min="5" max="200" step="1" value="20" style="width:40px;">%</label>
+                        <input type="range" id="optVolSlider" min="0.05" max="1.5" step="0.01" value="0.2">
+                    </div>
+                    <div class="control-group">
+                        <label>DTE <input type="number" id="dteInput" class="value-input" min="1" max="730" step="1" value="30"></label>
+                        <input type="range" id="dteSlider" min="1" max="365" step="1" value="30">
+                    </div>
+                    <div class="control-group">
+                        <label>📅 Expiry</label>
+                        <input type="date" id="expiryDatePicker" style="width:100%; padding:4px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; font-size:11px;">
+                        <div id="dteDisplay" style="font-size:11px; color:#ffaa00; margin-top:2px;"></div>
+                    </div>
+                    
+                    <div style="display:flex; gap:6px; margin-top:10px;">
+                        <button id="syncToSimBtn" class="btn-secondary" style="flex:1; padding:6px; font-size:11px;">🔄 Sync</button>
+                        <button id="priceBtn" class="btn-primary" style="flex:2; padding:6px; font-size:12px;">💵 Price Options</button>
+                    </div>
+                    <div class="running" id="optRunning"><div class="spinner"></div>Pricing...</div>
+                </div>
+                
+                <!-- CENTER: Charts -->
+                <div class="options-charts">
+                    <div id="positionInfo" style="font-size:11px; margin-bottom:4px;"></div>
+                    <canvas id="payoffCanvas" style="width:100%; height:220px;"></canvas>
+                    <div class="legend" style="font-size:10px; margin:4px 0;">
+                        <div class="legend-item"><div class="legend-color" style="background:#00ff88"></div>Call</div>
+                        <div class="legend-item"><div class="legend-color" style="background:#ff5252"></div>Put</div>
+                        <div class="legend-item"><div class="legend-color" style="background:#00d9ff"></div>Strike</div>
+                        <div class="legend-item"><div class="legend-color" style="background:#ffaa00"></div>Barriers</div>
+                    </div>
+                    <canvas id="priceHistCanvas" style="width:100%; height:80px; margin-top:4px"></canvas>
+                </div>
+                
+                <!-- RIGHT: Results -->
+                <div class="options-results">
+                    <div class="results-box options" style="margin-bottom:8px;">
+                        <h3 style="font-size:12px;">💰 Option Prices</h3>
+                        <div class="payoff-grid">
+                            <div class="payoff-card call"><div class="payoff-label">CALL</div><div class="payoff-value" id="callPrice">—</div></div>
+                            <div class="payoff-card put"><div class="payoff-label">PUT</div><div class="payoff-value" id="putPrice">—</div></div>
+                        </div>
+                        <div class="result-row"><span class="result-label">⏱️ Time:</span><span class="result-value" id="optTau">—</span></div>
+                        <div class="result-row"><span class="result-label">📉 Below Strike:</span><span class="result-value put" id="optLower">—</span></div>
+                        <div class="result-row"><span class="result-label">📈 Above Strike:</span><span class="result-value call" id="optUpper">—</span></div>
+                    </div>
+                    
+                    <div id="recommendation" class="recommendation-box" style="display:none; margin-bottom:8px;">
+                        <h3 id="recTitle" style="font-size:12px;">🤖 Recommendation</h3>
+                        <div class="action" id="recAction" style="font-size:11px;"></div>
+                        <div class="reason" id="recReason" style="font-size:11px;"></div>
+                        <div class="tip" id="recTip" style="font-size:10px;"></div>
+                    </div>
+                    
+                    <div class="results-box" id="worthItBox" style="display:none;">
+                        <h3 style="font-size:12px;">🎯 Trade Metrics</h3>
+                        <div class="metrics-grid">
+                            <div class="result-row"><span class="result-label">ROC:</span><span class="result-value" id="rocDisplay">—</span></div>
+                            <div class="result-row"><span class="result-label">Annualized ROC:</span><span class="result-value" id="annRocDisplay">—</span></div>
+                            <div class="result-row"><span class="result-label">Risk:Reward:</span><span class="result-value" id="riskRewardRatio">—</span></div>
+                            <div class="result-row"><span class="result-label">Win Probability:</span><span class="result-value" id="winProbability">—</span></div>
+                            <div class="result-row"><span class="result-label">Required Win Rate:</span><span class="result-value" id="requiredWinRate">—</span></div>
+                            <div class="result-row"><span class="result-label">Your Edge:</span><span class="result-value" id="yourEdge">—</span></div>
+                            <div class="result-row"><span class="result-label">Kelly %:</span><span class="result-value" id="kellyPct">—</span></div>
+                        </div>
+                        <div style="border-top:1px dashed rgba(255,255,255,0.2); margin-top:6px; padding-top:6px;">
+                            <div class="result-row"><span class="result-label">Avg if Assigned:</span><span class="result-value" id="avgIfAssigned">—</span></div>
+                            <div class="result-row"><span class="result-label">Expected Loss:</span><span class="result-value put" id="expectedLoss">—</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- P&L TAB -->
+        <div class="tab-content" id="pnl">
+            <div class="main-grid">
+                <div class="canvas-section">
+                    <h3 style="color:#00d9ff; margin-bottom:8px;">💰 P&L at Expiration</h3>
+                    <canvas id="pnlCanvas" width="800" height="160"></canvas>
+                    
+                    <h3 style="color:#00d9ff; margin:15px 0 8px;">📊 Probability Cone (1σ, 2σ, 3σ)</h3>
+                    <canvas id="probConeCanvas" width="800" height="180"></canvas>
+                    
+                    <div style="display:flex; align-items:center; gap:15px; margin:15px 0 8px;">
+                        <h3 style="color:#00d9ff; margin:0;">🔥 P&L Heat Map</h3>
+                        <div style="display:flex; align-items:center; gap:8px; margin-left:auto;">
+                            <label style="font-size:12px; color:#ffaa00;">Spot Price $</label>
+                            <input type="number" id="heatMapSpot" class="value-input" step="0.01" style="width:70px;">
+                            <button id="heatMapFetchBtn" class="btn-secondary" style="padding:4px 8px; font-size:11px;" title="Fetch live price">📊</button>
+                            <button id="heatMapUpdateBtn" class="btn-primary" style="padding:4px 10px; font-size:11px;">Update</button>
+                        </div>
+                    </div>
+                    <canvas id="heatMapCanvas" width="800" height="180"></canvas>
+                </div>
+                <div class="controls-panel">
+                    <div class="results-box">
+                        <h3>📊 Break-Even Analysis</h3>
+                        <div class="result-row"><span class="result-label">Break-Even Price:</span><span class="result-value" id="breakEvenPrice">—</span></div>
+                        <div class="result-row"><span class="result-label">Max Profit:</span><span class="result-value call" id="maxProfit">—</span></div>
+                        <div class="result-row"><span class="result-label">Max Loss:</span><span class="result-value put" id="maxLoss">—</span></div>
+                        <div class="result-row"><span class="result-label">Expected Value:</span><span class="result-value" id="expectedValue">—</span></div>
+                    </div>
+                    
+                    <div style="margin-top:15px; padding:15px; background:rgba(0,217,255,0.1); border-radius:6px;">
+                        <h3 style="color:#00ff88; margin-bottom:10px;">🔄 Roll Calculator</h3>
+                        <div style="background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; margin-bottom:10px; font-size:12px;">
+                            <div style="color:#ffaa00;">Current: $<span id="rollCurrentStrike">—</span> | <span id="rollCurrentDte">—</span>d | Risk: <span id="rollCurrentRisk">—</span>% | Premium: $<span id="rollCurrentPremium">—</span></div>
+                        </div>
+                        
+                        <div class="control-group">
+                            <label>New Strike <input type="number" id="rollNewStrike" class="value-input" min="1" max="500" step="0.5" value="95"></label>
+                        </div>
+                        <div class="control-group">
+                            <label>New DTE <input type="number" id="rollNewDte" class="value-input" min="1" max="365" step="1" value="45"></label>
+                        </div>
+                        <div class="control-group">
+                            <label>📅 New Expiry</label>
+                            <input type="date" id="rollNewExpiry" style="width:100%; padding:6px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;">
+                        </div>
+                        <div class="control-group">
+                            <label>Expected Credit $ <input type="number" id="rollCredit" class="value-input" min="0" max="50" step="0.01" value="0.50"></label>
+                        </div>
+                        
+                        <button id="rollBtn" class="btn-primary" style="width:100%; margin-top:10px;">🧮 Calculate Roll</button>
+                        
+                        <div id="rollResults" style="display:none; margin-top:10px; padding:10px; background:rgba(0,0,0,0.3); border-radius:4px;">
+                            <div class="result-row"><span class="result-label">New Strike:</span><span class="result-value" id="rollNewStrikeDisp">—</span></div>
+                            <div class="result-row"><span class="result-label">New DTE:</span><span class="result-value" id="rollNewDteDisp">—</span></div>
+                            <div class="result-row"><span class="result-label">New Risk %:</span><span class="result-value put" id="rollNewRisk">—</span></div>
+                            <div class="result-row"><span class="result-label">Total Premium:</span><span class="result-value call" id="rollTotalPremium">—</span></div>
+                            <div class="result-row"><span class="result-label">Net Credit:</span><span class="result-value" id="rollNetCredit">—</span></div>
+                            <div id="rollComparison" style="margin-top:10px; padding:8px; background:rgba(0,217,255,0.15); border-radius:4px; font-size:12px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- POSITIONS TAB -->
+        <div class="tab-content active" id="positions">
+            <div class="main-grid">
+                <div class="canvas-section">
+                    <h3 style="color:#00d9ff; margin-bottom:10px;">📋 Your Open Positions</h3>
+                    <div id="positionsTable"></div>
+                    <div id="portfolioSummary" style="margin-top:20px;"></div>
+                </div>
+                <div class="controls-panel">
+                    <h3 style="color:#00d9ff; margin-bottom:15px;">➕ Add New Position</h3>
+                    
+                    <div class="control-group">
+                        <label>Ticker</label>
+                        <div style="display:flex; gap:5px;">
+                            <input type="text" id="posTicker" class="value-input" placeholder="AAPL" style="flex:1; text-transform:uppercase;">
+                            <button id="posFetchPriceBtn" class="btn-secondary" style="padding:6px 10px;">📊 Fetch</button>
+                        </div>
+                        <div id="posPriceStatus" style="font-size:11px; color:#888; margin-top:4px;"></div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Type</label>
+                        <select id="posType" style="width:100%; padding:8px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;">
+                            <option value="short_put">Short Put (Cash Secured)</option>
+                            <option value="short_call">Short Call (Covered)</option>
+                            <option value="long_put">Long Put</option>
+                            <option value="long_call">Long Call</option>
+                        </select>
+                    </div>
+                    
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label>Strike $</label>
+                            <input type="number" id="posStrike" class="value-input" min="1" max="5000" step="0.5" value="100" style="width:100%;">
+                        </div>
+                        <div class="control-group">
+                            <label>Premium $</label>
+                            <input type="number" id="posPremium" class="value-input" min="0" max="500" step="0.01" value="1.50" style="width:100%;">
+                        </div>
+                    </div>
+                    
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label>Contracts</label>
+                            <input type="number" id="posContracts" class="value-input" min="1" max="1000" step="1" value="1" style="width:100%;">
+                        </div>
+                        <div class="control-group">
+                            <label>📅 Expiry</label>
+                            <input type="date" id="posExpiry" style="width:100%; padding:6px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;">
+                        </div>
+                    </div>
+                    
+                    <div class="control-row">
+                        <div class="control-group" style="flex:1;">
+                            <label>🗓️ Trade Opened</label>
+                            <input type="date" id="posOpenDate" style="width:100%; padding:6px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;">
+                        </div>
+                    </div>
+                    
+                    <div class="control-row">
+                        <div class="control-group" style="flex:1;">
+                            <label>🏦 Broker</label>
+                            <select id="posBroker" style="width:100%; padding:6px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;">
+                                <option value="Schwab">Schwab</option>
+                                <option value="Robinhood">Robinhood</option>
+                                <option value="Fidelity">Fidelity</option>
+                                <option value="TD">TD Ameritrade</option>
+                                <option value="IBKR">IBKR</option>
+                                <option value="Webull">Webull</option>
+                                <option value="Tastytrade">Tastytrade</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="control-group" style="flex:0.5;">
+                            <label>Δ Delta</label>
+                            <input type="number" id="posDelta" class="value-input" min="0" max="1" step="0.01" placeholder="0.30" style="width:100%;">
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 8px; margin-top: 15px;">
+                        <button id="addPositionBtn" class="btn-success" style="flex:1;">➕ Add Position</button>
+                        <button id="cancelEditBtn" class="btn-secondary" style="flex:0.4; display:none;">✕ Cancel</button>
+                    </div>
+                    
+                    <div style="margin-top:15px; padding:10px; background:rgba(255,170,0,0.1); border-radius:6px; font-size:12px; color:#ffaa00;">
+                        💡 Positions are saved in your browser's local storage.
+                    </div>
+                </div>
+                
+                <!-- Roll Position Panel -->
+                <div id="rollPanel" class="results-box" style="display:none; margin-top:15px; background:rgba(156,39,176,0.15); border:1px solid rgba(156,39,176,0.4);">
+                    <h3 style="color:#ce93d8; margin-bottom:12px;">🔄 Roll Position</h3>
+                    <div id="rollCurrentInfo" style="background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; margin-bottom:12px; font-size:12px; color:#aaa;"></div>
+                    
+                    <div class="control-group">
+                        <label style="color:#ce93d8;">Closing Price (buy back old)</label>
+                        <input type="number" id="rollClosingPrice" class="value-input" min="0" max="500" step="0.01" value="0" style="width:100%;">
+                    </div>
+                    
+                    <div style="border-top:1px solid rgba(156,39,176,0.3); margin:12px 0; padding-top:12px;">
+                        <div style="color:#ce93d8; font-weight:600; margin-bottom:8px;">New Position:</div>
+                    </div>
+                    
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label>New Strike $</label>
+                            <input type="number" id="rollNewStrikeInput" class="value-input" min="1" max="5000" step="0.5" style="width:100%;">
+                        </div>
+                        <div class="control-group">
+                            <label>New Premium $</label>
+                            <input type="number" id="rollNewPremium" class="value-input" min="0" max="500" step="0.01" style="width:100%;">
+                        </div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>📅 New Expiry</label>
+                        <input type="date" id="rollNewExpiryInput" style="width:100%; padding:6px; background:rgba(156,39,176,0.15); border:1px solid rgba(156,39,176,0.3); border-radius:4px; color:#fff;">
+                    </div>
+                    
+                    <div id="rollNetDisplay" style="margin-top:10px; padding:8px; background:rgba(0,0,0,0.3); border-radius:4px; font-size:13px; text-align:center; display:none;">
+                        Net: <span id="rollNetValue">—</span>
+                    </div>
+                    
+                    <div style="display: flex; gap: 8px; margin-top: 12px;">
+                        <button id="executeRollBtn" class="btn-success" style="flex:1; background:#9c27b0;">🔄 Execute Roll</button>
+                        <button id="cancelRollBtn" class="btn-secondary" style="flex:0.4;">✕ Cancel</button>
+                    </div>
+                </div>
+                
+                <!-- Close Position Panel -->
+                <div id="closePanel" class="results-box" style="display:none; margin-top:15px; background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.4);">
+                    <h3 style="color:#00ff88; margin-bottom:12px;">✅ Close Position</h3>
+                    <div id="closeCurrentInfo" style="background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; margin-bottom:12px; font-size:12px; color:#aaa;"></div>
+                    
+                    <div class="control-group">
+                        <label style="color:#00ff88;">Closing Price (what you paid to buy back)</label>
+                        <input type="number" id="closeClosingPrice" class="value-input" min="0" max="500" step="0.01" value="0" style="width:100%;">
+                        <div style="font-size:10px; color:#888; margin-top:4px;">Enter 0 if expired worthless</div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>📅 Close Date</label>
+                        <input type="date" id="closeDate" style="width:100%; padding:6px; background:rgba(0,255,136,0.15); border:1px solid rgba(0,255,136,0.3); border-radius:4px; color:#fff;">
+                    </div>
+                    
+                    <div id="closePnLPreview" style="margin-top:10px; padding:10px; background:rgba(0,0,0,0.3); border-radius:4px; font-size:14px; text-align:center;">
+                        P&L: <span id="closePnLValue" style="font-weight:bold;">—</span>
+                    </div>
+                    
+                    <div style="display: flex; gap: 8px; margin-top: 12px;">
+                        <button id="executeCloseBtn" class="btn-success" style="flex:1;">✅ Confirm Close</button>
+                        <button id="cancelCloseBtn" class="btn-secondary" style="flex:0.4;">✕ Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PORTFOLIO TAB -->
+        <div class="tab-content" id="portfolio">
+            <div class="main-grid">
+                <div class="canvas-section" style="overflow-y: auto;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 style="color:#00d9ff; margin:0;">💼 Portfolio P&L Tracker</h3>
+                        <div style="display:flex; gap:8px;">
+                            <button id="refreshPortfolioBtn" class="btn-primary" style="padding:6px 12px;">🔄 Refresh Prices</button>
+                        </div>
+                    </div>
+                    
+                    <div id="portfolioLoading" style="display:none; text-align:center; padding:20px; color:#ffaa00;">
+                        <div class="spinner" style="display:inline-block; margin-right:10px;"></div>
+                        Fetching live prices...
+                    </div>
+                    
+                    <div id="portfolioTable"></div>
+                    
+                    <!-- Holdings: Share Ownership from Assignments -->
+                    <div id="holdingsSection" style="margin-top:20px; padding:15px; background:rgba(255,140,0,0.05); border-radius:8px; border:1px solid rgba(255,140,0,0.2); display:none;">
+                        <h4 style="color:#fa0; margin:0 0 10px;">📦 Share Holdings (Wheel in Progress)</h4>
+                        <div id="holdingsTable" style="color:#888; font-size:13px;">No shares from assignments.</div>
+                    </div>
+                    
+                    <div style="margin-top:20px; padding:15px; background:rgba(0,0,0,0.3); border-radius:8px;">
+                        <h4 style="color:#ffaa00; margin:0 0 10px;">📜 Closed Positions</h4>
+                        <div id="closedPositionsTable" style="color:#888; font-size:13px;">No closed positions yet.</div>
+                    </div>
+                </div>
+                
+                <div class="controls-panel">
+                    <div class="results-box" style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3);">
+                        <h3 style="color:#00ff88;">📊 Portfolio Summary</h3>
+                        <div class="result-row"><span class="result-label">Open Positions:</span><span class="result-value" id="portOpenCount">0</span></div>
+                        <div class="result-row"><span class="result-label">Total Premium Collected:</span><span class="result-value call" id="portTotalPremium">$0</span></div>
+                        <div class="result-row"><span class="result-label">Capital at Risk:</span><span class="result-value" id="portCapitalRisk">$0</span></div>
+                        <div style="border-top:1px solid rgba(255,255,255,0.2); margin:10px 0; padding-top:10px;">
+                            <div class="result-row"><span class="result-label">Unrealized P&L:</span><span class="result-value" id="portUnrealizedPnL">$0</span></div>
+                            <div class="result-row"><span class="result-label">Realized P&L:</span><span class="result-value" id="portRealizedPnL">$0</span></div>
+                            <div class="result-row" style="font-size:16px; font-weight:bold;"><span class="result-label">Total P&L:</span><span class="result-value" id="portTotalPnL">$0</span></div>
+                        </div>
+                    </div>
+                    
+                    <div class="results-box" style="margin-top:15px;">
+                        <h3 style="color:#00d9ff;">🎯 Performance</h3>
+                        <div class="result-row"><span class="result-label">Win Rate:</span><span class="result-value" id="portWinRate">—</span></div>
+                        <div class="result-row"><span class="result-label">Avg Days Held:</span><span class="result-value" id="portAvgDays">—</span></div>
+                        <div class="result-row"><span class="result-label">Best Trade:</span><span class="result-value" id="portBestTrade" style="cursor:pointer;">—</span></div>
+                        <div class="result-row"><span class="result-label">Worst Trade:</span><span class="result-value" id="portWorstTrade" style="cursor:pointer;">—</span></div>
+                    </div>
+                    
+                    <div style="margin-top:15px; padding:12px; background:rgba(0,217,255,0.1); border-radius:6px; font-size:12px;">
+                        <div style="color:#00d9ff; font-weight:600; margin-bottom:5px;">💡 How to Use</div>
+                        <div style="color:#aaa;">
+                            <b>✎ Mark:</b> Enter current option price from Schwab<br>
+                            <b>✓ Close:</b> Lock in P&L when position expires/closes<br><br>
+                            <b>P&L = </b> Premium received − current option price<br>
+                            <i style="color:#00ff88;">Positive = theta decay working for you!</i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GREEKS TAB -->
+        <div class="tab-content" id="greeks">
+            <div class="main-grid">
+                <div class="canvas-section">
+                    <h3 style="color:#00d9ff; margin-bottom:10px;">📐 Greeks Visualization</h3>
+                    <canvas id="greeksCanvas" width="800" height="200"></canvas>
+                    <div class="legend">
+                        <div class="legend-item"><div class="legend-color" style="background:#00ff88"></div>Call</div>
+                        <div class="legend-item"><div class="legend-color" style="background:#ff5252"></div>Put</div>
+                    </div>
+                </div>
+                <div class="controls-panel">
+                    <div class="control-group">
+                        <label>Bump Size (for numerical differentiation)</label>
+                        <input type="range" id="bumpSlider" min="0.005" max="0.05" step="0.005" value="0.01">
+                    </div>
+                    
+                    <button id="greeksBtn" class="btn-primary" style="width:100%;">🧮 Calculate Greeks</button>
+                    
+                    <div class="running" id="greekRunning"><div class="spinner"></div>Computing...</div>
+                    
+                    <div class="results-box greeks" style="margin-top:15px;">
+                        <h3>📐 Call Greeks</h3>
+                        <div class="greeks-grid">
+                            <div class="greek-card"><div class="greek-symbol">Δ</div><div class="greek-value" id="callDelta">—</div><div class="greek-name">Delta</div></div>
+                            <div class="greek-card"><div class="greek-symbol">Γ</div><div class="greek-value" id="callGamma">—</div><div class="greek-name">Gamma</div></div>
+                            <div class="greek-card"><div class="greek-symbol">ν</div><div class="greek-value" id="callVega">—</div><div class="greek-name">Vega</div></div>
+                        </div>
+                    </div>
+                    
+                    <div class="results-box greeks" style="margin-top:15px;">
+                        <h3>📐 Put Greeks</h3>
+                        <div class="greeks-grid">
+                            <div class="greek-card"><div class="greek-symbol">Δ</div><div class="greek-value" id="putDelta">—</div><div class="greek-name">Delta</div></div>
+                            <div class="greek-card"><div class="greek-symbol">Γ</div><div class="greek-value" id="putGamma">—</div><div class="greek-name">Gamma</div></div>
+                            <div class="greek-card"><div class="greek-symbol">ν</div><div class="greek-value" id="putVega">—</div><div class="greek-name">Vega</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DATA TAB -->
+        <div class="tab-content" id="data">
+            <div class="main-grid">
+                <div class="canvas-section">
+                    <h3 style="color:#00d9ff; margin-bottom:10px;">📊 Simulation Data</h3>
+                    <div id="dataContent"></div>
+                </div>
+                <div class="controls-panel">
+                    <h3 style="color:#00d9ff; margin-bottom:15px;">💾 Export Options</h3>
+                    <button class="btn-success" style="width:100%; margin-bottom:10px;" onclick="window.exportJSON()">📥 Export JSON</button>
+                    <button class="btn-secondary" style="width:100%; margin-bottom:10px;" onclick="window.exportCSV()">📥 Export CSV</button>
+                    <button class="btn-secondary" style="width:100%;" onclick="window.copyData()">📋 Copy to Clipboard</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ES6 Module Entry Point -->
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

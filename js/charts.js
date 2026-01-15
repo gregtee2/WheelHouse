@@ -1,0 +1,867 @@
+// WheelHouse - Chart Drawing Module
+// All canvas rendering functions
+
+import { state } from './state.js';
+import { erf } from './utils.js';
+import { getPositionType, bsPrice } from './pricing.js';
+
+/**
+ * Main simulator canvas drawing
+ */
+export function draw(currentPath = null) {
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height, M = 40;
+    
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 10; i++) {
+        const y = M + (i/10) * (H - 2*M);
+        ctx.beginPath(); ctx.moveTo(M, y); ctx.lineTo(W-M, y); ctx.stroke();
+    }
+    
+    // Walls
+    ctx.strokeStyle = '#ff5252';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(M, M); ctx.lineTo(W-M, M); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(M, H-M); ctx.lineTo(W-M, H-M); ctx.stroke();
+    
+    // Start position
+    const startY = M + (1-state.p) * (H - 2*M);
+    ctx.strokeStyle = '#ffaa00';
+    ctx.setLineDash([5,5]);
+    ctx.beginPath(); ctx.moveTo(M, startY); ctx.lineTo(W-M, startY); ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Labels
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('1', M-5, M+4);
+    ctx.fillText('0', M-5, H-M+4);
+    ctx.fillStyle = '#ffaa00';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText('p=' + state.p.toFixed(2), M-5, startY+4);
+    
+    // Previous paths
+    state.previousPaths.forEach((path, i) => {
+        drawPath(ctx, path, `rgba(0,217,255,${0.1 + 0.2*i/state.previousPaths.length})`, 1, W, H, M);
+    });
+    
+    // Current path
+    if (currentPath) {
+        drawPath(ctx, currentPath, '#00ff88', 2, W, H, M);
+        const last = currentPath[currentPath.length - 1];
+        const maxT = Math.max(...currentPath.map(p => p.x), 1);
+        const dx = M + (last.x/maxT) * (W - 2*M);
+        const dy = M + (1 - Math.max(0, Math.min(1, last.y))) * (H - 2*M);
+        ctx.beginPath();
+        ctx.arc(dx, dy, 5, 0, Math.PI*2);
+        ctx.fillStyle = '#00ff88';
+        ctx.fill();
+    }
+    
+    drawHistogram();
+}
+
+function drawPath(ctx, path, color, width, W, H, M) {
+    if (path.length < 2) return;
+    const maxT = Math.max(...path.map(p => p.x), 1);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    path.forEach((pt, i) => {
+        const x = M + (pt.x/maxT) * (W - 2*M);
+        const y = M + (1 - Math.max(0, Math.min(1, pt.y))) * (H - 2*M);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+}
+
+/**
+ * Histogram drawing
+ */
+export function drawHistogram() {
+    const canvas = document.getElementById('histogramCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(0, 0, W, H);
+    
+    if (state.exitTimes.length === 0) {
+        ctx.fillStyle = '#666';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Run simulations to see distribution', W/2, H/2);
+        return;
+    }
+    
+    const bins = 25, maxT = Math.max(...state.exitTimes, 0.1);
+    const binWidth = maxT / bins;
+    const counts = new Array(bins).fill(0);
+    state.exitTimes.forEach(t => { const b = Math.min(Math.floor(t/binWidth), bins-1); counts[b]++; });
+    const maxC = Math.max(...counts);
+    const barW = (W - 40) / bins;
+    
+    const grad = ctx.createLinearGradient(0, H-10, 0, 10);
+    grad.addColorStop(0, '#00d9ff');
+    grad.addColorStop(1, '#00ff88');
+    
+    counts.forEach((c, i) => {
+        const h = (c/maxC) * (H - 35);
+        ctx.fillStyle = grad;
+        ctx.fillRect(20 + i*barW, H - 25 - h, barW - 1, h);
+    });
+    
+    ctx.fillStyle = '#888';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('0', 20, H-3);
+    ctx.fillText(maxT.toFixed(1), W-20, H-3);
+}
+
+/**
+ * Payoff chart drawing - Enhanced with P&L, breakeven, annotations
+ */
+export function drawPayoffChart() {
+    const canvas = document.getElementById('payoffCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // High-DPI scaling
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const cssW = rect.width || 400;
+    const cssH = rect.height || 300;
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+    ctx.scale(dpr, dpr);
+    
+    const W = cssW, H = cssH;
+    const M = { top: 40, right: 50, bottom: 50, left: 60 };
+    
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Get position info
+    const posType = getPositionType();
+    const isPut = posType.isPut;
+    const isShort = posType.isShort;
+    const contracts = state.currentPositionContext?.contracts || 1;
+    const premium = state.currentPositionContext?.premium || 
+                   (isPut ? state.optionResults?.putPrice : state.optionResults?.callPrice) || 1;
+    
+    // Calculate price range (center on strike, show ±30%)
+    const strike = state.strike;
+    const spot = state.spot;
+    const range = strike * 0.4;
+    const minS = Math.max(0, strike - range);
+    const maxS = strike + range;
+    
+    // Calculate P&L at key points
+    const multiplier = contracts * 100;
+    const maxProfit = premium * multiplier;  // Short option max profit
+    const breakeven = isPut ? strike - premium : strike + premium;
+    
+    // Calculate max loss for display (at edge of chart)
+    let maxLossAtEdge;
+    if (isShort && isPut) {
+        maxLossAtEdge = (strike - premium - minS) * multiplier;  // Loss if stock goes to minS
+    } else if (isShort && !isPut) {
+        maxLossAtEdge = (maxS - strike - premium) * multiplier;  // Loss if stock goes to maxS
+    } else {
+        maxLossAtEdge = premium * multiplier;  // Long option max loss is premium
+    }
+    
+    // P&L range for Y axis
+    const pnlMax = maxProfit * 1.3;
+    const pnlMin = -Math.max(maxLossAtEdge, maxProfit) * 1.3;
+    const pnlRange = pnlMax - pnlMin;
+    
+    // Helper: price to X
+    const priceToX = (price) => M.left + (price - minS) / (maxS - minS) * (W - M.left - M.right);
+    // Helper: P&L to Y
+    const pnlToY = (pnl) => M.top + (pnlMax - pnl) / pnlRange * (H - M.top - M.bottom);
+    
+    // Draw grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 6; i++) {
+        const y = M.top + (i/6) * (H - M.top - M.bottom);
+        ctx.beginPath(); ctx.moveTo(M.left, y); ctx.lineTo(W - M.right, y); ctx.stroke();
+    }
+    
+    // Draw zero line (breakeven P&L)
+    const zeroY = pnlToY(0);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(M.left, zeroY); ctx.lineTo(W - M.right, zeroY); ctx.stroke();
+    
+    // Calculate P&L for a given stock price at expiration
+    const calcPnL = (stockPrice) => {
+        let intrinsicValue;
+        if (isPut) {
+            intrinsicValue = Math.max(strike - stockPrice, 0);
+        } else {
+            intrinsicValue = Math.max(stockPrice - strike, 0);
+        }
+        
+        if (isShort) {
+            return (premium - intrinsicValue) * multiplier;
+        } else {
+            return (intrinsicValue - premium) * multiplier;
+        }
+    };
+    
+    // Draw P&L curve
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    let firstPoint = true;
+    for (let x = M.left; x <= W - M.right; x += 2) {
+        const price = minS + (x - M.left) / (W - M.left - M.right) * (maxS - minS);
+        const pnl = calcPnL(price);
+        const y = pnlToY(pnl);
+        
+        // Color based on profit/loss
+        if (firstPoint) {
+            ctx.moveTo(x, y);
+            firstPoint = false;
+        } else {
+            ctx.lineTo(x, y);
+        }
+    }
+    // Draw with gradient or split colors
+    ctx.strokeStyle = '#888';
+    ctx.stroke();
+    
+    // Re-draw with proper colors (profit green, loss red)
+    for (let x = M.left; x <= W - M.right - 2; x += 2) {
+        const price = minS + (x - M.left) / (W - M.left - M.right) * (maxS - minS);
+        const pnl = calcPnL(price);
+        const nextPrice = minS + (x + 2 - M.left) / (W - M.left - M.right) * (maxS - minS);
+        const nextPnl = calcPnL(nextPrice);
+        
+        ctx.strokeStyle = pnl >= 0 ? '#00ff88' : '#ff5252';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x, pnlToY(pnl));
+        ctx.lineTo(x + 2, pnlToY(nextPnl));
+        ctx.stroke();
+    }
+    
+    // Strike line
+    const strikeX = priceToX(strike);
+    ctx.strokeStyle = '#00d9ff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.moveTo(strikeX, M.top); ctx.lineTo(strikeX, H - M.bottom); ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Spot price line
+    const spotX = priceToX(spot);
+    ctx.strokeStyle = '#ffaa00';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(spotX, M.top); ctx.lineTo(spotX, H - M.bottom); ctx.stroke();
+    
+    // Breakeven line
+    if (breakeven > minS && breakeven < maxS) {
+        const beX = priceToX(breakeven);
+        ctx.strokeStyle = '#ff9800';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(beX, M.top); ctx.lineTo(beX, H - M.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // BE label
+        ctx.fillStyle = '#ff9800';
+        ctx.font = 'bold 11px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('BE: $' + breakeven.toFixed(2), beX, H - M.bottom + 25);
+    }
+    
+    // X-axis labels
+    ctx.fillStyle = '#888';
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    
+    // Strike label
+    ctx.fillStyle = '#00d9ff';
+    ctx.font = 'bold 12px -apple-system, sans-serif';
+    ctx.fillText('K=$' + strike, strikeX, M.top - 8);
+    
+    // Spot label
+    ctx.fillStyle = '#ffaa00';
+    ctx.font = 'bold 11px -apple-system, sans-serif';
+    ctx.fillText('$' + spot.toFixed(0), spotX, H - M.bottom + 12);
+    ctx.fillText('SPOT', spotX, H - M.bottom + 24);
+    
+    // Y-axis labels (P&L values)
+    ctx.fillStyle = '#888';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    
+    const yTicks = 5;
+    for (let i = 0; i <= yTicks; i++) {
+        const pnl = pnlMax - (i / yTicks) * pnlRange;
+        const y = M.top + (i / yTicks) * (H - M.top - M.bottom);
+        
+        if (Math.abs(pnl) < 10) continue; // Skip near-zero
+        
+        ctx.fillStyle = pnl >= 0 ? '#00ff88' : '#ff5252';
+        const label = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(0);
+        ctx.fillText(label, M.left - 5, y + 4);
+    }
+    
+    // Zero line label
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('$0', M.left - 5, zeroY + 4);
+    
+    // Max Profit annotation
+    ctx.fillStyle = '#00ff88';
+    ctx.font = 'bold 12px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    const maxProfitY = pnlToY(maxProfit);
+    ctx.fillText('Max Profit: +$' + maxProfit.toFixed(0), W - M.right + 5, maxProfitY + 4);
+    
+    // Current P&L marker
+    const currentPnL = calcPnL(spot);
+    const currentY = pnlToY(currentPnL);
+    
+    // Draw dot at current position
+    ctx.beginPath();
+    ctx.arc(spotX, currentY, 6, 0, Math.PI * 2);
+    ctx.fillStyle = currentPnL >= 0 ? '#00ff88' : '#ff5252';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Current P&L label - position above the dot, not on the line
+    ctx.fillStyle = currentPnL >= 0 ? '#00ff88' : '#ff5252';
+    ctx.font = 'bold 13px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    const currentLabel = (currentPnL >= 0 ? '+' : '') + '$' + currentPnL.toFixed(0);
+    // Place label above the line (negative Y offset)
+    const labelY = currentPnL >= 0 ? currentY - 15 : currentY + 20;
+    ctx.fillText('NOW: ' + currentLabel, spotX + 12, labelY);
+    
+    // Position type label (top left)
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    const posLabel = (isShort ? 'SHORT ' : 'LONG ') + (isPut ? 'PUT' : 'CALL') + ' × ' + contracts;
+    ctx.fillText(posLabel, M.left + 5, M.top - 8);
+    
+    // Legend
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.fillStyle = '#00d9ff';
+    ctx.fillText('Strike', M.left + 5, M.top + 15);
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillText('Spot', M.left + 50, M.top + 15);
+    ctx.fillStyle = '#ff9800';
+    ctx.fillText('Breakeven', M.left + 85, M.top + 15);
+}
+
+/**
+ * Price histogram drawing - with high-DPI support
+ */
+export function drawPriceHist(prices) {
+    const canvas = document.getElementById('priceHistCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // High-DPI scaling for crisp rendering
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const cssW = rect.width || 200;
+    const cssH = rect.height || 80;
+    
+    // Set canvas internal resolution to match display pixels
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+    ctx.scale(dpr, dpr);
+    
+    const W = cssW, H = cssH;
+    
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(0, 0, W, H);
+    
+    const lowerCount = prices.filter(p => p < state.strike).length;
+    const upperCount = prices.filter(p => p >= state.strike).length;
+    const total = prices.length;
+    const maxC = Math.max(lowerCount, upperCount);
+    
+    // Draw bars with more width for visibility
+    const barWidth = 50;
+    const lh = (lowerCount/maxC) * (H - 30);
+    ctx.fillStyle = '#ff5252';
+    ctx.fillRect(W*0.25 - barWidth/2, H - 16 - lh, barWidth, lh);
+    
+    const uh = (upperCount/maxC) * (H - 30);
+    ctx.fillStyle = '#00ff88';
+    ctx.fillRect(W*0.75 - barWidth/2, H - 16 - uh, barWidth, uh);
+    
+    // Larger, crisper fonts
+    ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`${(lowerCount/total*100).toFixed(1)}%`, W*0.25, 16);
+    ctx.fillText(`${(upperCount/total*100).toFixed(1)}%`, W*0.75, 16);
+    
+    ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText(`< $${state.strike}`, W*0.25, H - 3);
+    ctx.fillText(`≥ $${state.strike}`, W*0.75, H - 3);
+}
+
+/**
+ * Greeks chart drawing
+ */
+export function drawGreeksChart(callD, putD) {
+    const canvas = document.getElementById('greeksCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(0, 0, W, H);
+    
+    ctx.fillStyle = '#00d9ff';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Delta Comparison', W/2, 25);
+    
+    const midY = H/2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.beginPath(); ctx.moveTo(50, midY); ctx.lineTo(W-50, midY); ctx.stroke();
+    
+    const callH = Math.abs(callD) * (H/2 - 30);
+    ctx.fillStyle = '#00ff88';
+    ctx.fillRect(W*0.35 - 40, midY - (callD > 0 ? callH : 0), 80, callH);
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Call Δ=' + callD.toFixed(3), W*0.35, callD > 0 ? midY - callH - 10 : midY + callH + 20);
+    
+    const putH = Math.abs(putD) * (H/2 - 30);
+    ctx.fillStyle = '#ff5252';
+    ctx.fillRect(W*0.65 - 40, midY - (putD > 0 ? putH : 0), 80, putH);
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Put Δ=' + putD.toFixed(3), W*0.65, putD > 0 ? midY - putH - 10 : midY + putH + 20);
+}
+
+/**
+ * P&L chart at expiration
+ */
+export function drawPnLChart() {
+    const canvas = document.getElementById('pnlCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height, M = 35;
+    
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(0, 0, W, H);
+    
+    const minPrice = state.spot * 0.7;
+    const maxPrice = state.spot * 1.3;
+    const priceRange = maxPrice - minPrice;
+    
+    const posType = getPositionType();
+    const isPut = posType.isPut;
+    
+    const pnlData = [];
+    let maxPnL = 0, minPnL = 0;
+    
+    const putPriceEl = document.getElementById('putPrice');
+    const callPriceEl = document.getElementById('callPrice');
+    const premium = isPut ? parseFloat(putPriceEl?.textContent?.replace('$','') || '0') :
+                           parseFloat(callPriceEl?.textContent?.replace('$','') || '0');
+    
+    for (let price = minPrice; price <= maxPrice; price += priceRange / 100) {
+        let pnl;
+        if (isPut) {
+            pnl = (price >= state.strike) ? premium * 100 : (premium - (state.strike - price)) * 100;
+        } else {
+            pnl = (price <= state.strike) ? premium * 100 : (premium - (price - state.strike)) * 100;
+        }
+        pnlData.push({price, pnl});
+        maxPnL = Math.max(maxPnL, pnl);
+        minPnL = Math.min(minPnL, pnl);
+    }
+    
+    const contracts = state.currentPositionContext?.contracts || 1;
+    const calculatedBreakEven = isPut ? state.strike - premium : state.strike + premium;
+    
+    // Update UI with null checks
+    const breakEvenEl = document.getElementById('breakEvenPrice');
+    const maxProfitEl = document.getElementById('maxProfit');
+    const maxLossEl = document.getElementById('maxLoss');
+    
+    if (breakEvenEl) breakEvenEl.textContent = '$' + calculatedBreakEven.toFixed(2);
+    if (maxProfitEl) maxProfitEl.textContent = '$' + (premium * 100 * contracts).toFixed(0);
+    if (maxLossEl) maxLossEl.textContent = isPut ? '$' + ((state.strike - premium) * 100 * contracts).toFixed(0) : 'Unlimited';
+    
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 5; i++) {
+        const y = M + (i/5) * (H - 2*M);
+        ctx.beginPath(); ctx.moveTo(M, y); ctx.lineTo(W-M, y); ctx.stroke();
+    }
+    
+    const pnlRange = maxPnL - minPnL;
+    const zeroY = H - M - ((0 - minPnL) / pnlRange) * (H - 2*M);
+    ctx.strokeStyle = '#ffaa00';
+    ctx.setLineDash([5,5]);
+    ctx.beginPath(); ctx.moveTo(M, zeroY); ctx.lineTo(W-M, zeroY); ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Strike line
+    const strikeX = M + ((state.strike - minPrice) / priceRange) * (W - 2*M);
+    ctx.strokeStyle = '#00d9ff';
+    ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(strikeX, M); ctx.lineTo(strikeX, H-M); ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Spot line
+    const spotX = M + ((state.spot - minPrice) / priceRange) * (W - 2*M);
+    ctx.strokeStyle = '#ff00ff';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(spotX, M); ctx.lineTo(spotX, H-M); ctx.stroke();
+    
+    // P&L curve
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    pnlData.forEach((point, i) => {
+        const x = M + ((point.price - minPrice) / priceRange) * (W - 2*M);
+        const y = H - M - ((point.pnl - minPnL) / pnlRange) * (H - 2*M);
+        ctx.strokeStyle = point.pnl >= 0 ? '#00ff88' : '#ff5252';
+        if (i === 0) ctx.moveTo(x, y);
+        else {
+            ctx.lineTo(x, y);
+            if (i % 5 === 0) { ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y); }
+        }
+    });
+    ctx.stroke();
+    
+    // Labels
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Strike $' + state.strike.toFixed(0), strikeX, M - 5);
+    ctx.fillText('Spot $' + state.spot.toFixed(0), spotX, H - 5);
+}
+
+/**
+ * Probability cone chart
+ */
+export function drawProbabilityCone() {
+    const canvas = document.getElementById('probConeCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height, M = 30;
+    
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(0, 0, W, H);
+    
+    if (!state.optionResults?.finalPrices) {
+        ctx.fillStyle = '#888';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Run Option Pricing first', W/2, H/2);
+        return;
+    }
+    
+    const T = state.dte / 365.25;
+    const numTimeSteps = 20;
+    
+    const bands = [];
+    for (let t = 0; t <= numTimeSteps; t++) {
+        const timeRatio = t / numTimeSteps;
+        const currentTime = T * timeRatio;
+        const drift = (state.rate - 0.5 * state.optVol * state.optVol) * currentTime;
+        const volatility = state.optVol * Math.sqrt(currentTime);
+        
+        const mean = state.spot * Math.exp(drift);
+        const sigma1 = mean * Math.exp(volatility) - mean;
+        const sigma2 = mean * Math.exp(2 * volatility) - mean;
+        
+        bands.push({
+            time: timeRatio,
+            mean,
+            sigma1Lower: mean - sigma1,
+            sigma1Upper: mean + sigma1,
+            sigma2Lower: mean - sigma2,
+            sigma2Upper: mean + sigma2,
+            sigma3Lower: Math.max(0, mean - sigma2 * 1.5),
+            sigma3Upper: mean + sigma2 * 1.5
+        });
+    }
+    
+    const allPrices = bands.flatMap(b => [b.sigma3Lower, b.sigma3Upper]);
+    const minPrice = Math.min(...allPrices) * 0.95;
+    const maxPrice = Math.max(...allPrices) * 1.05;
+    const priceRange = maxPrice - minPrice;
+    
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    for (let i = 0; i <= 5; i++) {
+        const y = M + (i/5) * (H - 2*M);
+        ctx.beginPath(); ctx.moveTo(M, y); ctx.lineTo(W-M, y); ctx.stroke();
+    }
+    
+    // Strike line
+    const strikeY = H - M - ((state.strike - minPrice) / priceRange) * (H - 2*M);
+    ctx.strokeStyle = '#00d9ff';
+    ctx.setLineDash([5,5]);
+    ctx.beginPath(); ctx.moveTo(M, strikeY); ctx.lineTo(W-M, strikeY); ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // 3σ band
+    ctx.fillStyle = 'rgba(136,0,255,0.1)';
+    ctx.beginPath();
+    bands.forEach((b, i) => {
+        const x = M + b.time * (W - 2*M);
+        const yUpper = H - M - ((b.sigma3Upper - minPrice) / priceRange) * (H - 2*M);
+        i === 0 ? ctx.moveTo(x, yUpper) : ctx.lineTo(x, yUpper);
+    });
+    for (let i = bands.length - 1; i >= 0; i--) {
+        const b = bands[i];
+        const x = M + b.time * (W - 2*M);
+        const yLower = H - M - ((b.sigma3Lower - minPrice) / priceRange) * (H - 2*M);
+        ctx.lineTo(x, yLower);
+    }
+    ctx.closePath();
+    ctx.fill();
+    
+    // 2σ band
+    ctx.fillStyle = 'rgba(0,217,255,0.15)';
+    ctx.beginPath();
+    bands.forEach((b, i) => {
+        const x = M + b.time * (W - 2*M);
+        const yUpper = H - M - ((b.sigma2Upper - minPrice) / priceRange) * (H - 2*M);
+        i === 0 ? ctx.moveTo(x, yUpper) : ctx.lineTo(x, yUpper);
+    });
+    for (let i = bands.length - 1; i >= 0; i--) {
+        const b = bands[i];
+        const x = M + b.time * (W - 2*M);
+        const yLower = H - M - ((b.sigma2Lower - minPrice) / priceRange) * (H - 2*M);
+        ctx.lineTo(x, yLower);
+    }
+    ctx.closePath();
+    ctx.fill();
+    
+    // 1σ band
+    ctx.fillStyle = 'rgba(0,255,136,0.2)';
+    ctx.beginPath();
+    bands.forEach((b, i) => {
+        const x = M + b.time * (W - 2*M);
+        const yUpper = H - M - ((b.sigma1Upper - minPrice) / priceRange) * (H - 2*M);
+        i === 0 ? ctx.moveTo(x, yUpper) : ctx.lineTo(x, yUpper);
+    });
+    for (let i = bands.length - 1; i >= 0; i--) {
+        const b = bands[i];
+        const x = M + b.time * (W - 2*M);
+        const yLower = H - M - ((b.sigma1Lower - minPrice) / priceRange) * (H - 2*M);
+        ctx.lineTo(x, yLower);
+    }
+    ctx.closePath();
+    ctx.fill();
+    
+    // Mean line
+    ctx.strokeStyle = '#ffaa00';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    bands.forEach((b, i) => {
+        const x = M + b.time * (W - 2*M);
+        const y = H - M - ((b.mean - minPrice) / priceRange) * (H - 2*M);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    
+    // Labels
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('3σ (99.7%)', W - M + 5, M + 20);
+    ctx.fillText('2σ (95%)', W - M + 5, M + 50);
+    ctx.fillText('1σ (68%)', W - M + 5, M + 80);
+}
+
+/**
+ * Heat map drawing with theta decay
+ */
+export function drawHeatMap() {
+    const canvas = document.getElementById('heatMapCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height, M = 45;
+    
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(0, 0, W, H);
+    
+    if (!state.optionResults) {
+        ctx.fillStyle = '#888';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Run Option Pricing first', W/2, H/2);
+        return;
+    }
+    
+    const posType = getPositionType();
+    const isPut = posType.isPut;
+    const isShort = posType.isShort;
+    const putPriceEl = document.getElementById('putPrice');
+    const callPriceEl = document.getElementById('callPrice');
+    const premium = isPut ? parseFloat(putPriceEl?.textContent?.replace('$','') || '0') :
+                           parseFloat(callPriceEl?.textContent?.replace('$','') || '0');
+    
+    const numPriceSteps = 40;
+    const numTimeSteps = 20;
+    const minPrice = state.spot * 0.7;
+    const maxPrice = state.spot * 1.3;
+    const priceStep = (maxPrice - minPrice) / numPriceSteps;
+    
+    const cellW = (W - 2*M) / numPriceSteps;
+    const cellH = (H - 2*M) / numTimeSteps;
+    
+    // Calculate P&L grid
+    const pnlGrid = [];
+    let maxAbsPnL = 0;
+    
+    for (let t = 0; t <= numTimeSteps; t++) {
+        pnlGrid[t] = [];
+        const daysRemaining = state.dte * (1 - t / numTimeSteps);
+        const T = daysRemaining / 365.25;
+        
+        for (let p = 0; p <= numPriceSteps; p++) {
+            const price = minPrice + p * priceStep;
+            const optionValue = bsPrice(price, state.strike, T, state.rate, state.optVol, isPut);
+            let pnl = isShort ? (premium - optionValue) * 100 : (optionValue - premium) * 100;
+            pnlGrid[t][p] = pnl;
+            maxAbsPnL = Math.max(maxAbsPnL, Math.abs(pnl));
+        }
+    }
+    
+    // Draw cells
+    for (let t = 0; t <= numTimeSteps; t++) {
+        for (let p = 0; p <= numPriceSteps; p++) {
+            const pnl = pnlGrid[t][p];
+            const intensity = Math.min(1, Math.abs(pnl) / maxAbsPnL);
+            if (pnl >= 0) {
+                const g = Math.floor(100 + 155 * intensity);
+                ctx.fillStyle = `rgb(0,${g},${Math.floor(g * 0.5)})`;
+            } else {
+                const r = Math.floor(100 + 155 * intensity);
+                ctx.fillStyle = `rgb(${r},${Math.floor(40 * (1-intensity))},${Math.floor(40 * (1-intensity))})`;
+            }
+            
+            const x = M + p * cellW;
+            const y = M + t * cellH;
+            ctx.fillRect(x, y, cellW + 0.5, cellH + 0.5);
+        }
+    }
+    
+    // Strike line
+    const strikeX = M + ((state.strike - minPrice) / (maxPrice - minPrice)) * (W - 2*M);
+    ctx.strokeStyle = '#00d9ff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 2]);
+    ctx.beginPath();
+    ctx.moveTo(strikeX, M);
+    ctx.lineTo(strikeX, H - M);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Current spot line
+    const spotX = M + ((state.spot - minPrice) / (maxPrice - minPrice)) * (W - 2*M);
+    ctx.strokeStyle = '#ffaa00';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(spotX, M);
+    ctx.lineTo(spotX, H - M);
+    ctx.stroke();
+    
+    // Spot marker
+    ctx.fillStyle = '#ffaa00';
+    ctx.beginPath();
+    ctx.arc(spotX, M, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('▼', spotX, M + 12);
+    
+    ctx.fillStyle = '#ffaa00';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillText('$' + state.spot.toFixed(2), spotX, H - M + 28);
+    
+    // Labels
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Stock Price →', W/2, H - 5);
+    ctx.save();
+    ctx.translate(12, H/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.fillText('Days to Expiry →', 0, 0);
+    ctx.restore();
+    
+    // Axis labels
+    ctx.font = '10px sans-serif';
+    ctx.fillText('$' + minPrice.toFixed(0), M, H - M + 15);
+    ctx.fillStyle = '#00d9ff';
+    ctx.fillText('$' + state.strike.toFixed(0), strikeX, H - M + 15);
+    ctx.fillStyle = '#fff';
+    ctx.fillText('$' + maxPrice.toFixed(0), W - M, H - M + 15);
+    
+    ctx.textAlign = 'right';
+    ctx.fillText(state.dte + 'd', M - 5, M + 5);
+    ctx.fillText('0d', M - 5, H - M);
+    
+    // Legend
+    const legendX = W - 90, legendY = M + 5;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(legendX - 5, legendY - 3, 85, 55);
+    
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#00ff88';
+    ctx.fillText('■ Profit', legendX, legendY + 10);
+    ctx.fillStyle = '#ff5252';
+    ctx.fillText('■ Loss', legendX, legendY + 22);
+    ctx.fillStyle = '#00d9ff';
+    ctx.fillText('— Strike $' + state.strike.toFixed(0), legendX, legendY + 34);
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillText('— Spot $' + state.spot.toFixed(0), legendX, legendY + 46);
+}
+
+/**
+ * Update heat map with new spot price
+ */
+export function updateHeatMapSpot() {
+    const input = document.getElementById('heatMapSpot');
+    if (!input) return;
+    
+    const newSpot = parseFloat(input.value);
+    if (isNaN(newSpot) || newSpot <= 0) {
+        input.style.borderColor = '#ff5252';
+        setTimeout(() => input.style.borderColor = '', 500);
+        return;
+    }
+    
+    state.spot = newSpot;
+    
+    const clampedSpot = Math.max(20, Math.min(500, Math.round(state.spot)));
+    const spotSlider = document.getElementById('spotSlider');
+    const spotInput = document.getElementById('spotInput');
+    
+    if (spotSlider) spotSlider.value = clampedSpot;
+    if (spotInput) spotInput.value = Math.round(state.spot);
+    
+    input.style.borderColor = '#00ff88';
+    setTimeout(() => input.style.borderColor = '', 300);
+    
+    drawPnLChart();
+    drawProbabilityCone();
+    drawHeatMap();
+}
+
+// Make available globally for API module
+window.updateHeatMapSpot = updateHeatMapSpot;
