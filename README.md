@@ -178,9 +178,9 @@ const PORT = process.env.PORT || 8888;
 
 ---
 
-### P&L - Closed Positions & Trade History
+### P&L Analysis - Payoff Diagrams & Risk Visualization
 ![P&L](screencaps/05-pnl.png)
-*Full audit trail of closed trades with Expiry dates, Days Held, Days Left (how early you exited), P&L, ROC%, and the "Left on Table" self-torture column. Track roll chains across multiple legs.*
+*Visual P&L analysis tools: payoff diagram at expiration, probability cone (1σ, 2σ, 3σ), break-even analysis, roll calculator, and an interactive P&L heat map showing profit/loss zones across stock price and days to expiry.*
 
 ---
 
