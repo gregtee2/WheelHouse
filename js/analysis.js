@@ -3,7 +3,7 @@
 
 import { state } from './state.js';
 import { getPositionType } from './pricing.js';
-import { randomNormal } from './utils.js';
+import { randomNormal, showNotification } from './utils.js';
 
 /**
  * Generate AI recommendation based on probabilities
@@ -303,13 +303,22 @@ export async function calculateRoll() {
 
 /**
  * Suggest optimal roll parameters
- * Tests a grid of strike/DTE combinations and ranks them
+ * Fetches REAL strikes from CBOE and uses actual bid prices
  */
 export async function suggestOptimalRoll() {
     const currentStrike = state.strike;
     const currentDte = state.dte;
     const spot = state.spot;
     const vol = state.optVol;
+    
+    // Get ticker from the input field
+    const tickerEl = document.getElementById('tickerInput');
+    const ticker = tickerEl?.value?.toUpperCase() || '';
+    
+    if (!ticker) {
+        showNotification('Enter a ticker first', 'warning');
+        return;
+    }
     
     // Get current risk from displayed value
     const optLowerEl = document.getElementById('optLower');
@@ -319,34 +328,68 @@ export async function suggestOptimalRoll() {
     const listEl = document.getElementById('rollSuggestionsList');
     if (!suggestionsEl || !listEl) return;
     
-    listEl.innerHTML = '<div style="color:#888;">🔄 Analyzing combinations...</div>';
+    listEl.innerHTML = '<div style="color:#888;">🔄 Fetching options chain from CBOE...</div>';
     suggestionsEl.style.display = 'block';
     
     await new Promise(r => setTimeout(r, 50)); // Let UI update
     
-    // Define search grid
-    // Strikes: from current down to 15% below, in $2 increments
-    const strikeOffsets = [0, -2, -4, -6, -8, -10];
-    const dteCandidates = [30, 45, 60, 90];
+    // Fetch real options chain from CBOE
+    let chain;
+    try {
+        chain = await window.fetchOptionsChain(ticker);
+    } catch (e) {
+        listEl.innerHTML = `<div style="color:#ff5252;">❌ Could not fetch options chain: ${e.message}</div>`;
+        return;
+    }
+    
+    if (!chain.puts || chain.puts.length === 0) {
+        listEl.innerHTML = '<div style="color:#ff5252;">❌ No put options found for this ticker</div>';
+        return;
+    }
+    
+    listEl.innerHTML = '<div style="color:#888;">🔄 Analyzing real strikes...</div>';
+    await new Promise(r => setTimeout(r, 50));
+    
+    // Get unique strikes and expirations from the chain
+    const today = new Date();
+    const availableStrikes = [...new Set(chain.puts.map(p => p.strike))].sort((a, b) => b - a);
+    const availableExpirations = chain.expirations.filter(exp => {
+        const expDate = new Date(exp);
+        const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+        return dte > currentDte; // Only future expirations beyond current
+    });
+    
+    // Filter strikes: below current strike (rolling down)
+    const candidateStrikes = availableStrikes.filter(s => s < currentStrike && s > 0);
+    
+    if (candidateStrikes.length === 0) {
+        listEl.innerHTML = '<div style="color:#ffaa00;">⚠️ No lower strikes available. Already at lowest?</div>';
+        return;
+    }
     
     const candidates = [];
+    const quickPaths = 500;
     
-    // Run mini Monte Carlo for each combination
-    const quickPaths = 500; // Fast but accurate enough
-    
-    for (const dteVal of dteCandidates) {
-        // Skip if less than current DTE (can't roll backwards in time)
-        if (dteVal <= currentDte) continue;
+    // Test each real strike/expiration combination
+    for (const expiration of availableExpirations.slice(0, 5)) { // Limit to 5 expirations
+        const expDate = new Date(expiration);
+        const dteVal = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
         
         const T = dteVal / 365.25;
         const numSteps = 30;
         const dt = T / numSteps;
         
-        for (const offset of strikeOffsets) {
-            const testStrike = currentStrike + offset;
-            
+        for (const testStrike of candidateStrikes.slice(0, 8)) { // Limit to 8 strikes
             // Skip if strike is above spot (too aggressive for puts)
             if (testStrike >= spot) continue;
+            
+            // Find the actual option in the chain
+            const option = chain.puts.find(p => 
+                p.strike === testStrike && p.expiration === expiration
+            );
+            
+            // Use real bid price if available, otherwise estimate
+            const realBid = option?.bid || 0;
             
             // Monte Carlo for ITM probability
             let belowCount = 0;
@@ -360,27 +403,22 @@ export async function suggestOptimalRoll() {
             }
             const newRisk = (belowCount / quickPaths) * 100;
             
-            // Estimate premium using simplified Black-Scholes delta proxy
-            // Puts further OTM have less premium, more time = more premium
-            const moneyness = (spot - testStrike) / spot; // % OTM
-            const timeValue = Math.sqrt(dteVal / 30); // Sqrt decay approximation
-            const estimatedPremium = spot * vol * timeValue * 0.15 * Math.exp(-moneyness * 3);
-            
             // Calculate score
             const riskReduction = currentRisk - newRisk;
             const timeAdded = dteVal - currentDte;
             
             // Score: prioritize risk reduction, then premium, then time
-            // Penalize if risk increased
-            const score = (riskReduction * 3) + (estimatedPremium * 0.5) + (timeAdded * 0.1);
+            // Use real bid for premium component
+            const score = (riskReduction * 3) + (realBid * 2) + (timeAdded * 0.1);
             
             candidates.push({
                 strike: testStrike,
                 dte: dteVal,
+                expiration: expiration,
                 risk: newRisk,
                 riskChange: riskReduction,
                 timeAdded: timeAdded,
-                estimatedPremium: estimatedPremium,
+                realBid: realBid,
                 score: score
             });
         }
@@ -403,27 +441,28 @@ export async function suggestOptimalRoll() {
         const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
         const riskColor = c.riskChange > 0 ? '#00ff88' : '#ff5252';
         const riskIcon = c.riskChange > 0 ? '↓' : '↑';
+        const bidDisplay = c.realBid > 0 ? `$${c.realBid.toFixed(2)} bid` : 'no bid';
         
         html += `
             <div style="padding:8px; margin-bottom:6px; background:rgba(0,0,0,0.3); border-radius:4px; cursor:pointer;" 
-                 onclick="window.applyRollSuggestion(${c.strike}, ${c.dte})">
+                 onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}')">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span>${emoji} <b>$${c.strike.toFixed(0)}</b> @ <b>${c.dte}d</b></span>
+                    <span>${emoji} <b>$${c.strike.toFixed(2)}</b> @ <b>${c.dte}d</b></span>
                     <span style="color:${riskColor}; font-size:12px;">${riskIcon} ${Math.abs(c.riskChange).toFixed(1)}% risk</span>
                 </div>
                 <div style="font-size:11px; color:#888; margin-top:4px;">
-                    +${c.timeAdded} days | ~$${c.estimatedPremium.toFixed(2)} premium | Risk: ${c.risk.toFixed(1)}%
+                    +${c.timeAdded} days | ${bidDisplay} | ITM: ${c.risk.toFixed(1)}%
                 </div>
             </div>
         `;
     });
     
-    html += '<div style="font-size:10px; color:#666; margin-top:6px;">Click to apply • Premiums are estimates</div>';
+    html += '<div style="font-size:10px; color:#00d9ff; margin-top:6px;">✓ Using real CBOE strikes & bids</div>';
     listEl.innerHTML = html;
 }
 
 // Global function to apply suggestion to inputs
-window.applyRollSuggestion = function(strike, dte) {
+window.applyRollSuggestion = function(strike, dte, expiration) {
     const strikeEl = document.getElementById('rollNewStrike');
     const dteEl = document.getElementById('rollNewDte');
     const expiryEl = document.getElementById('rollNewExpiry');
@@ -431,8 +470,10 @@ window.applyRollSuggestion = function(strike, dte) {
     if (strikeEl) strikeEl.value = strike;
     if (dteEl) dteEl.value = dte;
     
-    // Calculate expiry date
-    if (expiryEl) {
+    // Use actual expiration date if provided
+    if (expiryEl && expiration) {
+        expiryEl.value = expiration;
+    } else if (expiryEl) {
         const expDate = new Date();
         expDate.setDate(expDate.getDate() + dte);
         expiryEl.value = expDate.toISOString().split('T')[0];
