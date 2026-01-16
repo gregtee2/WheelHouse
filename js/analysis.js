@@ -256,7 +256,13 @@ export async function calculateRoll() {
     
     const newStrike = parseFloat(newStrikeEl?.value || '95');
     const newDte = parseInt(newDteEl?.value || '45');
-    const rollCreditPerContract = parseFloat(rollCreditEl?.value || '50'); // Per contract (100 shares)
+    
+    // Get contract count from position context
+    const contracts = state.currentPositionContext?.contracts || 1;
+    
+    // Input is now TOTAL credit/debit for all contracts
+    const totalRollCredit = parseFloat(rollCreditEl?.value || '50');
+    const rollCreditPerContract = totalRollCredit / contracts;
     const rollCredit = rollCreditPerContract / 100; // Convert to per-share for calculations
     
     // Simulate new position
@@ -277,19 +283,19 @@ export async function calculateRoll() {
     
     const newRisk = (newBelowCount / quickPaths) * 100;
     const totalPremiumPerShare = currentPremium + rollCredit;
-    const totalPremiumPerContract = totalPremiumPerShare * 100;
+    const totalPremiumAllContracts = totalPremiumPerShare * 100 * contracts;
     
     setEl('rollNewStrikeDisp', '$' + newStrike.toFixed(2));
     setEl('rollNewDteDisp', newDte + ' days');
     setEl('rollNewRisk', newRisk.toFixed(1) + '%');
-    setEl('rollTotalPremium', '$' + totalPremiumPerContract.toFixed(0));
-    setEl('rollNetCredit', '$' + rollCreditPerContract.toFixed(0));
+    setEl('rollTotalPremium', '$' + totalPremiumAllContracts.toFixed(0) + (contracts > 1 ? ` (${contracts} contracts)` : ''));
+    setEl('rollNetCredit', '$' + totalRollCredit.toFixed(0));
     
     const riskChange = currentRisk - newRisk;
     const timeChange = newDte - currentDte;
-    const isCredit = rollCreditPerContract >= 0;
-    const isDebit = rollCreditPerContract < 0;
-    const debitAmount = Math.abs(rollCreditPerContract);
+    const isCredit = totalRollCredit >= 0;
+    const isDebit = totalRollCredit < 0;
+    const totalDebitAmount = Math.abs(totalRollCredit);
     
     let comparison = '';
     if (riskChange > 0) {
@@ -299,36 +305,41 @@ export async function calculateRoll() {
     }
     comparison += `📅 Added ${timeChange} days (${newDte} DTE total)<br>`;
     
-    // Show credit or debit with appropriate styling
+    // Show credit or debit with appropriate styling (total amounts like Schwab)
     if (isDebit) {
-        comparison += `💸 Net DEBIT: <span style="color:#ff5252;">-$${debitAmount.toFixed(0)}</span> per contract (you pay)<br>`;
+        comparison += `💸 Net DEBIT: <span style="color:#ff5252;">-$${totalDebitAmount.toFixed(0)}</span> (you pay)<br>`;
     } else {
-        comparison += `💰 Net credit: $${rollCreditPerContract.toFixed(0)} per contract<br>`;
+        comparison += `💰 Net credit: <span style="color:#00ff88;">+$${totalRollCredit.toFixed(0)}</span> (you receive)<br>`;
     }
     
-    // Smarter verdict that considers both risk AND money
+    // Smarter verdict that considers both risk AND money (using totals)
     let verdict = '';
+    // Scale thresholds by contract count for fair comparison
+    const significantDebit = 100 * contracts;  // $100 per contract is significant
+    const smallDebit = 50 * contracts;         // $50 per contract is small
+    
     if (isDebit) {
         // Paying money to roll - need significant risk reduction to justify
-        const costPerPercentReduction = debitAmount / Math.max(riskChange, 0.1);
+        const costPerPercentReduction = totalDebitAmount / Math.max(riskChange, 0.1);
         if (riskChange <= 0) {
             verdict = '❌ Bad roll - paying money AND increasing risk!';
-        } else if (riskChange > 20 && debitAmount < 100) {
+        } else if (riskChange > 20 && totalDebitAmount < smallDebit) {
             verdict = '✅ Worth it - major risk reduction for small cost';
         } else if (riskChange > 30) {
             verdict = '👍 Acceptable - big risk reduction, but you\'re paying';
-        } else if (costPerPercentReduction > 20) {
-            verdict = `⚠️ Expensive - paying $${costPerPercentReduction.toFixed(0)} per 1% risk reduction`;
+        } else if (costPerPercentReduction > (20 * contracts)) {
+            verdict = `⚠️ Expensive - paying $${(costPerPercentReduction/contracts).toFixed(0)}/contract per 1% reduction`;
         } else {
             verdict = '🤔 Consider it - paying to reduce risk';
         }
     } else {
         // Receiving credit - much better!
+        const goodCredit = 50 * contracts;  // $50+ per contract is good
         if (riskChange > 5) {
             verdict = '✅ Great roll! Risk down + you get paid';
         } else if (riskChange > 0) {
             verdict = '👍 Good roll - credit received';
-        } else if (rollCreditPerContract > 50) {
+        } else if (totalRollCredit > goodCredit) {
             verdict = '🤔 Risky but profitable - nice credit, more risk';
         } else {
             verdict = '⚠️ Not ideal - more risk for small credit';
@@ -351,6 +362,9 @@ export async function suggestOptimalRoll() {
     const currentDte = state.dte;
     const spot = state.spot;
     const vol = state.optVol;
+    
+    // Get contract count from position context
+    const contracts = state.currentPositionContext?.contracts || 1;
     
     // Get ticker from the input field
     const tickerEl = document.getElementById('tickerInput');
@@ -483,7 +497,9 @@ export async function suggestOptimalRoll() {
         const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
         const riskColor = c.riskChange > 0 ? '#00ff88' : '#ff5252';
         const riskIcon = c.riskChange > 0 ? '↓' : '↑';
-        const bidDisplay = c.realBidPerContract > 0 ? `$${c.realBidPerContract.toFixed(0)} credit` : 'no bid';
+        // Show TOTAL credit for all contracts (like Schwab shows)
+        const totalCredit = c.realBidPerContract * contracts;
+        const bidDisplay = totalCredit > 0 ? `$${totalCredit.toFixed(0)} credit` : 'no bid';
         
         // Format expiration date nicely (e.g., "Feb 21")
         const expDate = new Date(c.expiration + 'T00:00:00');
@@ -491,7 +507,7 @@ export async function suggestOptimalRoll() {
         
         html += `
             <div style="padding:8px; margin-bottom:6px; background:rgba(0,0,0,0.3); border-radius:4px; cursor:pointer;" 
-                 onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}')">
+                 onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}', ${totalCredit})">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <span style="white-space:nowrap;">${emoji} <b>$${c.strike.toFixed(2)}</b> · <b>${expFormatted}</b></span>
                     <span style="color:${riskColor}; font-size:12px;">${riskIcon} ${Math.abs(c.riskChange).toFixed(1)}% risk</span>
@@ -503,18 +519,20 @@ export async function suggestOptimalRoll() {
         `;
     });
     
-    html += '<div style="font-size:10px; color:#00d9ff; margin-top:6px;">✓ Using real CBOE strikes & bids</div>';
+    html += `<div style="font-size:10px; color:#00d9ff; margin-top:6px;">✓ Using real CBOE strikes & bids${contracts > 1 ? ` (${contracts} contracts)` : ''}</div>`;
     listEl.innerHTML = html;
 }
 
 // Global function to apply suggestion to inputs
-window.applyRollSuggestion = function(strike, dte, expiration) {
+window.applyRollSuggestion = function(strike, dte, expiration, totalCredit) {
     const strikeEl = document.getElementById('rollNewStrike');
     const dteEl = document.getElementById('rollNewDte');
     const expiryEl = document.getElementById('rollNewExpiry');
+    const creditEl = document.getElementById('rollCredit');
     
     if (strikeEl) strikeEl.value = strike;
     if (dteEl) dteEl.value = dte;
+    if (creditEl && totalCredit !== undefined) creditEl.value = Math.round(totalCredit);
     
     // Use actual expiration date if provided
     if (expiryEl && expiration) {
