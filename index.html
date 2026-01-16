@@ -294,13 +294,39 @@
                     
                     <div class="control-group">
                         <label>Type</label>
-                        <select id="posType" style="width:100%; padding:8px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;" onchange="toggleBuyWriteFields()">
-                            <option value="short_put">Short Put (Cash Secured)</option>
-                            <option value="short_call">Short Call (Covered)</option>
-                            <option value="buy_write">Buy/Write (Stock + Call)</option>
-                            <option value="long_put">Long Put</option>
-                            <option value="long_call">Long Call</option>
+                        <select id="posType" style="width:100%; padding:8px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;" onchange="togglePositionTypeFields()">
+                            <optgroup label="Single Leg">
+                                <option value="short_put">Short Put (Cash Secured)</option>
+                                <option value="short_call">Short Call (Covered)</option>
+                                <option value="buy_write">Buy/Write (Stock + Call)</option>
+                                <option value="long_put">Long Put</option>
+                                <option value="long_call">Long Call</option>
+                            </optgroup>
+                            <optgroup label="Vertical Spreads">
+                                <option value="call_debit_spread">Call Debit Spread (Bull Call)</option>
+                                <option value="put_debit_spread">Put Debit Spread (Bear Put)</option>
+                                <option value="call_credit_spread">Call Credit Spread (Bear Call)</option>
+                                <option value="put_credit_spread">Put Credit Spread (Bull Put)</option>
+                            </optgroup>
                         </select>
+                    </div>
+                    
+                    <!-- Spread extra fields (hidden by default) -->
+                    <div id="spreadFields" class="control-group" style="display:none; background:rgba(139,92,246,0.1); padding:12px; border-radius:8px; border:1px solid rgba(139,92,246,0.3);">
+                        <div style="color:#8b5cf6; font-weight:bold; margin-bottom:10px;">📊 Spread Details</div>
+                        <div class="control-row">
+                            <div class="control-group" style="flex:1;">
+                                <label>Buy Strike $</label>
+                                <input type="number" id="posBuyStrike" class="value-input" min="1" max="5000" step="0.5" placeholder="170" style="width:100%;">
+                            </div>
+                            <div class="control-group" style="flex:1;">
+                                <label>Sell Strike $</label>
+                                <input type="number" id="posSellStrike" class="value-input" min="1" max="5000" step="0.5" placeholder="210" style="width:100%;">
+                            </div>
+                        </div>
+                        <div style="font-size:11px; color:#888; margin-top:8px;" id="spreadExplanation">
+                            💡 For Call Debit Spread: Buy lower strike, Sell higher strike
+                        </div>
                     </div>
                     
                     <!-- Buy/Write extra fields (hidden by default) -->

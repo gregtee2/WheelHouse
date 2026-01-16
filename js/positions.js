@@ -12,6 +12,192 @@ const CLOSED_KEY = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
 
 /**
+ * Calculate breakeven price for a spread
+ */
+function calculateSpreadBreakeven(type, buyStrike, sellStrike, premium) {
+    switch (type) {
+        case 'call_debit_spread':
+            // Breakeven = lower strike + premium paid
+            return Math.min(buyStrike, sellStrike) + premium;
+        case 'put_debit_spread':
+            // Breakeven = higher strike - premium paid
+            return Math.max(buyStrike, sellStrike) - premium;
+        case 'call_credit_spread':
+            // Breakeven = lower strike + premium received
+            return Math.min(buyStrike, sellStrike) + premium;
+        case 'put_credit_spread':
+            // Breakeven = higher strike - premium received
+            return Math.max(buyStrike, sellStrike) - premium;
+        default:
+            return null;
+    }
+}
+
+/**
+ * Get human-readable spread description for AI analysis
+ */
+export function getSpreadExplanation(pos) {
+    if (!pos.type?.includes('_spread')) return null;
+    
+    const width = pos.spreadWidth || Math.abs(pos.sellStrike - pos.buyStrike);
+    const maxProfitPerShare = pos.type.includes('credit') ? pos.premium : (width - pos.premium);
+    const maxLossPerShare = pos.type.includes('debit') ? pos.premium : (width - pos.premium);
+    const totalMaxProfit = maxProfitPerShare * 100 * (pos.contracts || 1);
+    const totalMaxLoss = maxLossPerShare * 100 * (pos.contracts || 1);
+    const breakeven = pos.breakeven || calculateSpreadBreakeven(pos.type, pos.buyStrike, pos.sellStrike, pos.premium);
+    
+    const explanations = {
+        'call_debit_spread': {
+            name: 'Call Debit Spread (Bull Call Spread)',
+            direction: 'BULLISH',
+            setup: `Buy $${pos.buyStrike} Call / Sell $${pos.sellStrike} Call`,
+            cost: `Net Debit: $${pos.premium.toFixed(2)}/share ($${(pos.premium * 100 * pos.contracts).toFixed(0)} total)`,
+            maxProfit: `$${totalMaxProfit.toFixed(0)} (if ${pos.ticker} closes at or above $${pos.sellStrike} at expiry)`,
+            maxLoss: `$${totalMaxLoss.toFixed(0)} (if ${pos.ticker} closes at or below $${pos.buyStrike} at expiry)`,
+            breakeven: `$${breakeven.toFixed(2)} (${pos.ticker} must rise above this to profit)`,
+            howItWorks: `You paid $${pos.premium.toFixed(2)}/share for the right to profit if ${pos.ticker} goes up. Your profit is capped at $${pos.sellStrike} because you sold that call. The trade-off: lower cost than buying a naked call, but capped upside.`,
+            riskReward: `Risk $${totalMaxLoss.toFixed(0)} to make $${totalMaxProfit.toFixed(0)} = ${(totalMaxProfit/totalMaxLoss).toFixed(1)}:1 reward/risk`
+        },
+        'put_debit_spread': {
+            name: 'Put Debit Spread (Bear Put Spread)',
+            direction: 'BEARISH',
+            setup: `Buy $${Math.max(pos.buyStrike, pos.sellStrike)} Put / Sell $${Math.min(pos.buyStrike, pos.sellStrike)} Put`,
+            cost: `Net Debit: $${pos.premium.toFixed(2)}/share ($${(pos.premium * 100 * pos.contracts).toFixed(0)} total)`,
+            maxProfit: `$${totalMaxProfit.toFixed(0)} (if ${pos.ticker} closes at or below $${Math.min(pos.buyStrike, pos.sellStrike)} at expiry)`,
+            maxLoss: `$${totalMaxLoss.toFixed(0)} (if ${pos.ticker} closes at or above $${Math.max(pos.buyStrike, pos.sellStrike)} at expiry)`,
+            breakeven: `$${breakeven.toFixed(2)} (${pos.ticker} must fall below this to profit)`,
+            howItWorks: `You paid $${pos.premium.toFixed(2)}/share for the right to profit if ${pos.ticker} goes down. Your profit is capped because you sold the lower strike put.`,
+            riskReward: `Risk $${totalMaxLoss.toFixed(0)} to make $${totalMaxProfit.toFixed(0)} = ${(totalMaxProfit/totalMaxLoss).toFixed(1)}:1 reward/risk`
+        },
+        'call_credit_spread': {
+            name: 'Call Credit Spread (Bear Call Spread)',
+            direction: 'BEARISH',
+            setup: `Sell $${Math.min(pos.buyStrike, pos.sellStrike)} Call / Buy $${Math.max(pos.buyStrike, pos.sellStrike)} Call`,
+            cost: `Net Credit: $${pos.premium.toFixed(2)}/share ($${(pos.premium * 100 * pos.contracts).toFixed(0)} received)`,
+            maxProfit: `$${totalMaxProfit.toFixed(0)} (if ${pos.ticker} closes below $${Math.min(pos.buyStrike, pos.sellStrike)} at expiry - keep full premium)`,
+            maxLoss: `$${totalMaxLoss.toFixed(0)} (if ${pos.ticker} closes above $${Math.max(pos.buyStrike, pos.sellStrike)} at expiry)`,
+            breakeven: `$${breakeven.toFixed(2)} (${pos.ticker} must stay below this to profit)`,
+            howItWorks: `You received $${pos.premium.toFixed(2)}/share upfront. You keep it all if ${pos.ticker} stays below $${Math.min(pos.buyStrike, pos.sellStrike)}. The long call at $${Math.max(pos.buyStrike, pos.sellStrike)} limits your max loss.`,
+            riskReward: `Risk $${totalMaxLoss.toFixed(0)} to keep $${totalMaxProfit.toFixed(0)} = ${(totalMaxProfit/totalMaxLoss).toFixed(1)}:1 reward/risk`
+        },
+        'put_credit_spread': {
+            name: 'Put Credit Spread (Bull Put Spread)',
+            direction: 'BULLISH',
+            setup: `Sell $${Math.max(pos.buyStrike, pos.sellStrike)} Put / Buy $${Math.min(pos.buyStrike, pos.sellStrike)} Put`,
+            cost: `Net Credit: $${pos.premium.toFixed(2)}/share ($${(pos.premium * 100 * pos.contracts).toFixed(0)} received)`,
+            maxProfit: `$${totalMaxProfit.toFixed(0)} (if ${pos.ticker} closes above $${Math.max(pos.buyStrike, pos.sellStrike)} at expiry - keep full premium)`,
+            maxLoss: `$${totalMaxLoss.toFixed(0)} (if ${pos.ticker} closes below $${Math.min(pos.buyStrike, pos.sellStrike)} at expiry)`,
+            breakeven: `$${breakeven.toFixed(2)} (${pos.ticker} must stay above this to profit)`,
+            howItWorks: `You received $${pos.premium.toFixed(2)}/share upfront. You keep it all if ${pos.ticker} stays above $${Math.max(pos.buyStrike, pos.sellStrike)}. The long put at $${Math.min(pos.buyStrike, pos.sellStrike)} limits your max loss. This is the "Wheel-adjacent" bullish strategy!`,
+            riskReward: `Risk $${totalMaxLoss.toFixed(0)} to keep $${totalMaxProfit.toFixed(0)} = ${(totalMaxProfit/totalMaxLoss).toFixed(1)}:1 reward/risk`
+        }
+    };
+    
+    return explanations[pos.type] || null;
+}
+
+/**
+ * Show AI-style spread explanation modal
+ */
+window.showSpreadExplanation = function(posId) {
+    const pos = state.positions?.find(p => p.id === posId) || 
+                state.closedPositions?.find(p => p.id === posId);
+    
+    if (!pos) {
+        console.error('Position not found:', posId);
+        return;
+    }
+    
+    const explanation = getSpreadExplanation(pos);
+    if (!explanation) {
+        console.error('No spread explanation for:', pos.type);
+        return;
+    }
+    
+    // Determine direction color
+    const dirColor = explanation.direction === 'BULLISH' ? '#00ff88' : '#ff5252';
+    const dirEmoji = explanation.direction === 'BULLISH' ? '📈' : '📉';
+    
+    const modal = document.createElement('div');
+    modal.id = 'spreadExplanationModal';
+    modal.style.cssText = `
+        position:fixed; top:0; left:0; right:0; bottom:0; 
+        background:rgba(0,0,0,0.85); display:flex; align-items:center; 
+        justify-content:center; z-index:10000;
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border:1px solid #8b5cf6; 
+                    border-radius:16px; padding:30px; width:90%; max-width:600px; max-height:90vh; overflow-y:auto;
+                    box-shadow: 0 0 40px rgba(139, 92, 246, 0.3);">
+            
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+                <span style="font-size:32px;">🤖</span>
+                <div>
+                    <h2 style="margin:0; color:#fff; font-size:20px;">${explanation.name}</h2>
+                    <div style="color:#888; font-size:13px;">${pos.ticker} • ${pos.contracts} contract${pos.contracts > 1 ? 's' : ''} • Exp: ${pos.expiry}</div>
+                </div>
+                <span style="margin-left:auto; background:${dirColor}22; color:${dirColor}; 
+                             padding:6px 14px; border-radius:20px; font-weight:bold; font-size:13px;">
+                    ${dirEmoji} ${explanation.direction}
+                </span>
+            </div>
+            
+            <div style="background:#0d0d1a; border-radius:10px; padding:20px; margin-bottom:20px;">
+                <div style="color:#8b5cf6; font-weight:bold; margin-bottom:8px; font-size:12px; text-transform:uppercase;">
+                    📋 Setup
+                </div>
+                <div style="color:#fff; font-size:16px; font-weight:bold;">${explanation.setup}</div>
+                <div style="color:#888; font-size:14px; margin-top:6px;">${explanation.cost}</div>
+            </div>
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:20px;">
+                <div style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); 
+                            border-radius:10px; padding:15px;">
+                    <div style="color:#00ff88; font-size:12px; font-weight:bold; margin-bottom:6px;">💰 MAX PROFIT</div>
+                    <div style="color:#fff; font-size:14px;">${explanation.maxProfit}</div>
+                </div>
+                <div style="background:rgba(255,82,82,0.1); border:1px solid rgba(255,82,82,0.3); 
+                            border-radius:10px; padding:15px;">
+                    <div style="color:#ff5252; font-size:12px; font-weight:bold; margin-bottom:6px;">⚠️ MAX LOSS</div>
+                    <div style="color:#fff; font-size:14px;">${explanation.maxLoss}</div>
+                </div>
+            </div>
+            
+            <div style="background:#0d0d1a; border-radius:10px; padding:15px; margin-bottom:20px;">
+                <div style="color:#ffaa00; font-size:12px; font-weight:bold; margin-bottom:6px;">🎯 BREAKEVEN</div>
+                <div style="color:#fff; font-size:14px;">${explanation.breakeven}</div>
+            </div>
+            
+            <div style="background:linear-gradient(135deg, #1e1e3f 0%, #2a1f4e 100%); 
+                        border-radius:10px; padding:20px; margin-bottom:20px;">
+                <div style="color:#b9f; font-size:12px; font-weight:bold; margin-bottom:10px;">
+                    🧠 HOW THIS TRADE WORKS
+                </div>
+                <div style="color:#ddd; font-size:14px; line-height:1.6;">${explanation.howItWorks}</div>
+            </div>
+            
+            <div style="background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.4); 
+                        border-radius:10px; padding:15px; margin-bottom:20px; text-align:center;">
+                <div style="color:#8b5cf6; font-size:14px; font-weight:bold;">${explanation.riskReward}</div>
+            </div>
+            
+            <div style="display:flex; justify-content:center;">
+                <button onclick="document.getElementById('spreadExplanationModal').remove()" 
+                        style="background:#8b5cf6; border:none; color:#fff; padding:12px 40px; 
+                               border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;
+                               transition: all 0.2s;">
+                    Got it! 👍
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
  * Save a checkpoint of data counts - used to detect data loss
  */
 function saveDataCheckpoint() {
@@ -305,7 +491,22 @@ export function addPosition() {
     const stockPriceInput = document.getElementById('posStockPrice');
     const stockPrice = stockPriceInput ? parseFloat(stockPriceInput.value) || null : null;
     
-    if (!ticker || !strike || !premium || !expiry) {
+    // Spread specific fields
+    const isSpread = type.includes('_spread');
+    const buyStrike = isSpread ? parseFloat(document.getElementById('posBuyStrike')?.value) || null : null;
+    const sellStrike = isSpread ? parseFloat(document.getElementById('posSellStrike')?.value) || null : null;
+    
+    // Validation for spreads
+    if (isSpread) {
+        if (!ticker || !buyStrike || !sellStrike || !premium || !expiry) {
+            showNotification('Please fill in all spread fields', 'error');
+            return;
+        }
+        if (buyStrike === sellStrike) {
+            showNotification('Buy and Sell strikes must be different', 'error');
+            return;
+        }
+    } else if (!ticker || !strike || !premium || !expiry) {
         showNotification('Please fill in all fields', 'error');
         return;
     }
@@ -329,7 +530,7 @@ export function addPosition() {
                 ...state.positions[idx],
                 ticker,
                 type,
-                strike,
+                strike: isSpread ? null : strike,
                 premium,
                 contracts,
                 expiry,
@@ -338,9 +539,11 @@ export function addPosition() {
                 broker,
                 delta,
                 // Buy/Write specific fields
-                ...(type === 'buy_write' ? { stockPrice, costBasis: stockPrice - premium } : {})
+                ...(type === 'buy_write' ? { stockPrice, costBasis: stockPrice - premium } : {}),
+                // Spread specific fields
+                ...(isSpread ? { buyStrike, sellStrike, spreadWidth: Math.abs(sellStrike - buyStrike) } : {})
             };
-            showNotification(`Updated ${ticker} ${type} position`, 'success');
+            showNotification(`Updated ${ticker} ${type.replace(/_/g, ' ')} position`, 'success');
         }
         state.editingPositionId = null;
         updateAddButtonState();
@@ -351,7 +554,7 @@ export function addPosition() {
             chainId: Date.now(), // Each new position starts its own chain
             ticker,
             type,
-            strike,
+            strike: isSpread ? null : strike,
             premium,
             contracts,
             expiry,
@@ -362,7 +565,16 @@ export function addPosition() {
             status: 'open',
             currentSpot: null,
             // Buy/Write specific fields
-            ...(type === 'buy_write' ? { stockPrice, costBasis: stockPrice - premium } : {})
+            ...(type === 'buy_write' ? { stockPrice, costBasis: stockPrice - premium } : {}),
+            // Spread specific fields
+            ...(isSpread ? { 
+                buyStrike, 
+                sellStrike, 
+                spreadWidth: Math.abs(sellStrike - buyStrike),
+                maxProfit: type.includes('credit') ? premium * 100 * contracts : (Math.abs(sellStrike - buyStrike) - premium) * 100 * contracts,
+                maxLoss: type.includes('debit') ? premium * 100 * contracts : (Math.abs(sellStrike - buyStrike) - premium) * 100 * contracts,
+                breakeven: calculateSpreadBreakeven(type, buyStrike, sellStrike, premium)
+            } : {})
         };
         
         // For Buy/Write, also add to holdings automatically
@@ -405,6 +617,12 @@ export function addPosition() {
     if (document.getElementById('posBroker')) document.getElementById('posBroker').value = 'Schwab';
     if (document.getElementById('posDelta')) document.getElementById('posDelta').value = '';
     if (document.getElementById('posStockPrice')) document.getElementById('posStockPrice').value = '';
+    // Clear spread fields
+    if (document.getElementById('posBuyStrike')) document.getElementById('posBuyStrike').value = '';
+    if (document.getElementById('posSellStrike')) document.getElementById('posSellStrike').value = '';
+    // Reset position type to default
+    document.getElementById('posType').value = 'short_put';
+    togglePositionTypeFields();
 }
 
 /**
@@ -414,16 +632,27 @@ export function editPosition(id) {
     const pos = state.positions.find(p => p.id === id);
     if (!pos) return;
     
+    const isSpread = pos.type?.includes('_spread');
+    
     // Populate form with position data
     document.getElementById('posTicker').value = pos.ticker;
     document.getElementById('posType').value = pos.type;
-    document.getElementById('posStrike').value = pos.strike;
+    document.getElementById('posStrike').value = isSpread ? '' : pos.strike;
     document.getElementById('posPremium').value = pos.premium;
     document.getElementById('posContracts').value = pos.contracts;
     document.getElementById('posExpiry').value = pos.expiry;
     document.getElementById('posOpenDate').value = pos.openDate || '';
     if (document.getElementById('posBroker')) document.getElementById('posBroker').value = pos.broker || 'Schwab';
     if (document.getElementById('posDelta')) document.getElementById('posDelta').value = pos.delta || '';
+    
+    // Handle spread fields
+    if (isSpread) {
+        if (document.getElementById('posBuyStrike')) document.getElementById('posBuyStrike').value = pos.buyStrike || '';
+        if (document.getElementById('posSellStrike')) document.getElementById('posSellStrike').value = pos.sellStrike || '';
+    }
+    
+    // Update form visibility for the position type
+    togglePositionTypeFields();
     
     // Track that we're editing
     state.editingPositionId = id;
@@ -835,14 +1064,25 @@ export function renderPositions() {
         const dteColor = urgency === 'critical' ? '#ff5252' : 
                         urgency === 'warning' ? '#ffaa00' : '#00ff88';
         
-        // Calculate credit received (premium × 100 × contracts)
+        // Check if this is a spread
+        const isSpread = pos.type?.includes('_spread');
+        
+        // Calculate credit/debit (premium × 100 × contracts)
         const credit = pos.premium * 100 * pos.contracts;
         
         // Calculate ROC: Premium / Capital at Risk
+        // For spreads: Capital at Risk = spread width or debit paid
         // For puts: Capital at Risk = Strike × 100 × Contracts
         // For calls: Capital at Risk = typically the stock value, but for covered calls we use strike
-        const capitalAtRisk = pos.strike * 100 * pos.contracts;
-        const roc = (credit / capitalAtRisk) * 100;
+        let capitalAtRisk;
+        if (isSpread) {
+            capitalAtRisk = pos.type.includes('debit') 
+                ? credit  // Debit spread: risk is what you paid
+                : (pos.spreadWidth - pos.premium) * 100 * pos.contracts;  // Credit spread: risk is width minus credit
+        } else {
+            capitalAtRisk = (pos.strike || 0) * 100 * pos.contracts;
+        }
+        const roc = capitalAtRisk > 0 ? (credit / capitalAtRisk) * 100 : 0;
         
         // Annualized ROC: ROC × (365 / DTE)
         const annualRoc = pos.dte > 0 ? roc * (365 / pos.dte) : 0;
@@ -851,36 +1091,58 @@ export function renderPositions() {
         const annualRocColor = annualRoc >= 50 ? '#00ff88' : annualRoc >= 25 ? '#ffaa00' : '#888';
         
         // Format type for display
-        let typeDisplay = pos.type.replace('_', ' ').replace('short ', 'Short ').replace('long ', 'Long ');
+        let typeDisplay = pos.type.replace(/_/g, ' ').replace('short ', 'Short ').replace('long ', 'Long ');
         if (pos.type === 'buy_write') typeDisplay = 'Buy/Write';
-        const typeColor = pos.type === 'buy_write' ? '#00d9ff' : pos.type.includes('put') ? '#ff5252' : '#00ff88';
+        if (isSpread) {
+            // Shorten spread names for display
+            typeDisplay = pos.type.replace('_spread', '').replace('_', ' ').toUpperCase() + ' Spread';
+        }
+        const typeColor = pos.type === 'buy_write' ? '#00d9ff' : 
+                         isSpread ? '#8b5cf6' :
+                         pos.type.includes('put') ? '#ff5252' : '#00ff88';
+        
+        // Strike display - different for spreads
+        const strikeDisplay = isSpread 
+            ? `$${pos.buyStrike}/$${pos.sellStrike}`
+            : `$${pos.strike?.toFixed(0) || '—'}`;
         
         // Buy/Write extra info
         const buyWriteInfo = pos.type === 'buy_write' && pos.stockPrice 
             ? ` | Stock: $${pos.stockPrice.toFixed(2)} | Basis: $${pos.costBasis.toFixed(2)}` 
             : '';
         
+        // Spread extra info for tooltip
+        const spreadInfo = isSpread && pos.breakeven
+            ? ` | Breakeven: $${pos.breakeven.toFixed(2)} | Width: $${pos.spreadWidth}`
+            : '';
+        
         html += `
-            <tr style="border-bottom: 1px solid #333;" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.openDate ? ' | Opened: ' + pos.openDate : ''}${buyWriteInfo}">
+            <tr style="border-bottom: 1px solid #333;" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.openDate ? ' | Opened: ' + pos.openDate : ''}${buyWriteInfo}${spreadInfo}">
                 <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${pos.ticker}</td>
                 <td style="padding: 6px; color: #aaa; font-size: 10px;">${pos.broker || 'Schwab'}</td>
                 <td style="padding: 6px; color: ${typeColor}; font-size: 10px;">${typeDisplay}</td>
-                <td style="padding: 6px; text-align: right;">$${pos.strike.toFixed(0)}</td>
-                <td style="padding: 6px; text-align: right;">$${pos.premium.toFixed(2)}</td>
+                <td style="padding: 6px; text-align: right; ${isSpread ? 'font-size:10px;' : ''}">${strikeDisplay}</td>
+                <td style="padding: 6px; text-align: right;">${isSpread && pos.type.includes('debit') ? '-' : ''}$${pos.premium.toFixed(2)}</td>
                 <td style="padding: 6px; text-align: right;">${pos.contracts}</td>
                 <td style="padding: 6px; text-align: right; color: ${dteColor}; font-weight: bold;">
                     ${pos.dte}d
                 </td>
-                <td style="padding: 6px; text-align: right; color: #00ff88;">
-                    $${credit.toFixed(0)}
+                <td style="padding: 6px; text-align: right; color: ${pos.type.includes('debit') ? '#ff5252' : '#00ff88'};">
+                    ${pos.type.includes('debit') ? '-' : ''}$${credit.toFixed(0)}
                 </td>
                 <td style="padding: 6px; text-align: right; color: ${annualRocColor}; font-weight: bold;">
-                    ${annualRoc.toFixed(0)}%
+                    ${isSpread ? '—' : annualRoc.toFixed(0) + '%'}
                 </td>
                 <td style="padding: 4px; text-align: center; white-space: nowrap;">
+                    ${isSpread ? `
+                    <button onclick="window.showSpreadExplanation(${pos.id})" 
+                            style="display:inline-block; background: rgba(139,92,246,0.3); border: 1px solid rgba(139,92,246,0.5); color: #b9f; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            title="AI Spread Explanation">🤖</button>
+                    ` : `
                     <button onclick="window.loadPositionToAnalyze(${pos.id})" 
                             style="display:inline-block; background: rgba(0,180,220,0.3); border: 1px solid rgba(0,180,220,0.5); color: #6dd; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
                             title="Analyze">📊</button>
+                    `}
                     <button onclick="window.showClosePanel(${pos.id})" 
                             style="display:inline-block; background: rgba(80,180,80,0.3); border: 1px solid rgba(80,180,80,0.5); color: #6c6; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
                             title="Close">✅</button>
@@ -927,10 +1189,25 @@ export function updatePortfolioSummary() {
     const totalContracts = openPositions.reduce((sum, p) => sum + p.contracts, 0);
     const totalPremium = openPositions.reduce((sum, p) => sum + (p.premium * 100 * p.contracts), 0);
     
-    // Capital at Risk = total $ if all puts get assigned (strike × 100 × contracts for puts)
+    // Capital at Risk calculation
+    // - Puts: strike × 100 × contracts (you might own shares at strike)
+    // - Spreads: max loss = width - credit (for credit spreads) or debit paid (for debit spreads)
     const capitalAtRisk = openPositions.reduce((sum, p) => {
-        if (p.type === 'short_put' || p.type === 'buy_write') {
-            return sum + (p.strike * 100 * p.contracts);
+        const isSpread = p.type?.includes('_spread');
+        
+        if (isSpread) {
+            // For spreads, max loss is already calculated or we compute it
+            if (p.maxLoss) {
+                return sum + p.maxLoss;
+            }
+            const width = p.spreadWidth || Math.abs((p.sellStrike || 0) - (p.buyStrike || 0));
+            const premium = p.premium || 0;
+            const maxLoss = p.type.includes('debit') 
+                ? premium * 100 * p.contracts  // Debit spread: max loss = what you paid
+                : (width - premium) * 100 * p.contracts;  // Credit spread: max loss = width - credit
+            return sum + maxLoss;
+        } else if (p.type === 'short_put' || p.type === 'buy_write') {
+            return sum + ((p.strike || 0) * 100 * p.contracts);
         }
         return sum;
     }, 0);
@@ -942,14 +1219,31 @@ export function updatePortfolioSummary() {
     let weightedAnnROC = 0;
     if (capitalAtRisk > 0) {
         const totalWeightedROC = openPositions.reduce((sum, p) => {
-            if (p.type === 'short_put' || p.type === 'buy_write') {
-                const posCapital = p.strike * 100 * p.contracts;
-                const posROC = (p.premium * 100 * p.contracts) / posCapital;
-                const dte = Math.max(1, p.dte || 1);
-                const annROC = posROC * (365 / dte);
-                return sum + (annROC * posCapital);
+            const isSpread = p.type?.includes('_spread');
+            let posCapital;
+            
+            if (isSpread) {
+                if (p.maxLoss) {
+                    posCapital = p.maxLoss;
+                } else {
+                    const width = p.spreadWidth || Math.abs((p.sellStrike || 0) - (p.buyStrike || 0));
+                    const premium = p.premium || 0;
+                    posCapital = p.type.includes('debit')
+                        ? premium * 100 * p.contracts
+                        : (width - premium) * 100 * p.contracts;
+                }
+            } else if (p.type === 'short_put' || p.type === 'buy_write') {
+                posCapital = (p.strike || 0) * 100 * p.contracts;
+            } else {
+                return sum; // Skip other types
             }
-            return sum;
+            
+            if (posCapital <= 0) return sum;
+            
+            const posROC = (p.premium * 100 * p.contracts) / posCapital;
+            const dte = Math.max(1, p.dte || 1);
+            const annROC = posROC * (365 / dte);
+            return sum + (annROC * posCapital);
         }, 0);
         weightedAnnROC = (totalWeightedROC / capitalAtRisk) * 100;
     }
@@ -1282,16 +1576,49 @@ export function importAllData(event) {
 }
 
 /**
- * Toggle Buy/Write specific fields visibility
+ * Toggle position type specific fields visibility
  */
-function toggleBuyWriteFields() {
+function togglePositionTypeFields() {
     const type = document.getElementById('posType').value;
     const buyWriteFields = document.getElementById('buyWriteFields');
+    const spreadFields = document.getElementById('spreadFields');
+    const strikeField = document.getElementById('posStrike')?.parentElement;
+    const spreadExplanation = document.getElementById('spreadExplanation');
+    
+    const isSpread = type.includes('_spread');
+    const isBuyWrite = type === 'buy_write';
+    
     if (buyWriteFields) {
-        buyWriteFields.style.display = type === 'buy_write' ? 'block' : 'none';
+        buyWriteFields.style.display = isBuyWrite ? 'block' : 'none';
     }
+    
+    if (spreadFields) {
+        spreadFields.style.display = isSpread ? 'block' : 'none';
+    }
+    
+    // Hide single strike field for spreads
+    if (strikeField) {
+        strikeField.style.display = isSpread ? 'none' : 'block';
+    }
+    
+    // Update spread explanation based on type
+    if (spreadExplanation) {
+        const explanations = {
+            'call_debit_spread': '💡 Buy lower strike call, Sell higher strike call. Profit if stock goes UP. Max profit at sell strike.',
+            'put_debit_spread': '💡 Buy higher strike put, Sell lower strike put. Profit if stock goes DOWN. Max profit at sell strike.',
+            'call_credit_spread': '💡 Sell lower strike call, Buy higher strike call. Profit if stock stays BELOW sell strike.',
+            'put_credit_spread': '💡 Sell higher strike put, Buy lower strike put. Profit if stock stays ABOVE sell strike.'
+        };
+        spreadExplanation.textContent = explanations[type] || '';
+    }
+}
+
+// Legacy alias
+function toggleBuyWriteFields() {
+    togglePositionTypeFields();
 }
 
 window.exportAllData = exportAllData;
 window.importAllData = importAllData;
 window.toggleBuyWriteFields = toggleBuyWriteFields;
+window.togglePositionTypeFields = togglePositionTypeFields;

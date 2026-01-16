@@ -1,0 +1,49 @@
+# WheelHouse Changelog
+
+All notable changes to WheelHouse will be documented in this file.
+
+## [1.1.0] - 2025-01-31
+
+### Added
+- **Spread Trading Support** - Track vertical spreads (Call Debit, Put Debit, Call Credit, Put Credit)
+  - New position types in the dropdown with optgroup organization
+  - Buy Strike / Sell Strike inputs for spread positions
+  - Automatic max profit, max loss, and breakeven calculations
+  - Purple color styling to distinguish spreads from single-leg options
+  - **🤖 AI Explanation Modal** - Click the robot button on any spread to see:
+    - Strategy name and direction (bullish/bearish)
+    - Setup details with strikes and premium
+    - Max profit and max loss scenarios
+    - Breakeven price calculation
+    - Plain-English explanation of how the trade works
+    - Risk/reward ratio
+- **Trading Challenges System** - Track Discord community challenges
+  - Create challenges with goals, dates, and progress tracking
+  - Link positions to challenges (by tag or date range)
+  - Visual progress bars with completion percentage
+  - 🏆 Challenges tab in navigation
+  - Quick-link positions from Portfolio table
+- **One-Click Installers**
+  - `install.bat` / `start.bat` for Windows (auto-installs Node.js via winget)
+  - `install.sh` / `start.sh` for Mac/Linux (Homebrew/apt support)
+
+### Fixed
+- Capital-at-risk calculation now properly handles spread positions
+- Portfolio summary ROC calculations include spread max-loss
+
+### Changed
+- Position form now shows/hides fields dynamically based on position type
+- Form resets completely after adding a position (including spread fields)
+- Edit position now properly loads spread strike data
+
+## [1.0.0] - 2025-01-30
+
+### Initial Release
+- Monte Carlo options simulation (10,000+ paths)
+- Black-Scholes and binomial pricing models
+- Position tracking for The Wheel strategy
+- Live pricing via CBOE API with staleness indicators
+- Portfolio analytics with ROC and annual yield calculations
+- Stock holdings tracking with assignment flow
+- CSV export of positions and history
+- Responsive dark theme UI

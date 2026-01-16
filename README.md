@@ -1,153 +1,182 @@
 # 🏠 WheelHouse
 
-**Wheel Strategy Options Analyzer**
+**The Wheel Strategy Options Analyzer & Position Tracker**
 
-A Monte Carlo-based options pricing and analysis tool designed specifically for the Wheel Strategy (selling cash-secured puts and covered calls).
+A powerful Monte Carlo-based options analysis tool with **real-time CBOE pricing**, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
-## 🚀 Quick Start (Windows)
-
-1. **Download** - Clone or download this repository
-2. **Install** - Double-click `install.bat` (installs Node.js if needed)
-3. **Run** - Double-click `start.bat`
-4. **Use** - Browser opens automatically to http://localhost:8888
-
-## 🍎 Quick Start (Mac/Linux)
-
-1. **Download** - Clone or download this repository
-2. **Install** - Open Terminal in the folder and run:
-   ```bash
-   chmod +x install.sh start.sh
-   ./install.sh
-   ```
-3. **Run** - `./start.sh`
-4. **Use** - Browser opens automatically to http://localhost:8888
-
-That's it! Your positions are saved locally in your browser.
+![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
-## Features
+## ✨ Key Features
 
-### 📊 Monte Carlo Simulation
-- Brownian motion path simulation
-- Configurable drift, volatility, and starting position
-- Batch simulation with statistical analysis
-- Visual histogram of exit times
+### 📡 Real-Time CBOE Options Pricing
+- **Live bid/ask/last prices** from CBOE's delayed quotes API
+- **Staleness indicators** - Know when prices are stale vs fresh
+- **Rate of Change (ROC)** tracking for mark-to-market P&L
+- Automatic refresh with visual freshness indicators
+- Fallback to Yahoo Finance when CBOE unavailable
 
-### 💰 Options Pricing
-- Black-Scholes option pricing (calls and puts)
-- Monte Carlo simulation-based pricing
-- Real-time Yahoo Finance price fetching
-- Automatic probability calculation
-
-### 📈 P&L Analysis
-- Break-even analysis
+### 💰 Monte Carlo Simulation Engine
+- **10,000+ path Brownian motion** simulations
+- Configurable drift, volatility, and time parameters
+- Visual histogram of price distributions
 - Probability cone visualization (1σ, 2σ, 3σ)
-- Interactive heat map showing P&L across price/time
-- Roll calculator for position management
+
+### 📊 Options Pricing & Greeks
+- Black-Scholes analytical pricing
+- Monte Carlo simulation-based pricing
+- Delta, Gamma, Theta, Vega calculations
+- Interactive payoff diagrams
 
 ### 📋 Position Tracker
-- Track multiple open positions
-- Edit positions after creation
-- LocalStorage persistence
-- Portfolio summary (premium collected, risk, theta)
-- One-click position analysis
+- Track unlimited open positions
+- **Automatic DTE calculation** with urgency colors
+- ROC and Annualized ROC per position
+- Edit, roll, close, or delete positions
+- Assignment and called-away workflows
+- **Chain tracking** - See your full roll history
 
-### 💼 Portfolio P&L
-- Live P&L tracking for all positions
-- Unrealized P&L with current option prices
-- Realized P&L from closed positions
-- Performance metrics (win rate, best/worst trade)
-- Close positions to lock in gains
+### 💼 Portfolio Analytics
+- Total premium collected
+- Capital at risk calculations
+- Weighted average annual ROC
+- Win rate and P&L statistics
+- Live unrealized P&L with CBOE prices
 
-### Δ Greeks Calculator
-- Delta, Gamma, Vega calculations
-- Visual comparison charts
-- Finite-difference approximation
+### 🏆 Trading Challenges
+- Create time-bound trading challenges
+- Link positions to challenges
+- Track progress toward goals
+- Visual progress bars
 
-### 🎯 Trade Metrics
-- Return on Capital (ROC)
-- Annualized ROC
-- Risk:Reward ratio (realistic, not theoretical)
-- Win probability vs required win rate
-- Kelly criterion position sizing
-- Your edge calculation
+### 📈 Stock Holdings Tracker
+- Track shares from assignments
+- Cost basis management
+- Covered call integration
 
-## Quick Start
+---
 
-Since this uses ES6 modules, you need a local server:
+## 🚀 Quick Start
 
-```bash
-# Using Node.js
-npx serve
+### Windows
+```batch
+# 1. Clone the repository
+git clone https://github.com/gregtee2/WheelHouse.git
+cd WheelHouse
 
-# Or using Python
-python -m http.server 8000
+# 2. Install (auto-installs Node.js if needed)
+install.bat
+
+# 3. Run
+start.bat
 ```
 
-Then open `http://localhost:5000` (or 8000 for Python).
+### Mac/Linux
+```bash
+# 1. Clone the repository
+git clone https://github.com/gregtee2/WheelHouse.git
+cd WheelHouse
 
-## Project Structure
+# 2. Make scripts executable and install
+chmod +x install.sh start.sh
+./install.sh
+
+# 3. Run
+./start.sh
+```
+
+Browser opens automatically to **http://localhost:8888**
+
+Your positions are saved locally - no account required!
+
+---
+
+## 🎯 The Wheel Strategy
+
+The Wheel is an income strategy for stocks you want to own:
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  SELL PUT       │────▶│  GET ASSIGNED   │────▶│  SELL CALL      │
+│  Collect $$$    │     │  Own shares     │     │  Collect $$$    │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+        │                                               │
+        │ Expires worthless                             │ Shares called away
+        ▼                                               ▼
+   KEEP PREMIUM ←──────────────────────────────── START OVER
+```
+
+**WheelHouse helps you:**
+- Analyze assignment probability before entering trades
+- Track premium collected across your portfolio  
+- Calculate optimal roll points when positions go against you
+- Monitor your overall capital at risk
+
+---
+
+## 📁 Project Structure
 
 ```
 WheelHouse/
-├── index.html          # Main HTML shell
+├── server.js           # Node.js server (CBOE/Yahoo proxy)
+├── index.html          # Main application shell
 ├── css/
-│   └── styles.css      # All styling
+│   └── styles.css      # Dark theme styling
 └── js/
     ├── main.js         # Entry point, initialization
-    ├── state.js        # Global state management
-    ├── utils.js        # Math helpers, formatting
-    ├── api.js          # Yahoo Finance API calls
-    ├── simulation.js   # Brownian motion simulation
-    ├── pricing.js      # Black-Scholes, Monte Carlo pricing
-    ├── analysis.js     # Recommendations, EV calculations
-    ├── charts.js       # All canvas drawing functions
-    ├── positions.js    # Position tracker (localStorage)
-    └── ui.js           # Sliders, date pickers, UI bindings
+    ├── state.js        # Global state management  
+    ├── api.js          # CBOE & Yahoo Finance API
+    ├── pricing.js      # Black-Scholes, Monte Carlo
+    ├── simulation.js   # Brownian motion engine
+    ├── positions.js    # Position CRUD, localStorage
+    ├── portfolio.js    # Portfolio analytics
+    ├── challenges.js   # Trading challenges system
+    ├── charts.js       # Canvas chart rendering
+    ├── analysis.js     # Recommendations, EV calcs
+    └── ui.js           # UI bindings, sliders
 ```
-
-## Module Dependencies
-
-```
-main.js
-  ├── state.js (core state)
-  ├── utils.js (helpers)
-  ├── api.js ─── state.js, utils.js
-  ├── simulation.js ─── state.js, utils.js, charts.js
-  ├── pricing.js ─── state.js, utils.js
-  ├── analysis.js ─── state.js, pricing.js
-  ├── charts.js ─── state.js, utils.js, pricing.js
-  ├── positions.js ─── state.js, utils.js, api.js
-  └── ui.js ─── state.js, utils.js, charts.js, pricing.js, analysis.js, simulation.js
-```
-
-## The Wheel Strategy
-
-The Wheel is a popular options income strategy:
-
-1. **Sell Cash-Secured Put** - Collect premium, agree to buy stock at strike price
-2. **If Assigned** - You now own shares at a discount (strike - premium)
-3. **Sell Covered Call** - Collect more premium on your shares
-4. **If Called Away** - Sell shares at profit, restart the wheel
-
-This tool helps you analyze:
-- Probability of assignment (put going ITM)
-- Expected value of trades
-- Roll opportunities when positions go against you
-- Portfolio-level risk management
-
-## Tech Stack
-
-- **Pure JavaScript** - No frameworks, vanilla ES6 modules
-- **Canvas API** - All charts rendered with 2D canvas
-- **LocalStorage** - Position persistence
-- **CORS Proxies** - Yahoo Finance data fetching
-
-## License
-
-MIT
 
 ---
 
-*Built for wheel traders who want data-driven decisions.*
+## 🔧 Configuration
+
+The server runs on port **8888** by default. To change:
+
+```javascript
+// In server.js
+const PORT = process.env.PORT || 8888;
+```
+
+---
+
+## 📊 Screenshots
+
+*Coming soon*
+
+---
+
+## 🛠️ Tech Stack
+
+- **Frontend**: Vanilla JavaScript (ES6 modules), Canvas API
+- **Backend**: Node.js, Express
+- **Data**: CBOE delayed quotes, Yahoo Finance fallback
+- **Storage**: Browser localStorage (no database needed)
+
+---
+
+## 📝 License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome! Please open an issue first to discuss changes.
+
+---
+
+*Built for wheel traders who want data-driven decisions.* 🎰
