@@ -178,6 +178,28 @@ export function setupRollDatePicker() {
  * Update results display
  */
 export function updateResults() {
+    // Update stat cards in the header
+    const simCount = document.getElementById('simCount');
+    const avgTau = document.getElementById('avgTau');
+    const hitZero = document.getElementById('hitZero');
+    const hitOne = document.getElementById('hitOne');
+    
+    const total = state.exitTimes.length;
+    if (simCount) simCount.textContent = total.toLocaleString();
+    
+    if (total > 0) {
+        const mean = state.exitTimes.reduce((a, b) => a + b, 0) / total;
+        if (avgTau) avgTau.textContent = mean.toFixed(1) + 'd';
+        
+        // For DTE mode: below_strike = assigned (bad for puts), above_strike = expires OTM (good)
+        // For barrier mode: leftHits = hit 0, rightHits = hit 1
+        const assigned = state.useDteLimit ? state.belowStrikeCount : state.leftHits;
+        const expiresOTM = state.useDteLimit ? state.aboveStrikeCount : state.rightHits;
+        
+        if (hitZero) hitZero.textContent = ((assigned / total) * 100).toFixed(1) + '%';
+        if (hitOne) hitOne.textContent = ((expiresOTM / total) * 100).toFixed(1) + '%';
+    }
+    
     // Simulator results
     const batchStats = document.getElementById('batchStats');
     if (batchStats && state.exitTimes.length > 0) {

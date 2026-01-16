@@ -11,9 +11,13 @@ import { updateResults, updateDataTab } from './ui.js';
 export function simulatePath(animate = false) {
     return new Promise(resolve => {
         let pos = state.p, time = 0;
-        const dt = 0.01, path = [{x: 0, y: pos}];
+        // Use larger dt for faster simulation (fewer iterations)
+        // For 30 DTE: 30/0.1 = 300 steps (reasonable), vs 30/0.01 = 3000 steps (slow)
+        const dt = animate ? 0.5 : 0.1;
+        const path = [{x: 0, y: pos}];
         
-        const maxTime = state.useDteLimit ? state.dteTimeLimit : 500;
+        // Use DTE as max time (in days), default to dte from options tab
+        const maxTime = state.useDteLimit ? state.dteTimeLimit : state.dte;
         
         const step = () => {
             // Barrier knock-out when DTE mode is OFF
@@ -45,7 +49,8 @@ export function simulatePath(animate = false) {
             
             if (animate) {
                 draw(path);
-                setTimeout(step, 5);
+                // Faster animation - 16ms = ~60fps
+                requestAnimationFrame(step);
             } else {
                 step();
             }

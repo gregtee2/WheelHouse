@@ -18,8 +18,8 @@ export const state = {
     previousPaths: [],
     isRunning: false,
     
-    // DTE limit
-    useDteLimit: false,
+    // DTE limit - default to true since options always have expiration
+    useDteLimit: true,
     dteTimeLimit: 30,
     
     // Options parameters
