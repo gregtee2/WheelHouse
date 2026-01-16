@@ -43,14 +43,14 @@ async function getCachedSpotPrice(ticker) {
  * @param {number} spot - Current spot price
  * @param {number} strike - Strike price
  * @param {number} dte - Days to expiration
- * @param {number} vol - Implied volatility (default 0.4 = 40%)
+ * @param {number} vol - Implied volatility (default 0.5 = 50%)
  * @param {boolean} isPut - true for put, false for call
  * @returns {number} ITM probability as percentage (0-100)
  */
-function quickMonteCarloRisk(spot, strike, dte, vol = 0.4, isPut = true) {
-    const paths = 300; // Fast but reasonable accuracy
+function quickMonteCarloRisk(spot, strike, dte, vol = 0.5, isPut = true) {
+    const paths = 1000; // More paths for better accuracy
     const T = Math.max(dte, 1) / 365.25;
-    const numSteps = 20;
+    const numSteps = 30;
     const dt = T / numSteps;
     const rate = 0.05; // Risk-free rate assumption
     
@@ -74,7 +74,25 @@ function quickMonteCarloRisk(spot, strike, dte, vol = 0.4, isPut = true) {
 }
 
 /**
+ * Estimate volatility based on ticker characteristics
+ * Leveraged ETFs have much higher IV than regular stocks
+ */
+function estimateVolatility(ticker, fallback = 0.5) {
+    const leveragedETFs = ['TSLL', 'TQQQ', 'SOXL', 'UPRO', 'SPXL', 'NVDL', 'FNGU', 'LABU', 'WEBL', 'TECL', 'FAS', 'TNA', 'JNUG', 'NUGT', 'UDOW', 'UMDD', 'URTY'];
+    const highVolStocks = ['TSLA', 'NVDA', 'AMD', 'MSTR', 'COIN', 'GME', 'AMC', 'RIVN', 'LCID', 'NIO', 'PLTR', 'MARA', 'RIOT'];
+    
+    if (leveragedETFs.includes(ticker?.toUpperCase())) {
+        return 0.85; // 85% IV typical for 2x/3x leveraged ETFs
+    }
+    if (highVolStocks.includes(ticker?.toUpperCase())) {
+        return 0.65; // 65% IV for volatile growth stocks
+    }
+    return fallback; // Default 50% for normal stocks
+}
+
+/**
  * Determine position risk status based on ITM probability
+ * Thresholds match the AI recommendation panel in analysis.js
  * @param {object} pos - Position object
  * @param {number|null} spotPrice - Current spot price (null if unavailable)
  * @returns {object} { icon, text, color, needsAttention, itmPct }
@@ -87,7 +105,7 @@ function calculatePositionRisk(pos, spotPrice) {
         } else if (pos.dte <= 14) {
             return { icon: '⏳', text: 'Check', color: '#888', needsAttention: false, itmPct: null };
         }
-        return { icon: '🟢', text: 'Good', color: '#00ff88', needsAttention: false, itmPct: null };
+        return { icon: '🟢', text: 'OK', color: '#00ff88', needsAttention: false, itmPct: null };
     }
     
     const isPut = pos.type?.includes('put');
@@ -98,15 +116,21 @@ function calculatePositionRisk(pos, spotPrice) {
         return { icon: '📊', text: 'Spread', color: '#8b5cf6', needsAttention: false, itmPct: null };
     }
     
-    // Use stored IV if available, otherwise estimate from typical vol
-    const vol = pos.iv || 0.4;
+    // Use stored IV if available, otherwise estimate based on ticker
+    const vol = pos.iv || estimateVolatility(pos.ticker);
     
     // Calculate ITM probability
     const itmPct = quickMonteCarloRisk(spotPrice, pos.strike, pos.dte, vol, isPut);
     
-    // Determine status based on ITM probability
-    // These thresholds match the "Trade Metrics" panel logic
+    // Thresholds match analysis.js recommendation panel:
+    // < 30% = HOLD (safe)
+    // 30-40% = WATCH (moderate)
+    // 40-50% = CAUTION (consider rolling)
+    // 50-60% = HIGH RISK (roll now!)
+    // > 60% = DANGER (close immediately)
+    
     if (itmPct >= 50) {
+        // HIGH RISK or DANGER - needs immediate attention
         return { 
             icon: '🔴', 
             text: `${itmPct.toFixed(0)}%`, 
@@ -114,15 +138,26 @@ function calculatePositionRisk(pos, spotPrice) {
             needsAttention: true, 
             itmPct 
         };
-    } else if (itmPct >= 35) {
+    } else if (itmPct >= 40) {
+        // CAUTION - consider rolling
+        return { 
+            icon: '🟠', 
+            text: `${itmPct.toFixed(0)}%`, 
+            color: '#ff8800', 
+            needsAttention: true, 
+            itmPct 
+        };
+    } else if (itmPct >= 30) {
+        // WATCH - moderate risk
         return { 
             icon: '🟡', 
             text: `${itmPct.toFixed(0)}%`, 
             color: '#ffaa00', 
-            needsAttention: true, 
+            needsAttention: false,  // Yellow is "watch", not urgent
             itmPct 
         };
     } else {
+        // HOLD - safe
         return { 
             icon: '🟢', 
             text: `${itmPct.toFixed(0)}%`, 
