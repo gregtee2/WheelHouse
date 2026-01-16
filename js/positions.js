@@ -935,6 +935,25 @@ export function updatePortfolioSummary() {
         return sum;
     }, 0);
     
+    // Calculate ROC (Return on Capital) = Premium / Capital at Risk
+    const roc = capitalAtRisk > 0 ? (totalPremium / capitalAtRisk) * 100 : 0;
+    
+    // Calculate weighted average annualized ROC
+    let weightedAnnROC = 0;
+    if (capitalAtRisk > 0) {
+        const totalWeightedROC = openPositions.reduce((sum, p) => {
+            if (p.type === 'short_put' || p.type === 'buy_write') {
+                const posCapital = p.strike * 100 * p.contracts;
+                const posROC = (p.premium * 100 * p.contracts) / posCapital;
+                const dte = Math.max(1, p.dte || 1);
+                const annROC = posROC * (365 / dte);
+                return sum + (annROC * posCapital);
+            }
+            return sum;
+        }, 0);
+        weightedAnnROC = (totalWeightedROC / capitalAtRisk) * 100;
+    }
+    
     // Find closest expiration
     let closestDte = Infinity;
     openPositions.forEach(p => {
@@ -945,7 +964,7 @@ export function updatePortfolioSummary() {
     const summaryEl = document.getElementById('portfolioSummary');
     if (summaryEl) {
         summaryEl.innerHTML = `
-            <div class="summary-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px;">
+            <div class="summary-grid" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px;">
                 <div class="summary-item" style="text-align: center;">
                     <div style="color: #888; font-size: 11px;">OPEN POSITIONS</div>
                     <div style="color: #00d9ff; font-size: 24px; font-weight: bold;">${totalOpen}</div>
@@ -962,6 +981,21 @@ export function updatePortfolioSummary() {
                     <div style="color: #888; font-size: 11px;">CAPITAL AT RISK</div>
                     <div style="color: #ffaa00; font-size: 24px; font-weight: bold;">
                         ${formatCurrency(capitalAtRisk)}
+                    </div>
+                </div>
+                <div class="summary-item" style="text-align: center;">
+                    <div style="color: #888; font-size: 11px;">ROC</div>
+                    <div style="color: #00ff88; font-size: 24px; font-weight: bold;" 
+                         title="Return on Capital: Premium ÷ Capital at Risk">
+                        ${roc.toFixed(2)}%
+                    </div>
+                </div>
+                <div class="summary-item" style="text-align: center;">
+                    <div style="color: #888; font-size: 11px;">AVG ANN. ROC</div>
+                    <div style="color: ${weightedAnnROC >= 100 ? '#00ff88' : weightedAnnROC >= 50 ? '#ffaa00' : '#ff5252'}; 
+                         font-size: 24px; font-weight: bold;" 
+                         title="Weighted Average Annualized Return on Capital">
+                        ${weightedAnnROC.toFixed(0)}%
                     </div>
                 </div>
                 <div class="summary-item" style="text-align: center;">

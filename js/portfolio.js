@@ -3,7 +3,7 @@
 
 import { state } from './state.js';
 import { showNotification } from './utils.js';
-import { fetchFromYahoo } from './api.js';
+import { fetchFromYahoo, fetchOptionsChain, findOption } from './api.js';
 
 const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
@@ -50,32 +50,126 @@ function saveClosedPositions() {
 }
 
 /**
- * Fetch current option price for a position using Black-Scholes
- * Returns the theoretical price based on current spot
+ * Fetch current option price for a position from CBOE (real market data)
+ * Falls back to Black-Scholes if CBOE doesn't have the option
  */
 async function fetchCurrentOptionPrice(position) {
     try {
-        // Fetch current stock price using shared API function
-        const result = await fetchFromYahoo(position.ticker);
-        const spot = result.meta?.regularMarketPrice;
+        // Fetch stock price and options chain from CBOE
+        const [stockResult, optionsChain] = await Promise.all([
+            fetchFromYahoo(position.ticker),
+            fetchOptionsChain(position.ticker).catch(() => null)
+        ]);
         
-        if (spot) {
-            // Calculate theoretical option price using Black-Scholes approximation
-            const strike = position.strike;
-            const dte = Math.max(1, position.dte);
-            const T = dte / 365;
-            const r = 0.05; // Risk-free rate
-            const sigma = 0.30; // Assume 30% IV (could be fetched or estimated)
+        const spot = stockResult.meta?.regularMarketPrice;
+        if (!spot) return { success: false };
+        
+        const isPut = position.type.toLowerCase().includes('put');
+        const strike = position.strike;
+        
+        console.log(`[MATCH] ${position.ticker}: Looking for ${isPut ? 'PUT' : 'CALL'} @ $${strike}`);
+        
+        // Try to find the exact option in CBOE data
+        if (optionsChain) {
+            // Convert expiry to YYYY-MM-DD format
+            let expDate = position.expiry;
+            console.log(`[MATCH]   Original expiry: ${expDate}`);
             
-            const isPut = position.type.toLowerCase().includes('put');
-            const price = blackScholesPrice(spot, strike, T, r, sigma, isPut);
+            if (expDate && expDate.includes('/')) {
+                const parts = expDate.split('/');
+                if (parts.length === 3) {
+                    expDate = `${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
+                }
+            }
+            console.log(`[MATCH]   Normalized expiry: ${expDate}`);
+            console.log(`[MATCH]   Available expirations: ${optionsChain.expirations.slice(0,5).join(', ')}...`);
             
-            return {
-                spot,
-                optionPrice: Math.max(0.01, price),
-                success: true
-            };
+            // Find the option
+            const options = isPut ? optionsChain.puts : optionsChain.calls;
+            console.log(`[MATCH]   ${options.length} ${isPut ? 'puts' : 'calls'} in chain`);
+            
+            let matchedOption = findOption(options, strike, expDate);
+            
+            // If no exact match, try nearest expiration
+            if (!matchedOption && optionsChain.expirations.length > 0) {
+                console.log(`[MATCH]   No exact match, finding nearest expiration...`);
+                const targetTime = new Date(expDate).getTime();
+                let closestExp = optionsChain.expirations[0];
+                let closestDiff = Math.abs(new Date(closestExp).getTime() - targetTime);
+                
+                for (const exp of optionsChain.expirations) {
+                    const diff = Math.abs(new Date(exp).getTime() - targetTime);
+                    if (diff < closestDiff) {
+                        closestDiff = diff;
+                        closestExp = exp;
+                    }
+                }
+                console.log(`[MATCH]   Trying nearest: ${closestExp}`);
+                matchedOption = findOption(options, strike, closestExp);
+            }
+            
+            if (matchedOption) {
+                // Prefer last trade price over mid-price (more accurate for stale data)
+                const midPrice = (matchedOption.bid + matchedOption.ask) / 2;
+                const lastPrice = matchedOption.lastPrice || 0;
+                const usePrice = lastPrice > 0 ? lastPrice : midPrice;
+                const priceSource = lastPrice > 0 ? 'last' : 'mid';
+                
+                console.log(`[MATCH]   ✅ FOUND: ${matchedOption.symbol || 'no symbol'}`);
+                console.log(`[MATCH]   Strike: $${matchedOption.strike}, Exp: ${matchedOption.expiration}, Type: ${matchedOption.type}`);
+                console.log(`[MATCH]   Bid: $${matchedOption.bid} | Ask: $${matchedOption.ask} | Mid: $${midPrice.toFixed(2)} | Last: $${lastPrice.toFixed(2)}`);
+                console.log(`[MATCH]   Using ${priceSource} price: $${usePrice.toFixed(2)}`);
+                console.log(`[MATCH]   Position expiry: ${position.expiry}, DTE: ${position.dte}`);
+                
+                // Check staleness - CBOE timestamp format: "2026-01-16 17:46:21"
+                const cboeTimestamp = optionsChain.timestamp;
+                let dataAgeMinutes = null;
+                if (cboeTimestamp) {
+                    const cboeTime = new Date(cboeTimestamp.replace(' ', 'T'));
+                    dataAgeMinutes = Math.round((Date.now() - cboeTime.getTime()) / 60000);
+                    console.log(`[MATCH]   Data age: ${dataAgeMinutes} minutes`);
+                }
+                
+                return {
+                    spot,
+                    optionPrice: usePrice,
+                    bid: matchedOption.bid,
+                    ask: matchedOption.ask,
+                    lastPrice: lastPrice,
+                    priceSource: priceSource,
+                    iv: matchedOption.impliedVolatility,
+                    delta: matchedOption.delta,
+                    isLive: true,
+                    dataAgeMinutes: dataAgeMinutes,
+                    cboeTimestamp: cboeTimestamp,
+                    success: true
+                };
+            } else {
+                console.log(`[MATCH]   ❌ No match found, using Black-Scholes fallback`);
+                // Show sample of available strikes at nearest expiration
+                const nearestExp = optionsChain.expirations[0];
+                const sampleStrikes = options
+                    .filter(o => o.expiration === nearestExp)
+                    .map(o => o.strike)
+                    .slice(0, 10);
+                console.log(`[MATCH]   Sample strikes at ${nearestExp}: ${sampleStrikes.join(', ')}`);
+            }
         }
+        
+        // Fallback to Black-Scholes with estimated IV
+        const dte = Math.max(1, position.dte);
+        const T = dte / 365;
+        const r = 0.05;
+        const sigma = 0.30; // Fallback IV
+        
+        const price = blackScholesPrice(spot, strike, T, r, sigma, isPut);
+        
+        return {
+            spot,
+            optionPrice: Math.max(0.01, price),
+            isLive: false,
+            success: true
+        };
     } catch (e) {
         console.warn(`Failed to fetch price for ${position.ticker}:`, e.message);
     }
@@ -146,6 +240,13 @@ export async function renderPortfolio(fetchPrices = false) {
         // Prefer user's marked price over calculated price
         let currentPrice = pos.markedPrice || pos.lastOptionPrice || null;
         let currentSpot = pos.currentSpot || null;
+        let isLivePrice = false;
+        let optionIV = null;
+        let optionDelta = null;
+        let priceSource = null;
+        
+        let dataAgeMinutes = null;
+        let isStale = false;
         
         if (fetchPrices) {
             const result = await fetchCurrentOptionPrice(pos);
@@ -155,13 +256,43 @@ export async function renderPortfolio(fetchPrices = false) {
                 currentSpot = result.spot;
                 pos.currentSpot = currentSpot;
                 
-                // Only use calculated price if user hasn't marked a price
-                if (!pos.markedPrice) {
+                // Track if this is live CBOE data
+                isLivePrice = result.isLive || false;
+                optionIV = result.iv || null;
+                optionDelta = result.delta || null;
+                dataAgeMinutes = result.dataAgeMinutes || null;
+                priceSource = result.priceSource || null;
+                isStale = dataAgeMinutes !== null && dataAgeMinutes > 15;
+                
+                console.log(`[RENDER] ${pos.ticker}: markedPrice=${pos.markedPrice}, result.optionPrice=${result.optionPrice?.toFixed(2)}, isLive=${result.isLive}, source=${priceSource}, age=${dataAgeMinutes}min, stale=${isStale}`);
+                
+                // Live CBOE data takes precedence over marked prices
+                // Marked price is only used as fallback when live data unavailable
+                if (isLivePrice) {
                     currentPrice = result.optionPrice;
                     pos.lastOptionPrice = currentPrice;
+                    pos.isLivePrice = isLivePrice;
+                    pos.optionIV = optionIV;
+                    pos.optionDelta = optionDelta;
+                    pos.dataAgeMinutes = dataAgeMinutes;
+                    pos.isStale = isStale;
+                    pos.priceSource = priceSource;
+                    // Clear marked price when we have live data
+                    if (pos.markedPrice) {
+                        console.log(`[RENDER]   → Live ${priceSource} price $${currentPrice?.toFixed(2)} replaces marked price $${pos.markedPrice.toFixed(2)}`);
+                        delete pos.markedPrice;
+                    } else {
+                        console.log(`[RENDER]   → Using live ${priceSource} price: $${currentPrice?.toFixed(2)}`);
+                    }
+                } else if (!pos.markedPrice) {
+                    // Fallback: use calculated price if no marked price
+                    currentPrice = result.optionPrice;
+                    pos.lastOptionPrice = currentPrice;
+                    console.log(`[RENDER]   → Using calculated price: $${currentPrice?.toFixed(2)}`);
                 } else {
-                    // Keep using user's marked price
+                    // Keep using user's marked price (only for non-live data)
                     currentPrice = pos.markedPrice;
+                    console.log(`[RENDER]   → Using MARKED price: $${currentPrice?.toFixed(2)} (no live data)`);
                 }
                 
                 // Save updated spot to localStorage
@@ -182,6 +313,12 @@ export async function renderPortfolio(fetchPrices = false) {
             ...pos,
             currentSpot,
             currentPrice,
+            isLivePrice: isLivePrice || pos.isLivePrice || false,
+            optionIV: optionIV || pos.optionIV || null,
+            optionDelta: optionDelta || pos.optionDelta || null,
+            dataAgeMinutes: dataAgeMinutes || pos.dataAgeMinutes || null,
+            isStale: isStale || pos.isStale || false,
+            priceSource: priceSource || pos.priceSource || null,
             premiumReceived,
             currentValue,
             unrealizedPnL,
@@ -193,8 +330,13 @@ export async function renderPortfolio(fetchPrices = false) {
     
     // Show fetch result notification
     if (fetchPrices) {
+        const liveCount = positionData.filter(p => p.isLivePrice).length;
         if (fetchSuccessCount > 0) {
-            showNotification(`Updated ${fetchSuccessCount} position(s)`, 'success');
+            if (liveCount > 0) {
+                showNotification(`📡 Updated ${liveCount} with CBOE live prices`, 'success');
+            } else {
+                showNotification(`Updated ${fetchSuccessCount} position(s) (calculated)`, 'success');
+            }
         } else if (fetchFailCount > 0) {
             showNotification(`Failed to fetch prices - try again`, 'error');
         }
@@ -211,7 +353,8 @@ export async function renderPortfolio(fetchPrices = false) {
                     <th style="padding:10px; text-align:right;">Spot</th>
                     <th style="padding:10px; text-align:right;">DTE</th>
                     <th style="padding:10px; text-align:right;">Premium</th>
-                    <th style="padding:10px; text-align:right;">Current</th>
+                    <th style="padding:10px; text-align:right;" title="Price per contract when opened">Open</th>
+                    <th style="padding:10px; text-align:right;" title="Current market price per contract">Current</th>
                     <th style="padding:10px; text-align:right;">P&L</th>
                     <th style="padding:10px; text-align:center;">Actions</th>
                 </tr>
@@ -228,6 +371,23 @@ export async function renderPortfolio(fetchPrices = false) {
                     const isITM = pos.currentSpot !== null && 
                                   (isPut ? pos.currentSpot < pos.strike : pos.currentSpot > pos.strike);
                     const itmWarning = isITM ? '⚠️' : '';
+                    const totalPremium = pos.premium * 100 * pos.contracts;
+                    
+                    // Price change indicator (down is good for short options)
+                    const priceChange = pos.currentPrice && pos.premium ? pos.currentPrice - pos.premium : null;
+                    const priceChangeColor = priceChange === null ? '#888' : priceChange <= 0 ? '#00ff88' : '#ff5252';
+                    
+                    // Staleness indicator
+                    const staleWarning = pos.isStale ? `<span style="color:#ff9800; font-size:10px;" title="Data is ${pos.dataAgeMinutes}+ min old"> ⚠️</span>` : '';
+                    const freshCheck = !pos.isStale && pos.isLivePrice ? '<span style="color:#00ff88; font-size:10px;"> ✓</span>' : '';
+                    const priceIndicator = pos.markedPrice ? '<span style="color:#00d9ff; font-size:10px;"> ✓</span>' : 
+                                          pos.isLivePrice ? (staleWarning || freshCheck) :
+                                          pos.currentPrice ? '<span style="color:#888; font-size:10px;"> ~</span>' : '';
+                    
+                    // Tooltip with age info
+                    const currentTooltip = pos.markedPrice ? 'User-entered price' : 
+                                          pos.isLivePrice ? `CBOE ${pos.priceSource || 'mid'}-price${pos.dataAgeMinutes ? ' (' + pos.dataAgeMinutes + ' min ago)' : ''}${pos.optionIV ? ' | IV: ' + (pos.optionIV * 100).toFixed(0) + '%' : ''}` : 
+                                          'Calculated (BS model)';
                     
                     return `
                         <tr style="border-bottom:1px solid rgba(255,255,255,0.1); background:${pnlBg};">
@@ -236,11 +396,10 @@ export async function renderPortfolio(fetchPrices = false) {
                             <td style="padding:10px; text-align:right;">$${pos.strike.toFixed(2)}</td>
                             <td style="padding:10px; text-align:right;">${pos.currentSpot ? '$' + pos.currentSpot.toFixed(2) + ' ' + itmWarning : '—'}</td>
                             <td style="padding:10px; text-align:right; color:${pos.dte <= 7 ? '#ff5252' : pos.dte <= 14 ? '#ffaa00' : '#888'};">${pos.dte}d</td>
-                            <td style="padding:10px; text-align:right; color:#00ff88;">$${pos.premium.toFixed(2)} × ${pos.contracts}</td>
-                            <td style="padding:10px; text-align:right;" title="${pos.markedPrice ? 'User-entered price' : 'Calculated (may be inaccurate)'}">
-                                ${pos.currentPrice ? '$' + pos.currentPrice.toFixed(2) : '—'}
-                                ${pos.markedPrice ? '<span style="color:#00d9ff; font-size:10px;"> ✓</span>' : 
-                                  pos.currentPrice ? '<span style="color:#888; font-size:10px;"> ~</span>' : ''}
+                            <td style="padding:10px; text-align:right; color:#00ff88;" title="$${pos.premium.toFixed(2)} × ${pos.contracts} contracts">$${totalPremium.toFixed(0)}</td>
+                            <td style="padding:10px; text-align:right; color:#888;" title="Price received when opened">$${pos.premium.toFixed(2)}</td>
+                            <td style="padding:10px; text-align:right; color:${priceChangeColor};" title="${currentTooltip}">
+                                ${pos.currentPrice ? '$' + pos.currentPrice.toFixed(2) : '—'}${priceIndicator}
                             </td>
                             <td style="padding:10px; text-align:right; font-weight:bold; color:${pnlColor};">
                                 ${pos.unrealizedPnL !== null ? 
@@ -257,9 +416,16 @@ export async function renderPortfolio(fetchPrices = false) {
                                 </button>
                                 <button onclick="window.markPrice(${pos.id})" 
                                         style="background:#00d9ff; border:none; color:#000; padding:4px 8px; 
-                                               border-radius:4px; cursor:pointer; font-size:11px;"
+                                               border-radius:4px; cursor:pointer; font-size:11px; margin-right:4px;"
                                         title="Enter current option price from broker">
                                     ✎ Mark
+                                </button>
+                                <button onclick="window.showQuickLinkModal(${pos.id})" 
+                                        style="background:${pos.challengeIds?.length ? '#8b5cf6' : 'rgba(139,92,246,0.3)'}; 
+                                               border:none; color:#fff; padding:4px 8px; 
+                                               border-radius:4px; cursor:pointer; font-size:11px;"
+                                        title="${pos.challengeIds?.length ? 'Linked to ' + pos.challengeIds.length + ' challenge(s)' : 'Link to a challenge'}">
+                                    🏆${pos.challengeIds?.length ? ' ' + pos.challengeIds.length : ''}
                                 </button>
                             </td>
                         </tr>
@@ -269,9 +435,11 @@ export async function renderPortfolio(fetchPrices = false) {
         </table>
     `;
     
+    // Render closed positions first (initializes year filter)
+    renderClosedPositions();
+    // Then update summary (uses the year filter for performance stats)
     updatePortfolioSummary(positionData);
     renderHoldings();
-    renderClosedPositions();
 }
 
 /**
@@ -283,8 +451,19 @@ function updatePortfolioSummary(positionData) {
     const capitalRisk = positionData.reduce((sum, p) => sum + (p.strike * 100 * p.contracts), 0);
     const unrealizedPnL = positionData.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0);
     
-    // Realized P&L from closed positions (support both realizedPnL and closePnL field names)
-    const realizedPnL = (state.closedPositions || []).reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
+    // Filter closed positions by selected year
+    const allClosed = state.closedPositions || [];
+    const yearFilter = state.closedYearFilter || 'all';
+    const filteredClosed = yearFilter === 'all' 
+        ? allClosed 
+        : allClosed.filter(p => {
+            const closeDate = p.closeDate || '';
+            const match = closeDate.match(/^(\d{4})/);
+            return match && match[1] === yearFilter;
+        });
+    
+    // Realized P&L from filtered closed positions (support both field names)
+    const realizedPnL = filteredClosed.reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
     const totalPnL = unrealizedPnL + realizedPnL;
     
     // Update display
@@ -310,28 +489,31 @@ function updatePortfolioSummary(positionData) {
         totalEl.style.color = totalPnL >= 0 ? '#00ff88' : '#ff5252';
     }
     
-    // Performance stats from closed positions - filtered by selected year
-    const allClosed = state.closedPositions || [];
-    const yearFilter = state.closedYearFilter || 'all';
-    const closed = yearFilter === 'all' 
-        ? allClosed 
-        : allClosed.filter(p => {
-            const closeDate = p.closeDate || '';
-            const match = closeDate.match(/^(\d{4})/);
-            return match && match[1] === yearFilter;
-        });
-    
-    if (closed.length > 0) {
+    // Performance stats use the same filtered closed positions
+    if (filteredClosed.length > 0) {
         // Helper to get P&L from either field name
         const getPnL = (p) => p.realizedPnL ?? p.closePnL ?? 0;
         
-        const wins = closed.filter(p => getPnL(p) >= 0).length;
-        const winRate = (wins / closed.length) * 100;
-        const avgDays = closed.reduce((sum, p) => sum + (p.daysHeld || 0), 0) / closed.length;
+        // Helper to get days held - calculate from dates if not stored
+        const getDaysHeld = (p) => {
+            if (p.daysHeld) return p.daysHeld;
+            if (p.openDate && p.closeDate) {
+                const open = new Date(p.openDate);
+                const close = new Date(p.closeDate);
+                if (!isNaN(open) && !isNaN(close)) {
+                    return Math.max(0, Math.ceil((close - open) / (1000 * 60 * 60 * 24)));
+                }
+            }
+            return 0;
+        };
+        
+        const wins = filteredClosed.filter(p => getPnL(p) >= 0).length;
+        const winRate = (wins / filteredClosed.length) * 100;
+        const avgDays = filteredClosed.reduce((sum, p) => sum + getDaysHeld(p), 0) / filteredClosed.length;
         
         // Find best and worst trades
-        const bestTrade = closed.reduce((best, p) => getPnL(p) > getPnL(best) ? p : best, closed[0]);
-        const worstTrade = closed.reduce((worst, p) => getPnL(p) < getPnL(worst) ? p : worst, closed[0]);
+        const bestTrade = filteredClosed.reduce((best, p) => getPnL(p) > getPnL(best) ? p : best, filteredClosed[0]);
+        const worstTrade = filteredClosed.reduce((worst, p) => getPnL(p) < getPnL(worst) ? p : worst, filteredClosed[0]);
         
         setEl('portWinRate', winRate.toFixed(0) + '%');
         setEl('portAvgDays', avgDays.toFixed(0) + 'd');

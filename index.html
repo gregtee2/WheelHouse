@@ -15,6 +15,7 @@
         <div class="tabs">
             <button class="tab-btn active" data-tab="positions">📋 Positions</button>
             <button class="tab-btn" data-tab="portfolio">💼 Portfolio</button>
+            <button class="tab-btn" data-tab="challenges">🏆 Challenges</button>
             <button class="tab-btn" data-tab="options">📈 Options</button>
             <button class="tab-btn" data-tab="pnl">💰 P&L</button>
             <button class="tab-btn" data-tab="greeks">Δ Greeks</button>
@@ -128,8 +129,11 @@
                         <div id="dteDisplay" style="font-size:11px; color:#ffaa00; margin-top:2px;"></div>
                     </div>
                     
-                    <div style="display:flex; gap:6px; margin-top:10px;">
-                        <button id="syncToSimBtn" class="btn-secondary" style="flex:1; padding:6px; font-size:11px;">🔄 Sync</button>
+                    <div style="display:flex; gap:6px; margin-top:10px; align-items:center;">
+                        <label style="display:flex; align-items:center; gap:4px; font-size:11px; cursor:pointer;" title="Fetch live spot price and IV from CBOE before pricing">
+                            <input type="checkbox" id="syncCheckbox" checked style="cursor:pointer;">
+                            📡 Live
+                        </label>
                         <button id="priceBtn" class="btn-primary" style="flex:2; padding:6px; font-size:12px;">💵 Price Options</button>
                     </div>
                     <div class="running" id="optRunning"><div class="spinner"></div>Pricing...</div>
@@ -151,10 +155,13 @@
                 <!-- RIGHT: Results -->
                 <div class="options-results">
                     <div class="results-box options" style="margin-bottom:8px;">
-                        <h3 style="font-size:12px;">💰 Option Prices</h3>
+                        <h3 style="font-size:12px; display:flex; justify-content:space-between; align-items:center;">
+                            <span>💰 Option Prices</span>
+                            <span id="priceSource" style="font-size:9px; color:#888;"></span>
+                        </h3>
                         <div class="payoff-grid">
-                            <div class="payoff-card call"><div class="payoff-label">CALL</div><div class="payoff-value" id="callPrice">—</div></div>
-                            <div class="payoff-card put"><div class="payoff-label">PUT</div><div class="payoff-value" id="putPrice">—</div></div>
+                            <div class="payoff-card call"><div class="payoff-label">CALL</div><div class="payoff-value" id="callPrice" title="Hover for bid/ask">—</div></div>
+                            <div class="payoff-card put"><div class="payoff-label">PUT</div><div class="payoff-value" id="putPrice" title="Hover for bid/ask">—</div></div>
                         </div>
                         <div class="result-row"><span class="result-label">⏱️ Time:</span><span class="result-value" id="optTau">—</span></div>
                         <div class="result-row"><span class="result-label">📉 Below Strike:</span><span class="result-value put" id="optLower">—</span></div>
@@ -438,7 +445,11 @@
                 <div class="canvas-section" style="overflow-y: auto;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                         <h3 style="color:#00d9ff; margin:0;">💼 Portfolio P&L Tracker</h3>
-                        <div style="display:flex; gap:8px;">
+                        <div style="display:flex; gap:12px; align-items:center;">
+                            <label style="display:flex; align-items:center; gap:4px; font-size:12px; cursor:pointer; color:#aaa;" title="Auto-refresh prices every 60 seconds from CBOE">
+                                <input type="checkbox" id="autoRefreshCheckbox" style="cursor:pointer;">
+                                📡 Auto (60s)
+                            </label>
                             <button id="refreshPortfolioBtn" class="btn-primary" style="padding:6px 12px;">🔄 Refresh Prices</button>
                         </div>
                     </div>
@@ -536,6 +547,11 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- CHALLENGES TAB -->
+        <div class="tab-content" id="challenges">
+            <!-- Content rendered by challenges.js -->
         </div>
 
         <!-- DATA TAB -->

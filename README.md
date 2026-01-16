@@ -4,6 +4,17 @@
 
 A Monte Carlo-based options pricing and analysis tool designed specifically for the Wheel Strategy (selling cash-secured puts and covered calls).
 
+## 🚀 Quick Start (Windows)
+
+1. **Download** - Clone or download this repository
+2. **Install** - Double-click `install.bat` (installs Node.js if needed)
+3. **Run** - Double-click `start.bat`
+4. **Use** - Browser opens automatically to http://localhost:8888
+
+That's it! Your positions are saved locally in your browser.
+
+---
+
 ## Features
 
 ### 📊 Monte Carlo Simulation

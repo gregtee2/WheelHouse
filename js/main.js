@@ -9,6 +9,7 @@ import { calculateRoll, generateRecommendation } from './analysis.js';
 import { fetchTickerPrice, fetchHeatMapPrice, fetchPositionTickerPrice } from './api.js';
 import { loadPositions, addPosition, editPosition, cancelEdit, renderPositions, updatePortfolioSummary } from './positions.js';
 import { loadClosedPositions, renderPortfolio, renderHoldings } from './portfolio.js';
+import { initChallenges, renderChallenges } from './challenges.js';
 import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from './ui.js';
 import { showNotification } from './utils.js';
 
@@ -38,6 +39,7 @@ export function init() {
     // Load saved positions
     loadPositions();
     loadClosedPositions();
+    initChallenges();
     
     console.log('✅ Initialization complete');
 }
@@ -83,6 +85,8 @@ function setupTabs() {
             } else if (targetId === 'positions') {
                 renderPositions();
                 updatePortfolioSummary();
+            } else if (targetId === 'challenges') {
+                renderChallenges();
             }
         });
     });

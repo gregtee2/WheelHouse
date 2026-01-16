@@ -51,11 +51,22 @@ async function priceAtParams(S0, vol, paths) {
 
 /**
  * Main Monte Carlo option pricing
+ * If Sync checkbox is enabled, fetches live spot/IV from CBOE first
  */
 export async function priceOptions() {
     const optRunning = document.getElementById('optRunning');
     if (optRunning) optRunning.classList.add('active');
     await new Promise(r => setTimeout(r, 10));
+    
+    // Sync live data if enabled (updates state.spot and state.optVol)
+    const syncCheckbox = document.getElementById('syncCheckbox');
+    if (syncCheckbox?.checked && window.syncLiveOptionsData) {
+        try {
+            await window.syncLiveOptionsData();
+        } catch (e) {
+            console.warn('Live sync failed, using manual values:', e.message);
+        }
+    }
     
     let callSum = 0, putSum = 0;
     let belowStrikeCount = 0, aboveStrikeCount = 0;
@@ -95,9 +106,26 @@ export async function priceOptions() {
     const optTauEl = document.getElementById('optTau');
     const optLowerEl = document.getElementById('optLower');
     const optUpperEl = document.getElementById('optUpper');
+    const priceSourceEl = document.getElementById('priceSource');
     
-    if (callPriceEl) callPriceEl.textContent = '$' + callPrice.toFixed(2);
-    if (putPriceEl) putPriceEl.textContent = '$' + putPrice.toFixed(2);
+    // Only update prices if we didn't already show live prices
+    const showedLivePrices = syncCheckbox?.checked && state.liveOptionData?.callOption;
+    
+    if (!showedLivePrices) {
+        if (callPriceEl) {
+            callPriceEl.textContent = '$' + callPrice.toFixed(2);
+            callPriceEl.title = 'Monte Carlo calculated';
+        }
+        if (putPriceEl) {
+            putPriceEl.textContent = '$' + putPrice.toFixed(2);
+            putPriceEl.title = 'Monte Carlo calculated';
+        }
+        if (priceSourceEl) {
+            priceSourceEl.textContent = '🧮 Calculated';
+            priceSourceEl.style.color = '#888';
+        }
+    }
+    
     if (optTauEl) optTauEl.textContent = state.dte.toFixed(1) + ' days';
     if (optLowerEl) optLowerEl.textContent = (belowStrikeCount/state.mcPaths*100).toFixed(1) + '%';
     if (optUpperEl) optUpperEl.textContent = (aboveStrikeCount/state.mcPaths*100).toFixed(1) + '%';

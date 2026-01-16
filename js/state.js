@@ -49,7 +49,10 @@ export const state = {
     assigningPositionId: null,
     
     // Undo system - stores last destructive action
-    lastAction: null  // { type, data, timestamp }
+    lastAction: null,  // { type, data, timestamp }
+    
+    // Challenges
+    challenges: []
 };
 
 // Make state accessible globally for legacy compatibility
