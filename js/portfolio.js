@@ -836,6 +836,7 @@ function renderClosedPositions() {
                     <th style="padding:6px; text-align:right;">Days</th>
                     <th style="padding:6px; text-align:right;">P&L</th>
                     <th style="padding:6px; text-align:right;" title="Return on Capital at Risk">ROC%</th>
+                    <th style="padding:6px; text-align:center;" title="Link to another position's chain">🔗</th>
                     <th style="padding:6px; text-align:center;">🗑️</th>
                 </tr>
             </thead>
@@ -873,6 +874,7 @@ function renderClosedPositions() {
                     <td style="padding:8px; text-align:right; color:${pnlColor};">
                         ${chainRoc >= 0 ? '+' : ''}${chainRoc.toFixed(1)}%
                     </td>
+                    <td></td>
                     <td></td>
                 </tr>
             `;
@@ -915,6 +917,13 @@ function renderClosedPositions() {
                     </td>
                     <td style="padding:6px; text-align:right; color:${rocColor};">
                         ${roc >= 0 ? '+' : ''}${roc.toFixed(1)}%
+                    </td>
+                    <td style="padding:6px; text-align:center;">
+                        <button onclick="window.showLinkToChainModal(${pos.id})" 
+                                style="background:transparent; border:none; color:#6bf; cursor:pointer; font-size:11px;"
+                                title="Link to another position's roll chain">
+                            🔗
+                        </button>
                     </td>
                     <td style="padding:6px; text-align:center;">
                         <button onclick="window.deleteClosedPosition(${pos.id})" 
@@ -1436,3 +1445,168 @@ export function calledAway(positionId) {
     if (window.renderPositions) window.renderPositions();
 }
 window.calledAway = calledAway;
+
+/**
+ * Show modal to link a closed position to another position's chain
+ */
+window.showLinkToChainModal = function(positionId) {
+    // Find the position we're linking
+    const pos = (state.closedPositions || []).find(p => p.id === positionId);
+    if (!pos) {
+        console.error('Position not found:', positionId);
+        return;
+    }
+    
+    // Find all other positions with the same ticker that could be linked
+    const allPositions = [...(state.positions || []), ...(state.closedPositions || [])];
+    const sameTickerPositions = allPositions
+        .filter(p => p.ticker === pos.ticker && p.id !== positionId)
+        .sort((a, b) => new Date(b.openDate || 0) - new Date(a.openDate || 0));
+    
+    // Group by chainId to show chains
+    const chains = {};
+    sameTickerPositions.forEach(p => {
+        const chainKey = p.chainId || p.id;
+        if (!chains[chainKey]) {
+            chains[chainKey] = {
+                id: chainKey,
+                positions: [],
+                firstOpen: p.openDate,
+                lastClose: p.closeDate
+            };
+        }
+        chains[chainKey].positions.push(p);
+        if (p.openDate < chains[chainKey].firstOpen) chains[chainKey].firstOpen = p.openDate;
+        if (p.closeDate > chains[chainKey].lastClose) chains[chainKey].lastClose = p.closeDate;
+    });
+    
+    const chainList = Object.values(chains);
+    
+    const modal = document.createElement('div');
+    modal.id = 'linkChainModal';
+    modal.style.cssText = `
+        position:fixed; top:0; left:0; right:0; bottom:0; 
+        background:rgba(0,0,0,0.85); display:flex; align-items:center; 
+        justify-content:center; z-index:10000;
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    // Build chain options
+    let chainOptionsHtml = '';
+    if (chainList.length === 0) {
+        chainOptionsHtml = `
+            <div style="color:#888; padding:20px; text-align:center;">
+                No other ${pos.ticker} positions found to link with.
+            </div>
+        `;
+    } else {
+        chainOptionsHtml = chainList.map(chain => {
+            const posCount = chain.positions.length;
+            const dateRange = `${chain.firstOpen || '?'} → ${chain.lastClose || '?'}`;
+            const strikes = [...new Set(chain.positions.map(p => '$' + p.strike))].join(', ');
+            
+            return `
+                <div onclick="window.linkPositionToChain(${positionId}, ${chain.id})" 
+                     style="padding:15px; background:#0d0d1a; border:1px solid #333; border-radius:8px; 
+                            cursor:pointer; transition: all 0.2s; margin-bottom:10px;"
+                     onmouseover="this.style.borderColor='#0096ff'; this.style.background='#1a1a3e';"
+                     onmouseout="this.style.borderColor='#333'; this.style.background='#0d0d1a';">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="color:#00d9ff; font-weight:bold;">
+                            🔗 Chain with ${posCount} position${posCount > 1 ? 's' : ''}
+                        </span>
+                        <span style="color:#888; font-size:11px;">${dateRange}</span>
+                    </div>
+                    <div style="color:#aaa; font-size:12px; margin-top:6px;">
+                        Strikes: ${strikes}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    // Current chain info
+    const currentChainId = pos.chainId || pos.id;
+    const currentChainPositions = allPositions.filter(p => (p.chainId || p.id) === currentChainId);
+    const isAlreadyLinked = currentChainPositions.length > 1;
+    
+    modal.innerHTML = `
+        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border:1px solid #0096ff; 
+                    border-radius:16px; padding:30px; width:90%; max-width:500px; max-height:80vh; overflow-y:auto;
+                    box-shadow: 0 0 40px rgba(0, 150, 255, 0.3);">
+            
+            <h2 style="margin:0 0 10px 0; color:#fff; font-size:18px;">🔗 Link Position to Chain</h2>
+            
+            <div style="background:#0d0d1a; border-radius:8px; padding:12px; margin-bottom:20px;">
+                <div style="color:#888; font-size:11px; margin-bottom:4px;">LINKING THIS POSITION:</div>
+                <div style="color:#00d9ff; font-weight:bold;">
+                    ${pos.ticker} • $${pos.strike} ${pos.type?.replace('_', ' ') || 'PUT'}
+                </div>
+                <div style="color:#888; font-size:12px;">
+                    ${pos.openDate || '?'} → ${pos.closeDate || '?'}
+                </div>
+                ${isAlreadyLinked ? `
+                <div style="margin-top:8px; padding:6px 10px; background:rgba(255,170,0,0.15); border-radius:4px; color:#ffaa00; font-size:11px;">
+                    ⚠️ Already linked to a chain with ${currentChainPositions.length} positions
+                </div>
+                ` : ''}
+            </div>
+            
+            <div style="color:#888; font-size:12px; margin-bottom:12px;">
+                Select a chain to link this position to:
+            </div>
+            
+            ${chainOptionsHtml}
+            
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
+                ${isAlreadyLinked ? `
+                <button onclick="window.unlinkPositionFromChain(${positionId})" 
+                        style="background:#ff5252; border:none; color:#fff; padding:10px 20px; 
+                               border-radius:6px; cursor:pointer; font-size:13px;">
+                    Unlink from Chain
+                </button>
+                ` : ''}
+                <button onclick="document.getElementById('linkChainModal').remove()" 
+                        style="background:#333; border:none; color:#fff; padding:10px 20px; 
+                               border-radius:6px; cursor:pointer; font-size:13px;">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
+ * Link a position to an existing chain
+ */
+window.linkPositionToChain = function(positionId, targetChainId) {
+    const pos = (state.closedPositions || []).find(p => p.id === positionId);
+    if (!pos) return;
+    
+    pos.chainId = targetChainId;
+    saveClosedPositions();
+    
+    document.getElementById('linkChainModal')?.remove();
+    
+    showNotification(`✅ Position linked to chain`, 'success');
+    renderPortfolio(false);
+};
+
+/**
+ * Unlink a position from its chain (give it its own unique chainId)
+ */
+window.unlinkPositionFromChain = function(positionId) {
+    const pos = (state.closedPositions || []).find(p => p.id === positionId);
+    if (!pos) return;
+    
+    // Give it a unique chainId (its own id)
+    pos.chainId = pos.id;
+    saveClosedPositions();
+    
+    document.getElementById('linkChainModal')?.remove();
+    
+    showNotification(`Position unlinked - now standalone`, 'info');
+    renderPortfolio(false);
+};
