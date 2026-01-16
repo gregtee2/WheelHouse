@@ -154,45 +154,45 @@ const PORT = process.env.PORT || 8888;
 
 ## 📊 Screenshots
 
-### Simulator - Monte Carlo Brownian Motion
-![Simulator](screencaps/01-simulator.png)
-*Run thousands of price path simulations to see probability distributions. Visualize how often positions expire ITM vs OTM with configurable volatility and DTE parameters.*
+### Portfolio - Open Positions Dashboard
+![Portfolio](screencaps/01-portfolio.png)
+*Your main dashboard showing all open wheel positions at a glance. View DTE, premium collected, capital at risk, and live P&L across your entire portfolio.*
 
 ---
 
-### Options Pricing - Black-Scholes & Greeks
-![Options Pricing](screencaps/02-options-pricing.png)
-*Calculate theoretical option prices using both Black-Scholes and Monte Carlo methods. View all Greeks (Delta, Gamma, Theta, Vega) and interactive payoff diagrams.*
-
----
-
-### Open Positions - Live Tracking
-![Open Positions](screencaps/03-positions-open.png)
-*Track all your open wheel positions with real-time CBOE pricing. See DTE, current P&L, and staleness indicators. Mark prices manually or let CBOE auto-update.*
-
----
-
-### Portfolio Summary - Capital at Risk
-![Portfolio Summary](screencaps/04-portfolio-summary.png)
-*Bird's eye view of your portfolio: total premium collected, capital at risk, weighted ROC, and live unrealized P&L across all positions.*
-
----
-
-### Closed Positions - Trade History & Analysis
-![Closed Positions](screencaps/05-closed-positions.png)
-*Full audit trail of closed trades with Expiry dates, Days Held, Days Left (how early you exited), P&L, ROC%, and the "Left on Table" self-torture column. Track roll chains across multiple legs.*
+### Positions - Live Tracking with CBOE Prices
+![Positions](screencaps/02-positions.png)
+*Detailed position view with real-time CBOE pricing. See current option prices, staleness indicators, unrealized P&L, and quick actions for rolling, closing, or analyzing each trade.*
 
 ---
 
 ### Trading Challenges - Goal Tracking
-![Challenges](screencaps/06-challenges.png)
-*Create time-bound trading challenges (e.g., "$3K in January"). Track progress with "To Go" stat, realized vs unrealized P&L, and only count positions opened within the challenge period for honest tracking.*
+![Challenges](screencaps/03-challenges.png)
+*Create time-bound trading challenges (e.g., "$3K in January"). Track progress with the "To Go" stat, realized vs unrealized P&L, and only positions opened within the challenge period count for honest tracking.*
 
 ---
 
-### Stock Holdings - Assignment Tracker
-![Holdings](screencaps/07-holdings.png)
-*Track shares from put assignments. Manage cost basis and integrate with covered call positions for the next leg of the wheel.*
+### Options Pricing - Black-Scholes & Monte Carlo
+![Options](screencaps/04-options.png)
+*Calculate theoretical option prices using both Black-Scholes and Monte Carlo methods. View probability of profit, expected value, and risk/reward analysis before entering trades.*
+
+---
+
+### P&L - Closed Positions & Trade History
+![P&L](screencaps/05-pnl.png)
+*Full audit trail of closed trades with Expiry dates, Days Held, Days Left (how early you exited), P&L, ROC%, and the "Left on Table" self-torture column. Track roll chains across multiple legs.*
+
+---
+
+### Simulator - Monte Carlo Brownian Motion
+![Simulator](screencaps/06-simulator.png)
+*Run thousands of price path simulations to visualize probability distributions. See how often positions expire ITM vs OTM with configurable volatility and DTE parameters.*
+
+---
+
+### Trade Metrics - Risk Analysis Panel
+![Trade Metrics](screencaps/07-trade-metrics.png)
+*Real-time risk assessment showing assignment probability, ROC, annualized returns, risk/reward ratio, win probability, Kelly criterion, and expected loss if assigned. The "Moderate Risk - WATCH" banner gives actionable guidance.*
 
 ---
 
