@@ -256,7 +256,8 @@ export async function calculateRoll() {
     
     const newStrike = parseFloat(newStrikeEl?.value || '95');
     const newDte = parseInt(newDteEl?.value || '45');
-    const rollCredit = parseFloat(rollCreditEl?.value || '0.50');
+    const rollCreditPerContract = parseFloat(rollCreditEl?.value || '50'); // Per contract (100 shares)
+    const rollCredit = rollCreditPerContract / 100; // Convert to per-share for calculations
     
     // Simulate new position
     let newBelowCount = 0;
@@ -275,13 +276,14 @@ export async function calculateRoll() {
     }
     
     const newRisk = (newBelowCount / quickPaths) * 100;
-    const totalPremium = currentPremium + rollCredit;
+    const totalPremiumPerShare = currentPremium + rollCredit;
+    const totalPremiumPerContract = totalPremiumPerShare * 100;
     
     setEl('rollNewStrikeDisp', '$' + newStrike.toFixed(2));
     setEl('rollNewDteDisp', newDte + ' days');
     setEl('rollNewRisk', newRisk.toFixed(1) + '%');
-    setEl('rollTotalPremium', '$' + totalPremium.toFixed(2));
-    setEl('rollNetCredit', '$' + rollCredit.toFixed(2));
+    setEl('rollTotalPremium', '$' + totalPremiumPerContract.toFixed(0));
+    setEl('rollNetCredit', '$' + rollCreditPerContract.toFixed(0));
     
     const riskChange = currentRisk - newRisk;
     const timeChange = newDte - currentDte;
@@ -292,7 +294,7 @@ export async function calculateRoll() {
         comparison += `⚠️ Risk increased by ${Math.abs(riskChange).toFixed(1)}%<br>`;
     }
     comparison += `📅 Added ${timeChange} days (${newDte} DTE total)<br>`;
-    comparison += `💰 Net credit: $${(rollCredit * 100).toFixed(0)} per contract<br>`;
+    comparison += `💰 Net credit: $${rollCreditPerContract.toFixed(0)} per contract<br>`;
     comparison += `<br><b>Verdict:</b> ${riskChange > 5 ? '✅ Good roll!' : riskChange > 0 ? '👍 Decent roll' : '⚠️ Not recommended'}`;
     
     const rollCompEl = document.getElementById('rollComparison');
@@ -388,8 +390,9 @@ export async function suggestOptimalRoll() {
                 p.strike === testStrike && p.expiration === expiration
             );
             
-            // Use real bid price if available, otherwise estimate
-            const realBid = option?.bid || 0;
+            // Use real bid price if available (per share), convert to per contract
+            const realBidPerShare = option?.bid || 0;
+            const realBidPerContract = realBidPerShare * 100;
             
             // Monte Carlo for ITM probability
             let belowCount = 0;
@@ -408,8 +411,8 @@ export async function suggestOptimalRoll() {
             const timeAdded = dteVal - currentDte;
             
             // Score: prioritize risk reduction, then premium, then time
-            // Use real bid for premium component
-            const score = (riskReduction * 3) + (realBid * 2) + (timeAdded * 0.1);
+            // Use real bid (per share) for premium component
+            const score = (riskReduction * 3) + (realBidPerShare * 2) + (timeAdded * 0.1);
             
             candidates.push({
                 strike: testStrike,
@@ -418,7 +421,7 @@ export async function suggestOptimalRoll() {
                 risk: newRisk,
                 riskChange: riskReduction,
                 timeAdded: timeAdded,
-                realBid: realBid,
+                realBidPerContract: realBidPerContract,
                 score: score
             });
         }
@@ -441,7 +444,7 @@ export async function suggestOptimalRoll() {
         const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
         const riskColor = c.riskChange > 0 ? '#00ff88' : '#ff5252';
         const riskIcon = c.riskChange > 0 ? '↓' : '↑';
-        const bidDisplay = c.realBid > 0 ? `$${c.realBid.toFixed(2)} bid` : 'no bid';
+        const bidDisplay = c.realBidPerContract > 0 ? `$${c.realBidPerContract.toFixed(0)} credit` : 'no bid';
         
         // Format expiration date nicely (e.g., "Feb 21")
         const expDate = new Date(c.expiration + 'T00:00:00');
