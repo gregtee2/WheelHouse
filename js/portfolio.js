@@ -839,6 +839,7 @@ function renderClosedPositions() {
                     <th style="padding:6px; text-align:right;" title="Days left until expiry when closed (how early you exited)">Left</th>
                     <th style="padding:6px; text-align:right;">P&L</th>
                     <th style="padding:6px; text-align:right;" title="Return on Capital at Risk">ROC%</th>
+                    <th style="padding:6px; text-align:right;" title="Money left on table by closing early (max profit - actual). Assumes option would have expired OTM.">Left $</th>
                     <th style="padding:6px; text-align:center;" title="Link to another position's chain">🔗</th>
                     <th style="padding:6px; text-align:center;">🗑️</th>
                 </tr>
@@ -879,6 +880,7 @@ function renderClosedPositions() {
                     </td>
                     <td></td>
                     <td></td>
+                    <td></td>
                 </tr>
             `;
         }
@@ -897,6 +899,19 @@ function renderClosedPositions() {
             const capitalAtRisk = pos.strike * 100 * (pos.contracts || 1);
             const roc = capitalAtRisk > 0 ? (pnl / capitalAtRisk) * 100 : 0;
             const rocColor = roc >= 0 ? '#00ff88' : '#ff5252';
+            
+            // Calculate "left on table" - what you could have made if expired worthless
+            // Max profit = full premium received (option expires worthless)
+            // Left on table = max profit - actual P&L
+            const contracts = pos.contracts || 1;
+            const maxProfit = pos.premium * 100 * contracts;  // Full premium if expired OTM
+            const leftOnTable = maxProfit - pnl;
+            // Color: red if significant, orange if moderate, gray if minimal
+            let leftColor = '#888';
+            if (leftOnTable > maxProfit * 0.5) leftColor = '#ff5252';  // Left more than 50%
+            else if (leftOnTable > maxProfit * 0.25) leftColor = '#ff9800';  // Left 25-50%
+            else if (leftOnTable > 0) leftColor = '#ffaa00';  // Left something
+            // Note: if leftOnTable is negative, they made MORE than max (shouldn't happen for short options)
             
             // Calculate days held if missing but dates available
             let daysHeld = pos.daysHeld;
@@ -939,6 +954,10 @@ function renderClosedPositions() {
                     </td>
                     <td style="padding:6px; text-align:right; color:${rocColor};">
                         ${roc >= 0 ? '+' : ''}${roc.toFixed(1)}%
+                    </td>
+                    <td style="padding:6px; text-align:right; color:${leftColor}; font-size:11px;" 
+                        title="Max profit if expired worthless: $${maxProfit.toFixed(0)}. You captured ${((pnl/maxProfit)*100).toFixed(0)}% of max.">
+                        ${leftOnTable > 0 ? '-$' + leftOnTable.toFixed(0) : '—'}
                     </td>
                     <td style="padding:6px; text-align:center;">
                         <button onclick="window.showLinkToChainModal(${pos.id})" 
