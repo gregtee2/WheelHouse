@@ -1133,11 +1133,19 @@ export function analyzeFromPortfolio(id) {
         optionsTab.click();
     }
     
-    // Trigger price fetch for AI analysis (with slight delay for tab switch)
+    // Trigger price fetch, then auto-run pricing analysis
     setTimeout(() => {
         const fetchBtn = document.getElementById('fetchTickerBtn');
         if (fetchBtn) {
             fetchBtn.click();
+            
+            // After fetch completes, automatically run pricing
+            setTimeout(() => {
+                const priceBtn = document.getElementById('priceBtn');
+                if (priceBtn) {
+                    priceBtn.click();
+                }
+            }, 800); // Wait for fetch to complete
         }
     }, 300);
     
