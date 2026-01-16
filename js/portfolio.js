@@ -943,7 +943,10 @@ function renderClosedPositions() {
                     <td style="padding:6px; ${indentStyle} color:#00d9ff;">${legLabel}${pos.ticker}</td>
                     <td style="padding:6px;">${pos.type.replace('_', ' ')}</td>
                     <td style="padding:6px; text-align:right;">$${pos.strike.toFixed(2)}</td>
-                    <td style="padding:6px; text-align:right;">$${pos.premium.toFixed(2)} × ${pos.contracts || 1}</td>
+                    <td style="padding:6px; text-align:right;" title="$${pos.premium.toFixed(2)} × ${pos.contracts || 1} contracts × 100 shares">
+                        <span style="color:#00ff88; font-weight:bold;">$${(pos.premium * 100 * (pos.contracts || 1)).toFixed(0)}</span>
+                        <span style="color:#666; font-size:10px; margin-left:4px;">(${pos.premium.toFixed(2)}×${pos.contracts || 1})</span>
+                    </td>
                     <td style="padding:6px; text-align:center; color:#888; font-size:11px;">${pos.openDate || '—'}</td>
                     <td style="padding:6px; text-align:center; color:#888; font-size:11px;">${pos.closeDate}</td>
                     <td style="padding:6px; text-align:center; color:#888; font-size:11px;" title="${pos.expiry || 'No expiry date'}">${expiryDisplay}</td>
