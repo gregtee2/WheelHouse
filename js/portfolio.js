@@ -834,7 +834,9 @@ function renderClosedPositions() {
                     <th style="padding:6px; text-align:right;">Premium</th>
                     <th style="padding:6px; text-align:center;">Opened</th>
                     <th style="padding:6px; text-align:center;">Closed</th>
-                    <th style="padding:6px; text-align:right;">Days</th>
+                    <th style="padding:6px; text-align:center;">Expiry</th>
+                    <th style="padding:6px; text-align:right;" title="Days position was held">Held</th>
+                    <th style="padding:6px; text-align:right;" title="Days left until expiry when closed (how early you exited)">Left</th>
                     <th style="padding:6px; text-align:right;">P&L</th>
                     <th style="padding:6px; text-align:right;" title="Return on Capital at Risk">ROC%</th>
                     <th style="padding:6px; text-align:center;" title="Link to another position's chain">🔗</th>
@@ -863,7 +865,7 @@ function renderClosedPositions() {
             const chainRoc = chainCapital > 0 ? (chain.totalPnL / chainCapital) * 100 : 0;
             html += `
                 <tr style="background:rgba(0,217,255,0.08); border-top:2px solid rgba(0,217,255,0.3);">
-                    <td colspan="7" style="padding:8px; color:#00d9ff; font-weight:bold;">
+                    <td colspan="9" style="padding:8px; color:#00d9ff; font-weight:bold;">
                         🔗 ${chain.ticker} Chain (${chain.positions.length} legs)
                         <span style="color:#888; font-weight:normal; margin-left:10px;">
                             ${chain.firstOpen || '?'} → ${chain.lastClose || '?'}
@@ -904,6 +906,23 @@ function renderClosedPositions() {
                 daysHeld = Math.max(0, Math.ceil((close - open) / (1000 * 60 * 60 * 24)));
             }
             
+            // Calculate days left until expiry when closed (how early you exited)
+            let daysLeft = null;
+            let daysLeftColor = '#888';
+            if (pos.expiry && pos.closeDate) {
+                const close = new Date(pos.closeDate);
+                const expiry = new Date(pos.expiry);
+                daysLeft = Math.ceil((expiry - close) / (1000 * 60 * 60 * 24));
+                // Color code: green if closed well before expiry (good management), orange if close to expiry
+                if (daysLeft > 14) daysLeftColor = '#00ff88';  // Exited with plenty of time
+                else if (daysLeft > 7) daysLeftColor = '#ffaa00';  // Getting close
+                else if (daysLeft > 0) daysLeftColor = '#ff9800';  // Very close to expiry
+                else daysLeftColor = '#888';  // Held to or past expiry
+            }
+            
+            // Format expiry for display (shorter format)
+            const expiryDisplay = pos.expiry ? pos.expiry.substring(5) : '—'; // Show MM-DD only
+            
             html += `
                 <tr style="${rowBorder}">
                     <td style="padding:6px; ${indentStyle} color:#00d9ff;">${legLabel}${pos.ticker}</td>
@@ -912,7 +931,9 @@ function renderClosedPositions() {
                     <td style="padding:6px; text-align:right;">$${pos.premium.toFixed(2)} × ${pos.contracts || 1}</td>
                     <td style="padding:6px; text-align:center; color:#888; font-size:11px;">${pos.openDate || '—'}</td>
                     <td style="padding:6px; text-align:center; color:#888; font-size:11px;">${pos.closeDate}</td>
+                    <td style="padding:6px; text-align:center; color:#888; font-size:11px;" title="${pos.expiry || 'No expiry date'}">${expiryDisplay}</td>
                     <td style="padding:6px; text-align:right;">${daysHeld ?? '—'}d</td>
+                    <td style="padding:6px; text-align:right; color:${daysLeftColor};" title="Days remaining until expiry when you closed">${daysLeft !== null ? daysLeft + 'd' : '—'}</td>
                     <td style="padding:6px; text-align:right; font-weight:bold; color:${pnl >= 0 ? '#00ff88' : '#ff5252'};">
                         ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}
                     </td>
