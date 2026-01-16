@@ -144,16 +144,14 @@ export function getChallengePositions(challengeId) {
     const end = new Date(challenge.endDate);
     end.setHours(23, 59, 59, 999); // Include full end day
     
-    // Get positions that are tagged to this challenge OR fall within date range
+    // Get positions that are tagged to this challenge OR opened within date range
+    // Only positions OPENED during challenge count - keeps challenges honest!
+    // (Can't "pre-load" positions before challenge starts)
     const isInDateRange = (pos) => {
         const openDate = pos.openDate ? new Date(pos.openDate) : null;
-        const closeDate = pos.closeDate ? new Date(pos.closeDate) : null;
         
-        // Position opened during challenge period
+        // Position must be opened during challenge period
         if (openDate && openDate >= start && openDate <= end) return true;
-        
-        // Position closed during challenge period
-        if (closeDate && closeDate >= start && closeDate <= end) return true;
         
         return false;
     };
