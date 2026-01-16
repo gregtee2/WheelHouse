@@ -310,16 +310,28 @@ function updatePortfolioSummary(positionData) {
         totalEl.style.color = totalPnL >= 0 ? '#00ff88' : '#ff5252';
     }
     
-    // Performance stats from closed positions
-    const closed = state.closedPositions || [];
+    // Performance stats from closed positions - filtered by selected year
+    const allClosed = state.closedPositions || [];
+    const yearFilter = state.closedYearFilter || 'all';
+    const closed = yearFilter === 'all' 
+        ? allClosed 
+        : allClosed.filter(p => {
+            const closeDate = p.closeDate || '';
+            const match = closeDate.match(/^(\d{4})/);
+            return match && match[1] === yearFilter;
+        });
+    
     if (closed.length > 0) {
-        const wins = closed.filter(p => p.realizedPnL >= 0).length;
+        // Helper to get P&L from either field name
+        const getPnL = (p) => p.realizedPnL ?? p.closePnL ?? 0;
+        
+        const wins = closed.filter(p => getPnL(p) >= 0).length;
         const winRate = (wins / closed.length) * 100;
         const avgDays = closed.reduce((sum, p) => sum + (p.daysHeld || 0), 0) / closed.length;
         
         // Find best and worst trades
-        const bestTrade = closed.reduce((best, p) => (p.realizedPnL || 0) > (best.realizedPnL || 0) ? p : best, closed[0]);
-        const worstTrade = closed.reduce((worst, p) => (p.realizedPnL || 0) < (worst.realizedPnL || 0) ? p : worst, closed[0]);
+        const bestTrade = closed.reduce((best, p) => getPnL(p) > getPnL(best) ? p : best, closed[0]);
+        const worstTrade = closed.reduce((worst, p) => getPnL(p) < getPnL(worst) ? p : worst, closed[0]);
         
         setEl('portWinRate', winRate.toFixed(0) + '%');
         setEl('portAvgDays', avgDays.toFixed(0) + 'd');
@@ -327,7 +339,7 @@ function updatePortfolioSummary(positionData) {
         // Best trade (always positive, green)
         const bestEl = document.getElementById('portBestTrade');
         if (bestEl) {
-            const bestPnL = bestTrade.realizedPnL || 0;
+            const bestPnL = getPnL(bestTrade);
             bestEl.textContent = (bestPnL >= 0 ? '+$' : '-$') + Math.abs(bestPnL).toFixed(0);
             bestEl.style.color = '#00ff88';
             bestEl.style.cursor = 'pointer';
@@ -338,13 +350,19 @@ function updatePortfolioSummary(positionData) {
         // Worst trade (may be negative, red)
         const worstEl = document.getElementById('portWorstTrade');
         if (worstEl) {
-            const worstPnL = worstTrade.realizedPnL || 0;
+            const worstPnL = getPnL(worstTrade);
             worstEl.textContent = (worstPnL >= 0 ? '+$' : '-$') + Math.abs(worstPnL).toFixed(0);
             worstEl.style.color = worstPnL >= 0 ? '#ffaa00' : '#ff5252';
             worstEl.style.cursor = 'pointer';
             worstEl.title = `Click to see details`;
             worstEl.onclick = () => showTradeDetails(worstTrade, 'Worst Trade');
         }
+    } else {
+        // No closed positions for this filter - show defaults
+        setEl('portWinRate', '—');
+        setEl('portAvgDays', '—');
+        setEl('portBestTrade', '—');
+        setEl('portWorstTrade', '—');
     }
 }
 
@@ -352,7 +370,7 @@ function updatePortfolioSummary(positionData) {
  * Show trade details in a notification or alert
  */
 function showTradeDetails(trade, label) {
-    const pnl = trade.realizedPnL || 0;
+    const pnl = trade.realizedPnL ?? trade.closePnL ?? 0;
     const pnlStr = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(0);
     const msg = `${label}: ${trade.ticker} ${trade.type.replace('_', ' ')}\n` +
                 `Strike: $${trade.strike.toFixed(2)}\n` +
@@ -524,7 +542,9 @@ function renderClosedPositions() {
     // Get available years from closed positions
     const years = [...new Set(allClosed.map(p => {
         const closeDate = p.closeDate || '';
-        return closeDate.split('-')[0];
+        // Extract 4-digit year from start of date string
+        const match = closeDate.match(/^(\d{4})/);
+        return match ? match[1] : null;
     }).filter(y => y))].sort().reverse();
     
     // Current filter (stored in state)
@@ -537,10 +557,19 @@ function renderClosedPositions() {
         state.closedYearFilter = hasCurrentYearPositions ? currentYear : 'all';
     }
     
+    // Validate filter - if selected year doesn't exist in data, reset to 'all'
+    if (state.closedYearFilter !== 'all' && !years.includes(state.closedYearFilter)) {
+        state.closedYearFilter = 'all';
+    }
+    
     // Filter positions by selected year (based on CLOSE date for tax purposes)
     const closed = state.closedYearFilter === 'all' 
         ? allClosed 
-        : allClosed.filter(p => (p.closeDate || '').startsWith(state.closedYearFilter));
+        : allClosed.filter(p => {
+            const closeDate = p.closeDate || '';
+            const match = closeDate.match(/^(\d{4})/);
+            return match && match[1] === state.closedYearFilter;
+        });
     
     // Calculate YTD P&L (current year only) - support both realizedPnL and closePnL
     const ytdPnL = allClosed
@@ -755,6 +784,8 @@ function attachYearFilterListener() {
         filterEl.onchange = (e) => {
             state.closedYearFilter = e.target.value;
             renderClosedPositions();
+            // Also update Portfolio Summary to reflect filtered stats
+            renderPortfolio(false);
         };
     }
 }
