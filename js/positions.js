@@ -97,6 +97,138 @@ export function getSpreadExplanation(pos) {
 }
 
 /**
+ * Check if a position has roll history (other positions in its chain)
+ */
+function hasRollHistory(pos) {
+    const chainId = pos.chainId || pos.id;
+    const allPositions = [...(state.positions || []), ...(state.closedPositions || [])];
+    return allPositions.filter(p => (p.chainId || p.id) === chainId).length > 1;
+}
+
+/**
+ * Show roll history modal for a position chain
+ */
+window.showRollHistory = function(chainId) {
+    // Find all positions in this chain (open + closed)
+    const allPositions = [...(state.positions || []), ...(state.closedPositions || [])];
+    const chainPositions = allPositions
+        .filter(p => (p.chainId || p.id) === chainId)
+        .sort((a, b) => new Date(a.openDate || 0) - new Date(b.openDate || 0));
+    
+    if (chainPositions.length === 0) {
+        console.error('No positions found for chain:', chainId);
+        return;
+    }
+    
+    // Calculate total premium collected across the chain
+    const totalPremium = chainPositions.reduce((sum, p) => sum + (p.premium * 100 * p.contracts), 0);
+    const ticker = chainPositions[0]?.ticker || 'Unknown';
+    
+    const modal = document.createElement('div');
+    modal.id = 'rollHistoryModal';
+    modal.style.cssText = `
+        position:fixed; top:0; left:0; right:0; bottom:0; 
+        background:rgba(0,0,0,0.85); display:flex; align-items:center; 
+        justify-content:center; z-index:10000;
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    // Build timeline HTML
+    let timelineHtml = '';
+    chainPositions.forEach((pos, idx) => {
+        const isOpen = pos.status === 'open';
+        const isCurrent = idx === chainPositions.length - 1 && isOpen;
+        const statusColor = isOpen ? '#00ff88' : '#888';
+        const statusText = isOpen ? 'OPEN' : (pos.closeReason || 'CLOSED');
+        const premium = pos.premium * 100 * pos.contracts;
+        
+        // Determine if debit or credit
+        const isDebit = pos.type?.includes('debit');
+        const premiumColor = isDebit ? '#ff5252' : '#00ff88';
+        const premiumSign = isDebit ? '-' : '+';
+        
+        // Strike display
+        let strikeDisplay = '';
+        if (pos.type?.includes('_spread')) {
+            strikeDisplay = `$${pos.buyStrike}/$${pos.sellStrike}`;
+        } else {
+            strikeDisplay = `$${pos.strike}`;
+        }
+        
+        timelineHtml += `
+            <div style="display:flex; align-items:flex-start; gap:15px; padding:15px 0; 
+                        ${idx < chainPositions.length - 1 ? 'border-bottom:1px solid #333;' : ''}">
+                <div style="width:30px; text-align:center;">
+                    <div style="width:12px; height:12px; border-radius:50%; 
+                                background:${isCurrent ? '#00d9ff' : statusColor}; 
+                                margin:4px auto;
+                                ${isCurrent ? 'box-shadow: 0 0 10px #00d9ff;' : ''}"></div>
+                    ${idx < chainPositions.length - 1 ? `
+                    <div style="width:2px; height:30px; background:#333; margin:0 auto;"></div>
+                    ` : ''}
+                </div>
+                <div style="flex:1;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <span style="color:#fff; font-weight:bold;">
+                            ${idx === 0 ? '🎬 Original' : '🔄 Roll #' + idx}
+                        </span>
+                        <span style="color:${statusColor}; font-size:11px; padding:2px 8px; 
+                                     background:${statusColor}22; border-radius:10px;">
+                            ${statusText}
+                        </span>
+                    </div>
+                    <div style="color:#aaa; font-size:13px;">
+                        <span style="color:#888;">${pos.type?.replace(/_/g, ' ').toUpperCase() || 'PUT'}</span>
+                        &nbsp;•&nbsp; Strike: <span style="color:#fff;">${strikeDisplay}</span>
+                        &nbsp;•&nbsp; Exp: <span style="color:#fff;">${pos.expiry || 'N/A'}</span>
+                    </div>
+                    <div style="margin-top:6px; display:flex; gap:20px; font-size:12px;">
+                        <span>Premium: <span style="color:${premiumColor}; font-weight:bold;">${premiumSign}$${premium.toFixed(0)}</span></span>
+                        ${pos.openDate ? `<span style="color:#666;">Opened: ${pos.openDate}</span>` : ''}
+                        ${pos.closeDate ? `<span style="color:#666;">Closed: ${pos.closeDate}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    modal.innerHTML = `
+        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border:1px solid #0096ff; 
+                    border-radius:16px; padding:30px; width:90%; max-width:550px; max-height:85vh; overflow-y:auto;
+                    box-shadow: 0 0 40px rgba(0, 150, 255, 0.3);">
+            
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:25px;">
+                <span style="font-size:32px;">🔗</span>
+                <div>
+                    <h2 style="margin:0; color:#fff; font-size:20px;">Roll History: ${ticker}</h2>
+                    <div style="color:#888; font-size:13px;">${chainPositions.length} position${chainPositions.length > 1 ? 's' : ''} in chain</div>
+                </div>
+            </div>
+            
+            <div style="background:#0d0d1a; border-radius:10px; padding:20px; margin-bottom:20px;">
+                ${timelineHtml}
+            </div>
+            
+            <div style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); 
+                        border-radius:10px; padding:15px; margin-bottom:20px; text-align:center;">
+                <div style="color:#888; font-size:11px; margin-bottom:4px;">TOTAL PREMIUM COLLECTED</div>
+                <div style="color:#00ff88; font-size:24px; font-weight:bold;">$${totalPremium.toFixed(0)}</div>
+            </div>
+            
+            <div style="display:flex; justify-content:center;">
+                <button onclick="document.getElementById('rollHistoryModal').remove()" 
+                        style="background:#0096ff; border:none; color:#fff; padding:12px 40px; 
+                               border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;">
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
  * Show AI-style spread explanation modal
  */
 window.showSpreadExplanation = function(posId) {
@@ -1159,6 +1291,11 @@ export function renderPositions() {
                     <button onclick="window.rollPosition(${pos.id})" 
                             style="display:inline-block; background: rgba(140,80,160,0.3); border: 1px solid rgba(140,80,160,0.5); color: #b9b; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
                             title="Roll">🔄</button>
+                    ${hasRollHistory(pos) ? `
+                    <button onclick="window.showRollHistory(${pos.chainId || pos.id})" 
+                            style="display:inline-block; background: rgba(0,150,255,0.3); border: 1px solid rgba(0,150,255,0.5); color: #6bf; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            title="View Roll History">🔗</button>
+                    ` : ''}
                     <button onclick="window.editPosition(${pos.id})" 
                             style="display:inline-block; background: rgba(200,160,60,0.3); border: 1px solid rgba(200,160,60,0.5); color: #db9; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
                             title="Edit">✏️</button>
