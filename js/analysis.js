@@ -287,6 +287,10 @@ export async function calculateRoll() {
     
     const riskChange = currentRisk - newRisk;
     const timeChange = newDte - currentDte;
+    const isCredit = rollCreditPerContract >= 0;
+    const isDebit = rollCreditPerContract < 0;
+    const debitAmount = Math.abs(rollCreditPerContract);
+    
     let comparison = '';
     if (riskChange > 0) {
         comparison += `✅ <b>Risk reduced by ${riskChange.toFixed(1)}%</b><br>`;
@@ -294,8 +298,43 @@ export async function calculateRoll() {
         comparison += `⚠️ Risk increased by ${Math.abs(riskChange).toFixed(1)}%<br>`;
     }
     comparison += `📅 Added ${timeChange} days (${newDte} DTE total)<br>`;
-    comparison += `💰 Net credit: $${rollCreditPerContract.toFixed(0)} per contract<br>`;
-    comparison += `<br><b>Verdict:</b> ${riskChange > 5 ? '✅ Good roll!' : riskChange > 0 ? '👍 Decent roll' : '⚠️ Not recommended'}`;
+    
+    // Show credit or debit with appropriate styling
+    if (isDebit) {
+        comparison += `💸 Net DEBIT: <span style="color:#ff5252;">-$${debitAmount.toFixed(0)}</span> per contract (you pay)<br>`;
+    } else {
+        comparison += `💰 Net credit: $${rollCreditPerContract.toFixed(0)} per contract<br>`;
+    }
+    
+    // Smarter verdict that considers both risk AND money
+    let verdict = '';
+    if (isDebit) {
+        // Paying money to roll - need significant risk reduction to justify
+        const costPerPercentReduction = debitAmount / Math.max(riskChange, 0.1);
+        if (riskChange <= 0) {
+            verdict = '❌ Bad roll - paying money AND increasing risk!';
+        } else if (riskChange > 20 && debitAmount < 100) {
+            verdict = '✅ Worth it - major risk reduction for small cost';
+        } else if (riskChange > 30) {
+            verdict = '👍 Acceptable - big risk reduction, but you\'re paying';
+        } else if (costPerPercentReduction > 20) {
+            verdict = `⚠️ Expensive - paying $${costPerPercentReduction.toFixed(0)} per 1% risk reduction`;
+        } else {
+            verdict = '🤔 Consider it - paying to reduce risk';
+        }
+    } else {
+        // Receiving credit - much better!
+        if (riskChange > 5) {
+            verdict = '✅ Great roll! Risk down + you get paid';
+        } else if (riskChange > 0) {
+            verdict = '👍 Good roll - credit received';
+        } else if (rollCreditPerContract > 50) {
+            verdict = '🤔 Risky but profitable - nice credit, more risk';
+        } else {
+            verdict = '⚠️ Not ideal - more risk for small credit';
+        }
+    }
+    comparison += `<br><b>Verdict:</b> ${verdict}`;
     
     const rollCompEl = document.getElementById('rollComparison');
     const rollResultsEl = document.getElementById('rollResults');
