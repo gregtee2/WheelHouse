@@ -11,6 +11,17 @@ A Monte Carlo-based options pricing and analysis tool designed specifically for 
 3. **Run** - Double-click `start.bat`
 4. **Use** - Browser opens automatically to http://localhost:8888
 
+## 🍎 Quick Start (Mac/Linux)
+
+1. **Download** - Clone or download this repository
+2. **Install** - Open Terminal in the folder and run:
+   ```bash
+   chmod +x install.sh start.sh
+   ./install.sh
+   ```
+3. **Run** - `./start.sh`
+4. **Use** - Browser opens automatically to http://localhost:8888
+
 That's it! Your positions are saved locally in your browser.
 
 ---
