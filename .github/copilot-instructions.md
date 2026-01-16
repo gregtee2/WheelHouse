@@ -1,0 +1,408 @@
+# WheelHouse - AI Coding Instructions
+
+## 🎯 Project Overview
+
+**WheelHouse** is a Wheel Strategy Options Analyzer & Position Tracker built with vanilla JavaScript (ES6 modules) and Node.js. It provides Monte Carlo-based options pricing, real-time CBOE quotes, position tracking, and portfolio analytics.
+
+**Version**: 1.1.0  
+**Repository**: https://github.com/gregtee2/WheelHouse  
+**Branches**: `main` (development), `stable` (releases)
+
+---
+
+## 🏗️ Architecture
+
+### Tech Stack
+- **Frontend**: Pure JavaScript ES6 modules, Canvas API for charts
+- **Backend**: Node.js + Express (server.js)
+- **Data Sources**: CBOE delayed quotes API, Yahoo Finance fallback
+- **Storage**: Browser localStorage (no database)
+- **Port**: 8888
+
+### File Structure
+```
+WheelHouse/
+├── server.js           # Node.js server - CBOE/Yahoo proxy, static file serving
+├── index.html          # Main HTML shell with all tabs
+├── install.bat/.sh     # One-click installers (Windows/Mac)
+├── start.bat/.sh       # Launcher scripts
+├── package.json        # Version 1.1.0
+├── CHANGELOG.md        # Release notes
+├── css/
+│   └── styles.css      # Dark theme styling
+└── js/
+    ├── main.js         # Entry point, tab switching, initialization
+    ├── state.js        # Global state object (singleton)
+    ├── api.js          # CBOE & Yahoo Finance API calls
+    ├── pricing.js      # Black-Scholes, Monte Carlo pricing
+    ├── simulation.js   # Brownian motion path simulation
+    ├── positions.js    # Position CRUD, localStorage, roll history
+    ├── portfolio.js    # Portfolio P&L, closed positions, chain linking
+    ├── challenges.js   # Trading challenges system
+    ├── charts.js       # Canvas chart rendering (payoff, probability cone, etc.)
+    ├── analysis.js     # Recommendations, EV calculations, roll calculator
+    ├── broker-import.js# Schwab CSV import
+    └── ui.js           # Sliders, date pickers, UI bindings
+```
+
+### Module Dependencies
+```
+main.js (entry point)
+  ├── state.js (global state - imported by everything)
+  ├── api.js → state.js, utils.js
+  ├── simulation.js → state.js, charts.js
+  ├── pricing.js → state.js
+  ├── positions.js → state.js, api.js, portfolio.js
+  ├── portfolio.js → state.js, positions.js
+  ├── challenges.js → state.js, positions.js
+  ├── charts.js → state.js, pricing.js
+  ├── analysis.js → state.js, pricing.js
+  └── ui.js → state.js, charts.js, pricing.js, simulation.js
+```
+
+---
+
+## 📊 Key Data Structures
+
+### Position Object
+```javascript
+{
+    id: 1737012345678,           // Date.now() timestamp
+    chainId: 1737012345678,      // Links rolled positions together
+    ticker: 'PLTR',
+    type: 'short_put',           // short_put | covered_call | buy_write | call_debit_spread | etc.
+    strike: 75.00,               // For single-leg options
+    buyStrike: 170.00,           // For spreads
+    sellStrike: 210.00,          // For spreads
+    spreadWidth: 40,             // |sellStrike - buyStrike|
+    premium: 2.50,               // Per-share premium received/paid
+    contracts: 3,
+    expiry: '2026-02-21',
+    dte: 36,                     // Days to expiration (calculated)
+    openDate: '2026-01-15',
+    closeDate: null,             // Set when closed
+    status: 'open',              // open | closed
+    broker: 'Schwab',
+    delta: -0.25,                // Optional
+    
+    // For spreads
+    maxProfit: 1200,             // Calculated at creation
+    maxLoss: 800,
+    breakeven: 182.43,
+    
+    // For Buy/Write
+    stockPrice: 80.50,           // Purchase price
+    costBasis: 78.00,            // stockPrice - premium
+    
+    // Live pricing (updated by CBOE)
+    lastOptionPrice: 1.85,       // Current option price
+    markedPrice: 1.85,           // User's marked price
+    currentSpot: 78.50,          // Current stock price
+    
+    // Challenge linking
+    challengeIds: [1737000000000] // Array of challenge IDs
+}
+```
+
+### Closed Position Object
+```javascript
+{
+    ...position,                  // All position fields
+    status: 'closed',
+    closeDate: '2026-01-20',
+    closePrice: 0.50,             // Price paid to close
+    closeReason: 'expired',       // expired | rolled | closed | assigned
+    realizedPnL: 600,             // (premium - closePrice) * 100 * contracts
+    closePnL: 600,                // Alternative field from broker imports
+    daysHeld: 5
+}
+```
+
+### Challenge Object
+```javascript
+{
+    id: 1737012345678,
+    name: 'January $3K Challenge',
+    goal: 3000,
+    goalType: 'net_pnl',          // net_pnl | premium | trades
+    startDate: '2026-01-01',
+    endDate: '2026-01-31',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: 'active'              // active | completed | archived
+}
+```
+
+### State Object (state.js)
+```javascript
+window.state = {
+    // Simulator parameters
+    p: 0.5, q: 0.5, sigma: 0.3,
+    spot: 100, strike: 95, dte: 30, optVol: 0.3,
+    numPaths: 10000,
+    
+    // Position data
+    positions: [],                // Open positions
+    closedPositions: [],          // Closed positions
+    holdings: [],                 // Stock holdings from assignments
+    challenges: [],               // Trading challenges
+    
+    // UI state
+    editingPositionId: null,
+    closedYearFilter: '2026',
+    
+    // Simulation results
+    optionResults: null,
+    currentPositionContext: null
+};
+```
+
+---
+
+## 🔌 API Endpoints (server.js)
+
+### CBOE Options Pricing
+```javascript
+GET /api/cboe/quote/:symbol
+// Returns: { calls: [...], puts: [...] } with bid/ask/last/volume
+
+GET /api/cboe/options/:symbol
+// Returns delayed options chain data
+```
+
+### Yahoo Finance (Fallback)
+```javascript
+GET /api/yahoo/quote/:symbol
+// Returns stock quote with price, change, volume
+```
+
+### Static Files
+All other requests serve static files from project root.
+
+---
+
+## 💾 localStorage Keys
+
+| Key | Data |
+|-----|------|
+| `wheelhouse_positions` | Open positions array |
+| `wheelhouse_closed` | Closed positions array |
+| `wheelhouse_holdings` | Stock holdings array |
+| `wheelhouse_challenges` | Challenges array |
+| `wheelhouse_checkpoint` | Data integrity checkpoint |
+
+---
+
+## 🔗 Chain System (Roll Tracking)
+
+When a position is rolled, the new position inherits the `chainId` from the original:
+
+```javascript
+// Original position
+{ id: 100, chainId: 100, ticker: 'PLTR', strike: 75, ... }
+
+// After rolling (old position closed, new one opened)
+{ id: 100, chainId: 100, status: 'closed', closeReason: 'rolled', ... }
+{ id: 101, chainId: 100, ticker: 'PLTR', strike: 72, ... }  // Same chainId!
+
+// After rolling again
+{ id: 102, chainId: 100, ticker: 'PLTR', strike: 70, ... }  // Still same chainId!
+```
+
+### Finding Chain History
+```javascript
+const allPositions = [...state.positions, ...state.closedPositions];
+const chainHistory = allPositions.filter(p => p.chainId === targetChainId);
+```
+
+### Manual Chain Linking
+Users can manually link positions via the 🔗 button in Closed Positions table:
+- `window.showLinkToChainModal(positionId)` - Opens modal
+- `window.linkPositionToChain(positionId, targetChainId)` - Links position
+- `window.unlinkPositionFromChain(positionId)` - Makes standalone
+
+---
+
+## 📈 Spread Position Types
+
+### Types Supported
+- `call_debit_spread` - Bull Call Spread (buy lower strike call, sell higher)
+- `put_debit_spread` - Bear Put Spread (buy higher strike put, sell lower)
+- `call_credit_spread` - Bear Call Spread (sell lower strike call, buy higher)
+- `put_credit_spread` - Bull Put Spread (sell higher strike put, buy lower)
+
+### Detection
+```javascript
+const isSpread = pos.type?.includes('_spread');
+```
+
+### Spread-Specific Fields
+- `buyStrike`, `sellStrike` - The two strikes
+- `spreadWidth` - Absolute difference
+- `maxProfit`, `maxLoss` - Pre-calculated at entry
+- `breakeven` - Calculated based on spread type
+
+### AI Explanation
+`window.showSpreadExplanation(positionId)` - Opens modal with:
+- Strategy name and direction (bullish/bearish)
+- Setup details
+- Max profit/loss scenarios
+- Breakeven calculation
+- Plain-English "How It Works" explanation
+
+---
+
+## 🏆 Challenge System
+
+### Position Inclusion Rules (IMPORTANT!)
+Only positions **OPENED** within the challenge date range count:
+```javascript
+// Position opened Jan 5 → counts for January challenge
+// Position opened Dec 28, closed Jan 5 → does NOT count (pre-loaded)
+```
+
+This keeps challenges honest - can't "pre-load" positions before challenge starts.
+
+### P&L Calculation
+Uses stored `realizedPnL` or `closePnL` values (not recalculated):
+```javascript
+closed.forEach(pos => {
+    realizedPnL += (pos.realizedPnL ?? pos.closePnL ?? 0);
+});
+```
+
+### Challenge Progress
+```javascript
+const progress = calculateChallengeProgress(challengeId);
+// Returns: { current, percent, daysLeft, realizedPnL, unrealizedPnL, ... }
+```
+
+---
+
+## 🎨 UI Patterns
+
+### Tab System
+Tabs are shown/hidden via `data-tab` attributes:
+```html
+<button data-tab="positions">Positions</button>
+<div id="positions" class="tab-content">...</div>
+```
+
+### Modals
+Created dynamically and appended to `document.body`:
+```javascript
+const modal = document.createElement('div');
+modal.id = 'myModal';
+modal.style.cssText = `position:fixed; top:0; left:0; right:0; bottom:0; 
+    background:rgba(0,0,0,0.85); display:flex; align-items:center; 
+    justify-content:center; z-index:10000;`;
+modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+modal.innerHTML = `...`;
+document.body.appendChild(modal);
+```
+
+### Notifications
+```javascript
+import { showNotification } from './utils.js';
+showNotification('Position saved!', 'success');  // success | error | info
+showNotification('Error occurred', 'error', 5000);  // Optional duration
+```
+
+### Color Scheme
+- Background: `#0d0d1a`, `#1a1a2e`
+- Accent: `#00d9ff` (cyan)
+- Success: `#00ff88` (green)
+- Warning: `#ffaa00` (orange)
+- Danger: `#ff5252` (red)
+- Spreads: `#8b5cf6` (purple)
+- Muted: `#888`
+
+---
+
+## 🐛 Common Issues & Fixes
+
+### P&L Not Matching
+- Check if using `realizedPnL` vs `closePnL` - broker imports may use different field
+- Use `pos.realizedPnL ?? pos.closePnL ?? 0` pattern
+
+### Chain Not Showing
+- Ensure `chainId` is set on both positions
+- Check `hasRollHistory(pos)` returns true
+
+### CBOE Prices Stale
+- CBOE has 15-min delay
+- Check `lastUpdated` timestamp
+- Falls back to Yahoo if CBOE fails
+
+### Spread Strike Display
+- Spreads use `buyStrike`/`sellStrike`, not `strike`
+- `strike` is null for spreads
+
+---
+
+## 🔄 Git Workflow
+
+### Branches
+- `main` - Development, all new features
+- `stable` - Production releases
+
+### Commit Prefixes
+- `feat:` - New feature
+- `fix:` - Bug fix
+- `docs:` - Documentation only
+- `refactor:` - Code restructure
+- `chore:` - Maintenance
+
+### Release to Stable
+```bash
+git push origin main:stable
+```
+
+---
+
+## 📋 Recent Features (January 2026)
+
+### v1.1.0
+- **Spread Trading**: 4 spread types with AI explanations
+- **Roll History**: 🔗 button to view full chain timeline
+- **Chain Linking**: Manually link closed positions
+- **Challenges**: Trading challenges with date-based filtering
+- **CBOE Pricing**: Real-time delayed quotes with staleness indicators
+
+### Key Functions Added
+- `getSpreadExplanation(pos)` - Returns spread strategy details
+- `hasRollHistory(pos)` - Checks if position has been rolled
+- `window.showRollHistory(chainId)` - Roll history modal
+- `window.showLinkToChainModal(positionId)` - Chain linking modal
+- `calculateChallengeProgress(challengeId)` - Challenge P&L calculation
+
+---
+
+## ⚠️ Important Rules for AI Agents
+
+1. **Never use `strike` for spreads** - Use `buyStrike`/`sellStrike`
+2. **Always use `??` for P&L** - `pos.realizedPnL ?? pos.closePnL ?? 0`
+3. **Chain linking is by `chainId`** - Not by position ID
+4. **Challenges filter by OPEN date** - Not close date
+5. **Test on port 8888** - `http://localhost:8888`
+6. **localStorage is the database** - No server-side storage
+7. **Push to `main` first** - Only push to `stable` for releases
+
+---
+
+## 🧪 Testing
+
+```bash
+# Start server
+cd c:\WheelHouse
+node server.js
+
+# Or use start script
+start.bat     # Windows
+./start.sh    # Mac/Linux
+```
+
+Browser opens to http://localhost:8888
+
+---
+
+*Built for wheel traders who want data-driven decisions.* 🎰
