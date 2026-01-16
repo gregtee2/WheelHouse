@@ -8,6 +8,83 @@ import { drawPayoffChart } from './charts.js';
 
 const STORAGE_KEY = 'wheelhouse_positions';
 const HOLDINGS_KEY = 'wheelhouse_holdings';
+const CLOSED_KEY = 'wheelhouse_closed_positions';
+const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
+
+/**
+ * Save a checkpoint of data counts - used to detect data loss
+ */
+function saveDataCheckpoint() {
+    const checkpoint = {
+        positions: (state.positions || []).length,
+        holdings: (state.holdings || []).length,
+        closedPositions: (state.closedPositions || []).length,
+        timestamp: Date.now()
+    };
+    localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(checkpoint));
+}
+
+/**
+ * Check for data loss on startup
+ */
+function checkDataIntegrity() {
+    const checkpointStr = localStorage.getItem(CHECKPOINT_KEY);
+    if (!checkpointStr) return; // No checkpoint, first run
+    
+    try {
+        const checkpoint = JSON.parse(checkpointStr);
+        const currentClosed = (state.closedPositions || []).length;
+        const expectedClosed = checkpoint.closedPositions || 0;
+        
+        // If we had closed positions but now have none/fewer, warn user
+        if (expectedClosed > 5 && currentClosed < expectedClosed * 0.5) {
+            console.warn(`⚠️ Data integrity warning: Expected ${expectedClosed} closed positions, found ${currentClosed}`);
+            
+            // Show recovery prompt
+            setTimeout(() => {
+                showDataRecoveryPrompt(expectedClosed, currentClosed);
+            }, 500);
+        }
+    } catch (e) {
+        console.warn('Checkpoint check failed:', e);
+    }
+}
+
+/**
+ * Show data recovery prompt to user
+ */
+function showDataRecoveryPrompt(expected, actual) {
+    const msg = `⚠️ Data Loss Detected!\n\nExpected ${expected} closed positions but found only ${actual}.\n\nYour browser localStorage may have been cleared.\n\nClick "Import" to restore from your backup file:\n📁 C:\\WheelHouse\\examples\\wheelhouse_backup_2026-01-16 (1).json`;
+    
+    // Create a prominent banner
+    const banner = document.createElement('div');
+    banner.id = 'dataRecoveryBanner';
+    banner.innerHTML = `
+        <div style="background: linear-gradient(135deg, #ff5252, #ff1744); color: white; padding: 15px 20px; 
+                    position: fixed; top: 0; left: 0; right: 0; z-index: 10000; 
+                    display: flex; justify-content: space-between; align-items: center;
+                    box-shadow: 0 4px 20px rgba(255,82,82,0.5);">
+            <div>
+                <strong>⚠️ Data Loss Detected!</strong> 
+                Expected ${expected} closed positions, found ${actual}. 
+                Your localStorage may have been cleared.
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="document.getElementById('importBtn')?.click(); document.getElementById('dataRecoveryBanner')?.remove();" 
+                        style="background: white; color: #ff1744; border: none; padding: 8px 16px; 
+                               border-radius: 4px; font-weight: bold; cursor: pointer;">
+                    📥 Restore from Backup
+                </button>
+                <button onclick="document.getElementById('dataRecoveryBanner')?.remove(); localStorage.setItem('${CHECKPOINT_KEY}', JSON.stringify({closedPositions: ${actual}, timestamp: Date.now()}));" 
+                        style="background: transparent; color: white; border: 1px solid white; 
+                               padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                    ✕ Dismiss
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.prepend(banner);
+}
 
 /**
  * Load positions from localStorage
@@ -38,6 +115,22 @@ export function loadPositions() {
         state.holdings = [];
     }
     
+    // Load closed positions
+    try {
+        const savedClosed = localStorage.getItem(CLOSED_KEY);
+        if (savedClosed) {
+            state.closedPositions = JSON.parse(savedClosed) || [];
+        } else {
+            state.closedPositions = [];
+        }
+    } catch (e) {
+        console.warn('Failed to load closed positions:', e);
+        state.closedPositions = [];
+    }
+    
+    // Check for data loss
+    checkDataIntegrity();
+    
     renderPositions();
     updatePortfolioSummary();
 }
@@ -52,6 +145,7 @@ let autoSaveDebounceTimer = null;
 export function savePositionsToStorage() {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state.positions));
+        saveDataCheckpoint(); // Track data count for integrity check
         triggerAutoSave();
     } catch (e) {
         console.warn('Failed to save positions:', e);
@@ -64,9 +158,23 @@ export function savePositionsToStorage() {
 export function saveHoldingsToStorage() {
     try {
         localStorage.setItem(HOLDINGS_KEY, JSON.stringify(state.holdings));
+        saveDataCheckpoint(); // Track data count for integrity check
         triggerAutoSave();
     } catch (e) {
         console.warn('Failed to save holdings:', e);
+    }
+}
+
+/**
+ * Save closed positions to localStorage (call this whenever closedPositions changes)
+ */
+export function saveClosedToStorage() {
+    try {
+        localStorage.setItem(CLOSED_KEY, JSON.stringify(state.closedPositions));
+        saveDataCheckpoint(); // Track data count for integrity check
+        triggerAutoSave();
+    } catch (e) {
+        console.warn('Failed to save closed positions:', e);
     }
 }
 
@@ -448,7 +556,7 @@ export function executeRoll() {
         chainId: pos.chainId || pos.id, // Preserve chain ID
         rolledTo: `$${newStrike.toFixed(0)} exp ${newExpiry}`
     });
-    localStorage.setItem('wheelhouse_closed_positions', JSON.stringify(state.closedPositions));
+    saveClosedToStorage();
     
     // Remove old from open
     state.positions = state.positions.filter(p => p.id !== id);
@@ -814,12 +922,18 @@ export function updatePortfolioSummary() {
     }
     
     const openPositions = state.positions.filter(p => p.status === 'open');
-    const closedPositions = state.positions.filter(p => p.status === 'closed');
     
     const totalOpen = openPositions.length;
     const totalContracts = openPositions.reduce((sum, p) => sum + p.contracts, 0);
     const totalPremium = openPositions.reduce((sum, p) => sum + (p.premium * 100 * p.contracts), 0);
-    const realizedPnL = closedPositions.reduce((sum, p) => sum + (p.realizedPnL || 0), 0);
+    
+    // Capital at Risk = total $ if all puts get assigned (strike × 100 × contracts for puts)
+    const capitalAtRisk = openPositions.reduce((sum, p) => {
+        if (p.type === 'short_put' || p.type === 'buy_write') {
+            return sum + (p.strike * 100 * p.contracts);
+        }
+        return sum;
+    }, 0);
     
     // Find closest expiration
     let closestDte = Infinity;
@@ -845,9 +959,9 @@ export function updatePortfolioSummary() {
                     <div style="color: #00ff88; font-size: 24px; font-weight: bold;">${formatCurrency(totalPremium)}</div>
                 </div>
                 <div class="summary-item" style="text-align: center;">
-                    <div style="color: #888; font-size: 11px;">REALIZED P/L</div>
-                    <div style="color: ${realizedPnL >= 0 ? '#00ff88' : '#ff5252'}; font-size: 24px; font-weight: bold;">
-                        ${realizedPnL >= 0 ? '+' : ''}${formatCurrency(realizedPnL)}
+                    <div style="color: #888; font-size: 11px;">CAPITAL AT RISK</div>
+                    <div style="color: #ffaa00; font-size: 24px; font-weight: bold;">
+                        ${formatCurrency(capitalAtRisk)}
                     </div>
                 </div>
                 <div class="summary-item" style="text-align: center;">
@@ -926,7 +1040,7 @@ export function assignPosition(id) {
     // Move to closed positions
     if (!Array.isArray(state.closedPositions)) state.closedPositions = [];
     state.closedPositions.push({...pos});
-    localStorage.setItem('wheelhouse_closed_positions', JSON.stringify(state.closedPositions));
+    saveClosedToStorage();
     
     // Remove from open positions
     state.positions = state.positions.filter(p => p.id !== id);
@@ -985,7 +1099,7 @@ export function undoLastAction() {
             
             // Remove from closed positions
             state.closedPositions = (state.closedPositions || []).filter(p => p.id !== restoredPos.id);
-            localStorage.setItem('wheelhouse_closed_positions', JSON.stringify(state.closedPositions));
+            saveClosedToStorage();
             
             showNotification(`↩ Undone! ${restoredPos.ticker} position restored`, 'success');
             break;
@@ -1004,7 +1118,7 @@ export function undoLastAction() {
             
             // Remove from closed
             state.closedPositions = (state.closedPositions || []).filter(p => p.id !== closedPos.id);
-            localStorage.setItem('wheelhouse_closed_positions', JSON.stringify(state.closedPositions));
+            saveClosedToStorage();
             
             showNotification(`↩ Undone! ${closedPos.ticker} position reopened`, 'success');
             break;
@@ -1110,7 +1224,7 @@ export function importAllData(event) {
             
             if (importData.closedPositions) {
                 state.closedPositions = importData.closedPositions;
-                localStorage.setItem('wheelhouse_closed_positions', JSON.stringify(importData.closedPositions));
+                saveClosedToStorage();
             }
             
             // Refresh UI

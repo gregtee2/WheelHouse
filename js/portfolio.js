@@ -6,12 +6,26 @@ import { showNotification } from './utils.js';
 import { fetchFromYahoo } from './api.js';
 
 const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
+const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
 
 /**
  * Trigger auto-save if enabled (calls the global function from positions.js)
  */
 function triggerAutoSave() {
     if (window.triggerAutoSave) window.triggerAutoSave();
+}
+
+/**
+ * Save a checkpoint of data counts - used to detect data loss
+ */
+function saveDataCheckpoint() {
+    const checkpoint = {
+        positions: (state.positions || []).length,
+        holdings: (state.holdings || []).length,
+        closedPositions: (state.closedPositions || []).length,
+        timestamp: Date.now()
+    };
+    localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(checkpoint));
 }
 
 /**
@@ -31,6 +45,7 @@ export function loadClosedPositions() {
  */
 function saveClosedPositions() {
     localStorage.setItem(STORAGE_KEY_CLOSED, JSON.stringify(state.closedPositions || []));
+    saveDataCheckpoint(); // Track data count for integrity check
     triggerAutoSave();
 }
 
@@ -512,9 +527,15 @@ function renderClosedPositions() {
         return closeDate.split('-')[0];
     }).filter(y => y))].sort().reverse();
     
-    // Current filter (stored in state or default to current year)
+    // Current filter (stored in state)
+    // Default to current year if it has positions, otherwise 'all'
     const currentYear = new Date().getFullYear().toString();
-    state.closedYearFilter = state.closedYearFilter || currentYear;
+    const hasCurrentYearPositions = allClosed.some(p => (p.closeDate || '').startsWith(currentYear));
+    
+    if (!state.closedYearFilter) {
+        // First load - default to current year if it has data, otherwise show all
+        state.closedYearFilter = hasCurrentYearPositions ? currentYear : 'all';
+    }
     
     // Filter positions by selected year (based on CLOSE date for tax purposes)
     const closed = state.closedYearFilter === 'all' 

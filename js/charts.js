@@ -563,7 +563,10 @@ export function drawPnLChart() {
 export function drawProbabilityCone() {
     const canvas = document.getElementById('probConeCanvas');
     const ctx = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height, M = 30;
+    const W = canvas.width, H = canvas.height;
+    const ML = 30;  // Left margin
+    const MR = 80;  // Right margin (extra space for labels)
+    const MT = 30, MB = 30;  // Top/bottom margins
     
     ctx.fillStyle = '#0a0a15';
     ctx.fillRect(0, 0, W, H);
@@ -607,32 +610,35 @@ export function drawProbabilityCone() {
     const maxPrice = Math.max(...allPrices) * 1.05;
     const priceRange = maxPrice - minPrice;
     
+    const chartWidth = W - ML - MR;
+    const chartHeight = H - MT - MB;
+    
     // Grid
     ctx.strokeStyle = 'rgba(255,255,255,0.1)';
     for (let i = 0; i <= 5; i++) {
-        const y = M + (i/5) * (H - 2*M);
-        ctx.beginPath(); ctx.moveTo(M, y); ctx.lineTo(W-M, y); ctx.stroke();
+        const y = MT + (i/5) * chartHeight;
+        ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + chartWidth, y); ctx.stroke();
     }
     
     // Strike line
-    const strikeY = H - M - ((state.strike - minPrice) / priceRange) * (H - 2*M);
+    const strikeY = H - MB - ((state.strike - minPrice) / priceRange) * chartHeight;
     ctx.strokeStyle = '#00d9ff';
     ctx.setLineDash([5,5]);
-    ctx.beginPath(); ctx.moveTo(M, strikeY); ctx.lineTo(W-M, strikeY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ML, strikeY); ctx.lineTo(ML + chartWidth, strikeY); ctx.stroke();
     ctx.setLineDash([]);
     
     // 3σ band
     ctx.fillStyle = 'rgba(136,0,255,0.1)';
     ctx.beginPath();
     bands.forEach((b, i) => {
-        const x = M + b.time * (W - 2*M);
-        const yUpper = H - M - ((b.sigma3Upper - minPrice) / priceRange) * (H - 2*M);
+        const x = ML + b.time * chartWidth;
+        const yUpper = H - MB - ((b.sigma3Upper - minPrice) / priceRange) * chartHeight;
         i === 0 ? ctx.moveTo(x, yUpper) : ctx.lineTo(x, yUpper);
     });
     for (let i = bands.length - 1; i >= 0; i--) {
         const b = bands[i];
-        const x = M + b.time * (W - 2*M);
-        const yLower = H - M - ((b.sigma3Lower - minPrice) / priceRange) * (H - 2*M);
+        const x = ML + b.time * chartWidth;
+        const yLower = H - MB - ((b.sigma3Lower - minPrice) / priceRange) * chartHeight;
         ctx.lineTo(x, yLower);
     }
     ctx.closePath();
@@ -642,14 +648,14 @@ export function drawProbabilityCone() {
     ctx.fillStyle = 'rgba(0,217,255,0.15)';
     ctx.beginPath();
     bands.forEach((b, i) => {
-        const x = M + b.time * (W - 2*M);
-        const yUpper = H - M - ((b.sigma2Upper - minPrice) / priceRange) * (H - 2*M);
+        const x = ML + b.time * chartWidth;
+        const yUpper = H - MB - ((b.sigma2Upper - minPrice) / priceRange) * chartHeight;
         i === 0 ? ctx.moveTo(x, yUpper) : ctx.lineTo(x, yUpper);
     });
     for (let i = bands.length - 1; i >= 0; i--) {
         const b = bands[i];
-        const x = M + b.time * (W - 2*M);
-        const yLower = H - M - ((b.sigma2Lower - minPrice) / priceRange) * (H - 2*M);
+        const x = ML + b.time * chartWidth;
+        const yLower = H - MB - ((b.sigma2Lower - minPrice) / priceRange) * chartHeight;
         ctx.lineTo(x, yLower);
     }
     ctx.closePath();
@@ -659,14 +665,14 @@ export function drawProbabilityCone() {
     ctx.fillStyle = 'rgba(0,255,136,0.2)';
     ctx.beginPath();
     bands.forEach((b, i) => {
-        const x = M + b.time * (W - 2*M);
-        const yUpper = H - M - ((b.sigma1Upper - minPrice) / priceRange) * (H - 2*M);
+        const x = ML + b.time * chartWidth;
+        const yUpper = H - MB - ((b.sigma1Upper - minPrice) / priceRange) * chartHeight;
         i === 0 ? ctx.moveTo(x, yUpper) : ctx.lineTo(x, yUpper);
     });
     for (let i = bands.length - 1; i >= 0; i--) {
         const b = bands[i];
-        const x = M + b.time * (W - 2*M);
-        const yLower = H - M - ((b.sigma1Lower - minPrice) / priceRange) * (H - 2*M);
+        const x = ML + b.time * chartWidth;
+        const yLower = H - MB - ((b.sigma1Lower - minPrice) / priceRange) * chartHeight;
         ctx.lineTo(x, yLower);
     }
     ctx.closePath();
@@ -677,19 +683,29 @@ export function drawProbabilityCone() {
     ctx.lineWidth = 2;
     ctx.beginPath();
     bands.forEach((b, i) => {
-        const x = M + b.time * (W - 2*M);
-        const y = H - M - ((b.mean - minPrice) / priceRange) * (H - 2*M);
+        const x = ML + b.time * chartWidth;
+        const y = H - MB - ((b.mean - minPrice) / priceRange) * chartHeight;
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     ctx.stroke();
     
-    // Labels
+    // Labels on right side - positioned at the band levels at end of chart
+    const lastBand = bands[bands.length - 1];
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 10px sans-serif';
+    ctx.font = 'bold 11px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('3σ (99.7%)', W - M + 5, M + 20);
-    ctx.fillText('2σ (95%)', W - M + 5, M + 50);
-    ctx.fillText('1σ (68%)', W - M + 5, M + 80);
+    
+    // Position labels at actual band positions
+    const y3Upper = H - MB - ((lastBand.sigma3Upper - minPrice) / priceRange) * chartHeight;
+    const y2Upper = H - MB - ((lastBand.sigma2Upper - minPrice) / priceRange) * chartHeight;
+    const y1Upper = H - MB - ((lastBand.sigma1Upper - minPrice) / priceRange) * chartHeight;
+    
+    ctx.fillStyle = 'rgba(136,0,255,0.8)';
+    ctx.fillText('3σ (99.7%)', ML + chartWidth + 5, y3Upper + 4);
+    ctx.fillStyle = 'rgba(0,217,255,0.9)';
+    ctx.fillText('2σ (95%)', ML + chartWidth + 5, y2Upper + 4);
+    ctx.fillStyle = 'rgba(0,255,136,0.9)';
+    ctx.fillText('1σ (68%)', ML + chartWidth + 5, y1Upper + 4);
 }
 
 /**
@@ -714,13 +730,14 @@ export function drawHeatMap() {
     const posType = getPositionType();
     const isPut = posType.isPut;
     const isShort = posType.isShort;
-    const putPriceEl = document.getElementById('putPrice');
-    const callPriceEl = document.getElementById('callPrice');
-    const premium = isPut ? parseFloat(putPriceEl?.textContent?.replace('$','') || '0') :
-                           parseFloat(callPriceEl?.textContent?.replace('$','') || '0');
     
-    const numPriceSteps = 40;
-    const numTimeSteps = 20;
+    // Calculate the initial premium at current spot and full DTE
+    // This represents what you received when opening the position
+    const initialT = state.dte / 365.25;
+    const initialPremium = bsPrice(state.spot, state.strike, initialT, state.rate, state.optVol, isPut);
+    
+    const numPriceSteps = 50;  // More resolution for smoother stair-step
+    const numTimeSteps = 30;   // More time steps for clearer decay pattern
     const minPrice = state.spot * 0.7;
     const maxPrice = state.spot * 1.3;
     const priceStep = (maxPrice - minPrice) / numPriceSteps;
@@ -740,7 +757,7 @@ export function drawHeatMap() {
         for (let p = 0; p <= numPriceSteps; p++) {
             const price = minPrice + p * priceStep;
             const optionValue = bsPrice(price, state.strike, T, state.rate, state.optVol, isPut);
-            let pnl = isShort ? (premium - optionValue) * 100 : (optionValue - premium) * 100;
+            let pnl = isShort ? (initialPremium - optionValue) * 100 : (optionValue - initialPremium) * 100;
             pnlGrid[t][p] = pnl;
             maxAbsPnL = Math.max(maxAbsPnL, Math.abs(pnl));
         }
