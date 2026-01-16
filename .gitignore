@@ -14,3 +14,17 @@ node_modules/
 
 # Local dev
 .env
+# ===========================================
+# PERSONAL DATA - DO NOT COMMIT TO GITHUB
+# ===========================================
+
+# Broker exports and transaction data
+examples/*.json
+
+# Auto-save backup files
+*.wheelhouse.json
+wheelhouse_backup*.json
+
+# Any exported data
+exports/
+backups/

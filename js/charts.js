@@ -460,6 +460,15 @@ export function drawPnLChart() {
     ctx.fillStyle = '#0a0a15';
     ctx.fillRect(0, 0, W, H);
     
+    // Check if we have valid pricing data
+    if (!state.optionResults?.finalPrices) {
+        ctx.fillStyle = '#888';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Run Option Pricing first', W/2, H/2);
+        return;
+    }
+    
     const minPrice = state.spot * 0.7;
     const maxPrice = state.spot * 1.3;
     const priceRange = maxPrice - minPrice;
@@ -470,10 +479,8 @@ export function drawPnLChart() {
     const pnlData = [];
     let maxPnL = 0, minPnL = 0;
     
-    const putPriceEl = document.getElementById('putPrice');
-    const callPriceEl = document.getElementById('callPrice');
-    const premium = isPut ? parseFloat(putPriceEl?.textContent?.replace('$','') || '0') :
-                           parseFloat(callPriceEl?.textContent?.replace('$','') || '0');
+    // Use stored option results for premium
+    const premium = isPut ? (state.optionResults.putPrice || 0) : (state.optionResults.callPrice || 0);
     
     for (let price = minPrice; price <= maxPrice; price += priceRange / 100) {
         let pnl;

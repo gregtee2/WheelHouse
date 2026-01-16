@@ -8,6 +8,13 @@ import { fetchFromYahoo } from './api.js';
 const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 
 /**
+ * Trigger auto-save if enabled (calls the global function from positions.js)
+ */
+function triggerAutoSave() {
+    if (window.triggerAutoSave) window.triggerAutoSave();
+}
+
+/**
  * Load closed positions from storage
  */
 export function loadClosedPositions() {
@@ -24,6 +31,7 @@ export function loadClosedPositions() {
  */
 function saveClosedPositions() {
     localStorage.setItem(STORAGE_KEY_CLOSED, JSON.stringify(state.closedPositions || []));
+    triggerAutoSave();
 }
 
 /**
@@ -260,8 +268,8 @@ function updatePortfolioSummary(positionData) {
     const capitalRisk = positionData.reduce((sum, p) => sum + (p.strike * 100 * p.contracts), 0);
     const unrealizedPnL = positionData.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0);
     
-    // Realized P&L from closed positions
-    const realizedPnL = (state.closedPositions || []).reduce((sum, p) => sum + (p.realizedPnL || 0), 0);
+    // Realized P&L from closed positions (support both realizedPnL and closePnL field names)
+    const realizedPnL = (state.closedPositions || []).reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
     const totalPnL = unrealizedPnL + realizedPnL;
     
     // Update display
@@ -513,10 +521,10 @@ function renderClosedPositions() {
         ? allClosed 
         : allClosed.filter(p => (p.closeDate || '').startsWith(state.closedYearFilter));
     
-    // Calculate YTD P&L (current year only)
+    // Calculate YTD P&L (current year only) - support both realizedPnL and closePnL
     const ytdPnL = allClosed
         .filter(p => (p.closeDate || '').startsWith(currentYear))
-        .reduce((sum, p) => sum + (p.realizedPnL || 0), 0);
+        .reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
     
     // Build filter dropdown and export button
     let filterHtml = `
@@ -646,9 +654,19 @@ function renderClosedPositions() {
                 : 'border-bottom:1px solid rgba(255,255,255,0.05);';
             
             // Calculate ROC%: P&L / Capital at Risk
+            // Support both realizedPnL (app-created) and closePnL (imported from broker)
+            const pnl = pos.realizedPnL ?? pos.closePnL ?? 0;
             const capitalAtRisk = pos.strike * 100 * (pos.contracts || 1);
-            const roc = capitalAtRisk > 0 ? (pos.realizedPnL / capitalAtRisk) * 100 : 0;
+            const roc = capitalAtRisk > 0 ? (pnl / capitalAtRisk) * 100 : 0;
             const rocColor = roc >= 0 ? '#00ff88' : '#ff5252';
+            
+            // Calculate days held if missing but dates available
+            let daysHeld = pos.daysHeld;
+            if (!daysHeld && pos.openDate && pos.closeDate) {
+                const open = new Date(pos.openDate);
+                const close = new Date(pos.closeDate);
+                daysHeld = Math.max(0, Math.ceil((close - open) / (1000 * 60 * 60 * 24)));
+            }
             
             html += `
                 <tr style="${rowBorder}">
@@ -658,9 +676,9 @@ function renderClosedPositions() {
                     <td style="padding:6px; text-align:right;">$${pos.premium.toFixed(2)} × ${pos.contracts || 1}</td>
                     <td style="padding:6px; text-align:center; color:#888; font-size:11px;">${pos.openDate || '—'}</td>
                     <td style="padding:6px; text-align:center; color:#888; font-size:11px;">${pos.closeDate}</td>
-                    <td style="padding:6px; text-align:right;">${pos.daysHeld || '—'}d</td>
-                    <td style="padding:6px; text-align:right; font-weight:bold; color:${pos.realizedPnL >= 0 ? '#00ff88' : '#ff5252'};">
-                        ${pos.realizedPnL >= 0 ? '+' : ''}$${pos.realizedPnL.toFixed(0)}
+                    <td style="padding:6px; text-align:right;">${daysHeld ?? '—'}d</td>
+                    <td style="padding:6px; text-align:right; font-weight:bold; color:${pnl >= 0 ? '#00ff88' : '#ff5252'};">
+                        ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}
                     </td>
                     <td style="padding:6px; text-align:right; color:${rocColor};">
                         ${roc >= 0 ? '+' : ''}${roc.toFixed(1)}%
@@ -686,8 +704,8 @@ function renderClosedPositions() {
         html += `<div style="color:#888; font-size:11px; margin-top:8px;">Showing 15 of ${sortedChains.length} position chains</div>`;
     }
     
-    // Add totals summary for filtered data
-    const grandTotal = closed.reduce((sum, p) => sum + (p.realizedPnL || 0), 0);
+    // Add totals summary for filtered data - support both realizedPnL and closePnL
+    const grandTotal = closed.reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
     const totalColor = grandTotal >= 0 ? '#00ff88' : '#ff5252';
     const yearLabel = state.closedYearFilter === 'all' ? 'All Time' : state.closedYearFilter;
     html += `

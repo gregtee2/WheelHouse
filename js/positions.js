@@ -42,27 +42,141 @@ export function loadPositions() {
     updatePortfolioSummary();
 }
 
+// Auto-save file handle (File System Access API)
+let autoSaveFileHandle = null;
+let autoSaveDebounceTimer = null;
+
 /**
- * Save positions to localStorage
+ * Save positions to localStorage AND auto-save file if enabled
  */
 export function savePositionsToStorage() {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state.positions));
+        triggerAutoSave();
     } catch (e) {
         console.warn('Failed to save positions:', e);
     }
 }
 
 /**
- * Save holdings to localStorage
+ * Save holdings to localStorage AND auto-save file if enabled
  */
 export function saveHoldingsToStorage() {
     try {
         localStorage.setItem(HOLDINGS_KEY, JSON.stringify(state.holdings));
+        triggerAutoSave();
     } catch (e) {
         console.warn('Failed to save holdings:', e);
     }
 }
+
+/**
+ * Trigger auto-save with debounce (waits 2 seconds after last change)
+ */
+function triggerAutoSave() {
+    if (!autoSaveFileHandle) return;
+    
+    // Debounce - wait for activity to stop
+    if (autoSaveDebounceTimer) clearTimeout(autoSaveDebounceTimer);
+    autoSaveDebounceTimer = setTimeout(() => {
+        performAutoSave();
+    }, 2000);
+}
+
+// Expose for portfolio.js to call
+window.triggerAutoSave = triggerAutoSave;
+
+/**
+ * Actually write to the auto-save file
+ */
+async function performAutoSave() {
+    if (!autoSaveFileHandle) return;
+    
+    try {
+        const CLOSED_KEY = 'wheelhouse_closed_positions';
+        const exportData = {
+            version: 1,
+            exportDate: new Date().toISOString(),
+            positions: state.positions || [],
+            holdings: state.holdings || [],
+            closedPositions: JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
+        };
+        
+        const writable = await autoSaveFileHandle.createWritable();
+        await writable.write(JSON.stringify(exportData, null, 2));
+        await writable.close();
+        
+        // Update status indicator
+        updateAutoSaveStatus('saved');
+        console.log('✅ Auto-saved to file');
+    } catch (e) {
+        console.warn('Auto-save failed:', e);
+        updateAutoSaveStatus('error');
+    }
+}
+
+/**
+ * Setup auto-save - user picks a file location
+ */
+export async function setupAutoSave() {
+    try {
+        // Check if File System Access API is supported
+        if (!('showSaveFilePicker' in window)) {
+            showNotification('❌ Auto-save not supported in this browser. Use Chrome or Edge.', 'error');
+            return;
+        }
+        
+        const handle = await window.showSaveFilePicker({
+            suggestedName: 'wheelhouse_autosave.json',
+            types: [{
+                description: 'JSON Files',
+                accept: { 'application/json': ['.json'] }
+            }]
+        });
+        
+        autoSaveFileHandle = handle;
+        
+        // Do an immediate save
+        await performAutoSave();
+        
+        updateAutoSaveStatus('enabled');
+        showNotification('✅ Auto-save enabled! Your data will be saved automatically.', 'success', 4000);
+        
+    } catch (e) {
+        if (e.name !== 'AbortError') {
+            console.error('Setup auto-save failed:', e);
+            showNotification('❌ Failed to setup auto-save: ' + e.message, 'error');
+        }
+    }
+}
+
+/**
+ * Update the auto-save status indicator in UI
+ */
+function updateAutoSaveStatus(status) {
+    const indicator = document.getElementById('autoSaveStatus');
+    if (!indicator) return;
+    
+    switch (status) {
+        case 'enabled':
+            indicator.textContent = '🟢 Auto-save ON';
+            indicator.style.color = '#00ff88';
+            break;
+        case 'saved':
+            indicator.textContent = '🟢 Saved ' + new Date().toLocaleTimeString();
+            indicator.style.color = '#00ff88';
+            break;
+        case 'error':
+            indicator.textContent = '🔴 Save failed';
+            indicator.style.color = '#ff5252';
+            break;
+        default:
+            indicator.textContent = '⚪ Auto-save OFF';
+            indicator.style.color = '#888';
+    }
+}
+
+window.setupAutoSave = setupAutoSave;
 
 /**
  * Add or update a position
@@ -880,3 +994,99 @@ window.closePosition = closePosition;
 window.assignPosition = assignPosition;
 window.renderPositions = renderPositions;
 window.undoLastAction = undoLastAction;
+
+/**
+ * Export all data to a JSON file for backup
+ */
+export function exportAllData() {
+    const CLOSED_KEY = 'wheelhouse_closed_positions';
+    
+    const exportData = {
+        version: 1,
+        exportDate: new Date().toISOString(),
+        positions: state.positions || [],
+        holdings: state.holdings || [],
+        closedPositions: JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wheelhouse_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showNotification('✅ Backup exported successfully!', 'success');
+}
+
+/**
+ * Import data from a JSON backup file
+ */
+export function importAllData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const importData = JSON.parse(e.target.result);
+            
+            // Validate the import data
+            if (!importData.positions && !importData.holdings && !importData.closedPositions) {
+                showNotification('❌ Invalid backup file format', 'error');
+                return;
+            }
+            
+            // Confirm before overwriting
+            const posCount = (importData.positions || []).length;
+            const holdCount = (importData.holdings || []).length;
+            const closedCount = (importData.closedPositions || []).length;
+            
+            const msg = `Import ${posCount} positions, ${holdCount} holdings, ${closedCount} closed positions?\\n\\nThis will REPLACE your current data.`;
+            
+            if (!confirm(msg)) {
+                showNotification('Import cancelled', 'info');
+                return;
+            }
+            
+            // Import the data
+            if (importData.positions) {
+                state.positions = importData.positions;
+                savePositionsToStorage();
+            }
+            
+            if (importData.holdings) {
+                state.holdings = importData.holdings;
+                saveHoldingsToStorage();
+            }
+            
+            if (importData.closedPositions) {
+                state.closedPositions = importData.closedPositions;
+                localStorage.setItem('wheelhouse_closed_positions', JSON.stringify(importData.closedPositions));
+            }
+            
+            // Refresh UI
+            renderPositions();
+            updatePortfolioSummary();
+            if (window.renderHoldings) window.renderHoldings();
+            if (window.renderPortfolio) window.renderPortfolio(false);
+            
+            showNotification(`✅ Imported ${posCount} positions, ${holdCount} holdings, ${closedCount} closed!`, 'success', 5000);
+            
+        } catch (err) {
+            console.error('Import error:', err);
+            showNotification('❌ Failed to parse backup file: ' + err.message, 'error');
+        }
+    };
+    
+    reader.readAsText(file);
+    
+    // Reset the file input so the same file can be imported again
+    event.target.value = '';
+}
+
+window.exportAllData = exportAllData;
+window.importAllData = importAllData;

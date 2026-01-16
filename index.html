@@ -257,7 +257,18 @@
         <div class="tab-content active" id="positions">
             <div class="main-grid">
                 <div class="canvas-section">
-                    <h3 style="color:#00d9ff; margin-bottom:10px;">📋 Your Open Positions</h3>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <h3 style="color:#00d9ff; margin:0;">📋 Your Open Positions</h3>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <span id="autoSaveStatus" style="font-size:11px; color:#888;">⚪ Auto-save OFF</span>
+                            <button onclick="setupAutoSave()" class="btn-secondary" style="padding:5px 10px; font-size:12px;" title="Pick a file location for automatic saving">🔄 Enable Auto-save</button>
+                            <button onclick="exportAllData()" class="btn-secondary" style="padding:5px 10px; font-size:12px;">💾 Export</button>
+                            <label class="btn-secondary" style="padding:5px 10px; font-size:12px; cursor:pointer;">
+                                📂 Import
+                                <input type="file" id="importFileInput" accept=".json" onchange="importAllData(event)" style="display:none;">
+                            </label>
+                        </div>
+                    </div>
                     <div id="positionsTable"></div>
                     <div id="portfolioSummary" style="margin-top:20px;"></div>
                 </div>

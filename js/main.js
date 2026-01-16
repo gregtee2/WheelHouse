@@ -64,9 +64,18 @@ function setupTabs() {
             if (targetId === 'portfolio') {
                 renderPortfolio(true); // Fetch fresh prices
             } else if (targetId === 'pnl') {
-                drawPnLChart();
-                drawProbabilityCone();
-                drawHeatMap();
+                // Auto-run pricing if not already done
+                if (!state.optionResults?.finalPrices) {
+                    priceOptions().then(() => {
+                        drawPnLChart();
+                        drawProbabilityCone();
+                        drawHeatMap();
+                    });
+                } else {
+                    drawPnLChart();
+                    drawProbabilityCone();
+                    drawHeatMap();
+                }
             } else if (targetId === 'greeks') {
                 // Greeks will be drawn when pricing is run
             } else if (targetId === 'data') {
