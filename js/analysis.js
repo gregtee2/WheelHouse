@@ -443,15 +443,19 @@ export async function suggestOptimalRoll() {
         const riskIcon = c.riskChange > 0 ? '↓' : '↑';
         const bidDisplay = c.realBid > 0 ? `$${c.realBid.toFixed(2)} bid` : 'no bid';
         
+        // Format expiration date nicely (e.g., "Feb 21")
+        const expDate = new Date(c.expiration + 'T00:00:00');
+        const expFormatted = expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        
         html += `
             <div style="padding:8px; margin-bottom:6px; background:rgba(0,0,0,0.3); border-radius:4px; cursor:pointer;" 
                  onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}')">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span>${emoji} <b>$${c.strike.toFixed(2)}</b> @ <b>${c.dte}d</b></span>
+                    <span>${emoji} <b>$${c.strike.toFixed(2)}</b> · <b>${expFormatted}</b></span>
                     <span style="color:${riskColor}; font-size:12px;">${riskIcon} ${Math.abs(c.riskChange).toFixed(1)}% risk</span>
                 </div>
                 <div style="font-size:11px; color:#888; margin-top:4px;">
-                    +${c.timeAdded} days | ${bidDisplay} | ITM: ${c.risk.toFixed(1)}%
+                    ${c.dte}d (+${c.timeAdded}) | ${bidDisplay} | ITM: ${c.risk.toFixed(1)}%
                 </div>
             </div>
         `;
