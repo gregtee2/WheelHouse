@@ -193,8 +193,18 @@ export function addPosition() {
     const broker = document.getElementById('posBroker')?.value || 'Schwab';
     const delta = parseFloat(document.getElementById('posDelta')?.value) || null;
     
+    // Buy/Write specific: stock purchase price
+    const stockPriceInput = document.getElementById('posStockPrice');
+    const stockPrice = stockPriceInput ? parseFloat(stockPriceInput.value) || null : null;
+    
     if (!ticker || !strike || !premium || !expiry) {
         showNotification('Please fill in all fields', 'error');
+        return;
+    }
+    
+    // Validate Buy/Write has stock price
+    if (type === 'buy_write' && !stockPrice) {
+        showNotification('Buy/Write requires stock purchase price', 'error');
         return;
     }
     
@@ -218,7 +228,9 @@ export function addPosition() {
                 dte,
                 openDate,
                 broker,
-                delta
+                delta,
+                // Buy/Write specific fields
+                ...(type === 'buy_write' ? { stockPrice, costBasis: stockPrice - premium } : {})
             };
             showNotification(`Updated ${ticker} ${type} position`, 'success');
         }
@@ -240,8 +252,34 @@ export function addPosition() {
             broker,
             delta,
             status: 'open',
-            currentSpot: null
+            currentSpot: null,
+            // Buy/Write specific fields
+            ...(type === 'buy_write' ? { stockPrice, costBasis: stockPrice - premium } : {})
         };
+        
+        // For Buy/Write, also add to holdings automatically
+        if (type === 'buy_write') {
+            const shares = contracts * 100;
+            const existingHolding = state.holdings.find(h => h.ticker === ticker);
+            if (existingHolding) {
+                // Average into existing holding
+                const totalShares = existingHolding.shares + shares;
+                const totalCost = (existingHolding.costBasis * existingHolding.shares) + (stockPrice * shares);
+                existingHolding.shares = totalShares;
+                existingHolding.costBasis = totalCost / totalShares;
+            } else {
+                state.holdings.push({
+                    id: Date.now() + 1,
+                    ticker,
+                    shares,
+                    costBasis: stockPrice,
+                    acquiredDate: openDate,
+                    source: 'buy_write'
+                });
+            }
+            localStorage.setItem(HOLDINGS_KEY, JSON.stringify(state.holdings));
+        }
+        
         state.positions.push(position);
         showNotification(`Added ${ticker} ${type} position`, 'success');
     }
@@ -258,6 +296,7 @@ export function addPosition() {
     document.getElementById('posOpenDate').value = '';
     if (document.getElementById('posBroker')) document.getElementById('posBroker').value = 'Schwab';
     if (document.getElementById('posDelta')) document.getElementById('posDelta').value = '';
+    if (document.getElementById('posStockPrice')) document.getElementById('posStockPrice').value = '';
 }
 
 /**
@@ -704,11 +743,17 @@ export function renderPositions() {
         const annualRocColor = annualRoc >= 50 ? '#00ff88' : annualRoc >= 25 ? '#ffaa00' : '#888';
         
         // Format type for display
-        const typeDisplay = pos.type.replace('_', ' ').replace('short ', 'Short ').replace('long ', 'Long ');
-        const typeColor = pos.type.includes('put') ? '#ff5252' : '#00ff88';
+        let typeDisplay = pos.type.replace('_', ' ').replace('short ', 'Short ').replace('long ', 'Long ');
+        if (pos.type === 'buy_write') typeDisplay = 'Buy/Write';
+        const typeColor = pos.type === 'buy_write' ? '#00d9ff' : pos.type.includes('put') ? '#ff5252' : '#00ff88';
+        
+        // Buy/Write extra info
+        const buyWriteInfo = pos.type === 'buy_write' && pos.stockPrice 
+            ? ` | Stock: $${pos.stockPrice.toFixed(2)} | Basis: $${pos.costBasis.toFixed(2)}` 
+            : '';
         
         html += `
-            <tr style="border-bottom: 1px solid #333;" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.openDate ? ' | Opened: ' + pos.openDate : ''}">
+            <tr style="border-bottom: 1px solid #333;" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.openDate ? ' | Opened: ' + pos.openDate : ''}${buyWriteInfo}">
                 <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${pos.ticker}</td>
                 <td style="padding: 6px; color: #aaa; font-size: 10px;">${pos.broker || 'Schwab'}</td>
                 <td style="padding: 6px; color: ${typeColor}; font-size: 10px;">${typeDisplay}</td>
@@ -1088,5 +1133,17 @@ export function importAllData(event) {
     event.target.value = '';
 }
 
+/**
+ * Toggle Buy/Write specific fields visibility
+ */
+function toggleBuyWriteFields() {
+    const type = document.getElementById('posType').value;
+    const buyWriteFields = document.getElementById('buyWriteFields');
+    if (buyWriteFields) {
+        buyWriteFields.style.display = type === 'buy_write' ? 'block' : 'none';
+    }
+}
+
 window.exportAllData = exportAllData;
 window.importAllData = importAllData;
+window.toggleBuyWriteFields = toggleBuyWriteFields;

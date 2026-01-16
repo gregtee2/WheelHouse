@@ -259,14 +259,15 @@
                 <div class="canvas-section">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                         <h3 style="color:#00d9ff; margin:0;">📋 Your Open Positions</h3>
-                        <div style="display:flex; gap:8px; align-items:center;">
-                            <span id="autoSaveStatus" style="font-size:11px; color:#888;">⚪ Auto-save OFF</span>
-                            <button onclick="setupAutoSave()" class="btn-secondary" style="padding:5px 10px; font-size:12px;" title="Pick a file location for automatic saving">🔄 Enable Auto-save</button>
-                            <button onclick="exportAllData()" class="btn-secondary" style="padding:5px 10px; font-size:12px;">💾 Export</button>
-                            <label class="btn-secondary" style="padding:5px 10px; font-size:12px; cursor:pointer;">
-                                📂 Import
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <span id="autoSaveStatus" style="font-size:10px; color:#666; padding:6px 8px;">⚪ Auto-save OFF</span>
+                            <button onclick="setupAutoSave()" class="btn-toolbar" title="Pick a file location for automatic saving">💾 Enable Auto-save</button>
+                            <button onclick="exportAllData()" class="btn-toolbar">📤 Export</button>
+                            <label class="btn-toolbar" style="cursor:pointer;">
+                                📥 Import
                                 <input type="file" id="importFileInput" accept=".json" onchange="importAllData(event)" style="display:none;">
                             </label>
+                            <button onclick="showBrokerImportModal()" class="btn-toolbar btn-accent" title="Import from broker export (Schwab, etc.)">🏦 From Broker</button>
                         </div>
                     </div>
                     <div id="positionsTable"></div>
@@ -286,12 +287,22 @@
                     
                     <div class="control-group">
                         <label>Type</label>
-                        <select id="posType" style="width:100%; padding:8px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;">
+                        <select id="posType" style="width:100%; padding:8px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;" onchange="toggleBuyWriteFields()">
                             <option value="short_put">Short Put (Cash Secured)</option>
                             <option value="short_call">Short Call (Covered)</option>
+                            <option value="buy_write">Buy/Write (Stock + Call)</option>
                             <option value="long_put">Long Put</option>
                             <option value="long_call">Long Call</option>
                         </select>
+                    </div>
+                    
+                    <!-- Buy/Write extra fields (hidden by default) -->
+                    <div id="buyWriteFields" class="control-group" style="display:none;">
+                        <label>Stock Purchase Price $</label>
+                        <input type="number" id="posStockPrice" class="value-input" min="0.01" max="10000" step="0.01" placeholder="e.g. 150.00" style="width:100%;">
+                        <div style="font-size:10px; color:#888; margin-top:4px;">
+                            Net cost basis = Stock - Premium received
+                        </div>
                     </div>
                     
                     <div class="control-row">
@@ -544,6 +555,9 @@
         </div>
     </div>
 
+    <!-- Broker Import Utility (loads before ES6 modules) -->
+    <script src="js/broker-import.js"></script>
+    
     <!-- ES6 Module Entry Point -->
     <script type="module" src="js/main.js"></script>
 </body>

@@ -611,8 +611,9 @@ function renderClosedPositions() {
     `;
     
     let chainCount = 0;
+    const maxChains = 100; // Show up to 100 position chains
     for (const chain of sortedChains) {
-        if (chainCount >= 15) break; // Limit to 15 chains
+        if (chainCount >= maxChains) break;
         chainCount++;
         
         const isMultiLeg = chain.positions.length > 1;
@@ -700,8 +701,8 @@ function renderClosedPositions() {
         </table>
     `;
     
-    if (sortedChains.length > 15) {
-        html += `<div style="color:#888; font-size:11px; margin-top:8px;">Showing 15 of ${sortedChains.length} position chains</div>`;
+    if (sortedChains.length > maxChains) {
+        html += `<div style="color:#888; font-size:11px; margin-top:8px;">Showing ${maxChains} of ${sortedChains.length} position chains</div>`;
     }
     
     // Add totals summary for filtered data - support both realizedPnL and closePnL

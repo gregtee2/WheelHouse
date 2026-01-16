@@ -24,6 +24,7 @@ examples/*.json
 # Auto-save backup files
 *.wheelhouse.json
 wheelhouse_backup*.json
+saved_positions/
 
 # Any exported data
 exports/

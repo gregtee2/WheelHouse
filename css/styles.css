@@ -369,6 +369,41 @@ td button {
 .data-table th { color: #00d9ff; }
 .table-container { max-height: 220px; overflow-y: auto; }
 
+/* Toolbar Buttons - Uniform sizing */
+.btn-toolbar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    color: #ccc;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    min-width: 90px;
+}
+
+.btn-toolbar:hover {
+    background: rgba(0,217,255,0.15);
+    border-color: rgba(0,217,255,0.4);
+    color: #00d9ff;
+}
+
+.btn-toolbar.btn-accent {
+    background: rgba(0,217,255,0.15);
+    border-color: rgba(0,217,255,0.3);
+    color: #00d9ff;
+}
+
+.btn-toolbar.btn-accent:hover {
+    background: rgba(0,217,255,0.25);
+    border-color: rgba(0,217,255,0.5);
+}
+
 /* Position Context */
 .position-context { font-size: 0.85rem !important; padding: 8px !important; }
 .position-context div { font-size: 0.8rem; }
