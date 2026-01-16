@@ -1,0 +1,24 @@
+{
+  "name": "wheelhouse",
+  "version": "1.0.0",
+  "description": "Wheel Strategy Options Analyzer - Monte Carlo-based options pricing and position tracking",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "options",
+    "trading",
+    "wheel-strategy",
+    "monte-carlo",
+    "black-scholes",
+    "options-pricing"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gregtee2/WheelHouse.git"
+  }
+}
