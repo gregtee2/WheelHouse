@@ -297,6 +297,14 @@ function renderChallengeCard(challenge, isArchived = false) {
     const currentDisplay = challenge.goalType === 'trades' ? current : `$${current.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
     const goalDisplay = challenge.goalType === 'trades' ? `${challenge.goal} trades` : `$${challenge.goal.toLocaleString()}`;
     
+    // Calculate remaining to goal
+    const remaining = challenge.goal - current;
+    const remainingDisplay = challenge.goalType === 'trades' 
+        ? `${Math.abs(remaining)} trades` 
+        : `$${Math.abs(remaining).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+    const remainingColor = remaining <= 0 ? '#00ff88' : '#ff5252';
+    const remainingLabel = remaining <= 0 ? 'Exceeded!' : 'To Go';
+    
     return `
         <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); 
                     border-radius:12px; padding:20px; margin-bottom:15px; ${isArchived ? 'opacity:0.6;' : ''}">
@@ -324,7 +332,7 @@ function renderChallengeCard(challenge, isArchived = false) {
             </div>
             
             <!-- Stats Row -->
-            <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:15px; margin-bottom:15px;">
+            <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; margin-bottom:15px;">
                 <div style="text-align:center;">
                     <div style="color:#00d9ff; font-size:18px; font-weight:bold;">${currentDisplay}</div>
                     <div style="color:#888; font-size:11px;">Current</div>
@@ -332,6 +340,10 @@ function renderChallengeCard(challenge, isArchived = false) {
                 <div style="text-align:center;">
                     <div style="color:#888; font-size:18px; font-weight:bold;">${goalDisplay}</div>
                     <div style="color:#888; font-size:11px;">Goal</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="color:${remainingColor}; font-size:18px; font-weight:bold;">${remaining > 0 ? '' : '+'}${remainingDisplay}</div>
+                    <div style="color:#888; font-size:11px;">${remainingLabel}</div>
                 </div>
                 <div style="text-align:center;">
                     <div style="color:#00ff88; font-size:18px; font-weight:bold;">$${realizedPnL.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
