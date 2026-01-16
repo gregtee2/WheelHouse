@@ -451,7 +451,7 @@ export async function suggestOptimalRoll() {
             <div style="padding:8px; margin-bottom:6px; background:rgba(0,0,0,0.3); border-radius:4px; cursor:pointer;" 
                  onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}')">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span>${emoji} <b>$${c.strike.toFixed(2)}</b> · <b>${expFormatted}</b></span>
+                    <span style="white-space:nowrap;">${emoji} <b>$${c.strike.toFixed(2)}</b> · <b>${expFormatted}</b></span>
                     <span style="color:${riskColor}; font-size:12px;">${riskIcon} ${Math.abs(c.riskChange).toFixed(1)}% risk</span>
                 </div>
                 <div style="font-size:11px; color:#888; margin-top:4px;">

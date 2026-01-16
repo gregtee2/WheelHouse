@@ -1187,24 +1187,46 @@ export function renderPositions() {
             <thead>
                 <tr style="background: #1a1a2e; color: #888;">
                     <th style="padding: 6px; text-align: left; width: 55px;">Ticker</th>
-                    <th style="padding: 6px; text-align: left; width: 60px;">Broker</th>
-                    <th style="padding: 6px; text-align: left; width: 70px;">Type</th>
+                    <th style="padding: 6px; text-align: center; width: 50px;" title="Risk status based on DTE and position">Status</th>
+                    <th style="padding: 6px; text-align: left; width: 55px;">Broker</th>
+                    <th style="padding: 6px; text-align: left; width: 65px;">Type</th>
                     <th style="padding: 6px; text-align: right; width: 50px;">Strike</th>
-                    <th style="padding: 6px; text-align: right; width: 45px;">Prem</th>
-                    <th style="padding: 6px; text-align: right; width: 30px;">Qty</th>
-                    <th style="padding: 6px; text-align: right; width: 35px;">DTE</th>
-                    <th style="padding: 6px; text-align: right; width: 50px;">Credit</th>
-                    <th style="padding: 6px; text-align: right; width: 45px;" title="Annualized Return on Capital">Ann%</th>
-                    <th style="padding: 6px; text-align: center; width: 110px;">Actions</th>
+                    <th style="padding: 6px; text-align: right; width: 40px;">Prem</th>
+                    <th style="padding: 6px; text-align: right; width: 25px;">Qty</th>
+                    <th style="padding: 6px; text-align: right; width: 30px;">DTE</th>
+                    <th style="padding: 6px; text-align: right; width: 45px;">Credit</th>
+                    <th style="padding: 6px; text-align: right; width: 40px;" title="Annualized Return on Capital">Ann%</th>
+                    <th style="padding: 6px; text-align: center; width: 100px;">Actions</th>
                 </tr>
             </thead>
             <tbody>
     `;
     
     openPositions.forEach(pos => {
-        const urgency = getDteUrgency(pos.dte);
-        const dteColor = urgency === 'critical' ? '#ff5252' : 
-                        urgency === 'warning' ? '#ffaa00' : '#00ff88';
+        const urgencyInfo = getDteUrgency(pos.dte);
+        const dteColor = urgencyInfo.color;
+        
+        // Determine overall risk status
+        // Critical: DTE <= 5 days
+        // Warning: DTE <= 14 days  
+        // Good: DTE > 14 days
+        let statusIcon, statusText, statusColor, needsAttention;
+        if (pos.dte <= 5) {
+            statusIcon = '🔴';
+            statusText = 'Critical';
+            statusColor = '#ff5252';
+            needsAttention = true;
+        } else if (pos.dte <= 14) {
+            statusIcon = '🟡';
+            statusText = 'Watch';
+            statusColor = '#ffaa00';
+            needsAttention = true;
+        } else {
+            statusIcon = '🟢';
+            statusText = 'Good';
+            statusColor = '#00ff88';
+            needsAttention = false;
+        }
         
         // Check if this is a spread
         const isSpread = pos.type?.includes('_spread');
@@ -1261,6 +1283,19 @@ export function renderPositions() {
         html += `
             <tr style="border-bottom: 1px solid #333;" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.openDate ? ' | Opened: ' + pos.openDate : ''}${buyWriteInfo}${spreadInfo}">
                 <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${pos.ticker}</td>
+                <td style="padding: 4px; text-align: center;">
+                    ${needsAttention && !isSpread ? `
+                    <button onclick="window.loadPositionToAnalyze(${pos.id}); setTimeout(() => document.getElementById('suggestRollBtn')?.click(), 500);" 
+                            style="background: rgba(${statusColor === '#ff5252' ? '255,82,82' : '255,170,0'},0.2); border: 1px solid ${statusColor}; color: ${statusColor}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px; white-space: nowrap;"
+                            title="Click to see roll suggestions">
+                        ${statusIcon} ${statusText}
+                    </button>
+                    ` : `
+                    <span style="color: ${statusColor}; font-size: 11px;" title="${statusText}">
+                        ${statusIcon} ${statusText}
+                    </span>
+                    `}
+                </td>
                 <td style="padding: 6px; color: #aaa; font-size: 10px;">${pos.broker || 'Schwab'}</td>
                 <td style="padding: 6px; color: ${typeColor}; font-size: 10px;">${typeDisplay}</td>
                 <td style="padding: 6px; text-align: right; ${isSpread ? 'font-size:10px;' : ''}">${strikeDisplay}</td>
