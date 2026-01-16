@@ -245,7 +245,15 @@
                             <label>Expected Credit $ <input type="number" id="rollCredit" class="value-input" min="0" max="50" step="0.01" value="0.50"></label>
                         </div>
                         
-                        <button id="rollBtn" class="btn-primary" style="width:100%; margin-top:10px;">🧮 Calculate Roll</button>
+                        <div style="display:flex; gap:8px; margin-top:10px;">
+                            <button id="rollBtn" class="btn-primary" style="flex:1;">🧮 Calculate Roll</button>
+                            <button id="suggestRollBtn" class="btn-primary" style="flex:1; background:linear-gradient(135deg, #8b5cf6, #6366f1);">✨ Suggest Best</button>
+                        </div>
+                        
+                        <div id="rollSuggestions" style="display:none; margin-top:10px; padding:10px; background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:6px;">
+                            <div style="color:#8b5cf6; font-weight:bold; margin-bottom:8px;">✨ Top 3 Roll Suggestions</div>
+                            <div id="rollSuggestionsList"></div>
+                        </div>
                         
                         <div id="rollResults" style="display:none; margin-top:10px; padding:10px; background:rgba(0,0,0,0.3); border-radius:4px;">
                             <div class="result-row"><span class="result-label">New Strike:</span><span class="result-value" id="rollNewStrikeDisp">—</span></div>

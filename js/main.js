@@ -5,7 +5,7 @@ import { state, resetSimulation } from './state.js';
 import { draw, drawPayoffChart, drawHistogram, drawPnLChart, drawProbabilityCone, drawHeatMap, drawGreeksChart } from './charts.js';
 import { runSingle, runBatch, resetAll } from './simulation.js';
 import { priceOptions, calcGreeks } from './pricing.js';
-import { calculateRoll, generateRecommendation } from './analysis.js';
+import { calculateRoll, generateRecommendation, suggestOptimalRoll } from './analysis.js';
 import { fetchTickerPrice, fetchHeatMapPrice, fetchPositionTickerPrice } from './api.js';
 import { loadPositions, addPosition, editPosition, cancelEdit, renderPositions, updatePortfolioSummary } from './positions.js';
 import { loadClosedPositions, renderPortfolio, renderHoldings } from './portfolio.js';
@@ -202,6 +202,12 @@ function setupButtons() {
     const rollBtn = document.getElementById('rollBtn');
     if (rollBtn) {
         rollBtn.addEventListener('click', calculateRoll);
+    }
+    
+    // Suggest optimal roll button
+    const suggestRollBtn = document.getElementById('suggestRollBtn');
+    if (suggestRollBtn) {
+        suggestRollBtn.addEventListener('click', suggestOptimalRoll);
     }
     
     // Add position button

@@ -300,3 +300,146 @@ export async function calculateRoll() {
     if (rollCompEl) rollCompEl.innerHTML = comparison;
     if (rollResultsEl) rollResultsEl.style.display = 'block';
 }
+
+/**
+ * Suggest optimal roll parameters
+ * Tests a grid of strike/DTE combinations and ranks them
+ */
+export async function suggestOptimalRoll() {
+    const currentStrike = state.strike;
+    const currentDte = state.dte;
+    const spot = state.spot;
+    const vol = state.optVol;
+    
+    // Get current risk from displayed value
+    const optLowerEl = document.getElementById('optLower');
+    const currentRisk = parseFloat(optLowerEl?.textContent?.replace('%','') || '50');
+    
+    const suggestionsEl = document.getElementById('rollSuggestions');
+    const listEl = document.getElementById('rollSuggestionsList');
+    if (!suggestionsEl || !listEl) return;
+    
+    listEl.innerHTML = '<div style="color:#888;">🔄 Analyzing combinations...</div>';
+    suggestionsEl.style.display = 'block';
+    
+    await new Promise(r => setTimeout(r, 50)); // Let UI update
+    
+    // Define search grid
+    // Strikes: from current down to 15% below, in $2 increments
+    const strikeOffsets = [0, -2, -4, -6, -8, -10];
+    const dteCandidates = [30, 45, 60, 90];
+    
+    const candidates = [];
+    
+    // Run mini Monte Carlo for each combination
+    const quickPaths = 500; // Fast but accurate enough
+    
+    for (const dteVal of dteCandidates) {
+        // Skip if less than current DTE (can't roll backwards in time)
+        if (dteVal <= currentDte) continue;
+        
+        const T = dteVal / 365.25;
+        const numSteps = 30;
+        const dt = T / numSteps;
+        
+        for (const offset of strikeOffsets) {
+            const testStrike = currentStrike + offset;
+            
+            // Skip if strike is above spot (too aggressive for puts)
+            if (testStrike >= spot) continue;
+            
+            // Monte Carlo for ITM probability
+            let belowCount = 0;
+            for (let i = 0; i < quickPaths; i++) {
+                let S = spot;
+                for (let step = 0; step < numSteps; step++) {
+                    const dW = randomNormal() * Math.sqrt(dt);
+                    S *= Math.exp((state.rate - 0.5*vol*vol)*dt + vol*dW);
+                }
+                if (S < testStrike) belowCount++;
+            }
+            const newRisk = (belowCount / quickPaths) * 100;
+            
+            // Estimate premium using simplified Black-Scholes delta proxy
+            // Puts further OTM have less premium, more time = more premium
+            const moneyness = (spot - testStrike) / spot; // % OTM
+            const timeValue = Math.sqrt(dteVal / 30); // Sqrt decay approximation
+            const estimatedPremium = spot * vol * timeValue * 0.15 * Math.exp(-moneyness * 3);
+            
+            // Calculate score
+            const riskReduction = currentRisk - newRisk;
+            const timeAdded = dteVal - currentDte;
+            
+            // Score: prioritize risk reduction, then premium, then time
+            // Penalize if risk increased
+            const score = (riskReduction * 3) + (estimatedPremium * 0.5) + (timeAdded * 0.1);
+            
+            candidates.push({
+                strike: testStrike,
+                dte: dteVal,
+                risk: newRisk,
+                riskChange: riskReduction,
+                timeAdded: timeAdded,
+                estimatedPremium: estimatedPremium,
+                score: score
+            });
+        }
+    }
+    
+    // Sort by score (highest first)
+    candidates.sort((a, b) => b.score - a.score);
+    
+    // Take top 3
+    const top3 = candidates.slice(0, 3);
+    
+    if (top3.length === 0) {
+        listEl.innerHTML = '<div style="color:#ffaa00;">⚠️ No better rolls found. Consider closing position.</div>';
+        return;
+    }
+    
+    // Render suggestions
+    let html = '';
+    top3.forEach((c, i) => {
+        const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
+        const riskColor = c.riskChange > 0 ? '#00ff88' : '#ff5252';
+        const riskIcon = c.riskChange > 0 ? '↓' : '↑';
+        
+        html += `
+            <div style="padding:8px; margin-bottom:6px; background:rgba(0,0,0,0.3); border-radius:4px; cursor:pointer;" 
+                 onclick="window.applyRollSuggestion(${c.strike}, ${c.dte})">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>${emoji} <b>$${c.strike.toFixed(0)}</b> @ <b>${c.dte}d</b></span>
+                    <span style="color:${riskColor}; font-size:12px;">${riskIcon} ${Math.abs(c.riskChange).toFixed(1)}% risk</span>
+                </div>
+                <div style="font-size:11px; color:#888; margin-top:4px;">
+                    +${c.timeAdded} days | ~$${c.estimatedPremium.toFixed(2)} premium | Risk: ${c.risk.toFixed(1)}%
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '<div style="font-size:10px; color:#666; margin-top:6px;">Click to apply • Premiums are estimates</div>';
+    listEl.innerHTML = html;
+}
+
+// Global function to apply suggestion to inputs
+window.applyRollSuggestion = function(strike, dte) {
+    const strikeEl = document.getElementById('rollNewStrike');
+    const dteEl = document.getElementById('rollNewDte');
+    const expiryEl = document.getElementById('rollNewExpiry');
+    
+    if (strikeEl) strikeEl.value = strike;
+    if (dteEl) dteEl.value = dte;
+    
+    // Calculate expiry date
+    if (expiryEl) {
+        const expDate = new Date();
+        expDate.setDate(expDate.getDate() + dte);
+        expiryEl.value = expDate.toISOString().split('T')[0];
+    }
+    
+    // Trigger calculation
+    const rollBtn = document.getElementById('rollBtn');
+    if (rollBtn) rollBtn.click();
+};
+
