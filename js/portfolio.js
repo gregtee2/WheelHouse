@@ -805,7 +805,8 @@ function renderClosedPositions() {
             };
         }
         chains[chainKey].positions.push(pos);
-        chains[chainKey].totalPnL += pos.realizedPnL || 0;
+        // Support both realizedPnL (app-created) and closePnL (imported from broker)
+        chains[chainKey].totalPnL += (pos.realizedPnL ?? pos.closePnL ?? 0);
         // Track date range
         if (pos.openDate && (!chains[chainKey].firstOpen || pos.openDate < chains[chainKey].firstOpen)) {
             chains[chainKey].firstOpen = pos.openDate;
