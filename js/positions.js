@@ -2,8 +2,8 @@
 // localStorage-based position management
 
 import { state, setPositionContext, clearPositionContext } from './state.js';
-import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification } from './utils.js';
-import { fetchPositionTickerPrice } from './api.js';
+import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal } from './utils.js';
+import { fetchPositionTickerPrice, fetchFromYahoo } from './api.js';
 import { drawPayoffChart } from './charts.js';
 import { updateDteDisplay } from './ui.js';
 
@@ -11,6 +11,127 @@ const STORAGE_KEY = 'wheelhouse_positions';
 const HOLDINGS_KEY = 'wheelhouse_holdings';
 const CLOSED_KEY = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
+
+// Cache for spot prices (refreshed every 5 minutes)
+const spotPriceCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Fetch spot price with caching
+ */
+async function getCachedSpotPrice(ticker) {
+    const cached = spotPriceCache.get(ticker);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        return cached.price;
+    }
+    
+    try {
+        const result = await fetchFromYahoo(ticker);
+        const price = result.meta?.regularMarketPrice;
+        if (price) {
+            spotPriceCache.set(ticker, { price, timestamp: Date.now() });
+            return price;
+        }
+    } catch (e) {
+        console.warn(`Could not fetch spot for ${ticker}:`, e.message);
+    }
+    return null;
+}
+
+/**
+ * Calculate ITM probability using quick Monte Carlo
+ * @param {number} spot - Current spot price
+ * @param {number} strike - Strike price
+ * @param {number} dte - Days to expiration
+ * @param {number} vol - Implied volatility (default 0.4 = 40%)
+ * @param {boolean} isPut - true for put, false for call
+ * @returns {number} ITM probability as percentage (0-100)
+ */
+function quickMonteCarloRisk(spot, strike, dte, vol = 0.4, isPut = true) {
+    const paths = 300; // Fast but reasonable accuracy
+    const T = Math.max(dte, 1) / 365.25;
+    const numSteps = 20;
+    const dt = T / numSteps;
+    const rate = 0.05; // Risk-free rate assumption
+    
+    let itmCount = 0;
+    
+    for (let i = 0; i < paths; i++) {
+        let S = spot;
+        for (let step = 0; step < numSteps; step++) {
+            const dW = randomNormal() * Math.sqrt(dt);
+            S *= Math.exp((rate - 0.5 * vol * vol) * dt + vol * dW);
+        }
+        
+        if (isPut) {
+            if (S < strike) itmCount++;
+        } else {
+            if (S > strike) itmCount++;
+        }
+    }
+    
+    return (itmCount / paths) * 100;
+}
+
+/**
+ * Determine position risk status based on ITM probability
+ * @param {object} pos - Position object
+ * @param {number|null} spotPrice - Current spot price (null if unavailable)
+ * @returns {object} { icon, text, color, needsAttention, itmPct }
+ */
+function calculatePositionRisk(pos, spotPrice) {
+    // If we don't have spot price, fall back to DTE-based status
+    if (!spotPrice || !pos.strike) {
+        if (pos.dte <= 5) {
+            return { icon: '⏳', text: 'Check', color: '#ffaa00', needsAttention: true, itmPct: null };
+        } else if (pos.dte <= 14) {
+            return { icon: '⏳', text: 'Check', color: '#888', needsAttention: false, itmPct: null };
+        }
+        return { icon: '🟢', text: 'Good', color: '#00ff88', needsAttention: false, itmPct: null };
+    }
+    
+    const isPut = pos.type?.includes('put');
+    const isCall = pos.type?.includes('call');
+    
+    // Skip spreads for now - they have complex risk profiles
+    if (pos.type?.includes('_spread')) {
+        return { icon: '📊', text: 'Spread', color: '#8b5cf6', needsAttention: false, itmPct: null };
+    }
+    
+    // Use stored IV if available, otherwise estimate from typical vol
+    const vol = pos.iv || 0.4;
+    
+    // Calculate ITM probability
+    const itmPct = quickMonteCarloRisk(spotPrice, pos.strike, pos.dte, vol, isPut);
+    
+    // Determine status based on ITM probability
+    // These thresholds match the "Trade Metrics" panel logic
+    if (itmPct >= 50) {
+        return { 
+            icon: '🔴', 
+            text: `${itmPct.toFixed(0)}%`, 
+            color: '#ff5252', 
+            needsAttention: true, 
+            itmPct 
+        };
+    } else if (itmPct >= 35) {
+        return { 
+            icon: '🟡', 
+            text: `${itmPct.toFixed(0)}%`, 
+            color: '#ffaa00', 
+            needsAttention: true, 
+            itmPct 
+        };
+    } else {
+        return { 
+            icon: '🟢', 
+            text: `${itmPct.toFixed(0)}%`, 
+            color: '#00ff88', 
+            needsAttention: false, 
+            itmPct 
+        };
+    }
+}
 
 /**
  * Calculate breakeven price for a spread
@@ -1182,12 +1303,23 @@ export function renderPositions() {
     // Sort by DTE
     openPositions.sort((a, b) => a.dte - b.dte);
     
+    // Render table with loading status indicators
+    renderPositionsTable(container, openPositions);
+    
+    // Then fetch spot prices and update risk status asynchronously
+    updatePositionRiskStatuses(openPositions);
+}
+
+/**
+ * Render the positions table (sync, with placeholder statuses)
+ */
+function renderPositionsTable(container, openPositions) {
     let html = `
         <table style="width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;">
             <thead>
                 <tr style="background: #1a1a2e; color: #888;">
                     <th style="padding: 6px; text-align: left; width: 55px;">Ticker</th>
-                    <th style="padding: 6px; text-align: center; width: 50px;" title="Risk status based on DTE and position">Status</th>
+                    <th style="padding: 6px; text-align: center; width: 55px;" title="ITM probability - click to analyze">Risk</th>
                     <th style="padding: 6px; text-align: left; width: 55px;">Broker</th>
                     <th style="padding: 6px; text-align: left; width: 65px;">Type</th>
                     <th style="padding: 6px; text-align: right; width: 50px;">Strike</th>
@@ -1205,28 +1337,6 @@ export function renderPositions() {
     openPositions.forEach(pos => {
         const urgencyInfo = getDteUrgency(pos.dte);
         const dteColor = urgencyInfo.color;
-        
-        // Determine overall risk status
-        // Critical: DTE <= 5 days
-        // Warning: DTE <= 14 days  
-        // Good: DTE > 14 days
-        let statusIcon, statusText, statusColor, needsAttention;
-        if (pos.dte <= 5) {
-            statusIcon = '🔴';
-            statusText = 'Critical';
-            statusColor = '#ff5252';
-            needsAttention = true;
-        } else if (pos.dte <= 14) {
-            statusIcon = '🟡';
-            statusText = 'Watch';
-            statusColor = '#ffaa00';
-            needsAttention = true;
-        } else {
-            statusIcon = '🟢';
-            statusText = 'Good';
-            statusColor = '#00ff88';
-            needsAttention = false;
-        }
         
         // Check if this is a spread
         const isSpread = pos.type?.includes('_spread');
@@ -1280,21 +1390,16 @@ export function renderPositions() {
             ? ` | Breakeven: $${pos.breakeven.toFixed(2)} | Width: $${pos.spreadWidth}`
             : '';
         
+        // Initial status - shows loading, will be updated async
+        const initialStatusHtml = isSpread 
+            ? `<span style="color: #8b5cf6; font-size: 11px;" title="Spread">📊</span>`
+            : `<span id="risk-status-${pos.id}" style="color: #888; font-size: 10px;">⏳</span>`;
+        
         html += `
             <tr style="border-bottom: 1px solid #333;" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.openDate ? ' | Opened: ' + pos.openDate : ''}${buyWriteInfo}${spreadInfo}">
                 <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${pos.ticker}</td>
-                <td style="padding: 4px; text-align: center;">
-                    ${needsAttention && !isSpread ? `
-                    <button onclick="window.loadPositionToAnalyze(${pos.id}); setTimeout(() => document.getElementById('suggestRollBtn')?.click(), 500);" 
-                            style="background: rgba(${statusColor === '#ff5252' ? '255,82,82' : '255,170,0'},0.2); border: 1px solid ${statusColor}; color: ${statusColor}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px; white-space: nowrap;"
-                            title="Click to see roll suggestions">
-                        ${statusIcon} ${statusText}
-                    </button>
-                    ` : `
-                    <span style="color: ${statusColor}; font-size: 11px;" title="${statusText}">
-                        ${statusIcon} ${statusText}
-                    </span>
-                    `}
+                <td style="padding: 4px; text-align: center;" id="risk-cell-${pos.id}">
+                    ${initialStatusHtml}
                 </td>
                 <td style="padding: 6px; color: #aaa; font-size: 10px;">${pos.broker || 'Schwab'}</td>
                 <td style="padding: 6px; color: ${typeColor}; font-size: 10px;">${typeDisplay}</td>
@@ -1354,6 +1459,51 @@ export function renderPositions() {
     
     html += '</tbody></table>';
     container.innerHTML = html;
+}
+
+/**
+ * Fetch spot prices and update risk status for each position asynchronously
+ */
+async function updatePositionRiskStatuses(openPositions) {
+    // Get unique tickers
+    const tickers = [...new Set(openPositions.map(p => p.ticker))];
+    
+    // Fetch all spot prices in parallel
+    const spotPrices = {};
+    await Promise.all(tickers.map(async (ticker) => {
+        const spot = await getCachedSpotPrice(ticker);
+        if (spot) spotPrices[ticker] = spot;
+    }));
+    
+    // Update each position's risk status in the DOM
+    for (const pos of openPositions) {
+        const cell = document.getElementById(`risk-cell-${pos.id}`);
+        if (!cell) continue;
+        
+        // Skip spreads - already showing static indicator
+        if (pos.type?.includes('_spread')) continue;
+        
+        const spotPrice = spotPrices[pos.ticker];
+        const risk = calculatePositionRisk(pos, spotPrice);
+        
+        if (risk.needsAttention) {
+            // Clickable button for positions needing attention
+            cell.innerHTML = `
+                <button onclick="window.loadPositionToAnalyze(${pos.id}); setTimeout(() => document.getElementById('suggestRollBtn')?.click(), 500);" 
+                        style="background: rgba(${risk.color === '#ff5252' ? '255,82,82' : '255,170,0'},0.2); border: 1px solid ${risk.color}; color: ${risk.color}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px; white-space: nowrap;"
+                        title="${risk.itmPct ? `${risk.itmPct.toFixed(1)}% ITM probability - Click to see roll suggestions` : 'Click to analyze'}">
+                    ${risk.icon} ${risk.text}
+                </button>
+            `;
+        } else {
+            // Static indicator for healthy positions
+            cell.innerHTML = `
+                <span style="color: ${risk.color}; font-size: 11px;" title="${risk.itmPct ? `${risk.itmPct.toFixed(1)}% ITM probability - Looking good!` : 'Healthy position'}">
+                    ${risk.icon} ${risk.text}
+                </span>
+            `;
+        }
+    }
 }
 
 /**
