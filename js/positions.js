@@ -5,6 +5,7 @@ import { state, setPositionContext, clearPositionContext } from './state.js';
 import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification } from './utils.js';
 import { fetchPositionTickerPrice } from './api.js';
 import { drawPayoffChart } from './charts.js';
+import { updateDteDisplay } from './ui.js';
 
 const STORAGE_KEY = 'wheelhouse_positions';
 const HOLDINGS_KEY = 'wheelhouse_holdings';
@@ -1084,6 +1085,15 @@ export function loadPositionToAnalyze(id) {
     document.getElementById('dteSlider').value = Math.min(dte, 365);
     document.getElementById('dteInput').value = dte;
     state.dte = dte;
+    
+    // Update expiry date picker to match position's actual expiry
+    const expiryPicker = document.getElementById('expiryDatePicker');
+    if (expiryPicker && pos.expiry) {
+        expiryPicker.value = pos.expiry;  // Format: YYYY-MM-DD
+    }
+    
+    // Update the DTE display text (e.g., "5 days (0w 5d)")
+    updateDteDisplay();
     
     // Update BARRIERS based on position type
     // SHORT PUT: Lower barrier = Strike (assignment level), Upper = spot + 20%
