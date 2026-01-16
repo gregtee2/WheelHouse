@@ -180,11 +180,19 @@ export function calculateChallengeProgress(challengeId) {
     const { open, closed } = getChallengePositions(challengeId);
     
     // Calculate realized P&L from closed positions
+    // Use stored realizedPnL/closePnL if available (more accurate)
+    // Otherwise fall back to premium - closePrice calculation
     let realizedPnL = 0;
     closed.forEach(pos => {
-        const premium = (pos.premium || 0) * 100 * (pos.contracts || 1);
-        const closeCost = (pos.closePrice || 0) * 100 * (pos.contracts || 1);
-        realizedPnL += premium - closeCost;
+        if (pos.realizedPnL !== undefined || pos.closePnL !== undefined) {
+            // Use the stored P&L value
+            realizedPnL += (pos.realizedPnL ?? pos.closePnL ?? 0);
+        } else {
+            // Fall back to calculation
+            const premium = (pos.premium || 0) * 100 * (pos.contracts || 1);
+            const closeCost = (pos.closePrice || 0) * 100 * (pos.contracts || 1);
+            realizedPnL += premium - closeCost;
+        }
     });
     
     // Calculate unrealized P&L from open positions
