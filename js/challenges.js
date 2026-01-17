@@ -5,6 +5,26 @@ import { state } from './state.js';
 
 const CHALLENGES_KEY = 'wheelhouse_challenges';
 
+// ============ Theme Colors Helper ============
+// Gets CSS variable values for dynamic theming
+function getThemeColor(varName, fallback) {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    return value || fallback;
+}
+
+// Theme color getters
+const colors = {
+    get cyan() { return getThemeColor('--accent-cyan', '#00d9ff'); },
+    get green() { return getThemeColor('--accent-green', '#00ff88'); },
+    get red() { return getThemeColor('--accent-red', '#ff5252'); },
+    get orange() { return getThemeColor('--accent-orange', '#ffaa00'); },
+    get purple() { return getThemeColor('--accent-purple', '#8b5cf6'); },
+    get text() { return getThemeColor('--text-primary', '#e8e8e8'); },
+    get muted() { return getThemeColor('--text-muted', '#888'); },
+    get bgPrimary() { return getThemeColor('--bg-primary', '#1a1a2e'); },
+    get bgSecondary() { return getThemeColor('--bg-secondary', '#0a0a15'); }
+};
+
 // ============ Challenge Data Model ============
 // Challenge: {
 //   id: number,
@@ -254,25 +274,25 @@ export function renderChallenges() {
     
     container.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-            <h2 style="margin:0; color:#00d9ff;">🏆 Challenges</h2>
+            <h2 style="margin:0; color:${colors.cyan};">🏆 Challenges</h2>
             <button onclick="window.showCreateChallengeModal()" 
-                    style="background:#8b5cf6; border:none; color:#fff; padding:10px 20px; 
+                    style="background:${colors.purple}; border:none; color:${colors.text}; padding:10px 20px; 
                            border-radius:6px; cursor:pointer; font-size:14px; font-weight:bold;">
                 + New Challenge
             </button>
         </div>
         
         ${activeChallenges.length === 0 ? `
-            <div style="text-align:center; padding:60px 20px; color:#888;">
+            <div style="text-align:center; padding:60px 20px; color:${colors.muted};">
                 <div style="font-size:48px; margin-bottom:15px;">🎯</div>
                 <div style="font-size:18px; margin-bottom:10px;">No active challenges</div>
-                <div style="font-size:14px; color:#666;">Create a challenge to track your trading goals!</div>
+                <div style="font-size:14px; color:${colors.muted};">Create a challenge to track your trading goals!</div>
             </div>
         ` : activeChallenges.map(c => renderChallengeCard(c)).join('')}
         
         ${archivedChallenges.length > 0 ? `
             <div style="margin-top:30px;">
-                <h3 style="color:#888; margin-bottom:15px; cursor:pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+                <h3 style="color:${colors.muted}; margin-bottom:15px; cursor:pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
                     📁 Archived (${archivedChallenges.length}) ▾
                 </h3>
                 <div style="display:none;">
@@ -289,9 +309,9 @@ function renderChallengeCard(challenge, isArchived = false) {
     
     const { current, percent, daysLeft, isExpired, isCompleted, openPositions, closedPositions, realizedPnL, unrealizedPnL } = progress;
     
-    const statusColor = isCompleted ? '#00ff88' : isExpired ? '#ff5252' : '#00d9ff';
+    const statusColor = isCompleted ? colors.green : isExpired ? colors.red : colors.cyan;
     const statusText = isCompleted ? '✅ COMPLETED' : isExpired ? '⏰ EXPIRED' : `${daysLeft} days left`;
-    const progressColor = isCompleted ? '#00ff88' : percent > 75 ? '#ffaa00' : '#00d9ff';
+    const progressColor = isCompleted ? colors.green : percent > 75 ? colors.orange : colors.cyan;
     
     const goalLabel = challenge.goalType === 'trades' ? 'trades' : '';
     const currentDisplay = challenge.goalType === 'trades' ? current : `$${current.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
@@ -302,7 +322,7 @@ function renderChallengeCard(challenge, isArchived = false) {
     const remainingDisplay = challenge.goalType === 'trades' 
         ? `${Math.abs(remaining)} trades` 
         : `$${Math.abs(remaining).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-    const remainingColor = remaining <= 0 ? '#00ff88' : '#ff5252';
+    const remainingColor = remaining <= 0 ? colors.green : colors.red;
     const remainingLabel = remaining <= 0 ? 'Exceeded!' : 'To Go';
     
     return `
@@ -310,10 +330,10 @@ function renderChallengeCard(challenge, isArchived = false) {
                     border-radius:12px; padding:20px; margin-bottom:15px; ${isArchived ? 'opacity:0.6;' : ''}">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px;">
                 <div>
-                    <div style="font-size:20px; font-weight:bold; color:#fff; margin-bottom:5px;">
+                    <div style="font-size:20px; font-weight:bold; color:${colors.text}; margin-bottom:5px;">
                         ${challenge.name}
                     </div>
-                    <div style="color:#888; font-size:13px;">
+                    <div style="color:${colors.muted}; font-size:13px;">
                         ${challenge.startDate} → ${challenge.endDate}
                     </div>
                 </div>
@@ -334,66 +354,66 @@ function renderChallengeCard(challenge, isArchived = false) {
             <!-- Stats Row -->
             <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; margin-bottom:15px;">
                 <div style="text-align:center;">
-                    <div style="color:#00d9ff; font-size:18px; font-weight:bold;">${currentDisplay}</div>
-                    <div style="color:#888; font-size:11px;">Current</div>
+                    <div style="color:${colors.cyan}; font-size:18px; font-weight:bold;">${currentDisplay}</div>
+                    <div style="color:${colors.muted}; font-size:11px;">Current</div>
                 </div>
                 <div style="text-align:center;">
-                    <div style="color:#888; font-size:18px; font-weight:bold;">${goalDisplay}</div>
-                    <div style="color:#888; font-size:11px;">Goal</div>
+                    <div style="color:${colors.muted}; font-size:18px; font-weight:bold;">${goalDisplay}</div>
+                    <div style="color:${colors.muted}; font-size:11px;">Goal</div>
                 </div>
                 <div style="text-align:center;">
                     <div style="color:${remainingColor}; font-size:18px; font-weight:bold;">${remaining > 0 ? '' : '+'}${remainingDisplay}</div>
-                    <div style="color:#888; font-size:11px;">${remainingLabel}</div>
+                    <div style="color:${colors.muted}; font-size:11px;">${remainingLabel}</div>
                 </div>
                 <div style="text-align:center;">
-                    <div style="color:#00ff88; font-size:18px; font-weight:bold;">$${realizedPnL.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
-                    <div style="color:#888; font-size:11px;">Realized</div>
+                    <div style="color:${colors.green}; font-size:18px; font-weight:bold;">$${realizedPnL.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                    <div style="color:${colors.muted}; font-size:11px;">Realized</div>
                 </div>
                 <div style="text-align:center;">
-                    <div style="color:${unrealizedPnL >= 0 ? '#ffaa00' : '#ff5252'}; font-size:18px; font-weight:bold;">
+                    <div style="color:${unrealizedPnL >= 0 ? colors.orange : colors.red}; font-size:18px; font-weight:bold;">
                         ${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                     </div>
-                    <div style="color:#888; font-size:11px;">Unrealized</div>
+                    <div style="color:${colors.muted}; font-size:11px;">Unrealized</div>
                 </div>
             </div>
             
             <!-- Position Count -->
-            <div style="color:#888; font-size:13px; margin-bottom:15px;">
+            <div style="color:${colors.muted}; font-size:13px; margin-bottom:15px;">
                 📊 ${openPositions.length} open · ${closedPositions.length} closed positions
             </div>
             
             <!-- Action Buttons -->
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
                 <button onclick="window.viewChallengePositions(${challenge.id})" 
-                        style="background:#00d9ff; border:none; color:#000; padding:8px 16px; 
+                        style="background:${colors.cyan}; border:none; color:#000; padding:8px 16px; 
                                border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold;">
                     👁 View Positions
                 </button>
                 <button onclick="window.showLinkPositionsModal(${challenge.id})" 
-                        style="background:#8b5cf6; border:none; color:#fff; padding:8px 16px; 
+                        style="background:${colors.purple}; border:none; color:${colors.text}; padding:8px 16px; 
                                border-radius:6px; cursor:pointer; font-size:12px;">
                     🔗 Link Positions
                 </button>
                 <button onclick="window.editChallenge(${challenge.id})" 
-                        style="background:rgba(255,255,255,0.1); border:none; color:#fff; padding:8px 16px; 
+                        style="background:rgba(255,255,255,0.1); border:none; color:${colors.text}; padding:8px 16px; 
                                border-radius:6px; cursor:pointer; font-size:12px;">
                     ✏️ Edit
                 </button>
                 ${!isArchived ? `
                     <button onclick="window.archiveChallengeUI(${challenge.id})" 
-                            style="background:rgba(255,255,255,0.05); border:none; color:#888; padding:8px 16px; 
+                            style="background:rgba(255,255,255,0.05); border:none; color:${colors.muted}; padding:8px 16px; 
                                    border-radius:6px; cursor:pointer; font-size:12px;">
                         📁 Archive
                     </button>
                 ` : `
                     <button onclick="window.unarchiveChallenge(${challenge.id})" 
-                            style="background:rgba(255,255,255,0.05); border:none; color:#888; padding:8px 16px; 
+                            style="background:rgba(255,255,255,0.05); border:none; color:${colors.muted}; padding:8px 16px; 
                                    border-radius:6px; cursor:pointer; font-size:12px;">
                         ↩️ Restore
                     </button>
                 `}
                 <button onclick="window.deleteChallengeUI(${challenge.id})" 
-                        style="background:rgba(255,82,82,0.2); border:none; color:#ff5252; padding:8px 16px; 
+                        style="background:rgba(255,82,82,0.2); border:none; color:${colors.red}; padding:8px 16px; 
                                border-radius:6px; cursor:pointer; font-size:12px;">
                     🗑 Delete
                 </button>
@@ -420,30 +440,30 @@ window.showCreateChallengeModal = function(editId = null) {
         justify-content:center; z-index:10000;
     `;
     modal.innerHTML = `
-        <div style="background:#1a1a2e; border:1px solid #333; border-radius:12px; 
+        <div style="background:${colors.bgPrimary}; border:1px solid #333; border-radius:12px; 
                     padding:30px; width:90%; max-width:450px;">
-            <h2 style="margin:0 0 20px 0; color:#00d9ff;">${isEdit ? '✏️ Edit' : '🏆 New'} Challenge</h2>
+            <h2 style="margin:0 0 20px 0; color:${colors.cyan};">${isEdit ? '✏️ Edit' : '🏆 New'} Challenge</h2>
             
             <div style="margin-bottom:15px;">
-                <label style="display:block; color:#888; margin-bottom:5px; font-size:13px;">Challenge Name</label>
+                <label style="display:block; color:${colors.muted}; margin-bottom:5px; font-size:13px;">Challenge Name</label>
                 <input type="text" id="challengeName" value="${challenge?.name || ''}" 
                        placeholder="e.g., $25K February Challenge"
-                       style="width:100%; padding:12px; background:#0d0d1a; border:1px solid #333; 
-                              border-radius:6px; color:#fff; font-size:14px; box-sizing:border-box;">
+                       style="width:100%; padding:12px; background:${colors.bgSecondary}; border:1px solid #333; 
+                              border-radius:6px; color:${colors.text}; font-size:14px; box-sizing:border-box;">
             </div>
             
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:15px;">
                 <div>
-                    <label style="display:block; color:#888; margin-bottom:5px; font-size:13px;">Goal Amount ($)</label>
+                    <label style="display:block; color:${colors.muted}; margin-bottom:5px; font-size:13px;">Goal Amount ($)</label>
                     <input type="number" id="challengeGoal" value="${challenge?.goal || 10000}" 
-                           style="width:100%; padding:12px; background:#0d0d1a; border:1px solid #333; 
-                                  border-radius:6px; color:#fff; font-size:14px; box-sizing:border-box;">
+                           style="width:100%; padding:12px; background:${colors.bgSecondary}; border:1px solid #333; 
+                                  border-radius:6px; color:${colors.text}; font-size:14px; box-sizing:border-box;">
                 </div>
                 <div>
-                    <label style="display:block; color:#888; margin-bottom:5px; font-size:13px;">Goal Type</label>
+                    <label style="display:block; color:${colors.muted}; margin-bottom:5px; font-size:13px;">Goal Type</label>
                     <select id="challengeGoalType" 
-                            style="width:100%; padding:12px; background:#0d0d1a; border:1px solid #333; 
-                                   border-radius:6px; color:#fff; font-size:14px; box-sizing:border-box;">
+                            style="width:100%; padding:12px; background:${colors.bgSecondary}; border:1px solid #333; 
+                                   border-radius:6px; color:${colors.text}; font-size:14px; box-sizing:border-box;">
                         <option value="net_pnl" ${challenge?.goalType === 'net_pnl' ? 'selected' : ''}>Net P&L</option>
                         <option value="premium" ${challenge?.goalType === 'premium' ? 'selected' : ''}>Premium Collected</option>
                         <option value="trades" ${challenge?.goalType === 'trades' ? 'selected' : ''}>Number of Trades</option>
@@ -453,25 +473,25 @@ window.showCreateChallengeModal = function(editId = null) {
             
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:25px;">
                 <div>
-                    <label style="display:block; color:#888; margin-bottom:5px; font-size:13px;">Start Date</label>
+                    <label style="display:block; color:${colors.muted}; margin-bottom:5px; font-size:13px;">Start Date</label>
                     <input type="date" id="challengeStart" value="${challenge?.startDate || today}" 
-                           style="width:100%; padding:12px; background:#0d0d1a; border:1px solid #333; 
-                                  border-radius:6px; color:#fff; font-size:14px; box-sizing:border-box;">
+                           style="width:100%; padding:12px; background:${colors.bgSecondary}; border:1px solid #333; 
+                                  border-radius:6px; color:${colors.text}; font-size:14px; box-sizing:border-box;">
                 </div>
                 <div>
-                    <label style="display:block; color:#888; margin-bottom:5px; font-size:13px;">End Date</label>
+                    <label style="display:block; color:${colors.muted}; margin-bottom:5px; font-size:13px;">End Date</label>
                     <input type="date" id="challengeEnd" value="${challenge?.endDate || endOfMonth}" 
-                           style="width:100%; padding:12px; background:#0d0d1a; border:1px solid #333; 
-                                  border-radius:6px; color:#fff; font-size:14px; box-sizing:border-box;">
+                           style="width:100%; padding:12px; background:${colors.bgSecondary}; border:1px solid #333; 
+                                  border-radius:6px; color:${colors.text}; font-size:14px; box-sizing:border-box;">
                 </div>
             </div>
             
             <div style="display:flex; gap:10px; justify-content:flex-end;">
                 <button onclick="document.getElementById('challengeModal').remove()" 
-                        style="background:#333; border:none; color:#fff; padding:12px 24px; 
+                        style="background:#333; border:none; color:${colors.text}; padding:12px 24px; 
                                border-radius:6px; cursor:pointer;">Cancel</button>
                 <button onclick="window.saveChallenge(${editId || 'null'})" 
-                        style="background:#8b5cf6; border:none; color:#fff; padding:12px 24px; 
+                        style="background:${colors.purple}; border:none; color:${colors.text}; padding:12px 24px; 
                                border-radius:6px; cursor:pointer; font-weight:bold;">
                     ${isEdit ? 'Save Changes' : 'Create Challenge'}
                 </button>
@@ -565,37 +585,37 @@ window.viewChallengePositions = function(challengeId) {
             const currentPrice = pos.lastOptionPrice || pos.markedPrice || 0;
             pnl = premium - (currentPrice * 100 * (pos.contracts || 1));
         }
-        const pnlColor = pnl >= 0 ? '#00ff88' : '#ff5252';
+        const pnlColor = pnl >= 0 ? colors.green : colors.red;
         const isTagged = pos.challengeIds?.includes(challengeId);
         
         return `
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-                <td style="padding:8px; color:#00d9ff;">${pos.ticker}</td>
+                <td style="padding:8px; color:${colors.cyan};">${pos.ticker}</td>
                 <td style="padding:8px;">${pos.type?.replace('_', ' ') || 'PUT'}</td>
                 <td style="padding:8px; text-align:right;">$${pos.strike}</td>
                 <td style="padding:8px; text-align:right;">$${premium.toFixed(0)}</td>
                 <td style="padding:8px; text-align:right; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}</td>
                 <td style="padding:8px; text-align:center;">
-                    ${isTagged ? '<span style="color:#8b5cf6;">🔗 Tagged</span>' : '<span style="color:#888;">📅 Date</span>'}
+                    ${isTagged ? `<span style="color:${colors.purple};">🔗 Tagged</span>` : `<span style="color:${colors.muted};">📅 Date</span>`}
                 </td>
             </tr>
         `;
     };
     
     modal.innerHTML = `
-        <div style="background:#1a1a2e; border:1px solid #333; border-radius:12px; 
+        <div style="background:${colors.bgPrimary}; border:1px solid #333; border-radius:12px; 
                     padding:30px; width:90%; max-width:700px; max-height:80vh; overflow-y:auto;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                <h2 style="margin:0; color:#00d9ff;">📊 ${challenge.name}</h2>
+                <h2 style="margin:0; color:${colors.cyan};">📊 ${challenge.name}</h2>
                 <button onclick="document.getElementById('challengePositionsModal').remove()" 
-                        style="background:none; border:none; color:#888; font-size:24px; cursor:pointer;">×</button>
+                        style="background:none; border:none; color:${colors.muted}; font-size:24px; cursor:pointer;">×</button>
             </div>
             
             ${openPositions.length > 0 ? `
-                <h3 style="color:#ffaa00; margin:20px 0 10px;">📋 Open Positions (${openPositions.length})</h3>
+                <h3 style="color:${colors.orange}; margin:20px 0 10px;">📋 Open Positions (${openPositions.length})</h3>
                 <table style="width:100%; border-collapse:collapse; font-size:13px;">
                     <thead>
-                        <tr style="color:#888; border-bottom:1px solid #333;">
+                        <tr style="color:${colors.muted}; border-bottom:1px solid #333;">
                             <th style="padding:8px; text-align:left;">Ticker</th>
                             <th style="padding:8px; text-align:left;">Type</th>
                             <th style="padding:8px; text-align:right;">Strike</th>
@@ -611,10 +631,10 @@ window.viewChallengePositions = function(challengeId) {
             ` : ''}
             
             ${closedPositions.length > 0 ? `
-                <h3 style="color:#00ff88; margin:20px 0 10px;">✅ Closed Positions (${closedPositions.length})</h3>
+                <h3 style="color:${colors.green}; margin:20px 0 10px;">✅ Closed Positions (${closedPositions.length})</h3>
                 <table style="width:100%; border-collapse:collapse; font-size:13px;">
                     <thead>
-                        <tr style="color:#888; border-bottom:1px solid #333;">
+                        <tr style="color:${colors.muted}; border-bottom:1px solid #333;">
                             <th style="padding:8px; text-align:left;">Ticker</th>
                             <th style="padding:8px; text-align:left;">Type</th>
                             <th style="padding:8px; text-align:right;">Strike</th>
@@ -630,7 +650,7 @@ window.viewChallengePositions = function(challengeId) {
             ` : ''}
             
             ${openPositions.length === 0 && closedPositions.length === 0 ? `
-                <div style="text-align:center; padding:40px; color:#888;">
+                <div style="text-align:center; padding:40px; color:${colors.muted};">
                     <div style="font-size:32px; margin-bottom:10px;">📭</div>
                     <div>No positions linked to this challenge yet</div>
                     <div style="font-size:12px; margin-top:5px;">Positions opened or closed during the challenge period will appear automatically</div>
@@ -658,15 +678,15 @@ window.showLinkPositionsModal = function(challengeId) {
     `;
     
     modal.innerHTML = `
-        <div style="background:#1a1a2e; border:1px solid #333; border-radius:12px; 
+        <div style="background:${colors.bgPrimary}; border:1px solid #333; border-radius:12px; 
                     padding:30px; width:90%; max-width:600px; max-height:80vh; overflow-y:auto;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                <h2 style="margin:0; color:#00d9ff;">🔗 Link Positions to ${challenge.name}</h2>
+                <h2 style="margin:0; color:${colors.cyan};">🔗 Link Positions to ${challenge.name}</h2>
                 <button onclick="document.getElementById('linkPositionsModal').remove()" 
-                        style="background:none; border:none; color:#888; font-size:24px; cursor:pointer;">×</button>
+                        style="background:none; border:none; color:${colors.muted}; font-size:24px; cursor:pointer;">×</button>
             </div>
             
-            <div style="color:#888; font-size:13px; margin-bottom:15px;">
+            <div style="color:${colors.muted}; font-size:13px; margin-bottom:15px;">
                 ✓ = Position is linked to this challenge. Click to toggle.
             </div>
             
@@ -678,15 +698,15 @@ window.showLinkPositionsModal = function(challengeId) {
                         <div onclick="window.togglePositionLink(${pos.id}, ${challengeId})" 
                              style="display:flex; justify-content:space-between; align-items:center;
                                     padding:12px; margin-bottom:8px; background:${isLinked ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.03)'};
-                                    border:1px solid ${isLinked ? '#8b5cf6' : 'rgba(255,255,255,0.1)'};
+                                    border:1px solid ${isLinked ? colors.purple : 'rgba(255,255,255,0.1)'};
                                     border-radius:8px; cursor:pointer; transition:all 0.2s;">
                             <div>
-                                <span style="color:#00d9ff; font-weight:bold;">${pos.ticker}</span>
-                                <span style="color:#888; margin-left:10px;">${pos.type?.replace('_', ' ') || 'PUT'}</span>
-                                <span style="color:#888; margin-left:10px;">$${pos.strike}</span>
-                                ${isClosed ? '<span style="color:#00ff88; margin-left:10px; font-size:11px;">CLOSED</span>' : ''}
+                                <span style="color:${colors.cyan}; font-weight:bold;">${pos.ticker}</span>
+                                <span style="color:${colors.muted}; margin-left:10px;">${pos.type?.replace('_', ' ') || 'PUT'}</span>
+                                <span style="color:${colors.muted}; margin-left:10px;">$${pos.strike}</span>
+                                ${isClosed ? `<span style="color:${colors.green}; margin-left:10px; font-size:11px;">CLOSED</span>` : ''}
                             </div>
-                            <div style="color:${isLinked ? '#8b5cf6' : '#555'}; font-size:20px;">
+                            <div style="color:${isLinked ? colors.purple : '#555'}; font-size:20px;">
                                 ${isLinked ? '✓' : '○'}
                             </div>
                         </div>
@@ -696,7 +716,7 @@ window.showLinkPositionsModal = function(challengeId) {
             
             <div style="margin-top:20px; text-align:right;">
                 <button onclick="document.getElementById('linkPositionsModal').remove()" 
-                        style="background:#8b5cf6; border:none; color:#fff; padding:12px 24px; 
+                        style="background:${colors.purple}; border:none; color:${colors.text}; padding:12px 24px; 
                                border-radius:6px; cursor:pointer; font-weight:bold;">Done</button>
             </div>
         </div>
@@ -743,9 +763,9 @@ export function showQuickLinkModal(positionId) {
     `;
     
     modal.innerHTML = `
-        <div style="background:#1a1a2e; border:1px solid #333; border-radius:12px; 
+        <div style="background:${colors.bgPrimary}; border:1px solid #333; border-radius:12px; 
                     padding:25px; width:90%; max-width:400px;">
-            <h3 style="margin:0 0 15px 0; color:#00d9ff;">
+            <h3 style="margin:0 0 15px 0; color:${colors.cyan};">
                 🔗 Link ${pos.ticker} to Challenge
             </h3>
             
@@ -756,10 +776,10 @@ export function showQuickLinkModal(positionId) {
                          style="display:flex; justify-content:space-between; align-items:center;
                                 padding:12px; margin-bottom:8px; 
                                 background:${isLinked ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.03)'};
-                                border:1px solid ${isLinked ? '#8b5cf6' : 'rgba(255,255,255,0.1)'};
+                                border:1px solid ${isLinked ? colors.purple : 'rgba(255,255,255,0.1)'};
                                 border-radius:8px; cursor:pointer;">
-                        <span style="color:#fff;">${c.name}</span>
-                        <span style="color:${isLinked ? '#8b5cf6' : '#555'}; font-size:18px;">
+                        <span style="color:${colors.text};">${c.name}</span>
+                        <span style="color:${isLinked ? colors.purple : '#555'}; font-size:18px;">
                             ${isLinked ? '✓' : '○'}
                         </span>
                     </div>
@@ -768,7 +788,7 @@ export function showQuickLinkModal(positionId) {
             
             <div style="margin-top:15px; text-align:right;">
                 <button onclick="document.getElementById('quickLinkModal').remove()" 
-                        style="background:#333; border:none; color:#fff; padding:10px 20px; 
+                        style="background:#333; border:none; color:${colors.text}; padding:10px 20px; 
                                border-radius:6px; cursor:pointer;">Done</button>
             </div>
         </div>

@@ -12,6 +12,23 @@ const HOLDINGS_KEY = 'wheelhouse_holdings';
 const CLOSED_KEY = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
 
+// Theme color helpers - read from CSS variables at render time
+function getThemeColor(varName, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim() || fallback;
+}
+
+const colors = {
+    get cyan() { return getThemeColor('--accent-cyan', '#00d9ff'); },
+    get green() { return getThemeColor('--accent-green', '#00ff88'); },
+    get red() { return getThemeColor('--accent-red', '#ff5252'); },
+    get orange() { return getThemeColor('--accent-orange', '#ffaa00'); },
+    get purple() { return getThemeColor('--accent-purple', '#8b5cf6'); },
+    get text() { return getThemeColor('--text-primary', '#fff'); },
+    get muted() { return getThemeColor('--text-muted', '#888'); },
+    get bgPrimary() { return getThemeColor('--bg-primary', '#1a1a2e'); },
+    get bgSecondary() { return getThemeColor('--bg-secondary', '#0d0d1a'); }
+};
+
 // Cache for spot prices (refreshed every 5 minutes)
 const spotPriceCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -101,11 +118,11 @@ function calculatePositionRisk(pos, spotPrice) {
     // If we don't have spot price, fall back to DTE-based status
     if (!spotPrice || !pos.strike) {
         if (pos.dte <= 5) {
-            return { icon: '⏳', text: 'Check', color: '#ffaa00', needsAttention: true, itmPct: null };
+            return { icon: '⏳', text: 'Check', color: colors.orange, needsAttention: true, itmPct: null };
         } else if (pos.dte <= 14) {
-            return { icon: '⏳', text: 'Check', color: '#888', needsAttention: false, itmPct: null };
+            return { icon: '⏳', text: 'Check', color: colors.muted, needsAttention: false, itmPct: null };
         }
-        return { icon: '🟢', text: 'OK', color: '#00ff88', needsAttention: false, itmPct: null };
+        return { icon: '🟢', text: 'OK', color: colors.green, needsAttention: false, itmPct: null };
     }
     
     const isPut = pos.type?.includes('put');
@@ -113,7 +130,7 @@ function calculatePositionRisk(pos, spotPrice) {
     
     // Skip spreads for now - they have complex risk profiles
     if (pos.type?.includes('_spread')) {
-        return { icon: '📊', text: 'Spread', color: '#8b5cf6', needsAttention: false, itmPct: null };
+        return { icon: '📊', text: 'Spread', color: colors.purple, needsAttention: false, itmPct: null };
     }
     
     // Use stored IV if available, otherwise estimate based on ticker
@@ -134,7 +151,7 @@ function calculatePositionRisk(pos, spotPrice) {
         return { 
             icon: '🔴', 
             text: `${itmPct.toFixed(0)}%`, 
-            color: '#ff5252', 
+            color: colors.red, 
             needsAttention: true, 
             itmPct 
         };
@@ -152,7 +169,7 @@ function calculatePositionRisk(pos, spotPrice) {
         return { 
             icon: '🟡', 
             text: `${itmPct.toFixed(0)}%`, 
-            color: '#ffaa00', 
+            color: colors.orange, 
             needsAttention: false,  // Yellow is "watch", not urgent
             itmPct 
         };
@@ -161,7 +178,7 @@ function calculatePositionRisk(pos, spotPrice) {
         return { 
             icon: '🟢', 
             text: `${itmPct.toFixed(0)}%`, 
-            color: '#00ff88', 
+            color: colors.green, 
             needsAttention: false, 
             itmPct 
         };
@@ -295,13 +312,13 @@ window.showRollHistory = function(chainId) {
     chainPositions.forEach((pos, idx) => {
         const isOpen = pos.status === 'open';
         const isCurrent = idx === chainPositions.length - 1 && isOpen;
-        const statusColor = isOpen ? '#00ff88' : '#888';
+        const statusColor = isOpen ? colors.green : colors.muted;
         const statusText = isOpen ? 'OPEN' : (pos.closeReason || 'CLOSED');
         const premium = pos.premium * 100 * pos.contracts;
         
         // Determine if debit or credit
         const isDebit = pos.type?.includes('debit');
-        const premiumColor = isDebit ? '#ff5252' : '#00ff88';
+        const premiumColor = isDebit ? colors.red : colors.green;
         const premiumSign = isDebit ? '-' : '+';
         
         // Strike display
@@ -317,16 +334,16 @@ window.showRollHistory = function(chainId) {
                         ${idx < chainPositions.length - 1 ? 'border-bottom:1px solid #333;' : ''}">
                 <div style="width:30px; text-align:center;">
                     <div style="width:12px; height:12px; border-radius:50%; 
-                                background:${isCurrent ? '#00d9ff' : statusColor}; 
+                                background:${isCurrent ? colors.cyan : statusColor}; 
                                 margin:4px auto;
-                                ${isCurrent ? 'box-shadow: 0 0 10px #00d9ff;' : ''}"></div>
+                                ${isCurrent ? `box-shadow: 0 0 10px ${colors.cyan};` : ''}"></div>
                     ${idx < chainPositions.length - 1 ? `
                     <div style="width:2px; height:30px; background:#333; margin:0 auto;"></div>
                     ` : ''}
                 </div>
                 <div style="flex:1;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                        <span style="color:#fff; font-weight:bold;">
+                        <span style="color:${colors.text}; font-weight:bold;">
                             ${idx === 0 ? '🎬 Original' : '🔄 Roll #' + idx}
                         </span>
                         <span style="color:${statusColor}; font-size:11px; padding:2px 8px; 
@@ -335,9 +352,9 @@ window.showRollHistory = function(chainId) {
                         </span>
                     </div>
                     <div style="color:#aaa; font-size:13px;">
-                        <span style="color:#888;">${pos.type?.replace(/_/g, ' ').toUpperCase() || 'PUT'}</span>
-                        &nbsp;•&nbsp; Strike: <span style="color:#fff;">${strikeDisplay}</span>
-                        &nbsp;•&nbsp; Exp: <span style="color:#fff;">${pos.expiry || 'N/A'}</span>
+                        <span style="color:${colors.muted};">${pos.type?.replace(/_/g, ' ').toUpperCase() || 'PUT'}</span>
+                        &nbsp;•&nbsp; Strike: <span style="color:${colors.text};">${strikeDisplay}</span>
+                        &nbsp;•&nbsp; Exp: <span style="color:${colors.text};">${pos.expiry || 'N/A'}</span>
                     </div>
                     <div style="margin-top:6px; display:flex; gap:20px; font-size:12px;">
                         <span>Premium: <span style="color:${premiumColor}; font-weight:bold;">${premiumSign}$${premium.toFixed(0)}</span></span>
@@ -350,31 +367,31 @@ window.showRollHistory = function(chainId) {
     });
     
     modal.innerHTML = `
-        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border:1px solid #0096ff; 
+        <div style="background:linear-gradient(135deg, ${colors.bgPrimary} 0%, #16213e 100%); border:1px solid #0096ff; 
                     border-radius:16px; padding:30px; width:90%; max-width:550px; max-height:85vh; overflow-y:auto;
                     box-shadow: 0 0 40px rgba(0, 150, 255, 0.3);">
             
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:25px;">
                 <span style="font-size:32px;">🔗</span>
                 <div>
-                    <h2 style="margin:0; color:#fff; font-size:20px;">Roll History: ${ticker}</h2>
-                    <div style="color:#888; font-size:13px;">${chainPositions.length} position${chainPositions.length > 1 ? 's' : ''} in chain</div>
+                    <h2 style="margin:0; color:${colors.text}; font-size:20px;">Roll History: ${ticker}</h2>
+                    <div style="color:${colors.muted}; font-size:13px;">${chainPositions.length} position${chainPositions.length > 1 ? 's' : ''} in chain</div>
                 </div>
             </div>
             
-            <div style="background:#0d0d1a; border-radius:10px; padding:20px; margin-bottom:20px;">
+            <div style="background:${colors.bgSecondary}; border-radius:10px; padding:20px; margin-bottom:20px;">
                 ${timelineHtml}
             </div>
             
             <div style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); 
                         border-radius:10px; padding:15px; margin-bottom:20px; text-align:center;">
-                <div style="color:#888; font-size:11px; margin-bottom:4px;">TOTAL PREMIUM COLLECTED</div>
-                <div style="color:#00ff88; font-size:24px; font-weight:bold;">$${totalPremium.toFixed(0)}</div>
+                <div style="color:${colors.muted}; font-size:11px; margin-bottom:4px;">TOTAL PREMIUM COLLECTED</div>
+                <div style="color:${colors.green}; font-size:24px; font-weight:bold;">$${totalPremium.toFixed(0)}</div>
             </div>
             
             <div style="display:flex; justify-content:center;">
                 <button onclick="document.getElementById('rollHistoryModal').remove()" 
-                        style="background:#0096ff; border:none; color:#fff; padding:12px 40px; 
+                        style="background:#0096ff; border:none; color:${colors.text}; padding:12px 40px; 
                                border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;">
                     Close
                 </button>
@@ -404,7 +421,7 @@ window.showSpreadExplanation = function(posId) {
     }
     
     // Determine direction color
-    const dirColor = explanation.direction === 'BULLISH' ? '#00ff88' : '#ff5252';
+    const dirColor = explanation.direction === 'BULLISH' ? colors.green : colors.red;
     const dirEmoji = explanation.direction === 'BULLISH' ? '📈' : '📉';
     
     const modal = document.createElement('div');
@@ -417,15 +434,15 @@ window.showSpreadExplanation = function(posId) {
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
     modal.innerHTML = `
-        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border:1px solid #8b5cf6; 
+        <div style="background:linear-gradient(135deg, ${colors.bgPrimary} 0%, #16213e 100%); border:1px solid ${colors.purple}; 
                     border-radius:16px; padding:30px; width:90%; max-width:600px; max-height:90vh; overflow-y:auto;
                     box-shadow: 0 0 40px rgba(139, 92, 246, 0.3);">
             
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
                 <span style="font-size:32px;">🤖</span>
                 <div>
-                    <h2 style="margin:0; color:#fff; font-size:20px;">${explanation.name}</h2>
-                    <div style="color:#888; font-size:13px;">${pos.ticker} • ${pos.contracts} contract${pos.contracts > 1 ? 's' : ''} • Exp: ${pos.expiry}</div>
+                    <h2 style="margin:0; color:${colors.text}; font-size:20px;">${explanation.name}</h2>
+                    <div style="color:${colors.muted}; font-size:13px;">${pos.ticker} • ${pos.contracts} contract${pos.contracts > 1 ? 's' : ''} • Exp: ${pos.expiry}</div>
                 </div>
                 <span style="margin-left:auto; background:${dirColor}22; color:${dirColor}; 
                              padding:6px 14px; border-radius:20px; font-weight:bold; font-size:13px;">
@@ -433,30 +450,30 @@ window.showSpreadExplanation = function(posId) {
                 </span>
             </div>
             
-            <div style="background:#0d0d1a; border-radius:10px; padding:20px; margin-bottom:20px;">
-                <div style="color:#8b5cf6; font-weight:bold; margin-bottom:8px; font-size:12px; text-transform:uppercase;">
+            <div style="background:${colors.bgSecondary}; border-radius:10px; padding:20px; margin-bottom:20px;">
+                <div style="color:${colors.purple}; font-weight:bold; margin-bottom:8px; font-size:12px; text-transform:uppercase;">
                     📋 Setup
                 </div>
-                <div style="color:#fff; font-size:16px; font-weight:bold;">${explanation.setup}</div>
-                <div style="color:#888; font-size:14px; margin-top:6px;">${explanation.cost}</div>
+                <div style="color:${colors.text}; font-size:16px; font-weight:bold;">${explanation.setup}</div>
+                <div style="color:${colors.muted}; font-size:14px; margin-top:6px;">${explanation.cost}</div>
             </div>
             
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:20px;">
                 <div style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); 
                             border-radius:10px; padding:15px;">
-                    <div style="color:#00ff88; font-size:12px; font-weight:bold; margin-bottom:6px;">💰 MAX PROFIT</div>
-                    <div style="color:#fff; font-size:14px;">${explanation.maxProfit}</div>
+                    <div style="color:${colors.green}; font-size:12px; font-weight:bold; margin-bottom:6px;">💰 MAX PROFIT</div>
+                    <div style="color:${colors.text}; font-size:14px;">${explanation.maxProfit}</div>
                 </div>
                 <div style="background:rgba(255,82,82,0.1); border:1px solid rgba(255,82,82,0.3); 
                             border-radius:10px; padding:15px;">
-                    <div style="color:#ff5252; font-size:12px; font-weight:bold; margin-bottom:6px;">⚠️ MAX LOSS</div>
-                    <div style="color:#fff; font-size:14px;">${explanation.maxLoss}</div>
+                    <div style="color:${colors.red}; font-size:12px; font-weight:bold; margin-bottom:6px;">⚠️ MAX LOSS</div>
+                    <div style="color:${colors.text}; font-size:14px;">${explanation.maxLoss}</div>
                 </div>
             </div>
             
-            <div style="background:#0d0d1a; border-radius:10px; padding:15px; margin-bottom:20px;">
-                <div style="color:#ffaa00; font-size:12px; font-weight:bold; margin-bottom:6px;">🎯 BREAKEVEN</div>
-                <div style="color:#fff; font-size:14px;">${explanation.breakeven}</div>
+            <div style="background:${colors.bgSecondary}; border-radius:10px; padding:15px; margin-bottom:20px;">
+                <div style="color:${colors.orange}; font-size:12px; font-weight:bold; margin-bottom:6px;">🎯 BREAKEVEN</div>
+                <div style="color:${colors.text}; font-size:14px;">${explanation.breakeven}</div>
             </div>
             
             <div style="background:linear-gradient(135deg, #1e1e3f 0%, #2a1f4e 100%); 
@@ -469,12 +486,12 @@ window.showSpreadExplanation = function(posId) {
             
             <div style="background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.4); 
                         border-radius:10px; padding:15px; margin-bottom:20px; text-align:center;">
-                <div style="color:#8b5cf6; font-size:14px; font-weight:bold;">${explanation.riskReward}</div>
+                <div style="color:${colors.purple}; font-size:14px; font-weight:bold;">${explanation.riskReward}</div>
             </div>
             
             <div style="display:flex; justify-content:center;">
                 <button onclick="document.getElementById('spreadExplanationModal').remove()" 
-                        style="background:#8b5cf6; border:none; color:#fff; padding:12px 40px; 
+                        style="background:${colors.purple}; border:none; color:${colors.text}; padding:12px 40px; 
                                border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;
                                transition: all 0.2s;">
                     Got it! 👍
@@ -743,19 +760,19 @@ function updateAutoSaveStatus(status) {
     switch (status) {
         case 'enabled':
             indicator.textContent = '🟢 Auto-save ON';
-            indicator.style.color = '#00ff88';
+            indicator.style.color = colors.green;
             break;
         case 'saved':
             indicator.textContent = '🟢 Saved ' + new Date().toLocaleTimeString();
-            indicator.style.color = '#00ff88';
+            indicator.style.color = colors.green;
             break;
         case 'error':
             indicator.textContent = '🔴 Save failed';
-            indicator.style.color = '#ff5252';
+            indicator.style.color = colors.red;
             break;
         default:
             indicator.textContent = '⚪ Auto-save OFF';
-            indicator.style.color = '#888';
+            indicator.style.color = colors.muted;
     }
 }
 
@@ -1010,9 +1027,9 @@ function setupRollCalculation(pos) {
         
         netDisplay.style.display = 'block';
         if (netCredit >= 0) {
-            netValueEl.innerHTML = `<span style="color:#00ff88;">+$${netCredit.toFixed(2)} credit</span>`;
+            netValueEl.innerHTML = `<span style="color:${colors.green};">+$${netCredit.toFixed(2)} credit</span>`;
         } else {
-            netValueEl.innerHTML = `<span style="color:#ff5252;">-$${Math.abs(netCredit).toFixed(2)} debit</span>`;
+            netValueEl.innerHTML = `<span style="color:${colors.red};">-$${Math.abs(netCredit).toFixed(2)} debit</span>`;
         }
     };
     
@@ -1397,7 +1414,7 @@ function renderPositionsTable(container, openPositions) {
         const annualRoc = pos.dte > 0 ? roc * (365 / pos.dte) : 0;
         
         // Color code annual ROC
-        const annualRocColor = annualRoc >= 50 ? '#00ff88' : annualRoc >= 25 ? '#ffaa00' : '#888';
+        const annualRocColor = annualRoc >= 50 ? colors.green : annualRoc >= 25 ? colors.orange : colors.muted;
         
         // Format type for display
         let typeDisplay = pos.type.replace(/_/g, ' ').replace('short ', 'Short ').replace('long ', 'Long ');
@@ -1406,9 +1423,9 @@ function renderPositionsTable(container, openPositions) {
             // Shorten spread names for display
             typeDisplay = pos.type.replace('_spread', '').replace('_', ' ').toUpperCase() + ' Spread';
         }
-        const typeColor = pos.type === 'buy_write' ? '#00d9ff' : 
-                         isSpread ? '#8b5cf6' :
-                         pos.type.includes('put') ? '#ff5252' : '#00ff88';
+        const typeColor = pos.type === 'buy_write' ? colors.cyan : 
+                         isSpread ? colors.purple :
+                         pos.type.includes('put') ? colors.red : colors.green;
         
         // Strike display - different for spreads
         const strikeDisplay = isSpread 

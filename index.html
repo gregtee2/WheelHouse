@@ -9,7 +9,10 @@
 </head>
 <body>
     <div class="container">
-        <h1>🏠 WheelHouse</h1>
+        <div style="display:flex; justify-content:center; align-items:center; gap:10px;">
+            <h1>🏠 WheelHouse</h1>
+            <button id="settingsBtn" onclick="showSettingsModal()" style="background:none; border:none; font-size:18px; cursor:pointer; opacity:0.6; transition:opacity 0.2s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6" title="Theme Settings">⚙️</button>
+        </div>
         <p class="subtitle">Wheel Strategy Options Analyzer</p>
         
         <div class="tabs">
@@ -29,10 +32,10 @@
                 <div class="canvas-section">
                     <canvas id="mainCanvas" width="800" height="220"></canvas>
                     <div class="legend">
-                        <div class="legend-item"><div class="legend-color" style="background:#00ff88"></div>Path</div>
+                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-green)"></div>Path</div>
                         <div class="legend-item"><div class="legend-color" style="background:rgba(0,217,255,0.4)"></div>Previous</div>
-                        <div class="legend-item"><div class="legend-color" style="background:#ff5252"></div>Walls</div>
-                        <div class="legend-item"><div class="legend-color" style="background:#ffaa00"></div>Start</div>
+                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-red)"></div>Walls</div>
+                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-orange)"></div>Start</div>
                     </div>
                     <div class="stats-grid">
                         <div class="stat-card"><div class="stat-value" id="simCount">0</div><div class="stat-label">Simulations</div></div>
@@ -76,10 +79,10 @@
         <!-- OPTIONS TAB -->
         <div class="tab-content" id="options">
             <!-- Position Context Banner -->
-            <div id="positionContext" style="display:none; background:rgba(0,217,255,0.15); border:2px solid #00d9ff; border-radius:6px; padding:8px 12px; margin-bottom:8px;">
+            <div id="positionContext" style="display:none; background:rgba(0,217,255,0.15); border:2px solid var(--accent-cyan); border-radius:6px; padding:8px 12px; margin-bottom:8px;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div style="display:flex; align-items:center; gap:15px;">
-                        <div style="color:#00d9ff; font-weight:600; font-size:12px;">📊 ANALYZING POSITION</div>
+                        <div style="color:var(--accent-cyan); font-weight:600; font-size:12px;">📊 ANALYZING POSITION</div>
                         <div id="contextTicker" style="font-weight:bold; color:#fff; font-size:14px;">—</div>
                         <div id="contextDetails" style="color:#888; font-size:12px;">—</div>
                     </div>
@@ -126,7 +129,7 @@
                     <div class="control-group">
                         <label>📅 Expiry</label>
                         <input type="date" id="expiryDatePicker" style="width:100%; padding:4px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; font-size:11px;">
-                        <div id="dteDisplay" style="font-size:11px; color:#ffaa00; margin-top:2px;"></div>
+                        <div id="dteDisplay" style="font-size:11px; color:var(--accent-orange); margin-top:2px;"></div>
                     </div>
                     
                     <div style="display:flex; gap:6px; margin-top:10px; align-items:center;">
@@ -144,10 +147,10 @@
                     <div id="positionInfo" style="font-size:11px; margin-bottom:4px;"></div>
                     <canvas id="payoffCanvas" style="width:100%; height:220px;"></canvas>
                     <div class="legend" style="font-size:10px; margin:4px 0;">
-                        <div class="legend-item"><div class="legend-color" style="background:#00ff88"></div>Call</div>
-                        <div class="legend-item"><div class="legend-color" style="background:#ff5252"></div>Put</div>
-                        <div class="legend-item"><div class="legend-color" style="background:#00d9ff"></div>Strike</div>
-                        <div class="legend-item"><div class="legend-color" style="background:#ffaa00"></div>Barriers</div>
+                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-green)"></div>Call</div>
+                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-red)"></div>Put</div>
+                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-cyan)"></div>Strike</div>
+                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-orange)"></div>Barriers</div>
                     </div>
                     <canvas id="priceHistCanvas" style="width:100%; height:80px; margin-top:4px"></canvas>
                 </div>
@@ -199,16 +202,16 @@
         <div class="tab-content" id="pnl">
             <div class="main-grid">
                 <div class="canvas-section">
-                    <h3 style="color:#00d9ff; margin-bottom:4px; font-size:12px;">💰 P&L at Expiration</h3>
+                    <h3 style="color:var(--accent-cyan); margin-bottom:4px; font-size:12px;">💰 P&L at Expiration</h3>
                     <canvas id="pnlCanvas" width="800" height="160"></canvas>
                     
-                    <h3 style="color:#00d9ff; margin:8px 0 4px; font-size:12px;">📊 Probability Cone (1σ, 2σ, 3σ)</h3>
+                    <h3 style="color:var(--accent-cyan); margin:8px 0 4px; font-size:12px;">📊 Probability Cone (1σ, 2σ, 3σ)</h3>
                     <canvas id="probConeCanvas" width="800" height="150"></canvas>
                     
                     <div style="display:flex; align-items:center; gap:10px; margin:8px 0 4px;">
-                        <h3 style="color:#00d9ff; margin:0; font-size:12px;">🔥 P&L Heat Map</h3>
+                        <h3 style="color:var(--accent-cyan); margin:0; font-size:12px;">🔥 P&L Heat Map</h3>
                         <div style="display:flex; align-items:center; gap:6px; margin-left:auto;">
-                            <label style="font-size:11px; color:#ffaa00;">Spot $</label>
+                            <label style="font-size:11px; color:var(--accent-orange);">Spot $</label>
                             <input type="number" id="heatMapSpot" class="value-input" step="0.01" style="width:60px; padding:3px;">
                             <button id="heatMapFetchBtn" class="btn-secondary" style="padding:3px 6px; font-size:10px;" title="Fetch live price">📊</button>
                             <button id="heatMapUpdateBtn" class="btn-primary" style="padding:3px 8px; font-size:10px;">Update</button>
@@ -226,9 +229,9 @@
                     </div>
                     
                     <div style="margin-top:10px; padding:10px; background:rgba(0,217,255,0.1); border-radius:6px;">
-                        <h3 style="color:#00ff88; margin-bottom:8px; font-size:12px;">🔄 Roll Calculator</h3>
+                        <h3 style="color:var(--accent-green); margin-bottom:8px; font-size:12px;">🔄 Roll Calculator</h3>
                         <div style="background:rgba(0,0,0,0.3); padding:6px; border-radius:4px; margin-bottom:8px; font-size:11px;">
-                            <div style="color:#ffaa00;">Current: $<span id="rollCurrentStrike">—</span> | <span id="rollCurrentDte">—</span>d | Risk: <span id="rollCurrentRisk">—</span>% | Premium: $<span id="rollCurrentPremium">—</span></div>
+                            <div style="color:var(--accent-orange);">Current: $<span id="rollCurrentStrike">—</span> | <span id="rollCurrentDte">—</span>d | Risk: <span id="rollCurrentRisk">—</span>% | Premium: $<span id="rollCurrentPremium">—</span></div>
                         </div>
                         
                         <!-- Always visible 2-column layout -->
@@ -266,7 +269,7 @@
                             
                             <!-- RIGHT: Results (always visible, shows placeholder until calculated) -->
                             <div id="rollResults" style="padding:8px; background:rgba(0,0,0,0.3); border-radius:4px; font-size:11px;">
-                                <div style="color:#00d9ff; font-weight:bold; margin-bottom:6px; font-size:10px;">📊 Roll Results</div>
+                                <div style="color:var(--accent-cyan); font-weight:bold; margin-bottom:6px; font-size:10px;">📊 Roll Results</div>
                                 <div class="result-row" style="padding:2px 0;"><span class="result-label">Strike:</span><span class="result-value" id="rollNewStrikeDisp">—</span></div>
                                 <div class="result-row" style="padding:2px 0;"><span class="result-label">DTE:</span><span class="result-value" id="rollNewDteDisp">—</span></div>
                                 <div class="result-row" style="padding:2px 0;"><span class="result-label">Risk:</span><span class="result-value put" id="rollNewRisk">—</span></div>
@@ -285,7 +288,7 @@
             <div class="main-grid">
                 <div class="canvas-section">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <h3 style="color:#00d9ff; margin:0;">📋 Your Open Positions</h3>
+                        <h3 style="color:var(--accent-cyan); margin:0;">📋 Your Open Positions</h3>
                         <div style="display:flex; gap:6px; align-items:center;">
                             <span id="autoSaveStatus" style="font-size:10px; color:#666; padding:6px 8px;">⚪ Auto-save OFF</span>
                             <button onclick="setupAutoSave()" class="btn-toolbar" title="Pick a file location for automatic saving">💾 Enable Auto-save</button>
@@ -301,7 +304,7 @@
                     <div id="portfolioSummary" style="margin-top:20px;"></div>
                 </div>
                 <div class="controls-panel">
-                    <h3 style="color:#00d9ff; margin-bottom:15px;">➕ Add New Position</h3>
+                    <h3 style="color:var(--accent-cyan); margin-bottom:15px;">➕ Add New Position</h3>
                     
                     <div class="control-group">
                         <label>Ticker</label>
@@ -412,7 +415,7 @@
                         <button id="cancelEditBtn" class="btn-secondary" style="flex:0.4; display:none;">✕ Cancel</button>
                     </div>
                     
-                    <div style="margin-top:15px; padding:10px; background:rgba(255,170,0,0.1); border-radius:6px; font-size:12px; color:#ffaa00;">
+                    <div style="margin-top:15px; padding:10px; background:rgba(255,170,0,0.1); border-radius:6px; font-size:12px; color:var(--accent-orange);">
                         💡 Positions are saved in your browser's local storage.
                     </div>
                 </div>
@@ -459,11 +462,11 @@
                 
                 <!-- Close Position Panel -->
                 <div id="closePanel" class="results-box" style="display:none; margin-top:15px; background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.4);">
-                    <h3 style="color:#00ff88; margin-bottom:12px;">✅ Close Position</h3>
+                    <h3 style="color:var(--accent-green); margin-bottom:12px;">✅ Close Position</h3>
                     <div id="closeCurrentInfo" style="background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; margin-bottom:12px; font-size:12px; color:#aaa;"></div>
                     
                     <div class="control-group">
-                        <label style="color:#00ff88;">Closing Price (what you paid to buy back)</label>
+                        <label style="color:var(--accent-green);">Closing Price (what you paid to buy back)</label>
                         <input type="number" id="closeClosingPrice" class="value-input" min="0" max="500" step="0.01" value="0" style="width:100%;">
                         <div style="font-size:10px; color:#888; margin-top:4px;">Enter 0 if expired worthless</div>
                     </div>
@@ -490,7 +493,7 @@
             <div class="main-grid">
                 <div class="canvas-section" style="overflow-y: auto;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                        <h3 style="color:#00d9ff; margin:0;">💼 Portfolio P&L Tracker</h3>
+                        <h3 style="color:var(--accent-cyan); margin:0;">💼 Portfolio P&L Tracker</h3>
                         <div style="display:flex; gap:12px; align-items:center;">
                             <label style="display:flex; align-items:center; gap:4px; font-size:12px; cursor:pointer; color:#aaa;" title="Auto-refresh prices every 60 seconds from CBOE">
                                 <input type="checkbox" id="autoRefreshCheckbox" style="cursor:pointer;">
@@ -500,7 +503,7 @@
                         </div>
                     </div>
                     
-                    <div id="portfolioLoading" style="display:none; text-align:center; padding:20px; color:#ffaa00;">
+                    <div id="portfolioLoading" style="display:none; text-align:center; padding:20px; color:var(--accent-orange);">
                         <div class="spinner" style="display:inline-block; margin-right:10px;"></div>
                         Fetching live prices...
                     </div>
@@ -514,14 +517,14 @@
                     </div>
                     
                     <div style="margin-top:20px; padding:15px; background:rgba(0,0,0,0.3); border-radius:8px;">
-                        <h4 style="color:#ffaa00; margin:0 0 10px;">📜 Closed Positions</h4>
+                        <h4 style="color:var(--accent-orange); margin:0 0 10px;">📜 Closed Positions</h4>
                         <div id="closedPositionsTable" style="color:#888; font-size:13px;">No closed positions yet.</div>
                     </div>
                 </div>
                 
                 <div class="controls-panel">
                     <div class="results-box" style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3);">
-                        <h3 style="color:#00ff88;">📊 Portfolio Summary</h3>
+                        <h3 style="color:var(--accent-green);">📊 Portfolio Summary</h3>
                         <div class="result-row"><span class="result-label">Open Positions:</span><span class="result-value" id="portOpenCount">0</span></div>
                         <div class="result-row"><span class="result-label">Total Premium Collected:</span><span class="result-value call" id="portTotalPremium">$0</span></div>
                         <div class="result-row"><span class="result-label">Capital at Risk:</span><span class="result-value" id="portCapitalRisk">$0</span></div>
@@ -533,7 +536,7 @@
                     </div>
                     
                     <div class="results-box" style="margin-top:15px;">
-                        <h3 style="color:#00d9ff;">🎯 Performance</h3>
+                        <h3 style="color:var(--accent-cyan);">🎯 Performance</h3>
                         <div class="result-row"><span class="result-label">Win Rate:</span><span class="result-value" id="portWinRate">—</span></div>
                         <div class="result-row"><span class="result-label">Avg Days Held:</span><span class="result-value" id="portAvgDays">—</span></div>
                         <div class="result-row"><span class="result-label">Best Trade:</span><span class="result-value" id="portBestTrade" style="cursor:pointer;">—</span></div>
@@ -541,12 +544,12 @@
                     </div>
                     
                     <div style="margin-top:15px; padding:12px; background:rgba(0,217,255,0.1); border-radius:6px; font-size:12px;">
-                        <div style="color:#00d9ff; font-weight:600; margin-bottom:5px;">💡 How to Use</div>
+                        <div style="color:var(--accent-cyan); font-weight:600; margin-bottom:5px;">💡 How to Use</div>
                         <div style="color:#aaa;">
                             <b>✎ Mark:</b> Enter current option price from Schwab<br>
                             <b>✓ Close:</b> Lock in P&L when position expires/closes<br><br>
                             <b>P&L = </b> Premium received − current option price<br>
-                            <i style="color:#00ff88;">Positive = theta decay working for you!</i>
+                            <i style="color:var(--accent-green);">Positive = theta decay working for you!</i>
                         </div>
                     </div>
                 </div>
@@ -557,11 +560,11 @@
         <div class="tab-content" id="greeks">
             <div class="main-grid">
                 <div class="canvas-section">
-                    <h3 style="color:#00d9ff; margin-bottom:10px;">📐 Greeks Visualization</h3>
+                    <h3 style="color:var(--accent-cyan); margin-bottom:10px;">📐 Greeks Visualization</h3>
                     <canvas id="greeksCanvas" width="800" height="200"></canvas>
                     <div class="legend">
-                        <div class="legend-item"><div class="legend-color" style="background:#00ff88"></div>Call</div>
-                        <div class="legend-item"><div class="legend-color" style="background:#ff5252"></div>Put</div>
+                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-green)"></div>Call</div>
+                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-red)"></div>Put</div>
                     </div>
                 </div>
                 <div class="controls-panel">
@@ -604,11 +607,11 @@
         <div class="tab-content" id="data">
             <div class="main-grid">
                 <div class="canvas-section">
-                    <h3 style="color:#00d9ff; margin-bottom:10px;">📊 Simulation Data</h3>
+                    <h3 style="color:var(--accent-cyan); margin-bottom:10px;">📊 Simulation Data</h3>
                     <div id="dataContent"></div>
                 </div>
                 <div class="controls-panel">
-                    <h3 style="color:#00d9ff; margin-bottom:15px;">💾 Export Options</h3>
+                    <h3 style="color:var(--accent-cyan); margin-bottom:15px;">💾 Export Options</h3>
                     <button class="btn-success" style="width:100%; margin-bottom:10px;" onclick="window.exportJSON()">📥 Export JSON</button>
                     <button class="btn-secondary" style="width:100%; margin-bottom:10px;" onclick="window.exportCSV()">📥 Export CSV</button>
                     <button class="btn-secondary" style="width:100%;" onclick="window.copyData()">📋 Copy to Clipboard</button>
@@ -619,6 +622,9 @@
 
     <!-- Broker Import Utility (loads before ES6 modules) -->
     <script src="js/broker-import.js"></script>
+    
+    <!-- Theme Settings (loads before modules) -->
+    <script src="js/theme.js"></script>
     
     <!-- ES6 Module Entry Point -->
     <script type="module" src="js/main.js"></script>
