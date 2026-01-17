@@ -104,7 +104,7 @@ h1 {
 .tab-content.active { display: block; }
 
 /* Layout Grid - Default 2-column */
-.main-grid { display: grid; grid-template-columns: 1fr 240px; gap: 8px; }
+.main-grid { display: grid; grid-template-columns: 1fr 380px; gap: 8px; }
 
 /* Options Tab - 3-column no-scroll layout */
 .options-layout {

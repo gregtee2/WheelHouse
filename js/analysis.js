@@ -348,9 +348,8 @@ export async function calculateRoll() {
     comparison += `<br><b>Verdict:</b> ${verdict}`;
     
     const rollCompEl = document.getElementById('rollComparison');
-    const rollResultsEl = document.getElementById('rollResults');
     if (rollCompEl) rollCompEl.innerHTML = comparison;
-    if (rollResultsEl) rollResultsEl.style.display = 'block';
+    // Results panel is always visible now, no need to toggle display
 }
 
 /**
