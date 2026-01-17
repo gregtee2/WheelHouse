@@ -166,7 +166,22 @@ h1 {
     border: 1px solid rgba(255,255,255,0.1);
 }
 
-.controls-panel { max-height: 95vh; overflow-y: auto; }
+.controls-panel { max-height: calc(100vh - 100px); overflow-y: auto; }
+
+/* P&L Tab - no scroll layout */
+#pnl .main-grid {
+    height: calc(100vh - 100px);
+}
+
+#pnl .canvas-section {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#pnl .canvas-section canvas {
+    flex-shrink: 1;
+}
 
 /* Canvas */
 canvas { display: block; width: 100%; background: #0a0a15; border-radius: 5px; }
