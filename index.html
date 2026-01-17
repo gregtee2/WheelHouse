@@ -231,37 +231,45 @@
                             <div style="color:#ffaa00;">Current: $<span id="rollCurrentStrike">—</span> | <span id="rollCurrentDte">—</span>d | Risk: <span id="rollCurrentRisk">—</span>% | Premium: $<span id="rollCurrentPremium">—</span></div>
                         </div>
                         
-                        <div class="control-group">
-                            <label>New Strike <input type="number" id="rollNewStrike" class="value-input" min="1" max="500" step="0.5" value="95"></label>
+                        <!-- Compact 2-column inputs -->
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+                            <div class="control-group" style="margin-bottom:0;">
+                                <label style="font-size:11px;">New Strike <input type="number" id="rollNewStrike" class="value-input" min="1" max="500" step="0.5" value="95" style="width:60px;"></label>
+                            </div>
+                            <div class="control-group" style="margin-bottom:0;">
+                                <label style="font-size:11px;">New DTE <input type="number" id="rollNewDte" class="value-input" min="1" max="365" step="1" value="45" style="width:50px;"></label>
+                            </div>
                         </div>
-                        <div class="control-group">
-                            <label>New DTE <input type="number" id="rollNewDte" class="value-input" min="1" max="365" step="1" value="45"></label>
-                        </div>
-                        <div class="control-group">
-                            <label>📅 New Expiry</label>
-                            <input type="date" id="rollNewExpiry" style="width:100%; padding:6px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;">
-                        </div>
-                        <div class="control-group">
-                            <label>Net Credit/Debit $ <input type="number" id="rollCredit" class="value-input" min="-10000" max="10000" step="1" value="50" title="Total for all contracts. Negative = you pay (debit)"></label>
-                        </div>
-                        
-                        <div style="display:flex; gap:8px; margin-top:10px;">
-                            <button id="rollBtn" class="btn-primary" style="flex:1;">🧮 Calculate Roll</button>
-                            <button id="suggestRollBtn" class="btn-primary" style="flex:1; background:linear-gradient(135deg, #8b5cf6, #6366f1);">✨ Suggest Best</button>
-                        </div>
-                        
-                        <div id="rollSuggestions" style="display:none; margin-top:10px; padding:10px; background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:6px;">
-                            <div style="color:#8b5cf6; font-weight:bold; margin-bottom:8px;">✨ Top 3 Roll Suggestions</div>
-                            <div id="rollSuggestionsList"></div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+                            <div class="control-group" style="margin-bottom:0;">
+                                <label style="font-size:11px;">📅 Expiry</label>
+                                <input type="date" id="rollNewExpiry" style="width:100%; padding:4px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; font-size:11px;">
+                            </div>
+                            <div class="control-group" style="margin-bottom:0;">
+                                <label style="font-size:11px;">Credit/Debit $ <input type="number" id="rollCredit" class="value-input" min="-10000" max="10000" step="1" value="50" style="width:60px;" title="Total for all contracts. Negative = you pay (debit)"></label>
+                            </div>
                         </div>
                         
-                        <div id="rollResults" style="display:none; margin-top:10px; padding:10px; background:rgba(0,0,0,0.3); border-radius:4px;">
-                            <div class="result-row"><span class="result-label">New Strike:</span><span class="result-value" id="rollNewStrikeDisp">—</span></div>
-                            <div class="result-row"><span class="result-label">New DTE:</span><span class="result-value" id="rollNewDteDisp">—</span></div>
-                            <div class="result-row"><span class="result-label">New Risk %:</span><span class="result-value put" id="rollNewRisk">—</span></div>
-                            <div class="result-row"><span class="result-label">Total Premium:</span><span class="result-value call" id="rollTotalPremium">—</span></div>
-                            <div class="result-row"><span class="result-label">Net Credit:</span><span class="result-value" id="rollNetCredit">—</span></div>
-                            <div id="rollComparison" style="margin-top:10px; padding:8px; background:rgba(0,217,255,0.15); border-radius:4px; font-size:12px;"></div>
+                        <div style="display:flex; gap:6px; margin-bottom:10px;">
+                            <button id="rollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px;">🧮 Calculate</button>
+                            <button id="suggestRollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px; background:linear-gradient(135deg, #8b5cf6, #6366f1);">✨ Suggest</button>
+                        </div>
+                        
+                        <!-- Side-by-side: Suggestions + Results -->
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div id="rollSuggestions" style="display:none; padding:8px; background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:6px; font-size:11px;">
+                                <div style="color:#8b5cf6; font-weight:bold; margin-bottom:6px; font-size:11px;">✨ Suggestions</div>
+                                <div id="rollSuggestionsList"></div>
+                            </div>
+                            
+                            <div id="rollResults" style="display:none; padding:8px; background:rgba(0,0,0,0.3); border-radius:4px; font-size:11px;">
+                                <div class="result-row" style="padding:2px 0;"><span class="result-label">Strike:</span><span class="result-value" id="rollNewStrikeDisp">—</span></div>
+                                <div class="result-row" style="padding:2px 0;"><span class="result-label">DTE:</span><span class="result-value" id="rollNewDteDisp">—</span></div>
+                                <div class="result-row" style="padding:2px 0;"><span class="result-label">Risk:</span><span class="result-value put" id="rollNewRisk">—</span></div>
+                                <div class="result-row" style="padding:2px 0;"><span class="result-label">Premium:</span><span class="result-value call" id="rollTotalPremium">—</span></div>
+                                <div class="result-row" style="padding:2px 0;"><span class="result-label">Net:</span><span class="result-value" id="rollNetCredit">—</span></div>
+                                <div id="rollComparison" style="margin-top:6px; padding:6px; background:rgba(0,217,255,0.15); border-radius:4px; font-size:10px;"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
