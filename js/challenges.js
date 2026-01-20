@@ -191,6 +191,16 @@ export function getChallengePositions(challengeId) {
     return { open, closed };
 }
 
+/**
+ * Check if a position type is a debit (you pay premium)
+ * Debit positions: long_call, long_put, debit spreads
+ * Credit positions: short_call, short_put, covered_call, buy_write, credit spreads
+ */
+function isDebitPosition(type) {
+    if (!type) return false;
+    return type.includes('debit') || type === 'long_call' || type === 'long_put';
+}
+
 export function calculateChallengeProgress(challengeId) {
     const challenge = state.challenges?.find(c => c.id === challengeId);
     if (!challenge) return null;
@@ -199,30 +209,44 @@ export function calculateChallengeProgress(challengeId) {
     
     // Calculate realized P&L from closed positions
     // Use stored realizedPnL/closePnL if available (more accurate)
-    // Otherwise fall back to premium - closePrice calculation
+    // Otherwise fall back to calculation based on position type
     let realizedPnL = 0;
     closed.forEach(pos => {
         if (pos.realizedPnL !== undefined || pos.closePnL !== undefined) {
-            // Use the stored P&L value
+            // Use the stored P&L value (already correct)
             realizedPnL += (pos.realizedPnL ?? pos.closePnL ?? 0);
         } else {
-            // Fall back to calculation
-            const premium = (pos.premium || 0) * 100 * (pos.contracts || 1);
+            // Fall back to calculation based on position type
+            const premiumAmount = (pos.premium || 0) * 100 * (pos.contracts || 1);
             const closeCost = (pos.closePrice || 0) * 100 * (pos.contracts || 1);
-            realizedPnL += premium - closeCost;
+            
+            if (isDebitPosition(pos.type)) {
+                // Debit: P&L = close price - what you paid
+                realizedPnL += closeCost - premiumAmount;
+            } else {
+                // Credit: P&L = premium received - close cost
+                realizedPnL += premiumAmount - closeCost;
+            }
         }
     });
     
     // Calculate unrealized P&L from open positions
     let unrealizedPnL = 0;
-    let totalPremium = 0;
+    let totalPremium = 0;  // Net premium (credits positive, debits negative)
     open.forEach(pos => {
-        const premium = (pos.premium || 0) * 100 * (pos.contracts || 1);
-        totalPremium += premium;
-        
+        const premiumAmount = (pos.premium || 0) * 100 * (pos.contracts || 1);
         const currentPrice = pos.lastOptionPrice || pos.markedPrice || 0;
         const currentValue = currentPrice * 100 * (pos.contracts || 1);
-        unrealizedPnL += premium - currentValue;
+        
+        if (isDebitPosition(pos.type)) {
+            // Debit position: you paid premium, want value to go up
+            totalPremium -= premiumAmount;  // Subtract (it's a cost)
+            unrealizedPnL += currentValue - premiumAmount;
+        } else {
+            // Credit position: you received premium, want value to go down
+            totalPremium += premiumAmount;  // Add (it's income)
+            unrealizedPnL += premiumAmount - currentValue;
+        }
     });
     
     // Net P&L based on goal type
@@ -576,24 +600,42 @@ window.viewChallengePositions = function(challengeId) {
     `;
     
     const renderPositionRow = (pos, isClosed = false) => {
-        const premium = (pos.premium || 0) * 100 * (pos.contracts || 1);
-        let pnl = premium;
+        const premiumAmount = (pos.premium || 0) * 100 * (pos.contracts || 1);
+        const isDebit = isDebitPosition(pos.type);
+        let pnl;
+        
         if (isClosed) {
-            const closeCost = (pos.closePrice || 0) * 100 * (pos.contracts || 1);
-            pnl = premium - closeCost;
+            // Use stored P&L if available
+            if (pos.realizedPnL !== undefined || pos.closePnL !== undefined) {
+                pnl = pos.realizedPnL ?? pos.closePnL ?? 0;
+            } else {
+                const closeCost = (pos.closePrice || 0) * 100 * (pos.contracts || 1);
+                pnl = isDebit ? (closeCost - premiumAmount) : (premiumAmount - closeCost);
+            }
         } else {
             const currentPrice = pos.lastOptionPrice || pos.markedPrice || 0;
-            pnl = premium - (currentPrice * 100 * (pos.contracts || 1));
+            const currentValue = currentPrice * 100 * (pos.contracts || 1);
+            pnl = isDebit ? (currentValue - premiumAmount) : (premiumAmount - currentValue);
         }
         const pnlColor = pnl >= 0 ? colors.green : colors.red;
         const isTagged = pos.challengeIds?.includes(challengeId);
+        
+        // Handle spreads vs single-leg
+        const isSpread = pos.type?.includes('_spread');
+        const strikeDisplay = isSpread 
+            ? `$${pos.buyStrike}/$${pos.sellStrike}` 
+            : `$${pos.strike}`;
+        
+        // Premium display: negative for debits
+        const premiumDisplay = isDebit ? `-$${premiumAmount.toFixed(0)}` : `$${premiumAmount.toFixed(0)}`;
+        const premiumColor = isDebit ? colors.red : colors.text;
         
         return `
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                 <td style="padding:8px; color:${colors.cyan};">${pos.ticker}</td>
                 <td style="padding:8px;">${pos.type?.replace('_', ' ') || 'PUT'}</td>
-                <td style="padding:8px; text-align:right;">$${pos.strike}</td>
-                <td style="padding:8px; text-align:right;">$${premium.toFixed(0)}</td>
+                <td style="padding:8px; text-align:right;">${strikeDisplay}</td>
+                <td style="padding:8px; text-align:right; color:${premiumColor};">${premiumDisplay}</td>
                 <td style="padding:8px; text-align:right; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}</td>
                 <td style="padding:8px; text-align:center;">
                     ${isTagged ? `<span style="color:${colors.purple};">🔗 Tagged</span>` : `<span style="color:${colors.muted};">📅 Date</span>`}

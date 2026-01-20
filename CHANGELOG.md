@@ -2,6 +2,16 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.2.1] - 2026-01-20
+
+### Fixed
+- **Challenge P&L Calculations** - Now correctly handles long calls/puts
+  - Closed positions with long options now show correct realized P&L
+  - Open positions with long options now show correct unrealized P&L
+  - Total premium tracks debits (costs) as negative
+  - View Positions modal shows premium in red for debit positions
+  - Spread positions display both strikes (buy/sell) in Challenge view
+
 ## [1.2.0] - 2026-01-20
 
 ### Added
