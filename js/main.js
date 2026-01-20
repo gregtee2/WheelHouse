@@ -17,7 +17,7 @@ import { showNotification } from './utils.js';
  * Main initialization
  */
 export function init() {
-    console.log('🏠 WheelHouse v1.0.0 - Wheel Strategy Options Analyzer');
+    console.log('🏠 WheelHouse - Wheel Strategy Options Analyzer');
     
     // Setup tabs
     setupTabs();
@@ -41,8 +41,160 @@ export function init() {
     loadClosedPositions();
     initChallenges();
     
+    // Check for updates (after a short delay to not block init)
+    setTimeout(checkForUpdates, 2000);
+    
     console.log('✅ Initialization complete');
 }
+
+/**
+ * Check for updates from GitHub
+ */
+async function checkForUpdates() {
+    try {
+        const res = await fetch('/api/update/check');
+        if (!res.ok) return;
+        
+        const data = await res.json();
+        if (data.updateAvailable) {
+            console.log(`🆕 Update available: v${data.localVersion} → v${data.remoteVersion}`);
+            showUpdateToast(data);
+        } else {
+            console.log(`✅ WheelHouse v${data.localVersion} is up to date`);
+        }
+    } catch (e) {
+        console.log('Could not check for updates:', e.message);
+    }
+}
+
+/**
+ * Show update notification toast
+ */
+function showUpdateToast(data) {
+    // Remove existing toast if any
+    const existing = document.getElementById('update-toast');
+    if (existing) existing.remove();
+    
+    // Parse changelog to get the latest version's changes
+    const changelogSummary = parseChangelog(data.changelog, data.remoteVersion);
+    
+    const toast = document.createElement('div');
+    toast.id = 'update-toast';
+    toast.innerHTML = `
+        <div class="update-toast-header">
+            <span class="update-toast-icon">🆕</span>
+            <span class="update-toast-title">Update Available!</span>
+            <button class="update-toast-close" onclick="this.closest('#update-toast').remove()">✕</button>
+        </div>
+        <div class="update-toast-version">
+            v${data.localVersion} → <span style="color: #00ff88;">v${data.remoteVersion}</span>
+        </div>
+        <div class="update-toast-changelog">
+            ${changelogSummary}
+        </div>
+        <div class="update-toast-actions">
+            <button class="update-toast-btn update-btn-primary" onclick="applyUpdate()">
+                ⬇️ Update Now
+            </button>
+            <button class="update-toast-btn update-btn-secondary" onclick="window.open('https://github.com/gregtee2/WheelHouse/releases', '_blank')">
+                📋 View on GitHub
+            </button>
+            <button class="update-toast-btn update-btn-dismiss" onclick="this.closest('#update-toast').remove()">
+                Later
+            </button>
+        </div>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Animate in
+    requestAnimationFrame(() => toast.classList.add('show'));
+}
+
+/**
+ * Parse changelog to extract latest version's changes
+ */
+function parseChangelog(changelog, version) {
+    if (!changelog) return '<em>No changelog available</em>';
+    
+    // Find the section for this version
+    const versionPattern = new RegExp(`## \\[${version.replace(/\./g, '\\.')}\\][^#]*`, 's');
+    const match = changelog.match(versionPattern);
+    
+    if (match) {
+        let section = match[0];
+        // Convert markdown to simple HTML
+        section = section
+            .replace(/^## \[.*?\].*$/m, '') // Remove version header
+            .replace(/### (.*)/g, '<strong>$1</strong>') // Convert ### headers
+            .replace(/- \*\*(.*?)\*\*/g, '• <strong>$1</strong>') // Bold items
+            .replace(/- (.*)/g, '• $1') // Convert list items
+            .replace(/\n\n+/g, '<br>') // Convert double newlines
+            .replace(/\n/g, ' ') // Remove single newlines
+            .trim();
+        
+        // Limit length
+        if (section.length > 400) {
+            section = section.substring(0, 400) + '...';
+        }
+        return section || '<em>See GitHub for details</em>';
+    }
+    
+    return '<em>See GitHub for full changelog</em>';
+}
+
+/**
+ * Apply update via git pull
+ */
+window.applyUpdate = async function() {
+    const toast = document.getElementById('update-toast');
+    const actionsDiv = toast?.querySelector('.update-toast-actions');
+    
+    if (actionsDiv) {
+        actionsDiv.innerHTML = `
+            <div style="color: #00d9ff; display: flex; align-items: center; gap: 8px;">
+                <div class="update-spinner"></div>
+                Updating...
+            </div>
+        `;
+    }
+    
+    try {
+        const res = await fetch('/api/update/apply', { method: 'POST' });
+        const data = await res.json();
+        
+        if (data.success) {
+            if (actionsDiv) {
+                actionsDiv.innerHTML = `
+                    <div style="color: #00ff88;">
+                        ✅ Updated to v${data.newVersion}!
+                    </div>
+                    <button class="update-toast-btn update-btn-primary" onclick="location.reload()">
+                        🔄 Reload Page
+                    </button>
+                `;
+            }
+            showNotification(`Updated to v${data.newVersion}! Reload to apply.`, 'success');
+        } else {
+            throw new Error(data.error || 'Update failed');
+        }
+    } catch (e) {
+        if (actionsDiv) {
+            actionsDiv.innerHTML = `
+                <div style="color: #ff5252; margin-bottom: 8px;">
+                    ❌ ${e.message}
+                </div>
+                <button class="update-toast-btn update-btn-secondary" onclick="window.open('https://github.com/gregtee2/WheelHouse', '_blank')">
+                    📥 Manual Download
+                </button>
+                <button class="update-toast-btn update-btn-dismiss" onclick="this.closest('#update-toast').remove()">
+                    Close
+                </button>
+            `;
+        }
+        showNotification('Update failed: ' + e.message, 'error');
+    }
+};
 
 /**
  * Setup tab switching

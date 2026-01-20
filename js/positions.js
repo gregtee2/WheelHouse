@@ -29,6 +29,16 @@ const colors = {
     get bgSecondary() { return getThemeColor('--bg-secondary', '#0d0d1a'); }
 };
 
+/**
+ * Check if a position type is a debit (you pay premium)
+ * Debit positions: long_call, long_put, debit spreads
+ * Credit positions: short_call, short_put, covered_call, buy_write, credit spreads
+ */
+function isDebitPosition(type) {
+    if (!type) return false;
+    return type.includes('debit') || type === 'long_call' || type === 'long_put';
+}
+
 // Cache for spot prices (refreshed every 5 minutes)
 const spotPriceCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -317,7 +327,7 @@ window.showRollHistory = function(chainId) {
         const premium = pos.premium * 100 * pos.contracts;
         
         // Determine if debit or credit
-        const isDebit = pos.type?.includes('debit');
+        const isDebit = isDebitPosition(pos.type);
         const premiumColor = isDebit ? colors.red : colors.green;
         const premiumSign = isDebit ? '-' : '+';
         
@@ -1400,11 +1410,15 @@ function renderPositionsTable(container, openPositions) {
         // For spreads: Capital at Risk = spread width or debit paid
         // For puts: Capital at Risk = Strike × 100 × Contracts
         // For calls: Capital at Risk = typically the stock value, but for covered calls we use strike
+        // For long calls/puts: Capital at Risk = premium paid (the debit)
         let capitalAtRisk;
         if (isSpread) {
-            capitalAtRisk = pos.type.includes('debit') 
+            capitalAtRisk = isDebitPosition(pos.type)
                 ? credit  // Debit spread: risk is what you paid
                 : (pos.spreadWidth - pos.premium) * 100 * pos.contracts;  // Credit spread: risk is width minus credit
+        } else if (isDebitPosition(pos.type)) {
+            // Long call/put: risk is what you paid
+            capitalAtRisk = credit;
         } else {
             capitalAtRisk = (pos.strike || 0) * 100 * pos.contracts;
         }
@@ -1456,16 +1470,16 @@ function renderPositionsTable(container, openPositions) {
                 <td style="padding: 6px; color: #aaa; font-size: 10px;">${pos.broker || 'Schwab'}</td>
                 <td style="padding: 6px; color: ${typeColor}; font-size: 10px;">${typeDisplay}</td>
                 <td style="padding: 6px; text-align: right; ${isSpread ? 'font-size:10px;' : ''}">${strikeDisplay}</td>
-                <td style="padding: 6px; text-align: right;">${isSpread && pos.type.includes('debit') ? '-' : ''}$${pos.premium.toFixed(2)}</td>
+                <td style="padding: 6px; text-align: right;">${isDebitPosition(pos.type) ? '-' : ''}$${pos.premium.toFixed(2)}</td>
                 <td style="padding: 6px; text-align: right;">${pos.contracts}</td>
                 <td style="padding: 6px; text-align: right; color: ${dteColor}; font-weight: bold;">
                     ${pos.dte}d
                 </td>
-                <td style="padding: 6px; text-align: right; color: ${pos.type.includes('debit') ? '#ff5252' : '#00ff88'};">
-                    ${pos.type.includes('debit') ? '-' : ''}$${credit.toFixed(0)}
+                <td style="padding: 6px; text-align: right; color: ${isDebitPosition(pos.type) ? '#ff5252' : '#00ff88'};">
+                    ${isDebitPosition(pos.type) ? '-' : ''}$${credit.toFixed(0)}
                 </td>
                 <td style="padding: 6px; text-align: right; color: ${annualRocColor}; font-weight: bold;">
-                    ${isSpread ? '—' : annualRoc.toFixed(0) + '%'}
+                    ${isSpread || isDebitPosition(pos.type) ? '—' : annualRoc.toFixed(0) + '%'}
                 </td>
                 <td style="padding: 4px; text-align: center; white-space: nowrap;">
                     ${isSpread ? `
@@ -1571,11 +1585,17 @@ export function updatePortfolioSummary() {
     
     const totalOpen = openPositions.length;
     const totalContracts = openPositions.reduce((sum, p) => sum + p.contracts, 0);
-    const totalPremium = openPositions.reduce((sum, p) => sum + (p.premium * 100 * p.contracts), 0);
+    
+    // Net Premium: credits are positive, debits are negative
+    const netPremium = openPositions.reduce((sum, p) => {
+        const premiumAmount = (p.premium || 0) * 100 * p.contracts;
+        return sum + (isDebitPosition(p.type) ? -premiumAmount : premiumAmount);
+    }, 0);
     
     // Capital at Risk calculation
     // - Puts: strike × 100 × contracts (you might own shares at strike)
     // - Spreads: max loss = width - credit (for credit spreads) or debit paid (for debit spreads)
+    // - Long calls/puts: max loss = premium paid
     const capitalAtRisk = openPositions.reduce((sum, p) => {
         const isSpread = p.type?.includes('_spread');
         
@@ -1586,18 +1606,21 @@ export function updatePortfolioSummary() {
             }
             const width = p.spreadWidth || Math.abs((p.sellStrike || 0) - (p.buyStrike || 0));
             const premium = p.premium || 0;
-            const maxLoss = p.type.includes('debit') 
+            const maxLoss = isDebitPosition(p.type) 
                 ? premium * 100 * p.contracts  // Debit spread: max loss = what you paid
                 : (width - premium) * 100 * p.contracts;  // Credit spread: max loss = width - credit
             return sum + maxLoss;
+        } else if (isDebitPosition(p.type)) {
+            // Long call/put: max loss = premium paid
+            return sum + ((p.premium || 0) * 100 * p.contracts);
         } else if (p.type === 'short_put' || p.type === 'buy_write') {
             return sum + ((p.strike || 0) * 100 * p.contracts);
         }
         return sum;
     }, 0);
     
-    // Calculate ROC (Return on Capital) = Premium / Capital at Risk
-    const roc = capitalAtRisk > 0 ? (totalPremium / capitalAtRisk) * 100 : 0;
+    // Calculate ROC (Return on Capital) = Net Premium / Capital at Risk
+    const roc = capitalAtRisk > 0 ? (netPremium / capitalAtRisk) * 100 : 0;
     
     // Calculate weighted average annualized ROC
     let weightedAnnROC = 0;
@@ -1612,10 +1635,13 @@ export function updatePortfolioSummary() {
                 } else {
                     const width = p.spreadWidth || Math.abs((p.sellStrike || 0) - (p.buyStrike || 0));
                     const premium = p.premium || 0;
-                    posCapital = p.type.includes('debit')
+                    posCapital = isDebitPosition(p.type)
                         ? premium * 100 * p.contracts
                         : (width - premium) * 100 * p.contracts;
                 }
+            } else if (isDebitPosition(p.type)) {
+                // Long call/put: capital at risk = premium paid
+                posCapital = (p.premium || 0) * 100 * p.contracts;
             } else if (p.type === 'short_put' || p.type === 'buy_write') {
                 posCapital = (p.strike || 0) * 100 * p.contracts;
             } else {
@@ -1652,8 +1678,8 @@ export function updatePortfolioSummary() {
                     <div style="color: #fff; font-size: 24px; font-weight: bold;">${totalContracts}</div>
                 </div>
                 <div class="summary-item" style="text-align: center;">
-                    <div style="color: #888; font-size: 11px;">PREMIUM COLLECTED</div>
-                    <div style="color: #00ff88; font-size: 24px; font-weight: bold;">${formatCurrency(totalPremium)}</div>
+                    <div style="color: #888; font-size: 11px;">NET PREMIUM</div>
+                    <div style="color: ${netPremium >= 0 ? '#00ff88' : '#ff5252'}; font-size: 24px; font-weight: bold;">${netPremium >= 0 ? '' : '-'}${formatCurrency(Math.abs(netPremium))}</div>
                 </div>
                 <div class="summary-item" style="text-align: center;">
                     <div style="color: #888; font-size: 11px;">CAPITAL AT RISK</div>
@@ -1663,8 +1689,8 @@ export function updatePortfolioSummary() {
                 </div>
                 <div class="summary-item" style="text-align: center;">
                     <div style="color: #888; font-size: 11px;">ROC</div>
-                    <div style="color: #00ff88; font-size: 24px; font-weight: bold;" 
-                         title="Return on Capital: Premium ÷ Capital at Risk">
+                    <div style="color: ${roc >= 0 ? '#00ff88' : '#ff5252'}; font-size: 24px; font-weight: bold;" 
+                         title="Return on Capital: Net Premium ÷ Capital at Risk">
                         ${roc.toFixed(2)}%
                     </div>
                 </div>

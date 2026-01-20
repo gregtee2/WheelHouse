@@ -2,6 +2,25 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.2.0] - 2026-01-20
+
+### Added
+- **Update Notification System** - Toast notification when new version available
+  - Automatically checks GitHub for updates on app load
+  - Shows changelog summary with what's new
+  - One-click update via git pull
+  - Links to GitHub releases for manual download
+- **Long Call/Put Support** - Proper handling of purchased options
+  - Premium displayed as debit (negative, red)
+  - Correct capital at risk calculation (premium paid)
+  - Ann% shows "—" since ROC doesn't apply to long options
+  - Net Premium total correctly subtracts debits
+
+### Fixed
+- Long calls/puts now correctly show as debits instead of credits
+- Portfolio summary "Net Premium" accounts for long positions
+- ROC and Ann% calculations exclude long call/put positions
+
 ## [1.1.0] - 2025-01-31
 
 ### Added

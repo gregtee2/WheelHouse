@@ -9,6 +9,16 @@ const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
 
 /**
+ * Check if a position type is a debit (you pay premium)
+ * Debit positions: long_call, long_put, debit spreads
+ * Credit positions: short_call, short_put, covered_call, buy_write, credit spreads
+ */
+function isDebitPosition(type) {
+    if (!type) return false;
+    return type.includes('debit') || type === 'long_call' || type === 'long_put';
+}
+
+/**
  * Trigger auto-save if enabled (calls the global function from positions.js)
  */
 function triggerAutoSave() {
@@ -302,24 +312,39 @@ export async function renderPortfolio(fetchPrices = false) {
             }
         }
         
-        // Calculate P&L: Premium received - current option value
-        // For short options: we WANT the option price to go DOWN
-        const premiumReceived = pos.premium * 100 * pos.contracts;
+        // Calculate P&L based on position type
+        // For SHORT options (credit): P&L = Premium received - current value (we want price to go DOWN)
+        // For LONG options (debit): P&L = Current value - premium paid (we want price to go UP)
+        const isDebit = isDebitPosition(pos.type);
+        const premiumAmount = pos.premium * 100 * pos.contracts;
         const currentValue = currentPrice ? currentPrice * 100 * pos.contracts : null;
-        const unrealizedPnL = currentValue !== null ? premiumReceived - currentValue : null;
-        const pnlPercent = unrealizedPnL !== null ? (unrealizedPnL / premiumReceived) * 100 : null;
+        
+        let unrealizedPnL = null;
+        let pnlPercent = null;
+        
+        if (currentValue !== null) {
+            if (isDebit) {
+                // Long option: profit when current value > what we paid
+                unrealizedPnL = currentValue - premiumAmount;
+            } else {
+                // Short option: profit when current value < what we received
+                unrealizedPnL = premiumAmount - currentValue;
+            }
+            pnlPercent = (unrealizedPnL / premiumAmount) * 100;
+        }
         
         positionData.push({
             ...pos,
             currentSpot,
             currentPrice,
+            isDebit,
+            premiumAmount,
             isLivePrice: isLivePrice || pos.isLivePrice || false,
             optionIV: optionIV || pos.optionIV || null,
             optionDelta: optionDelta || pos.optionDelta || null,
             dataAgeMinutes: dataAgeMinutes || pos.dataAgeMinutes || null,
             isStale: isStale || pos.isStale || false,
             priceSource: priceSource || pos.priceSource || null,
-            premiumReceived,
             currentValue,
             unrealizedPnL,
             pnlPercent
@@ -366,16 +391,31 @@ export async function renderPortfolio(fetchPrices = false) {
                     const pnlBg = pos.unrealizedPnL === null ? '' :
                                   pos.unrealizedPnL >= 0 ? 'rgba(0,255,136,0.1)' : 'rgba(255,82,82,0.1)';
                     
-                    // Check if ITM (in danger)
+                    // Check if ITM (in danger for shorts, in profit for longs)
                     const isPut = pos.type.toLowerCase().includes('put');
                     const isITM = pos.currentSpot !== null && 
                                   (isPut ? pos.currentSpot < pos.strike : pos.currentSpot > pos.strike);
-                    const itmWarning = isITM ? '⚠️' : '';
+                    // ITM warning only for short options (for longs, ITM is good!)
+                    const itmWarning = isITM && !pos.isDebit ? '⚠️' : '';
                     const totalPremium = pos.premium * 100 * pos.contracts;
                     
-                    // Price change indicator (down is good for short options)
+                    // Premium display: debit = negative/red, credit = positive/green
+                    const premiumColor = pos.isDebit ? '#ff5252' : '#00ff88';
+                    const premiumSign = pos.isDebit ? '-' : '';
+                    const premiumTooltip = pos.isDebit ? 'Premium paid' : 'Premium received';
+                    
+                    // Price change indicator
+                    // For short options: down is good (want to buy back cheaper)
+                    // For long options: up is good (want to sell higher)
                     const priceChange = pos.currentPrice && pos.premium ? pos.currentPrice - pos.premium : null;
-                    const priceChangeColor = priceChange === null ? '#888' : priceChange <= 0 ? '#00ff88' : '#ff5252';
+                    let priceChangeColor = '#888';
+                    if (priceChange !== null) {
+                        if (pos.isDebit) {
+                            priceChangeColor = priceChange >= 0 ? '#00ff88' : '#ff5252'; // Long: up is good
+                        } else {
+                            priceChangeColor = priceChange <= 0 ? '#00ff88' : '#ff5252'; // Short: down is good
+                        }
+                    }
                     
                     // Staleness indicator
                     const staleWarning = pos.isStale ? `<span style="color:#ff9800; font-size:10px;" title="Data is ${pos.dataAgeMinutes}+ min old"> ⚠️</span>` : '';
@@ -396,8 +436,8 @@ export async function renderPortfolio(fetchPrices = false) {
                             <td style="padding:10px; text-align:right;">$${pos.strike.toFixed(2)}</td>
                             <td style="padding:10px; text-align:right;">${pos.currentSpot ? '$' + pos.currentSpot.toFixed(2) + ' ' + itmWarning : '—'}</td>
                             <td style="padding:10px; text-align:right; color:${pos.dte <= 7 ? '#ff5252' : pos.dte <= 14 ? '#ffaa00' : '#888'};">${pos.dte}d</td>
-                            <td style="padding:10px; text-align:right; color:#00ff88;" title="$${pos.premium.toFixed(2)} × ${pos.contracts} contracts">$${totalPremium.toFixed(0)}</td>
-                            <td style="padding:10px; text-align:right; color:#888;" title="Price received when opened">$${pos.premium.toFixed(2)}</td>
+                            <td style="padding:10px; text-align:right; color:${premiumColor};" title="${premiumTooltip}: $${pos.premium.toFixed(2)} × ${pos.contracts} contracts">${premiumSign}$${totalPremium.toFixed(0)}</td>
+                            <td style="padding:10px; text-align:right; color:#888;" title="${premiumTooltip}">$${pos.premium.toFixed(2)}</td>
                             <td style="padding:10px; text-align:right; color:${priceChangeColor};" title="${currentTooltip}">
                                 ${pos.currentPrice ? '$' + pos.currentPrice.toFixed(2) : '—'}${priceIndicator}
                             </td>
@@ -447,7 +487,12 @@ export async function renderPortfolio(fetchPrices = false) {
  */
 function updatePortfolioSummary(positionData) {
     const openCount = positionData.length;
-    const totalPremium = positionData.reduce((sum, p) => sum + p.premiumReceived, 0);
+    
+    // Net premium: credits add, debits subtract
+    const netPremium = positionData.reduce((sum, p) => {
+        return sum + (p.isDebit ? -p.premiumAmount : p.premiumAmount);
+    }, 0);
+    
     const capitalRisk = positionData.reduce((sum, p) => sum + (p.strike * 100 * p.contracts), 0);
     const unrealizedPnL = positionData.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0);
     
@@ -468,7 +513,14 @@ function updatePortfolioSummary(positionData) {
     
     // Update display
     setEl('portOpenCount', openCount.toString());
-    setEl('portTotalPremium', '$' + totalPremium.toFixed(0));
+    
+    // Net premium with sign and color
+    const premEl = document.getElementById('portTotalPremium');
+    if (premEl) {
+        premEl.textContent = (netPremium >= 0 ? '$' : '-$') + Math.abs(netPremium).toFixed(0);
+        premEl.style.color = netPremium >= 0 ? '#00ff88' : '#ff5252';
+    }
+    
     setEl('portCapitalRisk', '$' + capitalRisk.toLocaleString());
     
     const unrealEl = document.getElementById('portUnrealizedPnL');
@@ -839,6 +891,7 @@ function renderClosedPositions() {
                     <th style="padding:6px; text-align:right;" title="Days left until expiry when closed (how early you exited)">Left</th>
                     <th style="padding:6px; text-align:right;">P&L</th>
                     <th style="padding:6px; text-align:right;" title="Return on Capital at Risk">ROC%</th>
+                    <th style="padding:6px; text-align:right;" title="Annualized ROC = ROC% × (365 / days held)">Ann%</th>
                     <th style="padding:6px; text-align:right;" title="Money left on table by closing early (max profit - actual). Assumes option would have expired OTM.">Left $</th>
                     <th style="padding:6px; text-align:center;" title="Link to another position's chain">🔗</th>
                     <th style="padding:6px; text-align:center;">🗑️</th>
@@ -878,6 +931,7 @@ function renderClosedPositions() {
                     <td style="padding:8px; text-align:right; color:${pnlColor};">
                         ${chainRoc >= 0 ? '+' : ''}${chainRoc.toFixed(1)}%
                     </td>
+                    <td></td>
                     <td></td>
                     <td></td>
                     <td></td>
@@ -957,6 +1011,10 @@ function renderClosedPositions() {
                     </td>
                     <td style="padding:6px; text-align:right; color:${rocColor};">
                         ${roc >= 0 ? '+' : ''}${roc.toFixed(1)}%
+                    </td>
+                    <td style="padding:6px; text-align:right; color:${daysHeld > 0 ? (roc * 365 / daysHeld >= 50 ? '#00ff88' : roc * 365 / daysHeld >= 25 ? '#ffaa00' : '#888') : '#888'};" 
+                        title="Annualized ROC = ${roc.toFixed(1)}% × (365 / ${daysHeld || '?'} days)">
+                        ${daysHeld > 0 ? (roc * 365 / daysHeld).toFixed(0) + '%' : '—'}
                     </td>
                     <td style="padding:6px; text-align:right; color:${leftColor}; font-size:11px;" 
                         title="Max profit if expired worthless: $${maxProfit.toFixed(0)}. You captured ${((pnl/maxProfit)*100).toFixed(0)}% of max.">

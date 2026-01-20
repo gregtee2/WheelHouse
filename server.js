@@ -5,8 +5,28 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const PORT = 8888;
+
+// Get current version from package.json
+function getLocalVersion() {
+    try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+        return pkg.version || '0.0.0';
+    } catch (e) {
+        return '0.0.0';
+    }
+}
+
+// Get changelog content
+function getChangelog() {
+    try {
+        return fs.readFileSync(path.join(__dirname, 'CHANGELOG.md'), 'utf8');
+    } catch (e) {
+        return '';
+    }
+}
 
 // MIME types for static files
 const MIME_TYPES = {
@@ -83,6 +103,87 @@ const server = http.createServer(async (req, res) => {
         return;
     }
     
+    // Update check endpoint - compares local version to GitHub
+    if (url.pathname === '/api/update/check') {
+        const localVersion = getLocalVersion();
+        console.log(`[UPDATE] Checking for updates... (local: v${localVersion})`);
+        
+        try {
+            // Fetch package.json from GitHub main branch
+            const remoteUrl = 'https://raw.githubusercontent.com/gregtee2/WheelHouse/main/package.json';
+            const remotePkg = await fetchJson(remoteUrl);
+            const remoteVersion = remotePkg.version || '0.0.0';
+            
+            // Fetch changelog from GitHub
+            let changelog = '';
+            try {
+                const changelogUrl = 'https://raw.githubusercontent.com/gregtee2/WheelHouse/main/CHANGELOG.md';
+                changelog = await fetchText(changelogUrl);
+            } catch (e) {
+                changelog = '';
+            }
+            
+            // Compare versions
+            const updateAvailable = compareVersions(remoteVersion, localVersion) > 0;
+            
+            console.log(`[UPDATE] Remote: v${remoteVersion}, Update available: ${updateAvailable}`);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                updateAvailable,
+                localVersion,
+                remoteVersion,
+                changelog
+            }));
+        } catch (e) {
+            console.log(`[UPDATE] ❌ Check failed: ${e.message}`);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+    
+    // Update apply endpoint - runs git pull
+    if (url.pathname === '/api/update/apply' && req.method === 'POST') {
+        console.log('[UPDATE] Applying update via git pull...');
+        
+        try {
+            // Check if this is a git repo
+            const isGitRepo = fs.existsSync(path.join(__dirname, '.git'));
+            if (!isGitRepo) {
+                throw new Error('Not a git repository. Please update manually.');
+            }
+            
+            // Run git pull
+            const result = execSync('git pull origin main', { 
+                cwd: __dirname,
+                encoding: 'utf8',
+                timeout: 30000
+            });
+            
+            console.log(`[UPDATE] ✅ Git pull result: ${result}`);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true, 
+                message: result,
+                newVersion: getLocalVersion()
+            }));
+        } catch (e) {
+            console.log(`[UPDATE] ❌ Apply failed: ${e.message}`);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+    
+    // Get current version
+    if (url.pathname === '/api/version') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ version: getLocalVersion() }));
+        return;
+    }
+    
     // Static file serving
     let filePath = url.pathname;
     if (filePath === '/') filePath = '/index.html';
@@ -128,16 +229,45 @@ function fetchJson(url) {
     });
 }
 
+// Helper to fetch plain text over HTTPS
+function fetchText(url) {
+    return new Promise((resolve, reject) => {
+        https.get(url, { 
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => resolve(data));
+        }).on('error', reject);
+    });
+}
+
+// Compare semantic versions (returns 1 if a > b, -1 if a < b, 0 if equal)
+function compareVersions(a, b) {
+    const partsA = a.split('.').map(Number);
+    const partsB = b.split('.').map(Number);
+    
+    for (let i = 0; i < 3; i++) {
+        const numA = partsA[i] || 0;
+        const numB = partsB[i] || 0;
+        if (numA > numB) return 1;
+        if (numA < numB) return -1;
+    }
+    return 0;
+}
+
 server.listen(PORT, () => {
+    const version = getLocalVersion();
     console.log(`
 ╔════════════════════════════════════════════════════╗
-║           🏠 WheelHouse Server Running             ║
+║           🏠 WheelHouse Server v${version.padEnd(6)}            ║
 ╠════════════════════════════════════════════════════╣
 ║  URL: http://localhost:${PORT}                       ║
 ║                                                    ║
 ║  Features:                                         ║
 ║  • Static file serving                             ║
 ║  • CBOE options proxy at /api/cboe/{TICKER}.json   ║
+║  • Update check at /api/update/check               ║
 ╚════════════════════════════════════════════════════╝
 `);
 });
