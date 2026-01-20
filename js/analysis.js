@@ -354,7 +354,8 @@ export async function calculateRoll() {
 
 /**
  * Suggest optimal roll parameters
- * Fetches REAL strikes from CBOE and uses actual bid prices
+ * Fetches REAL strikes from CBOE and calculates TRUE roll cost/credit
+ * Roll = (Sell new put at BID) - (Buy to close current put at ASK)
  */
 export async function suggestOptimalRoll() {
     const currentStrike = state.strike;
@@ -404,8 +405,37 @@ export async function suggestOptimalRoll() {
     listEl.innerHTML = '<div style="color:#888;">🔄 Analyzing real strikes...</div>';
     await new Promise(r => setTimeout(r, 50));
     
-    // Get unique strikes and expirations from the chain
+    // Find the CURRENT position's put to get its ASK price (cost to close)
+    // We need to match the current strike and find the nearest expiration to our current DTE
     const today = new Date();
+    const currentExpiryTarget = new Date(today.getTime() + currentDte * 24 * 60 * 60 * 1000);
+    
+    // Find the current put option (closest expiration to our current DTE at current strike)
+    let currentPutAsk = 0;
+    let currentPutExpiration = null;
+    
+    // Find all puts at current strike
+    const currentStrikePuts = chain.puts.filter(p => Math.abs(p.strike - currentStrike) < 0.01);
+    
+    if (currentStrikePuts.length > 0) {
+        // Find the one with expiration closest to our current DTE
+        currentStrikePuts.sort((a, b) => {
+            const aDiff = Math.abs(new Date(a.expiration) - currentExpiryTarget);
+            const bDiff = Math.abs(new Date(b.expiration) - currentExpiryTarget);
+            return aDiff - bDiff;
+        });
+        const currentPut = currentStrikePuts[0];
+        currentPutAsk = currentPut.ask || currentPut.bid * 1.1 || 0; // Use ask, or estimate from bid
+        currentPutExpiration = currentPut.expiration;
+        console.log(`Current position: $${currentStrike} put, exp ${currentPutExpiration}, ASK=$${currentPutAsk.toFixed(2)}`);
+    } else {
+        // Can't find current put - estimate from current displayed price
+        const putPriceEl = document.getElementById('putPrice');
+        currentPutAsk = parseFloat(putPriceEl?.textContent?.replace('$','') || '0') * 1.05; // Add 5% for spread
+        console.log(`Current position: $${currentStrike} put not in chain, estimating ASK=$${currentPutAsk.toFixed(2)}`);
+    }
+    
+    // Get unique strikes and expirations from the chain
     const availableStrikes = [...new Set(chain.puts.map(p => p.strike))].sort((a, b) => b - a);
     const availableExpirations = chain.expirations.filter(exp => {
         const expDate = new Date(exp);
@@ -442,9 +472,13 @@ export async function suggestOptimalRoll() {
                 p.strike === testStrike && p.expiration === expiration
             );
             
-            // Use real bid price if available (per share), convert to per contract
-            const realBidPerShare = option?.bid || 0;
-            const realBidPerContract = realBidPerShare * 100;
+            // Use real bid price for new put (what you receive when selling)
+            const newPutBidPerShare = option?.bid || 0;
+            
+            // Calculate TRUE roll net: New bid - Current ask
+            // Negative = DEBIT (you pay), Positive = CREDIT (you receive)
+            const rollNetPerShare = newPutBidPerShare - currentPutAsk;
+            const rollNetPerContract = rollNetPerShare * 100;
             
             // Monte Carlo for ITM probability
             let belowCount = 0;
@@ -462,9 +496,9 @@ export async function suggestOptimalRoll() {
             const riskReduction = currentRisk - newRisk;
             const timeAdded = dteVal - currentDte;
             
-            // Score: prioritize risk reduction, then premium, then time
-            // Use real bid (per share) for premium component
-            const score = (riskReduction * 3) + (realBidPerShare * 2) + (timeAdded * 0.1);
+            // Score: prioritize risk reduction, penalize debits, reward credits
+            // rollNetPerShare is negative for debits
+            const score = (riskReduction * 3) + (rollNetPerShare * 5) + (timeAdded * 0.1);
             
             candidates.push({
                 strike: testStrike,
@@ -473,7 +507,9 @@ export async function suggestOptimalRoll() {
                 risk: newRisk,
                 riskChange: riskReduction,
                 timeAdded: timeAdded,
-                realBidPerContract: realBidPerContract,
+                newPutBidPerShare: newPutBidPerShare,
+                currentPutAskPerShare: currentPutAsk,
+                rollNetPerContract: rollNetPerContract,
                 score: score
             });
         }
@@ -492,13 +528,32 @@ export async function suggestOptimalRoll() {
     
     // Render suggestions
     let html = '';
+    
+    // Show cost to close current position
+    const totalCostToClose = currentPutAsk * 100 * contracts;
+    html += `<div style="font-size:11px; color:#888; margin-bottom:8px; padding:6px; background:rgba(255,82,82,0.1); border-radius:4px;">
+        💰 Cost to close $${currentStrike.toFixed(0)} put: <span style="color:#ff5252;">$${totalCostToClose.toFixed(0)}</span>
+        <span style="color:#666;">(${contracts} × $${(currentPutAsk * 100).toFixed(0)})</span>
+    </div>`;
+    
     top3.forEach((c, i) => {
         const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
         const riskColor = c.riskChange > 0 ? '#00ff88' : '#ff5252';
         const riskIcon = c.riskChange > 0 ? '↓' : '↑';
-        // Show TOTAL credit for all contracts (like Schwab shows)
-        const totalCredit = c.realBidPerContract * contracts;
-        const bidDisplay = totalCredit > 0 ? `$${totalCredit.toFixed(0)} credit` : 'no bid';
+        
+        // Calculate TOTAL roll cost/credit for all contracts
+        const totalRollNet = c.rollNetPerContract * contracts;
+        const isDebit = totalRollNet < 0;
+        
+        // Display: debit = red with minus, credit = green with plus
+        let netDisplay;
+        if (isDebit) {
+            netDisplay = `<span style="color:#ff5252;">$${Math.abs(totalRollNet).toFixed(0)} debit</span>`;
+        } else if (totalRollNet > 0) {
+            netDisplay = `<span style="color:#00ff88;">$${totalRollNet.toFixed(0)} credit</span>`;
+        } else {
+            netDisplay = '<span style="color:#888;">even</span>';
+        }
         
         // Format expiration date nicely (e.g., "Feb 21")
         const expDate = new Date(c.expiration + 'T00:00:00');
@@ -506,19 +561,19 @@ export async function suggestOptimalRoll() {
         
         html += `
             <div style="padding:8px; margin-bottom:6px; background:rgba(0,0,0,0.3); border-radius:4px; cursor:pointer;" 
-                 onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}', ${totalCredit})">
+                 onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}', ${totalRollNet})">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <span style="white-space:nowrap;">${emoji} <b>$${c.strike.toFixed(2)}</b> · <b>${expFormatted}</b></span>
                     <span style="color:${riskColor}; font-size:12px;">${riskIcon} ${Math.abs(c.riskChange).toFixed(1)}% risk</span>
                 </div>
                 <div style="font-size:11px; color:#888; margin-top:4px;">
-                    ${c.dte}d (+${c.timeAdded}) | ${bidDisplay} | ITM: ${c.risk.toFixed(1)}%
+                    ${c.dte}d (+${c.timeAdded}) | ${netDisplay} | ITM: ${c.risk.toFixed(1)}%
                 </div>
             </div>
         `;
     });
     
-    html += `<div style="font-size:10px; color:#00d9ff; margin-top:6px;">✓ Using real CBOE strikes & bids${contracts > 1 ? ` (${contracts} contracts)` : ''}</div>`;
+    html += `<div style="font-size:10px; color:#00d9ff; margin-top:6px;">✓ Real CBOE prices: close @ ASK, open @ BID${contracts > 1 ? ` (${contracts} contracts)` : ''}</div>`;
     listEl.innerHTML = html;
 }
 

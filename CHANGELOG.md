@@ -2,6 +2,16 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.2.2] - 2026-01-20
+
+### Fixed
+- **Roll Calculator: TRUE roll cost** - Now calculates actual debit/credit
+  - Previous bug: Only showed premium for NEW put (ignored close cost!)
+  - Now calculates: `New Put Bid - Current Put Ask = Net Roll Cost`
+  - Shows cost to close current position before suggestions
+  - Red = debit (you pay), Green = credit (you receive)
+  - Matches what Schwab/brokers actually charge for the roll
+
 ## [1.2.1] - 2026-01-20
 
 ### Fixed
