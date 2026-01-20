@@ -518,10 +518,16 @@ export async function suggestOptimalRoll() {
     // Sort by score (highest first)
     candidates.sort((a, b) => b.score - a.score);
     
-    // Take top 3
+    // Take top 3 for best risk reduction
     const top3 = candidates.slice(0, 3);
     
-    if (top3.length === 0) {
+    // Find credit rolls specifically (positive net)
+    const creditRolls = candidates
+        .filter(c => c.rollNetPerContract > 0)
+        .sort((a, b) => b.rollNetPerContract - a.rollNetPerContract)
+        .slice(0, 3);
+    
+    if (top3.length === 0 && creditRolls.length === 0) {
         listEl.innerHTML = '<div style="color:#ffaa00;">⚠️ No better rolls found. Consider closing position.</div>';
         return;
     }
@@ -536,16 +542,14 @@ export async function suggestOptimalRoll() {
         <span style="color:#666;">(${contracts} × $${(currentPutAsk * 100).toFixed(0)})</span>
     </div>`;
     
-    top3.forEach((c, i) => {
-        const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
+    // Helper to render a candidate row
+    const renderCandidate = (c, i, emoji) => {
         const riskColor = c.riskChange > 0 ? '#00ff88' : '#ff5252';
         const riskIcon = c.riskChange > 0 ? '↓' : '↑';
         
-        // Calculate TOTAL roll cost/credit for all contracts
         const totalRollNet = c.rollNetPerContract * contracts;
         const isDebit = totalRollNet < 0;
         
-        // Display: debit = red with minus, credit = green with plus
         let netDisplay;
         if (isDebit) {
             netDisplay = `<span style="color:#ff5252;">$${Math.abs(totalRollNet).toFixed(0)} debit</span>`;
@@ -555,11 +559,10 @@ export async function suggestOptimalRoll() {
             netDisplay = '<span style="color:#888;">even</span>';
         }
         
-        // Format expiration date nicely (e.g., "Feb 21")
         const expDate = new Date(c.expiration + 'T00:00:00');
         const expFormatted = expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         
-        html += `
+        return `
             <div style="padding:8px; margin-bottom:6px; background:rgba(0,0,0,0.3); border-radius:4px; cursor:pointer;" 
                  onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}', ${totalRollNet})">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -571,7 +574,34 @@ export async function suggestOptimalRoll() {
                 </div>
             </div>
         `;
-    });
+    };
+    
+    // Best Risk Reduction section
+    if (top3.length > 0) {
+        html += `<div style="font-size:12px; color:#00d9ff; margin-bottom:6px; font-weight:bold;">📉 Best Risk Reduction</div>`;
+        top3.forEach((c, i) => {
+            const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
+            html += renderCandidate(c, i, emoji);
+        });
+    }
+    
+    // Credit Rolls section (if any found)
+    if (creditRolls.length > 0) {
+        html += `<div style="font-size:12px; color:#00ff88; margin:12px 0 6px 0; font-weight:bold;">💵 Credit Rolls (Get Paid!)</div>`;
+        creditRolls.forEach((c, i) => {
+            html += renderCandidate(c, i, '💰');
+        });
+    } else {
+        // No credit rolls found - offer to search further out
+        html += `<div style="font-size:11px; color:#888; margin-top:10px; padding:8px; background:rgba(255,170,0,0.1); border-radius:4px;">
+            ⚠️ No credit rolls in near-term expirations.
+            <button onclick="window.findCreditRolls()" 
+                    style="display:block; margin-top:6px; background:#00ff88; border:none; color:#000; padding:6px 12px; 
+                           border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">
+                🔍 Search Further Out for Credits
+            </button>
+        </div>`;
+    }
     
     html += `<div style="font-size:10px; color:#00d9ff; margin-top:6px;">✓ Real CBOE prices: close @ ASK, open @ BID${contracts > 1 ? ` (${contracts} contracts)` : ''}</div>`;
     listEl.innerHTML = html;
@@ -602,3 +632,174 @@ window.applyRollSuggestion = function(strike, dte, expiration, totalCredit) {
     if (rollBtn) rollBtn.click();
 };
 
+/**
+ * Find credit rolls by searching further out in time
+ * Searches ALL expirations and same/higher strikes to maximize credit potential
+ */
+window.findCreditRolls = async function() {
+    const currentStrike = state.strike;
+    const currentDte = state.dte;
+    const spot = state.spot;
+    const vol = state.optVol;
+    const contracts = state.currentPositionContext?.contracts || 1;
+    
+    const tickerEl = document.getElementById('tickerInput');
+    const ticker = tickerEl?.value?.toUpperCase() || '';
+    
+    if (!ticker) {
+        showNotification('Enter a ticker first', 'warning');
+        return;
+    }
+    
+    const listEl = document.getElementById('rollSuggestionsList');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '<div style="color:#888;">🔄 Searching ALL expirations for credit rolls...</div>';
+    await new Promise(r => setTimeout(r, 50));
+    
+    let chain;
+    try {
+        chain = await window.fetchOptionsChain(ticker);
+    } catch (e) {
+        listEl.innerHTML = `<div style="color:#ff5252;">❌ Could not fetch options chain: ${e.message}</div>`;
+        return;
+    }
+    
+    if (!chain.puts || chain.puts.length === 0) {
+        listEl.innerHTML = '<div style="color:#ff5252;">❌ No put options found</div>';
+        return;
+    }
+    
+    // Find current put's ask price
+    const today = new Date();
+    const currentExpiryTarget = new Date(today.getTime() + currentDte * 24 * 60 * 60 * 1000);
+    
+    let currentPutAsk = 0;
+    const currentStrikePuts = chain.puts.filter(p => Math.abs(p.strike - currentStrike) < 0.01);
+    if (currentStrikePuts.length > 0) {
+        currentStrikePuts.sort((a, b) => {
+            const aDiff = Math.abs(new Date(a.expiration) - currentExpiryTarget);
+            const bDiff = Math.abs(new Date(b.expiration) - currentExpiryTarget);
+            return aDiff - bDiff;
+        });
+        currentPutAsk = currentStrikePuts[0].ask || currentStrikePuts[0].bid * 1.1 || 0;
+    } else {
+        const putPriceEl = document.getElementById('putPrice');
+        currentPutAsk = parseFloat(putPriceEl?.textContent?.replace('$','') || '0') * 1.05;
+    }
+    
+    // Search ALL future expirations (not just first 5)
+    const allExpirations = chain.expirations.filter(exp => {
+        const expDate = new Date(exp);
+        const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+        return dte > currentDte;
+    });
+    
+    // Include same strike AND higher strikes (not just lower)
+    const allStrikes = [...new Set(chain.puts.map(p => p.strike))].sort((a, b) => b - a);
+    const candidateStrikes = allStrikes.filter(s => s <= currentStrike * 1.1 && s > 0); // Up to 10% above current
+    
+    const creditCandidates = [];
+    const quickPaths = 300;
+    
+    for (const expiration of allExpirations) {
+        const expDate = new Date(expiration);
+        const dteVal = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+        
+        const T = dteVal / 365.25;
+        const numSteps = 30;
+        const dt = T / numSteps;
+        
+        for (const testStrike of candidateStrikes) {
+            if (testStrike >= spot * 1.1) continue; // Skip very high strikes
+            
+            const option = chain.puts.find(p => 
+                p.strike === testStrike && p.expiration === expiration
+            );
+            
+            const newPutBidPerShare = option?.bid || 0;
+            const rollNetPerShare = newPutBidPerShare - currentPutAsk;
+            
+            // Only keep if it's a credit!
+            if (rollNetPerShare <= 0) continue;
+            
+            // Monte Carlo for ITM probability
+            let belowCount = 0;
+            for (let i = 0; i < quickPaths; i++) {
+                let S = spot;
+                for (let step = 0; step < numSteps; step++) {
+                    const dW = randomNormal() * Math.sqrt(dt);
+                    S *= Math.exp((state.rate - 0.5*vol*vol)*dt + vol*dW);
+                }
+                if (S < testStrike) belowCount++;
+            }
+            const newRisk = (belowCount / quickPaths) * 100;
+            const riskReduction = state.currentPositionContext?.risk || 50 - newRisk;
+            
+            creditCandidates.push({
+                strike: testStrike,
+                dte: dteVal,
+                expiration: expiration,
+                risk: newRisk,
+                riskChange: riskReduction,
+                timeAdded: dteVal - currentDte,
+                rollNetPerContract: rollNetPerShare * 100,
+                newPutBidPerShare: newPutBidPerShare
+            });
+        }
+    }
+    
+    // Sort by credit amount (highest first)
+    creditCandidates.sort((a, b) => b.rollNetPerContract - a.rollNetPerContract);
+    
+    const topCredits = creditCandidates.slice(0, 6); // Show top 6
+    
+    if (topCredits.length === 0) {
+        listEl.innerHTML = `<div style="color:#ff5252; padding:10px;">
+            ❌ No credit rolls available for this position.<br>
+            <span style="font-size:11px; color:#888;">The current put is too deep ITM. You may need to take a debit to roll, or accept assignment.</span>
+        </div>`;
+        return;
+    }
+    
+    // Render credit rolls
+    let html = `<div style="font-size:11px; color:#888; margin-bottom:8px; padding:6px; background:rgba(255,82,82,0.1); border-radius:4px;">
+        💰 Cost to close $${currentStrike.toFixed(0)} put: <span style="color:#ff5252;">$${(currentPutAsk * 100 * contracts).toFixed(0)}</span>
+    </div>`;
+    
+    html += `<div style="font-size:12px; color:#00ff88; margin-bottom:6px; font-weight:bold;">💵 Credit Roll Options (${topCredits.length} found)</div>`;
+    
+    topCredits.forEach((c, i) => {
+        const totalRollNet = c.rollNetPerContract * contracts;
+        const riskColor = c.riskChange > 0 ? '#00ff88' : '#ff5252';
+        const riskIcon = c.riskChange > 0 ? '↓' : '↑';
+        
+        const expDate = new Date(c.expiration + 'T00:00:00');
+        const expFormatted = expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        
+        html += `
+            <div style="padding:8px; margin-bottom:6px; background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); border-radius:4px; cursor:pointer;" 
+                 onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}', ${totalRollNet})">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="white-space:nowrap;">💰 <b>$${c.strike.toFixed(2)}</b> · <b>${expFormatted}</b></span>
+                    <span style="color:#00ff88; font-weight:bold;">+$${totalRollNet.toFixed(0)} credit</span>
+                </div>
+                <div style="font-size:11px; color:#888; margin-top:4px;">
+                    ${c.dte}d (+${c.timeAdded}) | <span style="color:${riskColor};">${riskIcon} ${Math.abs(c.riskChange).toFixed(1)}% risk</span> | ITM: ${c.risk.toFixed(1)}%
+                </div>
+            </div>
+        `;
+    });
+    
+    html += `<div style="font-size:10px; color:#888; margin-top:8px;">
+        💡 <i>Credit rolls typically require going further out in time. Consider the added time risk.</i>
+    </div>`;
+    
+    html += `<button onclick="window.suggestOptimalRoll()" 
+                style="display:block; margin-top:8px; background:rgba(0,217,255,0.2); border:1px solid #00d9ff; color:#00d9ff; 
+                       padding:6px 12px; border-radius:4px; cursor:pointer; font-size:11px; width:100%;">
+        ← Back to Risk-Based Suggestions
+    </button>`;
+    
+    listEl.innerHTML = html;
+};

@@ -12,6 +12,13 @@ All notable changes to WheelHouse will be documented in this file.
   - Red = debit (you pay), Green = credit (you receive)
   - Matches what Schwab/brokers actually charge for the roll
 
+### Added  
+- **Find Credit Rolls** - Search for rolls that pay YOU
+  - Suggestions now split into "Best Risk Reduction" and "Credit Rolls" sections
+  - "Search Further Out for Credits" button searches ALL expirations
+  - Finds same-strike or higher-strike rolls further out in time
+  - Shows top 6 credit roll options sorted by credit amount
+
 ## [1.2.1] - 2026-01-20
 
 ### Fixed
