@@ -394,6 +394,10 @@ Entry: $3.75"
                                 <option value="call_credit_spread">Call Credit Spread (Bear Call)</option>
                                 <option value="put_credit_spread">Put Credit Spread (Bull Put)</option>
                             </optgroup>
+                            <optgroup label="LEAPS Strategies">
+                                <option value="long_call_leaps">LEAPS Call (12+ months)</option>
+                                <option value="skip_call">SKIP Call™ (LEAPS + Shorter Call)</option>
+                            </optgroup>
                         </select>
                     </div>
                     
@@ -421,6 +425,36 @@ Entry: $3.75"
                         <input type="number" id="posStockPrice" class="value-input" min="0.01" max="10000" step="0.01" placeholder="e.g. 150.00" style="width:100%;">
                         <div style="font-size:10px; color:#888; margin-top:4px;">
                             Net cost basis = Stock - Premium received
+                        </div>
+                    </div>
+                    
+                    <!-- SKIP Strategy fields (hidden by default) -->
+                    <div id="skipFields" class="control-group" style="display:none; background:rgba(255,215,0,0.1); padding:12px; border-radius:8px; border:1px solid rgba(255,215,0,0.3);">
+                        <div style="color:#ffd700; font-weight:bold; margin-bottom:10px;">🎯 SKIP Call™ Strategy</div>
+                        <div style="font-size:11px; color:#aaa; margin-bottom:12px;">
+                            Safely Keep Increasing Profits - Take profits on shorter calls while LEAPS rides the trend
+                        </div>
+                        <div style="background:rgba(0,0,0,0.2); padding:10px; border-radius:6px; margin-bottom:12px;">
+                            <div style="color:#ffd700; font-size:11px; margin-bottom:8px;">📊 LEAPS POSITION (Core - 12+ months)</div>
+                            <div class="control-row">
+                                <div class="control-group" style="flex:1;">
+                                    <label>LEAPS Strike $</label>
+                                    <input type="number" id="posLeapsStrike" class="value-input" min="1" max="5000" step="0.5" placeholder="100" style="width:100%;">
+                                </div>
+                                <div class="control-group" style="flex:1;">
+                                    <label>LEAPS Premium $</label>
+                                    <input type="number" id="posLeapsPremium" class="value-input" min="0" max="500" step="0.01" placeholder="15.00" style="width:100%;">
+                                </div>
+                            </div>
+                            <div class="control-group">
+                                <label>📅 LEAPS Expiry</label>
+                                <input type="date" id="posLeapsExpiry" style="width:100%; padding:6px; background:rgba(255,215,0,0.15); border:1px solid rgba(255,215,0,0.3); border-radius:4px; color:#fff;">
+                            </div>
+                        </div>
+                        <div style="background:rgba(0,0,0,0.2); padding:10px; border-radius:6px;">
+                            <div style="color:#00d9ff; font-size:11px; margin-bottom:8px;">⚡ SKIP CALL (Shorter - 3-9 months)</div>
+                            <div style="font-size:10px; color:#888; margin-bottom:8px;">Exit SKIP 45-60 days before expiry to capture gains</div>
+                            <!-- Strike/Premium use main fields, Expiry uses main posExpiry -->
                         </div>
                     </div>
                     

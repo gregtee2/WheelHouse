@@ -3,7 +3,7 @@
 
 import { state, setPositionContext, clearPositionContext } from './state.js';
 import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal } from './utils.js';
-import { fetchPositionTickerPrice, fetchFromYahoo } from './api.js';
+import { fetchPositionTickerPrice, fetchStockPrice } from './api.js';
 import { drawPayoffChart } from './charts.js';
 import { updateDteDisplay } from './ui.js';
 
@@ -36,7 +36,8 @@ const colors = {
  */
 function isDebitPosition(type) {
     if (!type) return false;
-    return type.includes('debit') || type === 'long_call' || type === 'long_put';
+    // SKIP is a debit position (you pay for both LEAPS and SKIP calls)
+    return type.includes('debit') || type === 'long_call' || type === 'long_put' || type === 'skip_call';
 }
 
 // Cache for spot prices (refreshed every 5 minutes)
@@ -45,6 +46,7 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Fetch spot price with caching
+ * Now uses CBOE first (reliable), falls back to Yahoo via fetchStockPrice
  */
 async function getCachedSpotPrice(ticker) {
     const cached = spotPriceCache.get(ticker);
@@ -53,8 +55,7 @@ async function getCachedSpotPrice(ticker) {
     }
     
     try {
-        const result = await fetchFromYahoo(ticker);
-        const price = result.meta?.regularMarketPrice;
+        const price = await fetchStockPrice(ticker);
         if (price) {
             spotPriceCache.set(ticker, { price, timestamp: Date.now() });
             return price;
@@ -619,6 +620,143 @@ window.showSpreadExplanation = function(posId) {
 };
 
 /**
+ * Show SKIP Call™ strategy explanation modal
+ */
+window.showSkipExplanation = function(posId) {
+    const pos = state.positions?.find(p => p.id === posId) || 
+                state.closedPositions?.find(p => p.id === posId);
+    
+    if (!pos || pos.type !== 'skip_call') {
+        console.error('SKIP position not found:', posId);
+        return;
+    }
+    
+    // Calculate key metrics
+    const totalInvestment = pos.totalInvestment || ((pos.leapsPremium + pos.skipPremium) * 100 * pos.contracts);
+    const leapsDte = pos.leapsDte || Math.ceil((new Date(pos.leapsExpiry) - new Date()) / (1000 * 60 * 60 * 24));
+    const skipDte = pos.skipDte || Math.ceil((new Date(pos.skipExpiry) - new Date()) / (1000 * 60 * 60 * 24));
+    
+    // Exit window status
+    let exitStatus, exitStatusColor;
+    if (skipDte < 45) {
+        exitStatus = '🚨 PAST EXIT WINDOW - Close SKIP immediately!';
+        exitStatusColor = colors.red;
+    } else if (skipDte <= 60) {
+        exitStatus = '⚠️ IN EXIT WINDOW (45-60 DTE) - Time to sell SKIP call';
+        exitStatusColor = colors.orange;
+    } else if (skipDte <= 90) {
+        exitStatus = '📅 Approaching exit window - Monitor closely';
+        exitStatusColor = colors.cyan;
+    } else {
+        exitStatus = '✅ SKIP call has time remaining - Hold';
+        exitStatusColor = colors.green;
+    }
+    
+    const modal = document.createElement('div');
+    modal.id = 'skipExplanationModal';
+    modal.style.cssText = `
+        position:fixed; top:0; left:0; right:0; bottom:0; 
+        background:rgba(0,0,0,0.85); display:flex; align-items:center; 
+        justify-content:center; z-index:10000;
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:linear-gradient(135deg, ${colors.bgPrimary} 0%, #0a2540 100%); border:1px solid ${colors.cyan}; 
+                    border-radius:16px; padding:30px; width:90%; max-width:650px; max-height:90vh; overflow-y:auto;
+                    box-shadow: 0 0 40px rgba(0, 217, 255, 0.3);">
+            
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+                <span style="font-size:32px;">🎯</span>
+                <div>
+                    <h2 style="margin:0; color:${colors.text}; font-size:20px;">SKIP Call™ Strategy</h2>
+                    <div style="color:${colors.muted}; font-size:13px;">${pos.ticker} • ${pos.contracts} contract${pos.contracts > 1 ? 's' : ''} • "Safely Keep Increasing Profits"</div>
+                </div>
+                <span style="margin-left:auto; background:${colors.green}22; color:${colors.green}; 
+                             padding:6px 14px; border-radius:20px; font-weight:bold; font-size:13px;">
+                    📈 BULLISH
+                </span>
+            </div>
+            
+            <div style="background:${exitStatusColor}22; border:1px solid ${exitStatusColor}55; border-radius:10px; padding:15px; margin-bottom:20px; text-align:center;">
+                <div style="color:${exitStatusColor}; font-weight:bold; font-size:14px;">${exitStatus}</div>
+            </div>
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:20px;">
+                <div style="background:rgba(0,150,255,0.1); border:1px solid rgba(0,150,255,0.3); 
+                            border-radius:10px; padding:15px;">
+                    <div style="color:#6bf; font-size:12px; font-weight:bold; margin-bottom:6px;">📅 LEAPS (Long-Term)</div>
+                    <div style="color:${colors.text}; font-size:16px; font-weight:bold;">$${pos.leapsStrike} strike</div>
+                    <div style="color:${colors.muted}; font-size:13px;">Exp: ${pos.leapsExpiry}</div>
+                    <div style="color:${colors.cyan}; font-size:13px; font-weight:bold;">${leapsDte} days remaining</div>
+                    <div style="color:${colors.muted}; font-size:12px; margin-top:4px;">Premium: $${pos.leapsPremium?.toFixed(2) || '—'}</div>
+                </div>
+                <div style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); 
+                            border-radius:10px; padding:15px;">
+                    <div style="color:${colors.green}; font-size:12px; font-weight:bold; margin-bottom:6px;">⚡ SKIP Call (Overlay)</div>
+                    <div style="color:${colors.text}; font-size:16px; font-weight:bold;">$${pos.skipStrike || pos.strike} strike</div>
+                    <div style="color:${colors.muted}; font-size:13px;">Exp: ${pos.skipExpiry || pos.expiry}</div>
+                    <div style="color:${skipDte <= 60 ? colors.orange : colors.cyan}; font-size:13px; font-weight:bold;">${skipDte} days remaining</div>
+                    <div style="color:${colors.muted}; font-size:12px; margin-top:4px;">Premium: $${(pos.skipPremium || pos.premium)?.toFixed(2) || '—'}</div>
+                </div>
+            </div>
+            
+            <div style="background:${colors.bgSecondary}; border-radius:10px; padding:15px; margin-bottom:20px;">
+                <div style="color:${colors.orange}; font-size:12px; font-weight:bold; margin-bottom:6px;">💰 TOTAL INVESTMENT</div>
+                <div style="color:${colors.text}; font-size:20px; font-weight:bold;">$${totalInvestment.toFixed(0)}</div>
+                <div style="color:${colors.muted}; font-size:12px; margin-top:4px;">
+                    LEAPS: $${(pos.leapsPremium * 100 * pos.contracts).toFixed(0)} + SKIP: $${((pos.skipPremium || pos.premium) * 100 * pos.contracts).toFixed(0)}
+                </div>
+            </div>
+            
+            <div style="background:linear-gradient(135deg, #1e1e3f 0%, #0a2540 100%); 
+                        border-radius:10px; padding:20px; margin-bottom:20px;">
+                <div style="color:#0df; font-size:12px; font-weight:bold; margin-bottom:10px;">
+                    🧠 HOW SKIP WORKS
+                </div>
+                <div style="color:#ddd; font-size:14px; line-height:1.7;">
+                    <p style="margin-bottom:12px;"><strong>The Strategy:</strong> You own a LEAPS call (12+ months out) on ${pos.ticker}. To accelerate profits while the underlying moves up, you add a shorter-term "SKIP" call (3-9 months) at a higher strike.</p>
+                    
+                    <p style="margin-bottom:12px;"><strong>Why it works:</strong> When ${pos.ticker} rises, both calls gain value. The shorter SKIP call has higher gamma and moves faster on near-term price action. This lets you "skip ahead" and capture quicker profits.</p>
+                    
+                    <p style="margin-bottom:12px;"><strong>The Exit Rule:</strong> <span style="color:${colors.orange}; font-weight:bold;">Close the SKIP call when it reaches 45-60 DTE.</span> This locks in gains before rapid theta decay eats into your profits. Your LEAPS continues riding the longer trend.</p>
+                    
+                    <p style="margin:0;"><strong>Rinse & Repeat:</strong> After closing the SKIP, you can add a new SKIP call if the bullish thesis remains intact. Each successful SKIP reduces your LEAPS cost basis.</p>
+                </div>
+            </div>
+            
+            <div style="background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.4); 
+                        border-radius:10px; padding:15px; margin-bottom:20px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:15px; text-align:center;">
+                    <div>
+                        <div style="color:${colors.muted}; font-size:11px; text-transform:uppercase;">LEAPS DTE</div>
+                        <div style="color:${colors.cyan}; font-size:18px; font-weight:bold;">${leapsDte}d</div>
+                    </div>
+                    <div>
+                        <div style="color:${colors.muted}; font-size:11px; text-transform:uppercase;">SKIP DTE</div>
+                        <div style="color:${skipDte <= 60 ? colors.orange : colors.green}; font-size:18px; font-weight:bold;">${skipDte}d</div>
+                    </div>
+                    <div>
+                        <div style="color:${colors.muted}; font-size:11px; text-transform:uppercase;">Exit Window</div>
+                        <div style="color:${skipDte <= 60 ? colors.orange : colors.muted}; font-size:18px; font-weight:bold;">${skipDte <= 60 ? 'NOW' : `In ${skipDte - 60}d`}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display:flex; justify-content:center; gap:10px;">
+                <button onclick="document.getElementById('skipExplanationModal').remove()" 
+                        style="background:${colors.cyan}; border:none; color:${colors.bgPrimary}; padding:12px 40px; 
+                               border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;">
+                    Got it! 👍
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
  * Save a checkpoint of data counts - used to detect data loss
  */
 function saveDataCheckpoint() {
@@ -985,6 +1123,12 @@ export function addPosition() {
     const buyStrike = isSpread ? parseFloat(document.getElementById('posBuyStrike')?.value) || null : null;
     const sellStrike = isSpread ? parseFloat(document.getElementById('posSellStrike')?.value) || null : null;
     
+    // SKIP strategy specific fields
+    const isSkip = type === 'skip_call';
+    const leapsStrike = isSkip ? parseFloat(document.getElementById('posLeapsStrike')?.value) || null : null;
+    const leapsPremium = isSkip ? parseFloat(document.getElementById('posLeapsPremium')?.value) || null : null;
+    const leapsExpiry = isSkip ? document.getElementById('posLeapsExpiry')?.value || null : null;
+    
     // Validation for spreads
     if (isSpread) {
         if (!ticker || !buyStrike || !sellStrike || !premium || !expiry) {
@@ -993,6 +1137,12 @@ export function addPosition() {
         }
         if (buyStrike === sellStrike) {
             showNotification('Buy and Sell strikes must be different', 'error');
+            return;
+        }
+    } else if (isSkip) {
+        // SKIP requires both LEAPS and SKIP call info
+        if (!ticker || !strike || !premium || !expiry || !leapsStrike || !leapsPremium || !leapsExpiry) {
+            showNotification('Please fill in all SKIP strategy fields', 'error');
             return;
         }
     } else if (!ticker || !strike || !premium || !expiry) {
@@ -1030,7 +1180,19 @@ export function addPosition() {
                 // Buy/Write specific fields
                 ...(type === 'buy_write' ? { stockPrice, costBasis: stockPrice - premium } : {}),
                 // Spread specific fields
-                ...(isSpread ? { buyStrike, sellStrike, spreadWidth: Math.abs(sellStrike - buyStrike) } : {})
+                ...(isSpread ? { buyStrike, sellStrike, spreadWidth: Math.abs(sellStrike - buyStrike) } : {}),
+                // SKIP strategy fields
+                ...(isSkip ? {
+                    leapsStrike,
+                    leapsPremium,
+                    leapsExpiry,
+                    skipStrike: strike,
+                    skipPremium: premium,
+                    skipExpiry: expiry,
+                    totalInvestment: (leapsPremium + premium) * 100 * contracts,
+                    leapsDte: Math.ceil((new Date(leapsExpiry) - today) / (1000 * 60 * 60 * 24)),
+                    skipDte: dte
+                } : {})
             };
             showNotification(`Updated ${ticker} ${type.replace(/_/g, ' ')} position`, 'success');
         }
@@ -1063,6 +1225,18 @@ export function addPosition() {
                 maxProfit: type.includes('credit') ? premium * 100 * contracts : (Math.abs(sellStrike - buyStrike) - premium) * 100 * contracts,
                 maxLoss: type.includes('debit') ? premium * 100 * contracts : (Math.abs(sellStrike - buyStrike) - premium) * 100 * contracts,
                 breakeven: calculateSpreadBreakeven(type, buyStrike, sellStrike, premium)
+            } : {}),
+            // SKIP strategy fields (LEAPS + shorter SKIP call)
+            ...(isSkip ? {
+                leapsStrike,
+                leapsPremium,
+                leapsExpiry,
+                skipStrike: strike,      // The main strike is the SKIP call
+                skipPremium: premium,    // The main premium is the SKIP call premium
+                skipExpiry: expiry,      // The main expiry is the SKIP call expiry
+                totalInvestment: (leapsPremium + premium) * 100 * contracts,
+                leapsDte: Math.ceil((new Date(leapsExpiry) - today) / (1000 * 60 * 60 * 24)),
+                skipDte: dte  // DTE for the SKIP call (45-60 day exit window)
             } : {})
         };
         
@@ -1145,14 +1319,15 @@ export function editPosition(id) {
     if (!pos) return;
     
     const isSpread = pos.type?.includes('_spread');
+    const isSkip = pos.type === 'skip_call';
     
     // Populate form with position data
     document.getElementById('posTicker').value = pos.ticker;
     document.getElementById('posType').value = pos.type;
-    document.getElementById('posStrike').value = isSpread ? '' : pos.strike;
-    document.getElementById('posPremium').value = pos.premium;
+    document.getElementById('posStrike').value = isSpread ? '' : (isSkip ? pos.skipStrike : pos.strike);
+    document.getElementById('posPremium').value = isSkip ? pos.skipPremium : pos.premium;
     document.getElementById('posContracts').value = pos.contracts;
-    document.getElementById('posExpiry').value = pos.expiry;
+    document.getElementById('posExpiry').value = isSkip ? pos.skipExpiry : pos.expiry;
     document.getElementById('posOpenDate').value = pos.openDate || '';
     if (document.getElementById('posBroker')) document.getElementById('posBroker').value = pos.broker || 'Schwab';
     if (document.getElementById('posDelta')) document.getElementById('posDelta').value = pos.delta || '';
@@ -1161,6 +1336,13 @@ export function editPosition(id) {
     if (isSpread) {
         if (document.getElementById('posBuyStrike')) document.getElementById('posBuyStrike').value = pos.buyStrike || '';
         if (document.getElementById('posSellStrike')) document.getElementById('posSellStrike').value = pos.sellStrike || '';
+    }
+    
+    // Handle SKIP fields
+    if (isSkip) {
+        if (document.getElementById('posLeapsStrike')) document.getElementById('posLeapsStrike').value = pos.leapsStrike || '';
+        if (document.getElementById('posLeapsPremium')) document.getElementById('posLeapsPremium').value = pos.leapsPremium || '';
+        if (document.getElementById('posLeapsExpiry')) document.getElementById('posLeapsExpiry').value = pos.leapsExpiry || '';
     }
     
     // Update form visibility for the position type
@@ -1648,20 +1830,27 @@ function renderPositionsTable(container, openPositions) {
         // Color code annual ROC
         const annualRocColor = annualRoc >= 50 ? colors.green : annualRoc >= 25 ? colors.orange : colors.muted;
         
+        // Check if this is a SKIP strategy
+        const isSkip = pos.type === 'skip_call';
+        
         // Format type for display
         let typeDisplay = pos.type.replace(/_/g, ' ').replace('short ', 'Short ').replace('long ', 'Long ');
         if (pos.type === 'buy_write') typeDisplay = 'Buy/Write';
+        if (isSkip) typeDisplay = 'SKIP™';
         if (isSpread) {
             // Shorten spread names for display
             typeDisplay = pos.type.replace('_spread', '').replace('_', ' ').toUpperCase() + ' Spread';
         }
         const typeColor = pos.type === 'buy_write' ? colors.cyan : 
+                         isSkip ? '#00d9ff' :  // Cyan for SKIP
                          isSpread ? colors.purple :
                          pos.type.includes('put') ? colors.red : colors.green;
         
-        // Strike display - different for spreads
+        // Strike display - different for spreads and SKIP
         const strikeDisplay = isSpread 
             ? `$${pos.buyStrike}/$${pos.sellStrike}`
+            : isSkip 
+            ? `L:$${pos.leapsStrike} S:$${pos.skipStrike}`  // LEAPS/SKIP strikes
             : `$${pos.strike?.toFixed(2) || '—'}`;
         
         // Buy/Write extra info
@@ -1674,33 +1863,49 @@ function renderPositionsTable(container, openPositions) {
             ? ` | Breakeven: $${pos.breakeven.toFixed(2)} | Width: $${pos.spreadWidth}`
             : '';
         
+        // SKIP strategy extra info for tooltip
+        const skipInfo = isSkip && pos.leapsExpiry
+            ? ` | LEAPS: $${pos.leapsStrike} exp ${pos.leapsExpiry} (${pos.leapsDte}d) | SKIP: $${pos.skipStrike} exp ${pos.skipExpiry} | Total: $${pos.totalInvestment?.toFixed(0)}`
+            : '';
+        
+        // SKIP 45-60 DTE warning for exit window
+        const skipDteWarning = isSkip && pos.skipDte <= 60 && pos.skipDte >= 45
+            ? ' ⚠️ SKIP EXIT WINDOW (45-60 DTE)'
+            : isSkip && pos.skipDte < 45
+            ? ' 🚨 SKIP PAST EXIT - CLOSE IMMEDIATELY'
+            : '';
+        
         // Initial status - shows loading, will be updated async
         const initialStatusHtml = isSpread 
             ? `<span style="color: #8b5cf6; font-size: 11px;" title="Spread">📊</span>`
             : `<span id="risk-status-${pos.id}" style="color: #888; font-size: 10px;">⏳</span>`;
         
         html += `
-            <tr style="border-bottom: 1px solid #333;" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.openDate ? ' | Opened: ' + pos.openDate : ''}${buyWriteInfo}${spreadInfo}">
-                <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${pos.ticker}${pos.openingThesis ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}</td>
+            <tr style="border-bottom: 1px solid #333;${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.openDate ? ' | Opened: ' + pos.openDate : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}">
+                <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${pos.ticker}${pos.openingThesis ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}${isSkip && pos.skipDte <= 60 ? '<span style="margin-left:3px;font-size:9px;" title="' + (pos.skipDte < 45 ? 'PAST EXIT WINDOW!' : 'In 45-60 DTE exit window') + '">' + (pos.skipDte < 45 ? '🚨' : '⚠️') + '</span>' : ''}</td>
                 <td style="padding: 4px; text-align: center;" id="risk-cell-${pos.id}">
                     ${initialStatusHtml}
                 </td>
                 <td style="padding: 6px; color: #aaa; font-size: 10px;">${pos.broker || 'Schwab'}</td>
-                <td style="padding: 6px; color: ${typeColor}; font-size: 10px;">${typeDisplay}</td>
-                <td style="padding: 6px; text-align: right; ${isSpread ? 'font-size:10px;' : ''}">${strikeDisplay}</td>
+                <td style="padding: 6px; color: ${typeColor}; font-size: 10px;">${typeDisplay}${isSkip ? '<br><span style="font-size:8px;color:#888;">LEAPS+SKIP</span>' : ''}</td>
+                <td style="padding: 6px; text-align: right; ${isSpread || isSkip ? 'font-size:10px;' : ''}">${strikeDisplay}</td>
                 <td style="padding: 6px; text-align: right;">${isDebitPosition(pos.type) ? '-' : ''}$${pos.premium.toFixed(2)}</td>
                 <td style="padding: 6px; text-align: right;">${pos.contracts}</td>
                 <td style="padding: 6px; text-align: right; color: ${dteColor}; font-weight: bold;">
-                    ${pos.dte}d
+                    ${isSkip ? `<span title="SKIP DTE">${pos.skipDte}d</span>` : pos.dte + 'd'}
                 </td>
                 <td style="padding: 6px; text-align: right; color: ${isDebitPosition(pos.type) ? '#ff5252' : '#00ff88'};">
-                    ${isDebitPosition(pos.type) ? '-' : ''}$${credit.toFixed(0)}
+                    ${isDebitPosition(pos.type) || isSkip ? '-' : ''}$${isSkip ? pos.totalInvestment?.toFixed(0) : credit.toFixed(0)}
                 </td>
                 <td style="padding: 6px; text-align: right; color: ${annualRocColor}; font-weight: bold;">
-                    ${isSpread || isDebitPosition(pos.type) ? '—' : annualRoc.toFixed(0) + '%'}
+                    ${isSpread || isDebitPosition(pos.type) || isSkip ? '—' : annualRoc.toFixed(0) + '%'}
                 </td>
                 <td style="padding: 4px; text-align: center; white-space: nowrap;">
-                    ${isSpread ? `
+                    ${isSkip ? `
+                    <button onclick="window.showSkipExplanation(${pos.id})" 
+                            style="display:inline-block; background: rgba(0,217,255,0.3); border: 1px solid rgba(0,217,255,0.5); color: #0df; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            title="SKIP™ Strategy Explanation">🎯</button>
+                    ` : isSpread ? `
                     <button onclick="window.showSpreadExplanation(${pos.id})" 
                             style="display:inline-block; background: rgba(139,92,246,0.3); border: 1px solid rgba(139,92,246,0.5); color: #b9f; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
                             title="AI Spread Explanation">🤖</button>
@@ -2215,11 +2420,15 @@ function togglePositionTypeFields() {
     const type = document.getElementById('posType').value;
     const buyWriteFields = document.getElementById('buyWriteFields');
     const spreadFields = document.getElementById('spreadFields');
+    const skipFields = document.getElementById('skipFields');
     const strikeField = document.getElementById('posStrike')?.parentElement;
+    const premiumField = document.getElementById('posPremium')?.parentElement;
     const spreadExplanation = document.getElementById('spreadExplanation');
     
     const isSpread = type.includes('_spread');
     const isBuyWrite = type === 'buy_write';
+    const isSkip = type === 'skip_call';
+    const isLeaps = type === 'long_call_leaps';
     
     if (buyWriteFields) {
         buyWriteFields.style.display = isBuyWrite ? 'block' : 'none';
@@ -2229,9 +2438,29 @@ function togglePositionTypeFields() {
         spreadFields.style.display = isSpread ? 'block' : 'none';
     }
     
-    // Hide single strike field for spreads
+    if (skipFields) {
+        skipFields.style.display = isSkip ? 'block' : 'none';
+    }
+    
+    // For SKIP, the main strike/premium fields are for the SKIP call (shorter-dated)
+    // LEAPS fields are in the skipFields section
     if (strikeField) {
+        // Hide for spreads, show for everything else (including SKIP where it's the SKIP call strike)
         strikeField.style.display = isSpread ? 'none' : 'block';
+        
+        // Update label for SKIP
+        const strikeLabel = strikeField.querySelector('label');
+        if (strikeLabel) {
+            strikeLabel.textContent = isSkip ? 'SKIP Strike $' : 'Strike $';
+        }
+    }
+    
+    if (premiumField) {
+        // Update label for SKIP
+        const premiumLabel = premiumField.querySelector('label');
+        if (premiumLabel) {
+            premiumLabel.textContent = isSkip ? 'SKIP Premium $' : 'Premium $';
+        }
     }
     
     // Update spread explanation based on type

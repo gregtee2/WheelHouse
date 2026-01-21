@@ -2,6 +2,34 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.6.0] - 2026-01-20
+
+### Added
+- **SKIP Call™ Strategy Support** - "Safely Keep Increasing Profits"
+  - New position type: `skip_call` for LEAPS + shorter-dated overlay
+  - Tracks both LEAPS (12+ months) and SKIP call (3-9 months) details
+  - Separate fields: LEAPS strike/premium/expiry + SKIP strike/premium/expiry
+  - Calculates total investment and both DTEs
+  
+- **SKIP Exit Window Alerts** - Never miss the optimal exit
+  - 🚨 Red alert when SKIP call < 45 DTE (past exit window)
+  - ⚠️ Orange warning at 45-60 DTE (exit window active)
+  - Row highlighting for SKIP positions needing attention
+  
+- **SKIP Explanation Modal** - AI-style breakdown
+  - `showSkipExplanation(posId)` - Full strategy explanation
+  - Shows LEAPS vs SKIP side-by-side
+  - Exit window status with countdown
+  - Plain-English "How SKIP Works" explanation
+
+### Fixed
+- **CBOE Price Priority** - Stock prices now use CBOE first, Yahoo fallback
+  - Eliminates Yahoo 429 rate limiting errors
+  - `fetchStockPrice()` helper in api.js
+  - All price-fetching functions updated to use CBOE `current_price`
+
+---
+
 ## [1.5.0] - 2026-01-20
 
 ### Added

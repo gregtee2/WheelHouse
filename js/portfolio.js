@@ -3,7 +3,7 @@
 
 import { state } from './state.js';
 import { showNotification } from './utils.js';
-import { fetchFromYahoo, fetchOptionsChain, findOption } from './api.js';
+import { fetchStockPrice, fetchOptionsChain, findOption } from './api.js';
 
 const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
@@ -62,17 +62,24 @@ function saveClosedPositions() {
 /**
  * Fetch current option price for a position from CBOE (real market data)
  * Falls back to Black-Scholes if CBOE doesn't have the option
+ * Now uses CBOE for BOTH stock price and options - no Yahoo needed!
  */
 async function fetchCurrentOptionPrice(position) {
     try {
-        // Fetch stock price and options chain from CBOE
-        const [stockResult, optionsChain] = await Promise.all([
-            fetchFromYahoo(position.ticker),
-            fetchOptionsChain(position.ticker).catch(() => null)
-        ]);
+        // Fetch options chain from CBOE (includes stock price!)
+        const optionsChain = await fetchOptionsChain(position.ticker).catch(() => null);
         
-        const spot = stockResult.meta?.regularMarketPrice;
+        // Get stock price from CBOE (no more Yahoo dependency!)
+        let spot = optionsChain?.currentPrice;
+        
+        // If CBOE doesn't have it, use fetchStockPrice helper
+        if (!spot) {
+            spot = await fetchStockPrice(position.ticker);
+        }
+        
         if (!spot) return { success: false };
+        
+        console.log(`[MATCH] ${position.ticker}: $${spot.toFixed(2)} from ${optionsChain?.currentPrice ? 'CBOE' : 'fallback'}`);
         
         const isPut = position.type.toLowerCase().includes('put');
         const strike = position.strike;
@@ -1501,6 +1508,7 @@ window.renderHoldings = renderHoldings;
 /**
  * Fetch current prices for holdings and calculate all metrics
  * This is where the magic happens - we show traders what they need to know
+ * Now uses CBOE first (reliable), falls back to Yahoo
  */
 async function fetchHoldingPrices(holdingData) {
     if (!holdingData || holdingData.length === 0) return;
@@ -1508,10 +1516,21 @@ async function fetchHoldingPrices(holdingData) {
     const tickers = [...new Set(holdingData.map(h => h.ticker))];
     const priceMap = {};
     
-    // Fetch all prices first
+    // Fetch all prices first - try CBOE then Yahoo as fallback
     for (const ticker of tickers) {
         try {
-            // Yahoo API - note: no /quote/ in path
+            // Try CBOE first (includes stock price in options data)
+            const cboeRes = await fetch(`/api/cboe/${ticker}.json`);
+            if (cboeRes.ok) {
+                const cboeData = await cboeRes.json();
+                if (cboeData.data?.current_price) {
+                    priceMap[ticker] = cboeData.data.current_price;
+                    console.log(`Fetched ${ticker}: $${cboeData.data.current_price.toFixed(2)} (CBOE)`);
+                    continue;
+                }
+            }
+            
+            // Fallback to Yahoo
             const res = await fetch(`/api/yahoo/${ticker}`);
             if (!res.ok) {
                 console.warn(`Price fetch failed for ${ticker}: ${res.status}`);
@@ -1526,7 +1545,7 @@ async function fetchHoldingPrices(holdingData) {
                        || 0;
             
             priceMap[ticker] = price;
-            console.log(`Fetched ${ticker}: $${price.toFixed(2)}`);
+            console.log(`Fetched ${ticker}: $${price.toFixed(2)} (Yahoo)`);
         } catch (e) {
             console.warn(`Failed to fetch price for ${ticker}:`, e);
             priceMap[ticker] = 0;

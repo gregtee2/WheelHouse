@@ -66,6 +66,44 @@ export async function fetchFromYahoo(ticker) {
 }
 
 /**
+ * Fetch stock price - tries CBOE first (reliable), falls back to Yahoo
+ * This is the preferred way to get current stock prices
+ * @param {string} ticker - Stock ticker symbol
+ * @returns {number|null} - Current stock price or null
+ */
+export async function fetchStockPrice(ticker) {
+    const tickerUpper = ticker.toUpperCase();
+    
+    // Try CBOE first (includes stock price in options data)
+    try {
+        const cboeRes = await fetch(`/api/cboe/${tickerUpper}.json`);
+        if (cboeRes.ok) {
+            const cboeData = await cboeRes.json();
+            if (cboeData.data?.current_price) {
+                console.log(`[PRICE] ${tickerUpper}: $${cboeData.data.current_price.toFixed(2)} (CBOE)`);
+                return cboeData.data.current_price;
+            }
+        }
+    } catch (e) {
+        console.log(`[PRICE] CBOE failed for ${tickerUpper}, trying Yahoo...`);
+    }
+    
+    // Fallback to Yahoo
+    try {
+        const result = await fetchFromYahoo(tickerUpper);
+        const price = result.meta?.regularMarketPrice;
+        if (price) {
+            console.log(`[PRICE] ${tickerUpper}: $${price.toFixed(2)} (Yahoo)`);
+            return price;
+        }
+    } catch (e) {
+        console.warn(`[PRICE] Yahoo also failed for ${tickerUpper}: ${e.message}`);
+    }
+    
+    return null;
+}
+
+/**
  * Fetch earnings and dividend calendar data from Yahoo Finance
  * Returns upcoming earnings date and ex-dividend date
  * @param {string} ticker - Stock ticker symbol
@@ -216,6 +254,10 @@ export async function fetchOptionsChain(ticker) {
     return {
         ticker: ticker.toUpperCase(),
         timestamp: data.timestamp,
+        // Include stock price from CBOE (no Yahoo needed!)
+        currentPrice: data.data?.current_price || null,
+        bid: data.data?.bid || null,
+        ask: data.data?.ask || null,
         calls: calls,
         puts: puts,
         expirations: [...expirationSet].sort()
@@ -263,8 +305,7 @@ export async function fetchTickerPrice(tickerOverride = null) {
     }
     
     try {
-        const result = await fetchFromYahoo(ticker);
-        const price = result.meta.regularMarketPrice;
+        const price = await fetchStockPrice(ticker);
         
         if (price) {
             state.spot = Math.round(price);
@@ -336,8 +377,7 @@ export async function fetchPositionTickerPrice(tickerOverride = null) {
     }
     
     try {
-        const result = await fetchFromYahoo(ticker);
-        const price = result.meta.regularMarketPrice;
+        const price = await fetchStockPrice(ticker);
         
         if (price) {
             // Update spot price in Options tab
@@ -391,8 +431,7 @@ export async function fetchHeatMapPrice() {
     btn.disabled = true;
     
     try {
-        const result = await fetchFromYahoo(ticker);
-        const price = result.meta.regularMarketPrice;
+        const price = await fetchStockPrice(ticker);
         
         if (price) {
             document.getElementById('heatMapSpot').value = price.toFixed(2);
@@ -492,13 +531,14 @@ export async function fetchLiveOptionData(ticker, strike, expiration) {
     
     console.log(`📡 Fetching live data for ${ticker} @ $${strike} exp ${expDate}...`);
     
-    // Fetch stock price and options chain in parallel
-    const [stockResult, optionsChain] = await Promise.all([
-        fetchFromYahoo(ticker),
-        fetchOptionsChain(ticker)
-    ]);
+    // Fetch options chain (includes stock price from CBOE)
+    const optionsChain = await fetchOptionsChain(ticker);
     
-    const spot = stockResult.meta.regularMarketPrice;
+    // Get stock price from CBOE data, or fetch separately
+    let spot = optionsChain.currentPrice;
+    if (!spot) {
+        spot = await fetchStockPrice(ticker);
+    }
     
     // Find matching options at this strike and expiration
     let callOption = null;

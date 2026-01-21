@@ -100,7 +100,18 @@ main.js (entry point)
     currentSpot: 78.50,          // Current stock price
     
     // Challenge linking
-    challengeIds: [1737000000000] // Array of challenge IDs
+    challengeIds: [1737000000000], // Array of challenge IDs
+    
+    // For SKIP Call™ Strategy (type: 'skip_call')
+    leapsStrike: 100,            // LEAPS call strike (12+ months out)
+    leapsPremium: 15.00,         // Premium paid for LEAPS
+    leapsExpiry: '2027-01-15',   // LEAPS expiration date
+    skipStrike: 120,             // SKIP call strike (3-9 months out)
+    skipPremium: 5.00,           // Premium paid for SKIP
+    skipExpiry: '2026-06-19',    // SKIP call expiration
+    totalInvestment: 2000,       // (leapsPremium + skipPremium) * 100 * contracts
+    leapsDte: 365,               // Days to LEAPS expiration
+    skipDte: 150                 // Days to SKIP expiration (exit at 45-60 DTE)
 }
 ```
 
@@ -251,7 +262,48 @@ const isSpread = pos.type?.includes('_spread');
 
 ---
 
-## 🏆 Challenge System
+## � SKIP Call™ Strategy
+
+### Overview
+SKIP = "Safely Keep Increasing Profits" - A LEAPS overlay strategy where you:
+1. Own a long-dated LEAPS call (12+ months)
+2. Buy a shorter-dated "SKIP" call (3-9 months) at a higher strike
+3. Exit the SKIP call at 45-60 DTE to capture gains
+4. LEAPS continues riding the longer-term trend
+5. Repeat with new SKIP calls to reduce LEAPS cost basis
+
+### Position Type
+```javascript
+const isSkip = pos.type === 'skip_call';
+```
+
+### SKIP-Specific Fields
+- `leapsStrike` - LEAPS call strike (12+ months out)
+- `leapsPremium` - Premium paid for LEAPS
+- `leapsExpiry` - LEAPS expiration date
+- `skipStrike` - SKIP call strike (uses main strike field)
+- `skipPremium` - SKIP call premium (uses main premium field)
+- `skipExpiry` - SKIP call expiration (uses main expiry field)
+- `totalInvestment` - Total cost: (leapsPremium + skipPremium) × 100 × contracts
+- `leapsDte` - Days to LEAPS expiration
+- `skipDte` - Days to SKIP expiration
+
+### Exit Window Warnings
+- `skipDte > 60` - Hold position, not yet in exit window
+- `skipDte 45-60` - ⚠️ IN EXIT WINDOW - Time to sell SKIP call
+- `skipDte < 45` - 🚨 PAST EXIT - Close immediately (theta decay accelerates)
+
+### AI Explanation
+`window.showSkipExplanation(positionId)` - Opens modal with:
+- LEAPS vs SKIP details side by side
+- Current DTE for both legs
+- Exit window status
+- Plain-English strategy explanation
+- Total investment breakdown
+
+---
+
+## �🏆 Challenge System
 
 ### Position Inclusion Rules (IMPORTANT!)
 Only positions **OPENED** within the challenge date range count:
