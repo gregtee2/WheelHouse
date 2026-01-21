@@ -1,13 +1,38 @@
-// WheelHouse Simple Server with CBOE Proxy
+// WheelHouse Server with CBOE Proxy and Settings API
 // Serves static files AND proxies CBOE requests to avoid CORS
 
+// Load environment variables FIRST
+require('dotenv').config();
+
+const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
 
-const PORT = 8888;
+// Import settings routes
+const settingsRoutes = require('./src/routes/settingsRoutes');
+
+const PORT = process.env.PORT || 8888;
+const app = express();
+
+// Parse JSON request bodies
+app.use(express.json());
+
+// CORS middleware
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(204);
+    }
+    next();
+});
+
+// Mount settings API routes
+app.use('/api/settings', settingsRoutes);
 
 // Get current version from package.json
 function getLocalVersion() {
@@ -40,19 +65,15 @@ const MIME_TYPES = {
     '.ico': 'image/x-icon'
 };
 
-const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, `http://localhost:${PORT}`);
-    
-    // CORS headers for all responses
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    
-    if (req.method === 'OPTIONS') {
-        res.writeHead(204);
-        res.end();
-        return;
-    }
+// Main request handler (converted to Express middleware)
+const mainHandler = async (req, res, next) => {
+    try {
+        const url = new URL(req.url, `http://localhost:${PORT}`);
+        
+        // Skip if already handled by Express routes (like /api/settings)
+        if (url.pathname.startsWith('/api/settings')) {
+            return next();
+        }
     
     // Proxy endpoint for CBOE options
     if (url.pathname.startsWith('/api/cboe/')) {
@@ -591,7 +612,15 @@ const server = http.createServer(async (req, res) => {
             res.end('Server error');
         }
     }
-});
+    } catch (err) {
+        // Top-level error handler for mainHandler
+        console.error('[SERVER] Unhandled error in mainHandler:', err.message);
+        if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Internal server error' }));
+        }
+    }
+};
 
 // Helper to fetch JSON over HTTPS
 function fetchJson(url) {
@@ -1749,6 +1778,30 @@ function callOllama(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
     });
 }
 
+// Use main handler as Express middleware
+app.use(mainHandler);
+
+// Create HTTP server with Express app
+// Global Express error handler (catches route errors)
+app.use((err, req, res, next) => {
+    console.error('[EXPRESS ERROR]', err.message);
+    if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal server error', details: err.message });
+    }
+});
+
+const server = http.createServer(app);
+
+// Handle uncaught exceptions to prevent server crash
+process.on('uncaughtException', (err) => {
+    console.error('[FATAL] Uncaught exception:', err.message);
+    console.error(err.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[FATAL] Unhandled rejection:', reason);
+});
+
 server.listen(PORT, () => {
     const version = getLocalVersion();
     console.log(`
@@ -1760,6 +1813,7 @@ server.listen(PORT, () => {
 ║  Features:                                         ║
 ║  • Static file serving                             ║
 ║  • CBOE options proxy at /api/cboe/{TICKER}.json   ║
+║  • Settings API at /api/settings                   ║
 ║  • Update check at /api/update/check               ║
 ╚════════════════════════════════════════════════════╝
 `);

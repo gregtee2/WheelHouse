@@ -25,6 +25,7 @@
             <button class="tab-btn" data-tab="greeks">Δ Greeks</button>
             <button class="tab-btn" data-tab="data">📊 Data</button>
             <button class="tab-btn" data-tab="simulator">🔬 Simulator</button>
+            <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
         </div>
 
         <!-- SIMULATOR TAB -->
@@ -757,6 +758,131 @@ Entry: $3.75"
                 </div>
             </div>
         </div>
+
+        <!-- SETTINGS TAB -->
+        <div class="tab-content" id="settings">
+            <div style="max-width:800px; margin:0 auto;">
+                <h2 style="color:var(--accent-cyan); margin-bottom:20px;">⚙️ Settings</h2>
+                <p style="color:#888; margin-bottom:25px; font-size:13px;">
+                    Configure API keys for trading and AI analysis. Keys are stored securely on the server in .env file.
+                </p>
+                
+                <!-- Schwab API Section -->
+                <div style="background:#1a1a2e; border-radius:12px; padding:20px; margin-bottom:20px; border:1px solid #333;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 style="color:#00ff88; margin:0;">
+                            <span style="font-size:20px; margin-right:8px;">📈</span> Schwab Trading API
+                        </h3>
+                        <span id="schwabStatus" style="padding:4px 12px; border-radius:12px; font-size:11px; background:#333; color:#888;">
+                            Not Configured
+                        </span>
+                    </div>
+                    <p style="color:#aaa; font-size:12px; margin-bottom:15px;">
+                        Enable live trading and real-time account data. Get your API key from 
+                        <a href="https://developer.schwab.com" target="_blank" style="color:#00d9ff;">developer.schwab.com</a>
+                    </p>
+                    
+                    <div class="control-group" style="margin-bottom:12px;">
+                        <label style="display:block; font-size:11px; color:#888; margin-bottom:4px;">App Key (Client ID)</label>
+                        <input type="password" id="settingSchwabAppKey" placeholder="Enter Schwab App Key" 
+                               style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #444; border-radius:6px; color:#fff; font-family:monospace;">
+                    </div>
+                    
+                    <div class="control-group" style="margin-bottom:12px;">
+                        <label style="display:block; font-size:11px; color:#888; margin-bottom:4px;">App Secret</label>
+                        <input type="password" id="settingSchwabAppSecret" placeholder="Enter Schwab App Secret" 
+                               style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #444; border-radius:6px; color:#fff; font-family:monospace;">
+                    </div>
+                    
+                    <div class="control-group" style="margin-bottom:15px;">
+                        <label style="display:block; font-size:11px; color:#888; margin-bottom:4px;">Refresh Token</label>
+                        <input type="password" id="settingSchwabRefreshToken" placeholder="Generated after OAuth login" 
+                               style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #444; border-radius:6px; color:#fff; font-family:monospace;">
+                        <div style="font-size:10px; color:#666; margin-top:4px;">
+                            After saving App Key/Secret, click "Authenticate with Schwab" to generate this token.
+                        </div>
+                    </div>
+                    
+                    <div style="display:flex; gap:10px;">
+                        <button onclick="testSchwabConnection()" 
+                                style="padding:8px 16px; background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#0f8; border-radius:6px; cursor:pointer;">
+                            🔌 Test Connection
+                        </button>
+                        <button onclick="startSchwabOAuth()" 
+                                style="padding:8px 16px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); color:#0df; border-radius:6px; cursor:pointer;">
+                            🔐 Authenticate with Schwab
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- OpenAI Section -->
+                <div style="background:#1a1a2e; border-radius:12px; padding:20px; margin-bottom:20px; border:1px solid #333;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 style="color:#8b5cf6; margin:0;">
+                            <span style="font-size:20px; margin-right:8px;">🤖</span> OpenAI API
+                        </h3>
+                        <span id="openaiStatus" style="padding:4px 12px; border-radius:12px; font-size:11px; background:#333; color:#888;">
+                            Not Configured
+                        </span>
+                    </div>
+                    <p style="color:#aaa; font-size:12px; margin-bottom:15px;">
+                        For AI-powered trade analysis (alternative to local Ollama).
+                    </p>
+                    
+                    <div class="control-group" style="margin-bottom:15px;">
+                        <label style="display:block; font-size:11px; color:#888; margin-bottom:4px;">API Key</label>
+                        <input type="password" id="settingOpenAIKey" placeholder="sk-..." 
+                               style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #444; border-radius:6px; color:#fff; font-family:monospace;">
+                    </div>
+                    
+                    <button onclick="testOpenAIConnection()" 
+                            style="padding:8px 16px; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#b9f; border-radius:6px; cursor:pointer;">
+                        🔌 Test Connection
+                    </button>
+                </div>
+                
+                <!-- Telegram Section -->
+                <div style="background:#1a1a2e; border-radius:12px; padding:20px; margin-bottom:20px; border:1px solid #333;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 style="color:#0088cc; margin:0;">
+                            <span style="font-size:20px; margin-right:8px;">📱</span> Telegram Notifications
+                        </h3>
+                        <span id="telegramStatus" style="padding:4px 12px; border-radius:12px; font-size:11px; background:#333; color:#888;">
+                            Not Configured
+                        </span>
+                    </div>
+                    <p style="color:#aaa; font-size:12px; margin-bottom:15px;">
+                        Receive trade alerts on Telegram. Create a bot via @BotFather.
+                    </p>
+                    
+                    <div class="control-group" style="margin-bottom:12px;">
+                        <label style="display:block; font-size:11px; color:#888; margin-bottom:4px;">Bot Token</label>
+                        <input type="password" id="settingTelegramToken" placeholder="123456789:ABC..." 
+                               style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #444; border-radius:6px; color:#fff; font-family:monospace;">
+                    </div>
+                    
+                    <div class="control-group" style="margin-bottom:15px;">
+                        <label style="display:block; font-size:11px; color:#888; margin-bottom:4px;">Chat ID</label>
+                        <input type="text" id="settingTelegramChatId" placeholder="Your Telegram chat ID" 
+                               style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #444; border-radius:6px; color:#fff; font-family:monospace;">
+                    </div>
+                    
+                    <button onclick="testTelegramConnection()" 
+                            style="padding:8px 16px; background:rgba(0,136,204,0.2); border:1px solid rgba(0,136,204,0.4); color:#0df; border-radius:6px; cursor:pointer;">
+                        🔌 Test Connection
+                    </button>
+                </div>
+                
+                <!-- Save Button -->
+                <div style="text-align:center; margin-top:30px;">
+                    <button onclick="saveAllSettings()" 
+                            style="padding:12px 40px; background:linear-gradient(135deg, #00ff88 0%, #00d9ff 100%); border:none; color:#0d0d1a; font-weight:bold; border-radius:8px; cursor:pointer; font-size:14px;">
+                        💾 Save All Settings
+                    </button>
+                    <div id="settingsSaveStatus" style="margin-top:10px; font-size:12px; color:#888;"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Broker Import Utility (loads before ES6 modules) -->
@@ -764,6 +890,9 @@ Entry: $3.75"
     
     <!-- Theme Settings (loads before modules) -->
     <script src="js/theme.js"></script>
+    
+    <!-- Settings Management -->
+    <script src="js/settings.js"></script>
     
     <!-- ES6 Module Entry Point -->
     <script type="module" src="js/main.js"></script>
