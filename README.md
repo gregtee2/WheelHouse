@@ -2,11 +2,28 @@
 
 **The Wheel Strategy Options Analyzer & Position Tracker**
 
-A powerful Monte Carlo-based options analysis tool with **real-time CBOE pricing**, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
+A powerful Monte Carlo-based options analysis tool with **real-time CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.4.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
+
+---
+
+## 🆕 What's New in v1.5.0
+
+### 🤖 AI Trade Advisor Upgrades
+- **Deep Dive Analysis** - Comprehensive scenario analysis for any trade idea with CBOE live pricing
+- **Discord Trade Analyzer** - Paste any trade callout and get instant AI analysis
+- **Spread Support** - Full risk/reward math for bull put spreads, bear call spreads, and more
+- **Position Checkup** - Compare your opening thesis to current market conditions
+- **Trade Critique** - AI reviews your closed trades and gives constructive feedback
+
+### 📊 New Analysis Features
+- **Stage → Confirm Flow** - Stage trades from AI analysis, confirm when executed with your broker
+- **Thesis Storage** - Each position remembers WHY you entered (support levels, technicals, AI verdict)
+- **DTE Warnings** - Red flags for short-dated trades (≤7 days, ≤3 days)
+- **Spread Math** - Proper risk/reward for credit/debit spreads (max profit, max loss, return on risk)
 
 ---
 
@@ -57,19 +74,26 @@ A powerful Monte Carlo-based options analysis tool with **real-time CBOE pricing
 - Cost basis management
 - Covered call integration
 
-### 🧠 AI Trade Advisor (Optional)
-- **Local AI-powered** trade analysis using Qwen 2.5 models
-- Runs entirely on your machine via [Ollama](https://ollama.com)
-- No cloud API keys or subscriptions required
+### 🧠 AI Trade Advisor (Local - No Cloud Required)
+- **100% Local AI** - Runs entirely on your machine via [Ollama](https://ollama.com)
+- **No API keys, no subscriptions, no data leaves your computer**
 - **Model Selection**: Choose between 7B (fast), 14B (better), 32B (best)
-- **Smart Health Check**: Skips AI for healthy positions, instant "HOLD" advice
-- **AI Pick Highlighting**: Green border + badge on recommended roll
-- Get natural language recommendations based on:
-  - Current position parameters (ITM/OTM, DTE, IV)
-  - Monte Carlo probabilities
-  - ALL available roll options (analyzed and ranked)
-  - Credit vs debit roll comparison
-  - Expert Analysis context
+
+**AI Features:**
+
+| Feature | Description |
+|---------|-------------|
+| **Deep Dive** | Comprehensive analysis with CBOE live pricing, support/resistance, scenario modeling |
+| **Discord Analyzer** | Paste any trade callout → AI parses it and gives FOLLOW/PASS/AVOID verdict |
+| **Position Checkup** | Compare opening thesis to current market - has your trade thesis held up? |
+| **Trade Critique** | Review closed trades with AI feedback on what went well/could improve |
+| **Roll Advisor** | AI analyzes all roll options and recommends the best choice |
+| **Spread Math** | Proper risk/reward for spreads (not the broken "naked put" math!) |
+
+**Verdicts:**
+- ✅ **ENTER/FOLLOW** - Good setup, trade worth taking
+- ⚠️ **WAIT/PASS** - Not ideal entry, wait for better conditions
+- ❌ **AVOID** - Poor risk/reward, skip this one
 
 **Supported Models:**
 | Model | Size | Speed | Quality |

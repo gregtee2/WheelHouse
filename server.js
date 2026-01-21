@@ -5,7 +5,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 
 const PORT = 8888;
 
@@ -230,6 +230,294 @@ const server = http.createServer(async (req, res) => {
         return;
     }
     
+    // Restart server endpoint
+    if (url.pathname === '/api/restart' && req.method === 'POST') {
+        console.log('[SERVER] 🔄 Restart requested - spawning new instance...');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, message: 'Restarting...' }));
+        
+        // Give time for response to send, then spawn new process and exit
+        setTimeout(() => {
+            const child = spawn('node', ['server.js'], {
+                cwd: __dirname,
+                detached: true,
+                stdio: 'ignore'
+            });
+            child.unref();
+            console.log('[SERVER] ✅ New instance spawned, exiting old process');
+            process.exit(0);
+        }, 500);
+        return;
+    }
+    
+    // AI Trade Critique endpoint - analyze a closed trade's performance
+    if (url.pathname === '/api/ai/critique' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                const data = JSON.parse(body);
+                const selectedModel = data.model || 'qwen2.5:14b'; // Use smarter model for critique
+                console.log('[AI] Critiquing trade:', data.ticker, 'with model:', selectedModel);
+                
+                const prompt = buildCritiquePrompt(data);
+                const response = await callOllama(prompt, selectedModel, 500); // More tokens for detailed critique
+                
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                    success: true, 
+                    critique: response,
+                    model: selectedModel
+                }));
+                console.log('[AI] ✅ Critique complete');
+            } catch (e) {
+                console.log('[AI] ❌ Critique error:', e.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+    
+    // AI Trade Idea Generator endpoint
+    if (url.pathname === '/api/ai/ideas' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                const data = JSON.parse(body);
+                const selectedModel = data.model || 'qwen2.5:14b';
+                console.log('[AI] Generating trade ideas with model:', selectedModel);
+                
+                // Fetch real prices for wheel candidates
+                const buyingPower = data.buyingPower || 25000;
+                const realPrices = await fetchWheelCandidatePrices(buyingPower);
+                
+                const prompt = buildIdeaPrompt(data, realPrices);
+                const response = await callOllama(prompt, selectedModel, 600); // More tokens for 3 ideas
+                
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                    success: true, 
+                    ideas: response,
+                    model: selectedModel,
+                    candidatesChecked: realPrices.length,
+                    candidates: realPrices // Include data for deep-dive
+                }));
+                console.log('[AI] ✅ Ideas generated');
+            } catch (e) {
+                console.log('[AI] ❌ Ideas error:', e.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+    
+    // AI Deep Dive - comprehensive analysis of a single trade idea
+    if (url.pathname === '/api/ai/deep-dive' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                const data = JSON.parse(body);
+                const { ticker, strike, expiry, currentPrice, model } = data;
+                const selectedModel = model || 'qwen2.5:32b'; // Use best model for deep analysis
+                
+                console.log(`[AI] Deep dive on ${ticker} $${strike} put, expiry ${expiry}`);
+                
+                // Fetch extended data for this ticker
+                const tickerData = await fetchDeepDiveData(ticker);
+                
+                // Fetch actual option premium from CBOE
+                const premium = await fetchOptionPremium(ticker, parseFloat(strike), expiry);
+                if (premium) {
+                    tickerData.premium = premium;
+                    console.log(`[CBOE] Found premium: bid=$${premium.bid} ask=$${premium.ask} IV=${premium.iv}%`);
+                }
+                
+                const prompt = buildDeepDivePrompt(data, tickerData);
+                const response = await callOllama(prompt, selectedModel, 1000); // More tokens for deep analysis
+                
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                    success: true, 
+                    analysis: response,
+                    model: selectedModel,
+                    tickerData: tickerData,
+                    premium: premium
+                }));
+                console.log('[AI] ✅ Deep dive complete');
+            } catch (e) {
+                console.log('[AI] ❌ Deep dive error:', e.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+    
+    // AI Position Checkup endpoint - compares opening thesis to current state
+    if (url.pathname === '/api/ai/checkup' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                const data = JSON.parse(body);
+                const { ticker, strike, expiry, openingThesis, model } = data;
+                const selectedModel = model || 'qwen2.5:7b';
+                
+                console.log(`[AI] Position checkup for ${ticker} $${strike} put`);
+                
+                // Fetch current data for comparison
+                const currentData = await fetchDeepDiveData(ticker);
+                const currentPremium = await fetchOptionPremium(ticker, parseFloat(strike), formatExpiryForCBOE(expiry));
+                
+                // Build comparison prompt
+                const prompt = buildCheckupPrompt(data, openingThesis, currentData, currentPremium);
+                const response = await callOllama(prompt, selectedModel, 800);
+                
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                    success: true, 
+                    checkup: response,
+                    model: selectedModel,
+                    currentData,
+                    currentPremium
+                }));
+                console.log('[AI] ✅ Checkup complete');
+            } catch (e) {
+                console.log('[AI] ❌ Checkup error:', e.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+    
+    // AI Parse & Analyze Discord Trade Callout
+    if (url.pathname === '/api/ai/parse-trade' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                const { tradeText, model } = JSON.parse(body);
+                const selectedModel = model || 'qwen2.5:7b';
+                
+                console.log('[AI] Parsing trade callout...');
+                
+                // Step 1: Use AI to parse the trade text into structured data
+                const parsePrompt = buildTradeParsePrompt(tradeText);
+                const parsedJson = await callOllama(parsePrompt, selectedModel, 500);
+                
+                // Try to extract JSON from the response
+                let parsed;
+                try {
+                    // Look for JSON in the response
+                    const jsonMatch = parsedJson.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        parsed = JSON.parse(jsonMatch[0]);
+                    } else {
+                        throw new Error('No JSON found in parse response');
+                    }
+                } catch (parseErr) {
+                    console.log('[AI] Parse extraction failed:', parseErr.message);
+                    console.log('[AI] Raw response:', parsedJson.substring(0, 200));
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ 
+                        error: 'Could not parse trade format. Try a clearer format like: Ticker: XYZ, Strike: $100, Expiry: Feb 21' 
+                    }));
+                    return;
+                }
+                
+                console.log('[AI] Parsed trade:', JSON.stringify(parsed));
+                
+                // Validate required fields
+                if (!parsed.ticker) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Could not identify ticker symbol' }));
+                    return;
+                }
+                
+                // Fix spread strikes if AI parsed them backwards
+                // For CREDIT spreads (bull put, bear call): sellStrike should be closer to current price
+                // For DEBIT spreads: buyStrike should be closer to current price
+                if (parsed.buyStrike && parsed.sellStrike) {
+                    const buy = parseFloat(parsed.buyStrike);
+                    const sell = parseFloat(parsed.sellStrike);
+                    const strategy = parsed.strategy?.toLowerCase() || '';
+                    
+                    // Bull put spread: sell higher strike, buy lower strike (credit)
+                    if (strategy.includes('bull') && strategy.includes('put')) {
+                        if (sell < buy) {
+                            console.log('[AI] Fixing bull put spread strikes (sellStrike should be > buyStrike)');
+                            parsed.sellStrike = Math.max(buy, sell);
+                            parsed.buyStrike = Math.min(buy, sell);
+                        }
+                    }
+                    // Bear call spread: sell lower strike, buy higher strike (credit)
+                    else if (strategy.includes('bear') && strategy.includes('call')) {
+                        if (sell > buy) {
+                            console.log('[AI] Fixing bear call spread strikes (sellStrike should be < buyStrike)');
+                            parsed.sellStrike = Math.min(buy, sell);
+                            parsed.buyStrike = Math.max(buy, sell);
+                        }
+                    }
+                    // Put credit spread = bull put spread
+                    else if (strategy.includes('put') && strategy.includes('credit')) {
+                        if (sell < buy) {
+                            parsed.sellStrike = Math.max(buy, sell);
+                            parsed.buyStrike = Math.min(buy, sell);
+                        }
+                    }
+                    // Call credit spread = bear call spread  
+                    else if (strategy.includes('call') && strategy.includes('credit')) {
+                        if (sell > buy) {
+                            parsed.sellStrike = Math.min(buy, sell);
+                            parsed.buyStrike = Math.max(buy, sell);
+                        }
+                    }
+                    console.log('[AI] Final strikes: buy=$' + parsed.buyStrike + ' sell=$' + parsed.sellStrike);
+                }
+                
+                // Step 2: Fetch current data for the ticker
+                const tickerData = await fetchDeepDiveData(parsed.ticker);
+                if (!tickerData || !tickerData.price) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: `Could not fetch data for ${parsed.ticker}` }));
+                    return;
+                }
+                
+                // Step 3: Try to get CBOE premium if we have strike/expiry
+                let premium = null;
+                if (parsed.strike && parsed.expiry) {
+                    const strikeNum = parseFloat(String(parsed.strike).replace(/[^0-9.]/g, ''));
+                    premium = await fetchOptionPremium(parsed.ticker, strikeNum, formatExpiryForCBOE(parsed.expiry));
+                }
+                
+                // Step 4: Build analysis prompt and get AI recommendation
+                const analysisPrompt = buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium);
+                const analysis = await callOllama(analysisPrompt, selectedModel, 1200);
+                
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                    success: true,
+                    parsed,
+                    tickerData,
+                    premium,
+                    analysis,
+                    model: selectedModel
+                }));
+                console.log('[AI] ✅ Trade callout analyzed');
+            } catch (e) {
+                console.log('[AI] ❌ Parse trade error:', e.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+    
     // AI Trade Advisor endpoint - uses Ollama with user-selected model
     if (url.pathname === '/api/ai/analyze' && req.method === 'POST') {
         let body = '';
@@ -325,6 +613,750 @@ function fetchJson(url) {
             });
         }).on('error', reject);
     });
+}
+
+// Fetch current prices for a list of tickers (for AI trade ideas)
+async function fetchWheelCandidatePrices(buyingPower) {
+    // Popular wheel stocks across sectors
+    const candidates = [
+        // Tech (various price points)
+        { ticker: 'AAPL', sector: 'Tech' },
+        { ticker: 'AMD', sector: 'Tech' },
+        { ticker: 'INTC', sector: 'Tech' },
+        { ticker: 'PLTR', sector: 'Tech' },
+        // Finance
+        { ticker: 'BAC', sector: 'Finance' },
+        { ticker: 'C', sector: 'Finance' },
+        { ticker: 'SOFI', sector: 'Finance' },
+        // Energy
+        { ticker: 'XOM', sector: 'Energy' },
+        { ticker: 'OXY', sector: 'Energy' },
+        // Consumer
+        { ticker: 'KO', sector: 'Consumer' },
+        { ticker: 'F', sector: 'Consumer' },
+        // Healthcare
+        { ticker: 'PFE', sector: 'Healthcare' },
+        { ticker: 'ABBV', sector: 'Healthcare' },
+        // ETFs
+        { ticker: 'SPY', sector: 'ETF' },
+        { ticker: 'IWM', sector: 'ETF' },
+        { ticker: 'SLV', sector: 'ETF' },
+        // High IV
+        { ticker: 'MSTR', sector: 'High IV' },
+        { ticker: 'HOOD', sector: 'High IV' },
+        { ticker: 'RIVN', sector: 'High IV' }
+    ];
+    
+    const results = [];
+    const maxStrike = buyingPower / 100; // Max strike we can afford
+    
+    console.log(`[AI] Fetching prices for ${candidates.length} wheel candidates (max strike: $${maxStrike.toFixed(0)})...`);
+    
+    // Fetch prices in parallel (batch of 5 to avoid rate limits)
+    for (let i = 0; i < candidates.length; i += 5) {
+        const batch = candidates.slice(i, i + 5);
+        const promises = batch.map(async (c) => {
+            try {
+                // Fetch 1-month data to get price range and movement
+                const url = `https://query1.finance.yahoo.com/v8/finance/chart/${c.ticker}?interval=1d&range=1mo`;
+                const data = await fetchJson(url);
+                const quote = data.chart?.result?.[0];
+                const meta = quote?.meta;
+                const price = meta?.regularMarketPrice;
+                
+                if (!price || price > maxStrike) return null;
+                
+                // Get price history for context
+                const closes = quote?.indicators?.quote?.[0]?.close || [];
+                const validCloses = closes.filter(c => c !== null);
+                const monthHigh = Math.max(...validCloses);
+                const monthLow = Math.min(...validCloses);
+                const priceAtStart = validCloses[0];
+                const monthChange = priceAtStart ? ((price - priceAtStart) / priceAtStart * 100).toFixed(1) : 0;
+                
+                // Calculate where price is in its range (0% = at low, 100% = at high)
+                const rangePosition = monthHigh !== monthLow 
+                    ? ((price - monthLow) / (monthHigh - monthLow) * 100).toFixed(0)
+                    : 50;
+                
+                // Try to get earnings date
+                let earnings = null;
+                try {
+                    const calUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${c.ticker}?modules=calendarEvents`;
+                    const calData = await fetchJson(calUrl);
+                    const earningsDate = calData.quoteSummary?.result?.[0]?.calendarEvents?.earnings?.earningsDate?.[0]?.raw;
+                    if (earningsDate) {
+                        earnings = new Date(earningsDate * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }
+                } catch (e) { /* ignore earnings fetch errors */ }
+                
+                return {
+                    ticker: c.ticker,
+                    sector: c.sector,
+                    price: price.toFixed(2),
+                    buyingPower: (price * 100).toFixed(0),
+                    monthChange: monthChange,
+                    monthLow: monthLow.toFixed(2),
+                    monthHigh: monthHigh.toFixed(2),
+                    rangePosition: rangePosition,
+                    earnings: earnings
+                };
+            } catch (e) {
+                return null; // Failed to fetch
+            }
+        });
+        const batchResults = await Promise.all(promises);
+        results.push(...batchResults.filter(r => r !== null));
+    }
+    
+    console.log(`[AI] Found ${results.length} affordable candidates with context data`);
+    return results;
+}
+
+// Convert any expiry format to "Mon DD" format for CBOE lookup
+// Handles: "2026-02-20" (ISO), "Feb 20" (short), "Feb 20, 2026" (long), "February 20" (full month)
+function formatExpiryForCBOE(expiry) {
+    if (!expiry) return null;
+    
+    // Already in "Mon DD" format?
+    const shortMatch = expiry.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d+$/i);
+    if (shortMatch) return expiry;
+    
+    // ISO format: 2026-02-20
+    const isoMatch = expiry.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = months[parseInt(isoMatch[2]) - 1];
+        const day = parseInt(isoMatch[3]);
+        return `${month} ${day}`;
+    }
+    
+    // "Mon DD, YYYY" format
+    const longMatch = expiry.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d+),?\s*\d*/i);
+    if (longMatch) {
+        return `${longMatch[1]} ${parseInt(longMatch[2])}`;
+    }
+    
+    // Full month name: "February 20"
+    const fullMonthMatch = expiry.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d+)/i);
+    if (fullMonthMatch) {
+        const shortMonths = { January: 'Jan', February: 'Feb', March: 'Mar', April: 'Apr', May: 'May', June: 'Jun',
+                             July: 'Jul', August: 'Aug', September: 'Sep', October: 'Oct', November: 'Nov', December: 'Dec' };
+        return `${shortMonths[fullMonthMatch[1]]} ${parseInt(fullMonthMatch[2])}`;
+    }
+    
+    console.log(`[CBOE] Could not parse expiry format: ${expiry}`);
+    return expiry; // Return as-is, let the caller handle it
+}
+
+// Parse expiry string to Date object for DTE calculation
+// Handles various formats: "Jan 23", "2026-02-20", "Feb 20, 2026", "2/27/26"
+function parseExpiryDate(expiry) {
+    if (!expiry) return null;
+    
+    const currentYear = new Date().getFullYear();
+    const monthMap = { 
+        jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+        jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+        january: 0, february: 1, march: 2, april: 3, june: 5,
+        july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+    };
+    
+    // ISO format: 2026-02-20
+    const isoMatch = expiry.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+        return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));
+    }
+    
+    // US format: 2/27/26 or 2/27/2026
+    const usMatch = expiry.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (usMatch) {
+        let year = parseInt(usMatch[3]);
+        if (year < 100) year += 2000; // 26 -> 2026
+        return new Date(year, parseInt(usMatch[1]) - 1, parseInt(usMatch[2]));
+    }
+    
+    // "Mon DD" or "Mon DD, YYYY" format
+    const monthDayMatch = expiry.match(/^([A-Za-z]+)\s+(\d+),?\s*(\d{4})?/);
+    if (monthDayMatch) {
+        const month = monthMap[monthDayMatch[1].toLowerCase()];
+        if (month !== undefined) {
+            const day = parseInt(monthDayMatch[2]);
+            const year = monthDayMatch[3] ? parseInt(monthDayMatch[3]) : currentYear;
+            const date = new Date(year, month, day);
+            // If date is in the past and no year specified, assume next year
+            if (!monthDayMatch[3] && date < new Date()) {
+                date.setFullYear(date.getFullYear() + 1);
+            }
+            return date;
+        }
+    }
+    
+    console.log(`[DTE] Could not parse expiry for DTE: ${expiry}`);
+    return null;
+}
+
+// Fetch CBOE option premium for a specific strike/expiry
+async function fetchOptionPremium(ticker, strike, expiry) {
+    try {
+        const cacheBuster = Date.now();
+        const cboeUrl = `https://cdn.cboe.com/api/global/delayed_quotes/options/${ticker}.json?_=${cacheBuster}`;
+        const data = await fetchJson(cboeUrl);
+        
+        if (!data?.data?.options) {
+            console.log(`[CBOE] No options data for ${ticker}`);
+            return null;
+        }
+        
+        // Parse expiry "Feb 20" to YYMMDD format for matching CBOE option symbols
+        // CBOE format: HOOD260220P00095000 = HOOD + 26 (year) + 02 (month) + 20 (day) + P (put) + strike
+        const expiryParts = expiry.match(/(\w+)\s+(\d+)/); // "Feb 20" -> ["Feb 20", "Feb", "20"]
+        if (!expiryParts) {
+            console.log(`[CBOE] Could not parse expiry: ${expiry}`);
+            return null;
+        }
+        
+        const monthMap = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+                          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
+        const month = monthMap[expiryParts[1]];
+        const day = expiryParts[2].padStart(2, '0');
+        const year = '26'; // Just last 2 digits for 2026
+        
+        // Build the option symbol pattern: TICKER + YYMMDD + P
+        const symbolPrefix = `${ticker}${year}${month}${day}P`;
+        
+        // Format strike for CBOE: $95 -> 00095000 (8 digits, strike × 1000)
+        const strikeFormatted = String(Math.round(strike * 1000)).padStart(8, '0');
+        const targetSymbol = `${symbolPrefix}${strikeFormatted}`;
+        
+        console.log(`[CBOE] Looking for: ${targetSymbol}`);
+        
+        // Find matching put option
+        const options = data.data.options;
+        const match = options.find(opt => opt.option === targetSymbol);
+        
+        if (!match) {
+            // Try finding nearby strikes
+            const nearbyMatches = options.filter(opt => 
+                opt.option?.startsWith(symbolPrefix) && 
+                Math.abs(parseFloat(opt.option.slice(-8)) / 1000 - strike) <= 2
+            );
+            console.log(`[CBOE] Exact match not found. Nearby puts: ${nearbyMatches.length}`);
+            if (nearbyMatches.length > 0) {
+                // Pick closest strike
+                nearbyMatches.sort((a, b) => {
+                    const aStrike = parseFloat(a.option.slice(-8)) / 1000;
+                    const bStrike = parseFloat(b.option.slice(-8)) / 1000;
+                    return Math.abs(aStrike - strike) - Math.abs(bStrike - strike);
+                });
+                const closest = nearbyMatches[0];
+                console.log(`[CBOE] Using closest: ${closest.option} bid=${closest.bid} ask=${closest.ask}`);
+                return {
+                    bid: closest.bid || 0,
+                    ask: closest.ask || 0,
+                    last: closest.last_trade_price || 0,
+                    mid: ((closest.bid || 0) + (closest.ask || 0)) / 2,
+                    volume: closest.volume || 0,
+                    openInterest: closest.open_interest || 0,
+                    iv: closest.iv ? (closest.iv * 100).toFixed(1) : null,
+                    actualStrike: parseFloat(closest.option.slice(-8)) / 1000
+                };
+            }
+            return null;
+        }
+        
+        console.log(`[CBOE] Found: ${match.option} bid=${match.bid} ask=${match.ask}`);
+        return {
+            bid: match.bid || 0,
+            ask: match.ask || 0,
+            last: match.last_trade_price || 0,
+            mid: ((match.bid || 0) + (match.ask || 0)) / 2,
+            volume: match.volume || 0,
+            openInterest: match.open_interest || 0,
+            iv: match.iv ? (match.iv * 100).toFixed(1) : null
+        };
+    } catch (e) {
+        console.log(`[CBOE] Failed to fetch premium for ${ticker}: ${e.message}`);
+        return null;
+    }
+}
+
+// Fetch extended data for deep dive analysis
+async function fetchDeepDiveData(ticker) {
+    const result = {
+        ticker,
+        price: null,
+        threeMonthData: null,
+        yearHigh: null,
+        yearLow: null,
+        earnings: null,
+        exDividend: null,
+        avgVolume: null,
+        recentSupport: [],
+        recentResistance: []
+    };
+    
+    try {
+        // Fetch 3-month daily data for support/resistance analysis
+        const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=3mo`;
+        const chartData = await fetchJson(chartUrl);
+        const quote = chartData.chart?.result?.[0];
+        const meta = quote?.meta;
+        
+        result.price = meta?.regularMarketPrice?.toFixed(2);
+        result.yearHigh = meta?.fiftyTwoWeekHigh?.toFixed(2);
+        result.yearLow = meta?.fiftyTwoWeekLow?.toFixed(2);
+        
+        // Get price history
+        const closes = quote?.indicators?.quote?.[0]?.close?.filter(c => c !== null) || [];
+        const lows = quote?.indicators?.quote?.[0]?.low?.filter(l => l !== null) || [];
+        const highs = quote?.indicators?.quote?.[0]?.high?.filter(h => h !== null) || [];
+        
+        if (closes.length > 0) {
+            result.threeMonthHigh = Math.max(...closes).toFixed(2);
+            result.threeMonthLow = Math.min(...closes).toFixed(2);
+            
+            // Calculate moving averages
+            const last20 = closes.slice(-20);
+            const last50 = closes.slice(-50);
+            result.sma20 = (last20.reduce((a, b) => a + b, 0) / last20.length).toFixed(2);
+            result.sma50 = last50.length >= 50 
+                ? (last50.reduce((a, b) => a + b, 0) / last50.length).toFixed(2) 
+                : null;
+            
+            // Find potential support levels (recent lows)
+            if (lows.length > 20) {
+                const recentLows = lows.slice(-20).sort((a, b) => a - b);
+                result.recentSupport = [
+                    recentLows[0].toFixed(2),
+                    recentLows[Math.floor(recentLows.length * 0.1)].toFixed(2)
+                ];
+            }
+            
+            // Price position relative to moving averages
+            const currentPrice = parseFloat(result.price);
+            result.aboveSMA20 = currentPrice > parseFloat(result.sma20);
+            result.aboveSMA50 = result.sma50 ? currentPrice > parseFloat(result.sma50) : null;
+        }
+        
+        // Fetch calendar data (earnings, dividends)
+        try {
+            const calUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=calendarEvents`;
+            const calData = await fetchJson(calUrl);
+            const cal = calData.quoteSummary?.result?.[0]?.calendarEvents;
+            
+            if (cal?.earnings?.earningsDate?.[0]?.raw) {
+                result.earnings = new Date(cal.earnings.earningsDate[0].raw * 1000)
+                    .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            }
+            if (cal?.exDividendDate?.raw) {
+                result.exDividend = new Date(cal.exDividendDate.raw * 1000)
+                    .toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }
+        } catch (e) { /* ignore */ }
+        
+    } catch (e) {
+        console.log(`[AI] Deep dive data fetch error for ${ticker}:`, e.message);
+    }
+    
+    return result;
+}
+
+// Build deep dive analysis prompt
+function buildDeepDivePrompt(tradeData, tickerData) {
+    const { ticker, strike, expiry, currentPrice } = tradeData;
+    const t = tickerData;
+    
+    const strikeNum = parseFloat(strike);
+    const priceNum = parseFloat(currentPrice || t.price);
+    const otmPercent = ((priceNum - strikeNum) / priceNum * 100).toFixed(1);
+    const assignmentCost = strikeNum * 100;
+    
+    // Format premium data if available
+    let premiumSection = '';
+    if (t.premium) {
+        const p = t.premium;
+        const premiumPerShare = p.mid.toFixed(2);
+        const totalPremium = (p.mid * 100).toFixed(0);
+        const costBasis = (strikeNum - p.mid).toFixed(2);
+        const roc = ((p.mid / strikeNum) * 100).toFixed(2);
+        premiumSection = `
+═══ LIVE OPTION PRICING (CBOE) ═══
+Bid: $${p.bid.toFixed(2)} | Ask: $${p.ask.toFixed(2)} | Mid: $${premiumPerShare}
+Volume: ${p.volume} | Open Interest: ${p.openInterest}
+${p.iv ? `Implied Volatility: ${p.iv}%` : ''}
+Premium Income: $${totalPremium} (for 1 contract)
+If Assigned, Cost Basis: $${costBasis}/share ($${strikeNum} - $${premiumPerShare} premium)
+Return on Capital: ${roc}% for this trade`;
+    }
+    
+    return `You are analyzing a WHEEL STRATEGY trade in depth. Provide comprehensive analysis.
+
+═══ THE TRADE ═══
+Ticker: ${ticker}
+Current Price: $${currentPrice || t.price}
+Proposed: Sell $${strike} put, expiry ${expiry}
+OTM Distance: ${otmPercent}%
+Assignment Cost: $${assignmentCost.toLocaleString()} (100 shares @ $${strike})
+${premiumSection}
+
+═══ TECHNICAL DATA ═══
+52-Week Range: $${t.yearLow} - $${t.yearHigh}
+3-Month Range: $${t.threeMonthLow} - $${t.threeMonthHigh}
+20-Day SMA: $${t.sma20} (price ${t.aboveSMA20 ? 'ABOVE' : 'BELOW'})
+${t.sma50 ? `50-Day SMA: $${t.sma50} (price ${t.aboveSMA50 ? 'ABOVE' : 'BELOW'})` : ''}
+Recent Support Levels: $${t.recentSupport.join(', $')}
+
+═══ CALENDAR ═══
+${t.earnings ? `⚠️ Next Earnings: ${t.earnings}` : 'No upcoming earnings date found'}
+${t.exDividend ? `📅 Ex-Dividend: ${t.exDividend}` : ''}
+
+═══ PROVIDE THIS ANALYSIS ═══
+
+**1. STRIKE ANALYSIS**
+- Is $${strike} a good strike? Compare to support levels and moving averages.
+- More conservative option: What strike would be safer?
+- More aggressive option: What strike would yield more premium?
+
+**2. EXPIRY ANALYSIS**
+- Is ${expiry} a good expiry given the earnings date?
+- Shorter expiry option: If you want less risk
+- Longer expiry option: If you want more premium
+
+**3. SCENARIO ANALYSIS**
+- Bull case: Stock rallies 10% - what happens?
+- Base case: Stock stays flat - what's your profit?
+- Bear case: Stock drops 15% - are you comfortable owning at $${strike}?
+- Disaster case: Stock drops 30% - what's the damage?
+
+**4. IF ASSIGNED (the wheel continues)**
+- Cost basis if assigned: $${strike} minus premium received
+- What covered call strike makes sense?
+- Is this a stock you'd WANT to own at $${strike}?
+
+**5. VERDICT** (REQUIRED - be decisive!)
+Rate this trade with ONE of these:
+- ✅ ENTER TRADE - Good setup, acceptable risk
+- ⚠️ WAIT - Not ideal entry, watch for better price
+- ❌ AVOID - Risk too high or poor setup
+
+Give a 1-2 sentence summary justifying your rating.
+
+Be specific with numbers. Use the data provided. DO NOT hedge with "it depends" - make a call.`;
+}
+
+// Build prompt for position checkup - compares opening thesis to current state
+function buildCheckupPrompt(tradeData, openingThesis, currentData, currentPremium) {
+    const { ticker, strike, expiry } = tradeData;
+    const o = openingThesis; // Opening state
+    const c = currentData;   // Current state
+    
+    // Parse prices as numbers (they might come as strings from API)
+    const currentPrice = parseFloat(c.price) || 0;
+    const entryPrice = parseFloat(o.priceAtAnalysis) || 0;
+    
+    // Calculate changes
+    const priceChange = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice * 100).toFixed(1) : 0;
+    const priceDirection = priceChange >= 0 ? '📈 UP' : '📉 DOWN';
+    
+    // Range position: 0% = at low, 100% = at high
+    const openingRange = o.rangePosition !== undefined ? o.rangePosition : 'N/A';
+    const threeMonthHigh = parseFloat(c.threeMonthHigh) || 0;
+    const threeMonthLow = parseFloat(c.threeMonthLow) || 0;
+    const currentRange = (threeMonthHigh && threeMonthLow && threeMonthHigh !== threeMonthLow) ? 
+        (((currentPrice - threeMonthLow) / (threeMonthHigh - threeMonthLow)) * 100).toFixed(0) : 'N/A';
+    
+    // Days since analysis
+    const daysSinceOpen = Math.floor((Date.now() - new Date(o.analyzedAt).getTime()) / (1000 * 60 * 60 * 24));
+    
+    // DTE calculation
+    const expDate = new Date(expiry);
+    const dte = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
+    
+    // Format premium comparison
+    let premiumChange = '';
+    if (o.premium && currentPremium) {
+        const openMid = parseFloat(o.premium.mid) || 0;
+        const currMid = parseFloat(currentPremium.mid) || 0;
+        const pctChange = openMid > 0 ? ((currMid - openMid) / openMid * 100).toFixed(0) : 0;
+        premiumChange = `
+OPTION PREMIUM MOVEMENT:
+At Entry: $${openMid.toFixed(2)} mid
+Now: $${currMid.toFixed(2)} mid (${pctChange >= 0 ? '+' : ''}${pctChange}%)
+${currMid < openMid ? '✅ Premium has DECAYED - trade is profitable' : '⚠️ Premium has INCREASED - trade is underwater'}`;
+    }
+    
+    return `You are conducting a POSITION CHECKUP for a wheel trade. Compare the opening thesis to current conditions.
+
+═══ THE POSITION ═══
+Ticker: ${ticker}
+Trade: Short $${strike} put, expiry ${expiry}
+Days to Expiry: ${dte}
+Days Held: ${daysSinceOpen}
+
+═══ THEN vs NOW ═══
+
+PRICE MOVEMENT:
+At Entry (${new Date(o.analyzedAt).toLocaleDateString()}): $${entryPrice.toFixed(2)}
+Now: $${currentPrice.toFixed(2)} (${priceDirection} ${Math.abs(priceChange)}%)
+
+RANGE POSITION (0% = 3mo low, 100% = 3mo high):
+At Entry: ${openingRange}% of range
+Now: ${currentRange}% of range
+${currentRange !== 'N/A' && openingRange !== 'N/A' ? (parseFloat(currentRange) > parseFloat(openingRange) ? '📈 Stock has moved UP in range (good for short put)' : 
+  parseFloat(currentRange) < parseFloat(openingRange) ? '📉 Stock has moved DOWN in range (closer to strike)' : '➡️ Roughly the same position') : ''}
+
+TECHNICAL LEVELS:
+Entry SMA20: $${o.sma20 || 'N/A'} | Now: $${c.sma20 || 'N/A'}
+Entry SMA50: $${o.sma50 || 'N/A'} | Now: $${c.sma50 || 'N/A'}
+Entry Support: $${o.support?.join(', $') || 'N/A'}
+Current Support: $${c.recentSupport?.join(', $') || 'N/A'}
+${premiumChange}
+
+CALENDAR EVENTS:
+Entry Earnings: ${o.earnings || 'None scheduled'}
+Current Earnings: ${c.earnings || 'None scheduled'}
+${o.earnings && !c.earnings ? '✅ Earnings have PASSED - thesis event resolved' : ''}
+${!o.earnings && c.earnings ? '⚠️ NEW earnings date appeared!' : ''}
+
+═══ ORIGINAL ENTRY THESIS ═══
+Verdict at Entry: ${o.aiSummary?.verdict || 'N/A'}
+Summary: ${o.aiSummary?.summary || 'N/A'}
+
+═══ YOUR CHECKUP ASSESSMENT ═══
+
+**1. THESIS STATUS**
+Has the original reason for entry been validated, invalidated, or is it still playing out?
+
+**2. RISK ASSESSMENT**
+- Distance from strike: Is the stock now closer or further from $${strike}?
+- Support levels: Have they held or broken?
+- Probability of assignment: Higher, lower, or same as at entry?
+
+**3. TIME DECAY**
+With ${dte} days remaining:
+- Is theta working for you?
+- How much of the original premium has decayed?
+
+**4. ACTION RECOMMENDATION**
+Pick ONE:
+- ✅ HOLD - Thesis intact, let it ride
+- 🔄 ROLL - Consider rolling (specify why - expiry, strike, or both)
+- 💰 CLOSE - Take profit/loss now (specify when)
+- ⚠️ WATCH - Position needs monitoring (specify triggers)
+
+**5. CHECKUP VERDICT**
+Rate the position health:
+- 🟢 HEALTHY - On track, no action needed
+- 🟡 STABLE - Minor concerns but manageable
+- 🔴 AT RISK - Original thesis weakening, action may be needed
+
+Give a 2-3 sentence summary of how the position has evolved since entry.`;
+}
+
+// Build prompt to parse Discord/chat trade callout into structured JSON
+function buildTradeParsePrompt(tradeText) {
+    return `Parse this trade callout into JSON. Extract the key fields.
+
+TRADE CALLOUT:
+${tradeText}
+
+INSTRUCTIONS:
+1. Extract: ticker, strategy, expiry, strike(s), premium/entry price
+2. For spreads, use "buyStrike" and "sellStrike" - KEEP THEM EXACTLY AS STATED
+   - If callout says "Buy 400 / Sell 410", then buyStrike=400, sellStrike=410
+   - Do NOT swap or reorder the strikes
+3. Normalize strategy to: "short_put", "short_call", "covered_call", "bull_put_spread", "bear_call_spread", "call_debit_spread", "put_debit_spread"
+4. Format expiry as "Mon DD" (e.g., "Feb 21" or "Jan 23")
+5. Premium should be a number (remove $ sign)
+
+RESPOND WITH ONLY JSON, no explanation:
+{
+    "ticker": "SYMBOL",
+    "strategy": "strategy_type",
+    "expiry": "Mon DD",
+    "strike": 100,
+    "buyStrike": null,
+    "sellStrike": null,
+    "premium": 1.50,
+    "notes": "any additional context from the callout"
+}
+
+For spreads, strike should be null and buyStrike/sellStrike should have values.
+For single-leg options, strike should have a value and buyStrike/sellStrike should be null.`;
+}
+
+// Build prompt to analyze a Discord trade callout
+function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium) {
+    const t = tickerData;
+    const isSpread = parsed.buyStrike || parsed.sellStrike;
+    const strikeDisplay = isSpread 
+        ? `Buy $${parsed.buyStrike} / Sell $${parsed.sellStrike}`
+        : `$${parsed.strike}`;
+    
+    // Calculate OTM distance
+    const price = parseFloat(t.price) || 0;
+    const strike = parseFloat(parsed.strike || parsed.sellStrike) || 0;
+    const otmPercent = price > 0 ? ((price - strike) / price * 100).toFixed(1) : 'N/A';
+    
+    // Calculate DTE (days to expiry)
+    let dte = 'unknown';
+    let dteWarning = '';
+    if (parsed.expiry) {
+        const expDate = parseExpiryDate(parsed.expiry);
+        if (expDate) {
+            const now = new Date();
+            const diffMs = expDate - now;
+            dte = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+            
+            // Add warnings for short DTE
+            if (dte <= 0) {
+                dteWarning = '🚨 EXPIRED OR EXPIRING TODAY - DO NOT ENTER';
+            } else if (dte <= 3) {
+                dteWarning = '🚨 VERY SHORT DTE - High gamma risk, small moves = big swings';
+            } else if (dte <= 7) {
+                dteWarning = '⚠️ SHORT DTE - Limited time for thesis to play out';
+            } else if (dte <= 14) {
+                dteWarning = 'ℹ️ 2 weeks or less - Theta accelerating';
+            }
+        }
+    }
+    
+    // Calculate risk/reward - DIFFERENT FOR SPREADS vs SINGLE LEG
+    let riskRewardSection = '';
+    const premiumNum = parseFloat(parsed.premium) || 0;
+    
+    if (isSpread && parsed.buyStrike && parsed.sellStrike) {
+        // SPREAD RISK/REWARD
+        const buyStrike = parseFloat(parsed.buyStrike);
+        const sellStrike = parseFloat(parsed.sellStrike);
+        const spreadWidth = Math.abs(sellStrike - buyStrike);
+        const maxProfit = premiumNum * 100;
+        const maxLoss = (spreadWidth - premiumNum) * 100;
+        const capitalRequired = maxLoss; // For credit spreads, capital = max loss
+        const returnOnRisk = maxLoss > 0 ? (maxProfit / maxLoss * 100).toFixed(1) : 'N/A';
+        const premiumVsWidth = ((premiumNum / spreadWidth) * 100).toFixed(1);
+        
+        // Breakeven for credit spreads
+        const isBullPut = parsed.strategy?.includes('bull') || parsed.strategy?.includes('put_credit');
+        const breakeven = isBullPut 
+            ? sellStrike - premiumNum  // Bull put: short strike - premium
+            : sellStrike + premiumNum; // Bear call: short strike + premium
+        
+        riskRewardSection = `
+═══ SPREAD RISK/REWARD MATH ═══
+Strategy: ${parsed.strategy?.toUpperCase()}
+Spread Width: $${spreadWidth} ($${buyStrike} to $${sellStrike})
+Premium: $${premiumNum} (${premiumVsWidth}% of spread width)
+Max Profit: $${maxProfit.toFixed(0)} (keep full credit if OTM at expiry)
+Max Loss: $${maxLoss.toFixed(0)} (spread width - premium)
+Return on Risk: ${returnOnRisk}% ($${maxProfit} profit / $${maxLoss} risk)
+Capital Required: $${capitalRequired.toFixed(0)} (margin = max loss for spreads)
+Breakeven: $${breakeven.toFixed(2)}
+
+💡 SPREAD GUIDELINES:
+- Good spreads collect ≥30% of width as premium
+- This trade collects ${premiumVsWidth}% ${parseFloat(premiumVsWidth) >= 30 ? '✅' : '⚠️ (below 30%)'}`;
+        
+    } else if (premiumNum && strike) {
+        // SINGLE LEG (naked put, covered call, etc.)
+        const maxProfit = premiumNum * 100;
+        const maxRisk = (strike - premiumNum) * 100;
+        const riskRewardRatio = maxRisk > 0 ? (maxProfit / maxRisk * 100).toFixed(2) : 'N/A';
+        
+        riskRewardSection = `
+═══ SINGLE-LEG RISK/REWARD MATH ═══
+Max Profit: $${maxProfit.toFixed(0)} (keep full premium if OTM at expiry)
+Max Risk: $${maxRisk.toFixed(0)} (if stock goes to $0)
+Risk/Reward: ${riskRewardRatio}% return on risk
+Capital Required: $${(strike * 100).toFixed(0)} (to secure 1 contract)`;
+    }
+    
+    // Format premium section
+    // For SELLING options: you want HIGHER entry (above mid is good)
+    // For BUYING options: you want LOWER entry (below mid is good)
+    const isSelling = parsed.strategy?.includes('short') || parsed.strategy?.includes('credit') || 
+                      parsed.strategy?.includes('cash') || parsed.strategy?.includes('covered');
+    let premiumSection = '';
+    if (premium) {
+        let entryQuality = '';
+        if (premium.mid && parsed.premium) {
+            if (isSelling) {
+                // Selling: want to get MORE than mid
+                entryQuality = parsed.premium >= premium.mid 
+                    ? '(got ≥ mid ✅)' 
+                    : `(got ${((1 - parsed.premium/premium.mid) * 100).toFixed(0)}% LESS than mid ⚠️)`;
+            } else {
+                // Buying: want to pay LESS than mid
+                entryQuality = parsed.premium <= premium.mid 
+                    ? '(paid ≤ mid ✅)' 
+                    : `(paid ${((parsed.premium/premium.mid - 1) * 100).toFixed(0)}% MORE than mid ⚠️)`;
+            }
+        }
+        premiumSection = `
+LIVE CBOE PRICING:
+Bid: $${premium.bid?.toFixed(2)} | Ask: $${premium.ask?.toFixed(2)} | Mid: $${premium.mid?.toFixed(2)}
+${premium.iv ? `IV: ${premium.iv}%` : ''}
+Callout Entry: $${parsed.premium || 'N/A'} ${entryQuality}
+${premium.mid && parsed.premium && Math.abs(premium.mid - parsed.premium) > 0.5 ? '⚠️ LARGE DISCREPANCY between callout entry and current mid - trade may be stale!' : ''}`;
+    } else if (parsed.premium) {
+        premiumSection = `\nCALLOUT ENTRY PRICE: $${parsed.premium}`;
+    }
+
+    return `You are evaluating a TRADE CALLOUT from a Discord trading group. Analyze whether this is a good trade.
+
+═══ THE CALLOUT ═══
+Ticker: ${parsed.ticker}
+Strategy: ${parsed.strategy}
+Strike: ${strikeDisplay}
+Expiry: ${parsed.expiry} (${dte} days to expiry)
+${dteWarning ? dteWarning : ''}
+Entry Premium: $${parsed.premium || 'not specified'}
+${parsed.notes ? `Notes: ${parsed.notes}` : ''}
+${riskRewardSection}
+
+═══ CURRENT MARKET DATA ═══
+Current Price: $${t.price}
+${strike ? `OTM Distance: ${otmPercent}%` : ''}
+52-Week Range: $${t.yearLow} - $${t.yearHigh}
+3-Month Range: $${t.threeMonthLow} - $${t.threeMonthHigh}
+20-Day SMA: $${t.sma20} (price ${t.aboveSMA20 ? 'ABOVE ✅' : 'BELOW ⚠️'})
+${t.sma50 ? `50-Day SMA: $${t.sma50}` : ''}
+Support Levels: $${t.recentSupport?.join(', $') || 'N/A'}
+${t.earnings ? `⚠️ Earnings: ${t.earnings}` : 'No upcoming earnings'}
+${premiumSection}
+
+═══ YOUR ANALYSIS ═══
+
+**1. TRADE SETUP REVIEW**
+- Is this a reasonable entry? Evaluate strike selection vs support/resistance.
+- Is the expiry sensible given any upcoming events?
+${isSpread ? '- For spreads: Is the premium collected a good % of spread width? (≥30% is ideal)' : '- Is the premium worth the risk? Use the RISK/REWARD MATH above.'}
+${dte <= 7 ? '- ⚠️ WITH ONLY ' + dte + ' DAYS TO EXPIRY, is there enough time for theta decay?' : ''}
+
+**2. TECHNICAL CHECK**
+- Where is the stock in its range? Near highs (risky for puts) or lows (opportunity)?
+- How far OTM is the strike? Is there adequate cushion?
+- Are support levels being respected?
+
+**3. RISK/REWARD**
+- What's the max risk on this trade?
+- What's the realistic profit target?
+- Is the risk/reward ratio favorable?
+
+**4. RED FLAGS**
+- Any concerns? Earnings, ex-dividend, low volume, etc.?
+- Is this "chasing" a move or entering at support?
+
+**5. VERDICT** (REQUIRED - be decisive!)
+Rate this callout with ONE of these:
+- ✅ FOLLOW - Good setup, worth taking
+- ⚠️ PASS - Not ideal, wait for better entry  
+- ❌ AVOID - Poor setup or excessive risk
+
+Give a 2-3 sentence summary of your recommendation.
+
+Be specific. Use the data. Make a call.`;
 }
 
 // Helper to fetch JSON over HTTP (for local services like Ollama)
@@ -505,8 +1537,150 @@ If rolling IS needed, respond:
 Be specific. Use the actual numbers provided. No headers or bullet points - just the numbered items.`;
 }
 
+// Build a critique prompt for analyzing a closed trade
+function buildCritiquePrompt(data) {
+    const { ticker, chainHistory, totalPremium, totalDays, finalOutcome } = data;
+    
+    if (!chainHistory || chainHistory.length === 0) {
+        return `No trade history provided for ${ticker}. Cannot critique.`;
+    }
+    
+    // Format the chain history as a timeline
+    let timeline = '';
+    chainHistory.forEach((pos, idx) => {
+        const action = idx === 0 ? 'OPENED' : 'ROLLED';
+        const premium = (pos.premium * 100 * (pos.contracts || 1)).toFixed(0);
+        const isDebit = pos.type?.includes('long') || pos.type?.includes('debit');
+        const premiumStr = isDebit ? `-$${premium} paid` : `+$${premium} received`;
+        
+        timeline += `${idx + 1}. ${action}: ${pos.openDate || 'Unknown date'}
+   Strike: $${pos.strike || pos.sellStrike || 'N/A'} ${pos.type || 'option'}
+   Premium: ${premiumStr}
+   Expiry: ${pos.expiry || 'N/A'}
+   ${pos.closeDate ? `Closed: ${pos.closeDate} (${pos.closeReason || 'closed'})` : 'Status: OPEN'}
+   ${pos.spotAtOpen ? `Spot at open: $${pos.spotAtOpen}` : ''}
+   
+`;
+    });
+    
+    return `You are an expert options trading coach. Analyze this completed trade and provide constructive feedback.
+
+═══ TRADE SUMMARY ═══
+Ticker: ${ticker}
+Total positions in chain: ${chainHistory.length}
+Total premium: $${totalPremium?.toFixed(0) || 'N/A'}
+Total days in trade: ${totalDays || 'N/A'}
+Final outcome: ${finalOutcome || 'Unknown'}
+
+═══ TRADE TIMELINE ═══
+${timeline}
+
+═══ YOUR ANALYSIS ═══
+Provide a thoughtful critique in this format:
+
+1. **What went well** - Identify 1-2 good decisions (entry timing, strike selection, roll timing, etc.)
+
+2. **What could improve** - Identify 1-2 areas for improvement. Be specific - "rolled too early" or "strike was too aggressive" with reasoning.
+
+3. **Key lesson** - One actionable takeaway for future trades.
+
+4. **Grade** - Rate this trade: A (excellent), B (good), C (acceptable), D (poor), F (disaster)
+
+Be honest but constructive. Focus on the PROCESS, not just the outcome. A losing trade can still have good process, and a winning trade can have poor process.`;
+}
+
+// Build a prompt for generating trade ideas (with real prices!)
+function buildIdeaPrompt(data, realPrices = []) {
+    const { buyingPower, targetAnnualROC, currentPositions, sectorsToAvoid } = data;
+    
+    // Calculate upcoming monthly expiry dates (3rd Friday of month)
+    const getThirdFriday = (year, month) => {
+        const firstDay = new Date(year, month, 1);
+        const dayOfWeek = firstDay.getDay();
+        const firstFriday = dayOfWeek <= 5 ? (5 - dayOfWeek + 1) : (12 - dayOfWeek + 1);
+        return new Date(year, month, firstFriday + 14);
+    };
+    
+    const today = new Date();
+    const expiryDates = [];
+    for (let i = 0; i < 3; i++) {
+        const targetMonth = today.getMonth() + i;
+        const targetYear = today.getFullYear() + Math.floor(targetMonth / 12);
+        const friday = getThirdFriday(targetYear, targetMonth % 12);
+        if (friday > today) {
+            const dte = Math.ceil((friday - today) / (1000 * 60 * 60 * 24));
+            expiryDates.push({
+                date: friday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                dte: dte
+            });
+        }
+    }
+    const expiryStr = expiryDates.map(e => `${e.date} (${e.dte} DTE)`).join(', ');
+    
+    // Format current positions
+    let currentTickers = [];
+    if (currentPositions && currentPositions.length > 0) {
+        currentTickers = currentPositions.map(p => p.ticker);
+    }
+    
+    // Format real prices with context data
+    let priceData = 'No price data available';
+    if (realPrices.length > 0) {
+        priceData = realPrices.map(p => {
+            // Calculate a reasonable strike (~10% below current)
+            const suggestedStrike = Math.floor(parseFloat(p.price) * 0.9);
+            const putCapital = suggestedStrike * 100;
+            
+            let line = `${p.ticker}: $${p.price}`;
+            line += ` | Range: $${p.monthLow}-$${p.monthHigh}`;
+            line += ` | ${p.monthChange > 0 ? '+' : ''}${p.monthChange}% this month`;
+            line += ` | ${p.rangePosition}% of range`;
+            if (p.earnings) line += ` | ⚠️ Earnings: ${p.earnings}`;
+            line += ` | 10% OTM strike: $${suggestedStrike} → Capital: $${putCapital.toLocaleString()}`;
+            return line;
+        }).join('\n');
+    }
+    
+    return `You are a WHEEL STRATEGY advisor. Analyze the data below and pick 3 SHORT PUT trades.
+
+═══ ACCOUNT ═══
+Buying Power: $${buyingPower?.toLocaleString() || '25,000'}
+Target ROC: ${targetAnnualROC || 25}%/year
+Today: ${today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+Expiries: ${expiryStr}
+${currentTickers.length > 0 ? `Already have positions in: ${currentTickers.join(', ')}` : ''}
+${sectorsToAvoid ? `Avoid sectors: ${sectorsToAvoid}` : ''}
+
+═══ CANDIDATE DATA (real-time) ═══
+${priceData}
+
+═══ WHEEL STRATEGY CRITERIA ═══
+Good candidates have:
+- Price LOW in its range (e.g., 20-40% = near support, good entry)
+- Recent pullback (negative month change = cheaper premiums)
+- NO earnings before expiry (or use shorter expiry)
+- Strike ~10% below current = support level
+
+Avoid:
+- Price HIGH in range (80%+ = extended, risky to sell puts)
+- Earnings between now and expiry (unless you want the IV crush gamble)
+
+═══ FORMAT (exactly like this) ═══
+1. [TICKER] @ $XX.XX - Sell $XX put, ${expiryDates[0]?.date || 'Feb 21'}
+   Entry: [Why NOW is good timing - use the data: range position, month change, support level]
+   Risk: [Specific risk - earnings date, sector issue, or technical concern]
+   Capital: $X,XXX (COPY from data above - it's strike × 100)
+
+2. ...
+
+3. ...
+
+USE THE DATA. Copy the Capital value from the candidate data - it's already calculated for you.
+Don't make up company names - if you don't know what the ticker is, just use the ticker symbol.`;
+}
+
 // Call Ollama API
-function callOllama(prompt, model = 'qwen2.5:7b') {
+function callOllama(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
     // Support both short names and full names
     const modelMap = {
         '7b': 'qwen2.5:7b',
@@ -519,7 +1693,7 @@ function callOllama(prompt, model = 'qwen2.5:7b') {
         'mistral:7b': 'mistral:7b'
     };
     const resolvedModel = modelMap[model] || model;
-    console.log(`[AI] Using model: ${resolvedModel}`);
+    console.log(`[AI] Using model: ${resolvedModel}, maxTokens: ${maxTokens}`);
     
     return new Promise((resolve, reject) => {
         const postData = JSON.stringify({
@@ -528,7 +1702,7 @@ function callOllama(prompt, model = 'qwen2.5:7b') {
             stream: false,
             options: {
                 temperature: 0.7,
-                num_predict: 300  // Slightly more for larger models
+                num_predict: maxTokens
             }
         });
         

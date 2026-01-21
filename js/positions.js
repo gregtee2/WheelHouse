@@ -399,7 +399,17 @@ window.showRollHistory = function(chainId) {
                 <div style="color:${colors.green}; font-size:24px; font-weight:bold;">$${totalPremium.toFixed(0)}</div>
             </div>
             
-            <div style="display:flex; justify-content:center;">
+            <div id="critiqueContent" style="display:none; background:${colors.bgSecondary}; border-radius:10px; padding:15px; margin-bottom:20px;">
+                <div style="color:${colors.muted}; font-size:11px; margin-bottom:8px;">🧠 AI TRADE CRITIQUE</div>
+                <div id="critiqueText" style="color:#ddd; font-size:12px; line-height:1.6; white-space:pre-wrap;"></div>
+            </div>
+            
+            <div style="display:flex; justify-content:center; gap:12px;">
+                <button id="critiqueBtn" onclick="window.getCritique(${chainId})" 
+                        style="background:linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); border:none; color:${colors.text}; padding:12px 24px; 
+                               border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;">
+                    🔍 AI Critique
+                </button>
                 <button onclick="document.getElementById('rollHistoryModal').remove()" 
                         style="background:#0096ff; border:none; color:${colors.text}; padding:12px 40px; 
                                border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;">
@@ -410,6 +420,101 @@ window.showRollHistory = function(chainId) {
     `;
     
     document.body.appendChild(modal);
+};
+
+/**
+ * Get AI critique for a trade chain
+ */
+window.getCritique = async function(chainId) {
+    const critiqueBtn = document.getElementById('critiqueBtn');
+    const critiqueContent = document.getElementById('critiqueContent');
+    const critiqueText = document.getElementById('critiqueText');
+    
+    if (!critiqueBtn || !critiqueContent || !critiqueText) return;
+    
+    // Show loading state
+    critiqueBtn.disabled = true;
+    critiqueBtn.textContent = '⏳ Analyzing...';
+    critiqueContent.style.display = 'block';
+    critiqueText.innerHTML = '<span style="color:#888;">🔄 AI is reviewing your trade... (10-20 seconds)</span>';
+    
+    try {
+        // Gather all positions in this chain
+        const allPositions = [...(state.positions || []), ...(state.closedPositions || [])];
+        const chainPositions = allPositions
+            .filter(p => (p.chainId || p.id) === chainId)
+            .sort((a, b) => new Date(a.openDate || 0) - new Date(b.openDate || 0));
+        
+        if (chainPositions.length === 0) {
+            critiqueText.innerHTML = '<span style="color:#ff5252;">No positions found for this chain.</span>';
+            return;
+        }
+        
+        const ticker = chainPositions[0]?.ticker || 'Unknown';
+        
+        // Calculate totals
+        const totalPremium = chainPositions.reduce((sum, p) => {
+            const isDebit = p.type?.includes('long') || p.type?.includes('debit');
+            const premium = p.premium * 100 * (p.contracts || 1);
+            return sum + (isDebit ? -premium : premium);
+        }, 0);
+        
+        const firstOpen = new Date(chainPositions[0]?.openDate || Date.now());
+        const lastClose = chainPositions[chainPositions.length - 1]?.closeDate;
+        const lastDate = lastClose ? new Date(lastClose) : new Date();
+        const totalDays = Math.round((lastDate - firstOpen) / (1000 * 60 * 60 * 24));
+        
+        // Determine final outcome
+        const lastPos = chainPositions[chainPositions.length - 1];
+        let finalOutcome = 'Still open';
+        if (lastPos.status === 'closed') {
+            finalOutcome = lastPos.closeReason === 'expired' ? 'Expired worthless (max profit)' :
+                          lastPos.closeReason === 'assigned' ? 'Assigned (bought shares)' :
+                          lastPos.closeReason === 'called' ? 'Called away' :
+                          lastPos.closeReason === 'rolled' ? 'Rolled (chain continues)' :
+                          'Closed early';
+        }
+        
+        // Get selected model
+        const modelSelect = document.getElementById('aiModelSelect');
+        const selectedModel = modelSelect?.value || 'qwen2.5:14b';
+        
+        // Call the critique API
+        const response = await fetch('/api/ai/critique', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ticker,
+                chainHistory: chainPositions,
+                totalPremium,
+                totalDays,
+                finalOutcome,
+                model: selectedModel
+            })
+        });
+        
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'API error');
+        }
+        
+        const result = await response.json();
+        
+        // Format the critique with styling
+        let formatted = result.critique
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#00d9ff;">$1</strong>')
+            .replace(/(Grade:\s*[A-F][+-]?)/gi, '<span style="color:#00ff88; font-weight:bold;">$1</span>')
+            .replace(/(What went well|What could improve|Key lesson)/gi, '<span style="color:#ffaa00;">$1</span>');
+        
+        critiqueText.innerHTML = formatted;
+        critiqueBtn.textContent = '✅ Critique Complete';
+        
+    } catch (e) {
+        console.error('Critique error:', e);
+        critiqueText.innerHTML = `<span style="color:#ff5252;">❌ ${e.message}</span>`;
+        critiqueBtn.disabled = false;
+        critiqueBtn.textContent = '🔍 Retry Critique';
+    }
 };
 
 /**
@@ -1576,7 +1681,7 @@ function renderPositionsTable(container, openPositions) {
         
         html += `
             <tr style="border-bottom: 1px solid #333;" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.openDate ? ' | Opened: ' + pos.openDate : ''}${buyWriteInfo}${spreadInfo}">
-                <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${pos.ticker}</td>
+                <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${pos.ticker}${pos.openingThesis ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}</td>
                 <td style="padding: 4px; text-align: center;" id="risk-cell-${pos.id}">
                     ${initialStatusHtml}
                 </td>
@@ -1604,6 +1709,11 @@ function renderPositionsTable(container, openPositions) {
                             style="display:inline-block; background: rgba(0,180,220,0.3); border: 1px solid rgba(0,180,220,0.5); color: #6dd; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
                             title="Analyze">📊</button>
                     `}
+                    ${pos.openingThesis ? `
+                    <button onclick="window.runPositionCheckup(${pos.id})" 
+                            style="display:inline-block; background: rgba(0,255,136,0.3); border: 1px solid rgba(0,255,136,0.5); color: #0f8; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            title="Thesis Checkup - Compare opening assumptions to current state">🩺</button>
+                    ` : ''}
                     <button onclick="window.showClosePanel(${pos.id})" 
                             style="display:inline-block; background: rgba(80,180,80,0.3); border: 1px solid rgba(80,180,80,0.5); color: #6c6; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
                             title="Close">✅</button>

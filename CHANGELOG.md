@@ -2,6 +2,63 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.5.0] - 2026-01-20
+
+### Added
+- **Deep Dive Analysis** - Comprehensive scenario analysis for any trade
+  - Bull/Base/Bear/Disaster case modeling
+  - Live CBOE option pricing (bid/ask/mid/IV)
+  - Support/resistance level analysis
+  - Earnings date awareness
+  - Decisive verdicts: ✅ ENTER / ⚠️ WAIT / ❌ AVOID
+
+- **Discord Trade Analyzer** - Paste any trade callout for instant analysis
+  - AI parses trade text into structured data (ticker, strike, expiry, strategy)
+  - Fetches real-time CBOE pricing and market data
+  - Analyzes setup with FOLLOW/PASS/AVOID verdict
+  - Works with puts, calls, and spreads
+
+- **Spread Risk/Reward Math** - Proper spread calculations
+  - Bull put spread / Bear call spread support
+  - Correct max profit / max loss / return on risk
+  - Breakeven calculations
+  - Premium vs spread width percentage (≥30% is ideal)
+  - Fixes previous bug where spreads showed naked put math ($41K risk vs $625 actual)
+
+- **Position Checkup** - Compare opening thesis to current conditions
+  - Stores entry thesis (price, support levels, SMAs, earnings, AI verdict)
+  - Fetches current market data for comparison
+  - AI analyzes: Has thesis held up? Roll/Hold/Close recommendation
+  - Health verdict: 🟢 HEALTHY / 🟡 STABLE / 🔴 AT RISK
+
+- **Trade Critique** - AI reviews your closed trades
+  - Analyzes full roll history chain
+  - Identifies what went well vs could improve
+  - Gives letter grade (A-F) on process, not just outcome
+  - Key lesson takeaway for future trades
+
+- **Stage → Confirm Flow** - Better trade workflow
+  - Stage trades from AI analysis (stores thesis data)
+  - Confirm when executed with broker (enters actual fill)
+  - Thesis persists for later checkup
+
+- **DTE Warnings** - Red flags for short-dated trades
+  - 🚨 EXPIRED - Do not enter
+  - 🚨 ≤3 days - Very short, high gamma risk
+  - ⚠️ ≤7 days - Limited time for thesis to play out
+
+- **Server Restart Button** - 🔄 button in header for quick restart
+
+### Changed
+- AI prompts now include explicit spread math (no more $40K risk hallucinations)
+- Entry quality indicator: ✅ got ≥ mid (selling) / ✅ paid ≤ mid (buying)
+- Spread strikes auto-corrected if AI parses them backwards
+
+### Fixed
+- Spread math was using naked put formula - now uses proper spread width
+- OTM distance calculation now uses correct strike (sell strike for spreads)
+- Bull put spread strikes now enforced: sellStrike > buyStrike
+
 ## [1.4.0] - 2026-01-20
 
 ### Added
