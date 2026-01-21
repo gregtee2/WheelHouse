@@ -4,7 +4,7 @@
 
 **WheelHouse** is a Wheel Strategy Options Analyzer & Position Tracker built with vanilla JavaScript (ES6 modules) and Node.js. It provides Monte Carlo-based options pricing, real-time CBOE quotes, position tracking, and portfolio analytics.
 
-**Version**: 1.1.0  
+**Version**: 1.7.0  
 **Repository**: https://github.com/gregtee2/WheelHouse  
 **Branches**: `main` (development), `stable` (releases)
 
@@ -102,6 +102,42 @@ main.js (entry point)
     // Challenge linking
     challengeIds: [1737000000000], // Array of challenge IDs
     
+    // Opening thesis (saved when staging from Discord Analyzer)
+    openingThesis: {
+        analyzedAt: '2026-01-21T14:30:00Z',
+        priceAtAnalysis: 105.92,
+        rangePosition: 0,          // 0-100, where stock is in 3-month range
+        iv: 66.4,                  // IV at time of analysis
+        modelUsed: 'qwen2.5:32b',  // AI model used
+        aiSummary: {
+            aggressive: '...',     // Bull case (300 chars)
+            moderate: '...',       // Balanced view
+            conservative: '...',   // Bear case
+            bottomLine: '...',     // One-sentence summary
+            probability: 75,       // Max profit probability %
+            fullAnalysis: '...'    // Complete AI response
+        }
+    },
+    
+    // Analysis history (multiple AI analyses over time)
+    analysisHistory: [
+        {
+            id: 1737500000000,
+            timestamp: '2026-01-21T14:30:00Z',
+            model: 'qwen2.5:32b',
+            recommendation: 'HOLD',  // HOLD | ROLL | CLOSE
+            insight: '...',          // Full AI response
+            snapshot: {              // Market conditions at time
+                spot: 105.92,
+                strike: 95,
+                dte: 30,
+                iv: 66.4,
+                riskPercent: 15.2,
+                winProbability: 85
+            }
+        }
+    ],
+    
     // For SKIP Call™ Strategy (type: 'skip_call')
     leapsStrike: 100,            // LEAPS call strike (12+ months out)
     leapsPremium: 15.00,         // Premium paid for LEAPS
@@ -184,6 +220,34 @@ GET /api/cboe/options/:symbol
 ```javascript
 GET /api/yahoo/quote/:symbol
 // Returns stock quote with price, change, volume
+```
+
+### AI Endpoints (Ollama)
+```javascript
+GET /api/ai/status
+// Returns: { available, hasQwen, models[], loaded[], isWarm }
+
+POST /api/ai/warmup  { model: 'qwen2.5:32b' }
+// SSE stream: progress updates as model loads into GPU
+
+POST /api/ai/analyze  { ticker, spot, strike, ... }
+// Returns: { insight, model }
+
+POST /api/ai/parse-trade  { tradeText, model }
+// SSE stream: 4-step progress (parse, fetch, CBOE, analyze)
+// Returns: { parsed, tickerData, premium, analysis }
+
+POST /api/ai/deep-dive  { ticker, strike, expiry, currentPrice, model }
+// Returns: { analysis, tickerData, premium }
+
+POST /api/ai/checkup  { ticker, strike, expiry, openingThesis, model }
+// Returns: { checkup, currentData, currentPremium }
+
+POST /api/ai/critique  { ...closedPosition, model }
+// Returns: { insight, model }
+
+POST /api/ai/ideas  { buyingPower, model }
+// Returns: { ideas, candidates }
 ```
 
 ### Static Files
@@ -413,6 +477,24 @@ git push origin main:stable
 
 ## 📋 Recent Features (January 2026)
 
+### v1.6.0 (Latest)
+- **Verdict Spectrum**: Discord Analyzer now gives 3 perspectives (Aggressive/Moderate/Conservative)
+- **Model Selector for Discord**: Choose 7B/14B/32B, defaults to 32B
+- **Model Warmup**: Pre-load models into GPU with progress indicator
+- **Range Position**: Shows where stock is in 3-month range (0%=low, 100%=high)
+- **Analysis History**: Track multiple AI analyses over time with market snapshots
+- **Full Analysis Storage**: "View Full Entry Analysis" button in checkups
+- **IV Tracking**: IV saved at entry for comparison during checkups
+- **SSE Progress**: Real-time step-by-step progress during Discord analysis
+- **Premium Validation**: Stock prices no longer confused with option premiums
+
+### v1.5.0
+- **Deep Dive Analysis**: Comprehensive scenario analysis with CBOE pricing
+- **Discord Trade Analyzer**: Paste any trade callout for instant AI analysis
+- **Stage → Confirm Flow**: Stage trades from AI, confirm when executed
+- **Position Checkup**: Compare opening thesis to current conditions
+- **Trade Critique**: AI reviews closed trades with feedback
+
 ### v1.1.0
 - **Spread Trading**: 4 spread types with AI explanations
 - **Roll History**: 🔗 button to view full chain timeline
@@ -426,6 +508,10 @@ git push origin main:stable
 - `window.showRollHistory(chainId)` - Roll history modal
 - `window.showLinkToChainModal(positionId)` - Chain linking modal
 - `calculateChallengeProgress(challengeId)` - Challenge P&L calculation
+- `window.saveAnalysisToPosition(id, data)` - Save AI analysis to position history
+- `window.getAnalysisHistory(id)` - Get all analyses for a position
+- `window.showAnalysisHistory(id)` - Show analysis timeline modal
+- `extractThesisSummary(analysis)` - Extract spectrum views from AI analysis
 
 ---
 
@@ -438,6 +524,11 @@ git push origin main:stable
 5. **Test on port 8888** - `http://localhost:8888`
 6. **localStorage is the database** - No server-side storage
 7. **Push to `main` first** - Only push to `stable` for releases
+8. **Discord Analyzer uses `discordModelSelect`** - Separate from main `aiModelSelect`
+9. **Premium validation: >$50 is stock price** - Option premiums are typically $0.50-$15
+10. **Range position: 0%=3-month low, 100%=high** - Provides entry context
+11. **openingThesis stores entry data** - IV, model, range, aiSummary with spectrum
+12. **analysisHistory tracks AI over time** - Array of { timestamp, recommendation, snapshot }
 
 ---
 

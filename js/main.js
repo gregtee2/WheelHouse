@@ -139,8 +139,152 @@ window.saveAIModelPreference = function() {
     if (modelSelect) {
         localStorage.setItem('wheelhouse_ai_model', modelSelect.value);
         console.log('AI model preference saved:', modelSelect.value);
+        // Check if this model is loaded
+        checkAIStatus();
     }
 };
+
+/**
+ * Check AI/Ollama status and show what's loaded
+ */
+window.checkAIStatus = async function() {
+    const statusEl = document.getElementById('aiModelStatus');
+    const warmupBtn = document.getElementById('aiWarmupBtn');
+    if (!statusEl) return;
+    
+    try {
+        const response = await fetch('/api/ai/status');
+        const status = await response.json();
+        
+        if (!status.available) {
+            statusEl.textContent = '❌ Ollama not running';
+            statusEl.style.color = '#ff5252';
+            return;
+        }
+        
+        const selectedModel = document.getElementById('aiModelSelect')?.value || 'qwen2.5:7b';
+        const isLoaded = status.loaded?.some(m => m.name === selectedModel);
+        
+        if (isLoaded) {
+            const loaded = status.loaded.find(m => m.name === selectedModel);
+            statusEl.textContent = `✅ Loaded (${loaded.sizeVramGB}GB VRAM)`;
+            statusEl.style.color = '#00ff88';
+            if (warmupBtn) {
+                warmupBtn.style.background = '#1a3a1a';
+                warmupBtn.style.color = '#00ff88';
+                warmupBtn.textContent = '✓ Ready';
+            }
+        } else if (status.loaded?.length > 0) {
+            const other = status.loaded[0];
+            statusEl.textContent = `⚠️ ${other.name} loaded, not ${selectedModel.split(':')[1]}`;
+            statusEl.style.color = '#ffaa00';
+            if (warmupBtn) {
+                warmupBtn.style.background = '#333';
+                warmupBtn.style.color = '#ffaa00';
+                warmupBtn.textContent = '🔥 Load';
+            }
+        } else {
+            statusEl.textContent = '💤 Cold (click Warmup)';
+            statusEl.style.color = '#888';
+            if (warmupBtn) {
+                warmupBtn.style.background = '#333';
+                warmupBtn.style.color = '#888';
+                warmupBtn.textContent = '🔥 Warmup';
+            }
+        }
+    } catch (e) {
+        statusEl.textContent = '❌ Error';
+        statusEl.style.color = '#ff5252';
+    }
+};
+
+/**
+ * Warmup (pre-load) the selected AI model into GPU memory
+ */
+window.warmupAIModel = async function() {
+    const statusEl = document.getElementById('aiModelStatus');
+    const warmupBtn = document.getElementById('aiWarmupBtn');
+    const selectedModel = document.getElementById('aiModelSelect')?.value || 'qwen2.5:7b';
+    
+    if (warmupBtn) {
+        warmupBtn.disabled = true;
+        warmupBtn.innerHTML = '⏳ 0s';
+        warmupBtn.style.color = '#b9f';
+        warmupBtn.style.minWidth = '60px';
+    }
+    if (statusEl) {
+        statusEl.textContent = `Loading ${selectedModel}...`;
+        statusEl.style.color = '#b9f';
+    }
+    
+    const startTime = Date.now();
+    
+    try {
+        const response = await fetch('/api/ai/warmup', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'text/event-stream'
+            },
+            body: JSON.stringify({ model: selectedModel })
+        });
+        
+        // Handle SSE stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop();
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = JSON.parse(line.slice(6));
+                    
+                    if (data.type === 'progress') {
+                        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                        if (warmupBtn) warmupBtn.innerHTML = `⏳ ${elapsed}s`;
+                        if (statusEl) statusEl.textContent = data.message;
+                    } else if (data.type === 'complete') {
+                        if (statusEl) {
+                            statusEl.textContent = `✅ ${data.message}`;
+                            statusEl.style.color = '#00ff88';
+                        }
+                        if (warmupBtn) {
+                            warmupBtn.innerHTML = '✓ Ready';
+                            warmupBtn.style.background = '#1a3a1a';
+                            warmupBtn.style.color = '#00ff88';
+                        }
+                        showNotification(`🧠 ${selectedModel} loaded and ready!`, 'success');
+                    } else if (data.type === 'error') {
+                        throw new Error(data.error);
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.textContent = `❌ ${e.message}`;
+            statusEl.style.color = '#ff5252';
+        }
+        if (warmupBtn) {
+            warmupBtn.innerHTML = '🔥 Retry';
+            warmupBtn.style.color = '#ff5252';
+        }
+        showNotification(`Failed to load model: ${e.message}`, 'error');
+    } finally {
+        if (warmupBtn) warmupBtn.disabled = false;
+    }
+};
+
+// Check AI status on page load and periodically
+setTimeout(checkAIStatus, 2000);
+setInterval(checkAIStatus, 30000); // Refresh every 30 seconds
 
 /**
  * Get AI-powered trade ideas
@@ -395,15 +539,24 @@ window.analyzeDiscordTrade = async function() {
         return;
     }
     
-    // Get selected model
-    const modelSelect = document.getElementById('aiModelSelect');
-    const model = modelSelect?.value || 'qwen2.5:7b';
+    // Get selected model from Discord-specific dropdown (falls back to main AI dropdown)
+    const discordModelSelect = document.getElementById('discordModelSelect');
+    const mainModelSelect = document.getElementById('aiModelSelect');
+    const model = discordModelSelect?.value || mainModelSelect?.value || 'qwen2.5:32b';
     
     // Create modal with loading state
     const modal = document.createElement('div');
     modal.id = 'discordTradeModal';
     modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:10000; padding:20px;';
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    // Progress steps for display
+    const stepLabels = [
+        'Extract trade details',
+        'Fetch market data', 
+        'Get CBOE pricing',
+        'AI analysis'
+    ];
     
     modal.innerHTML = `
         <div style="background:#1a1a2e; border-radius:12px; max-width:800px; width:100%; max-height:90vh; overflow-y:auto; padding:25px; border:1px solid rgba(139,92,246,0.5);">
@@ -414,25 +567,101 @@ window.analyzeDiscordTrade = async function() {
             <div id="discordTradeContent" style="color:#ccc;">
                 <div style="text-align:center; padding:40px;">
                     <div class="spinner" style="width:50px; height:50px; border:3px solid #333; border-top:3px solid #b9f; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 20px;"></div>
-                    <p>Parsing trade callout with ${model}...</p>
-                    <p style="font-size:12px; color:#666;">Step 1: Extract trade details → Step 2: Fetch market data → Step 3: AI analysis</p>
+                    <p id="discordProgressText" style="font-size:16px; color:#b9f;">Initializing...</p>
+                    <div id="discordProgressSteps" style="margin-top:20px; text-align:left; display:inline-block;">
+                        ${stepLabels.map((label, i) => `
+                            <div id="discordStep${i+1}" style="padding:6px 0; color:#666;">
+                                <span style="display:inline-block; width:24px; text-align:center;">○</span> ${label}
+                            </div>
+                        `).join('')}
+                    </div>
+                    <p id="discordElapsed" style="font-size:12px; color:#555; margin-top:15px;">Elapsed: 0s</p>
                 </div>
             </div>
         </div>
     `;
     document.body.appendChild(modal);
     
+    // Start elapsed timer
+    const startTime = Date.now();
+    const timerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const elapsedEl = document.getElementById('discordElapsed');
+        if (elapsedEl) {
+            elapsedEl.textContent = `Elapsed: ${elapsed}s`;
+            if (elapsed > 30) {
+                elapsedEl.style.color = '#ffaa00';
+                elapsedEl.textContent += ' (larger models take longer to load)';
+            }
+        }
+    }, 1000);
+    
+    // Helper to update step UI
+    const updateStep = (stepNum, status, message) => {
+        const stepEl = document.getElementById(`discordStep${stepNum}`);
+        const progressText = document.getElementById('discordProgressText');
+        if (stepEl) {
+            const icon = status === 'done' ? '✓' : status === 'active' ? '●' : '○';
+            const color = status === 'done' ? '#00ff88' : status === 'active' ? '#b9f' : '#666';
+            stepEl.style.color = color;
+            stepEl.querySelector('span').textContent = icon;
+        }
+        if (progressText && message) {
+            progressText.textContent = message;
+        }
+    };
+    
     try {
+        // Use SSE for real-time progress
         const response = await fetch('/api/ai/parse-trade', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'text/event-stream'
+            },
             body: JSON.stringify({ tradeText, model })
         });
         
-        const result = await response.json();
+        // Handle SSE stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let result = null;
         
-        if (result.error) {
-            throw new Error(result.error);
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop(); // Keep incomplete chunk
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = JSON.parse(line.slice(6));
+                    
+                    if (data.type === 'progress') {
+                        // Mark previous steps as done
+                        for (let i = 1; i < data.step; i++) {
+                            updateStep(i, 'done');
+                        }
+                        // Mark current step as active
+                        updateStep(data.step, 'active', data.message);
+                    } else if (data.type === 'complete') {
+                        // All steps done
+                        for (let i = 1; i <= 4; i++) updateStep(i, 'done');
+                        result = data;
+                    } else if (data.type === 'error') {
+                        throw new Error(data.error);
+                    }
+                }
+            }
+        }
+        
+        clearInterval(timerInterval);
+        
+        if (!result || result.error) {
+            throw new Error(result?.error || 'No response received');
         }
         
         const { parsed, tickerData, premium, analysis } = result;
@@ -451,6 +680,15 @@ window.analyzeDiscordTrade = async function() {
             ? `Buy $${parsed.buyStrike} / Sell $${parsed.sellStrike}`
             : `$${parsed.strike}`;
         
+        // Validate callout premium: stock prices >$50, option premiums typically $0.50-$15
+        const calloutPremiumForStorage = parsed.premium && parsed.premium > 0.01 && parsed.premium < 50 
+            ? parseFloat(parsed.premium) 
+            : null;
+        
+        // Get the model used for this analysis
+        const discordModelSelect = document.getElementById('discordModelSelect');
+        const modelUsed = discordModelSelect?.value || 'qwen2.5:32b';
+        
         // Store parsed data for staging
         window._currentParsedTrade = {
             ticker: parsed.ticker,
@@ -462,7 +700,10 @@ window.analyzeDiscordTrade = async function() {
             isSpread,
             analyzedAt: new Date().toISOString(),
             priceAtAnalysis: parseFloat(tickerData.price),
-            premium: premium || { mid: parseFloat(parsed.premium) || 0 },
+            premium: premium || { mid: calloutPremiumForStorage || 0 },
+            calloutPremium: calloutPremiumForStorage,  // Store separately for clarity
+            iv: premium?.iv || null,  // Store IV at time of analysis
+            modelUsed,  // Store which AI model was used
             tickerData,
             aiAnalysis: analysis,
             support: tickerData.recentSupport || [],
@@ -474,12 +715,16 @@ window.analyzeDiscordTrade = async function() {
         };
         
         // Premium section - logic differs for selling vs buying
+        // Validate: stock prices >$50, option premiums typically $0.50-$15
+        const calloutPremiumValid = parsed.premium && parsed.premium > 0.01 && parsed.premium < 50;
+        const effectivePremium = calloutPremiumValid ? parseFloat(parsed.premium) : (premium?.mid || 0);
+        
         const isSelling = parsed.strategy?.includes('short') || parsed.strategy?.includes('credit') || 
                           parsed.strategy?.includes('cash') || parsed.strategy?.includes('covered');
         let premiumHtml = '';
         if (premium) {
             let entryQuality = '';
-            if (parsed.premium && premium.mid) {
+            if (calloutPremiumValid && premium.mid) {
                 if (isSelling) {
                     // Selling: want to get MORE than mid
                     entryQuality = parsed.premium >= premium.mid 
@@ -492,14 +737,14 @@ window.analyzeDiscordTrade = async function() {
                         : `⚠️ paid ${Math.round((parsed.premium/premium.mid - 1) * 100)}% more than mid`;
                 }
             }
-            const discrepancy = Math.abs(premium.mid - parsed.premium) > 0.5;
+            const discrepancy = calloutPremiumValid && Math.abs(premium.mid - parsed.premium) > 0.5;
             premiumHtml = `
                 <div style="background:rgba(139,92,246,0.1); padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid rgba(139,92,246,0.3);">
                     <div style="font-weight:bold; color:#b9f; margin-bottom:6px;">💰 Live CBOE Pricing</div>
                     <div style="font-size:13px;">
                         Bid: $${premium.bid?.toFixed(2)} | Ask: $${premium.ask?.toFixed(2)} | Mid: $${premium.mid?.toFixed(2)}
                         ${premium.iv ? ` | IV: ${premium.iv}%` : ''}
-                        ${parsed.premium ? `<br>Callout Entry: $${parsed.premium} ${entryQuality}` : ''}
+                        ${calloutPremiumValid ? `<br>Callout Entry: $${parsed.premium} ${entryQuality}` : '<br>Callout Entry: Not specified - using live mid'}
                         ${discrepancy ? '<br><span style="color:#ff5252;">⚠️ Large discrepancy - callout may be stale!</span>' : ''}
                     </div>
                 </div>`;
@@ -548,6 +793,7 @@ window.analyzeDiscordTrade = async function() {
         `;
         
     } catch (err) {
+        clearInterval(timerInterval);
         document.getElementById('discordTradeContent').innerHTML = `
             <div style="background:#3a1a1a; padding:20px; border-radius:8px; border:1px solid #ff5252;">
                 <h4 style="color:#ff5252; margin:0 0 10px;">❌ Analysis Failed</h4>
@@ -623,6 +869,8 @@ window.stageDiscordTrade = function() {
             rangeLow: trade.rangeLow,
             rangePosition,
             premium: trade.premium,
+            iv: trade.iv,  // IV at time of analysis
+            modelUsed: trade.modelUsed,  // AI model used
             aiSummary: extractThesisSummary(trade.aiAnalysis)
         }
     };
@@ -710,20 +958,31 @@ window.stageTradeWithThesis = function() {
 function extractThesisSummary(analysis) {
     if (!analysis) return null;
     
-    // Extract verdict line
-    const verdictMatch = analysis.match(/(✅ ENTER TRADE|⚠️ WAIT|❌ AVOID)[^\n]*/);
-    const verdict = verdictMatch ? verdictMatch[0] : null;
+    // Extract verdict spectrum sections
+    const aggressiveMatch = analysis.match(/(?:GREEN|AGGRESSIVE)[^:]*:([^🟡🔴]*)/is);
+    const moderateMatch = analysis.match(/(?:YELLOW|MODERATE)[^:]*:([^🔴]*)/is);
+    const conservativeMatch = analysis.match(/(?:RED|CONSERVATIVE)[^:]*:([^B]*)/is);
+    const bottomLineMatch = analysis.match(/BOTTOM LINE:([^\n]+)/i);
     
-    // Extract summary (usually after verdict)
-    const summaryMatch = analysis.match(/Summary:([^\n]+)/i);
-    const summary = summaryMatch ? summaryMatch[1].trim() : null;
+    // Legacy verdict format fallback
+    const legacyVerdictMatch = analysis.match(/(✅ FOLLOW|⚠️ PASS|❌ AVOID)[^\n]*/);
     
-    // Keep it short - just the key reasoning
+    // Extract probability if mentioned
+    const probabilityMatch = analysis.match(/(\d+)%\s*(?:probability|chance|max profit)/i);
+    
     return {
-        verdict,
-        summary,
-        // Store first 500 chars of analysis for reference
-        analysisPreview: analysis.substring(0, 500)
+        // New spectrum format
+        aggressive: aggressiveMatch ? aggressiveMatch[1].trim().substring(0, 300) : null,
+        moderate: moderateMatch ? moderateMatch[1].trim().substring(0, 300) : null,
+        conservative: conservativeMatch ? conservativeMatch[1].trim().substring(0, 300) : null,
+        bottomLine: bottomLineMatch ? bottomLineMatch[1].trim() : null,
+        probability: probabilityMatch ? parseInt(probabilityMatch[1]) : null,
+        
+        // Legacy format
+        verdict: legacyVerdictMatch ? legacyVerdictMatch[0] : null,
+        
+        // Full analysis for later review
+        fullAnalysis: analysis
     };
 }
 
@@ -1112,13 +1371,51 @@ window.runPositionCheckup = async function(positionId) {
             <div style="background:#0d0d1a;padding:15px;border-radius:8px;margin-bottom:15px;">
                 <h4 style="margin:0 0 10px;color:#888;font-size:12px;text-transform:uppercase;">
                     Original Entry Thesis (${new Date(pos.openingThesis.analyzedAt).toLocaleDateString()})
+                    ${pos.openingThesis.modelUsed ? `<span style="color:#666;margin-left:10px;">${pos.openingThesis.modelUsed}</span>` : ''}
                 </h4>
-                <div style="color:#ffaa00;font-weight:bold;">
-                    ${pos.openingThesis.aiSummary?.verdict || 'N/A'}
+                ${pos.openingThesis.aiSummary?.bottomLine ? `
+                    <div style="color:#ffaa00;font-weight:bold;margin-bottom:8px;">
+                        📊 ${pos.openingThesis.aiSummary.bottomLine}
+                    </div>
+                ` : ''}
+                ${pos.openingThesis.aiSummary?.probability ? `
+                    <div style="color:#00d9ff;font-size:13px;margin-bottom:8px;">
+                        🎯 ${pos.openingThesis.aiSummary.probability}% probability of max profit
+                    </div>
+                ` : ''}
+                <div style="display:grid;gap:8px;font-size:12px;">
+                    ${pos.openingThesis.aiSummary?.aggressive ? `
+                        <div style="background:rgba(0,255,136,0.1);padding:8px;border-radius:4px;border-left:3px solid #00ff88;">
+                            <span style="color:#00ff88;font-weight:bold;">🟢 AGGRESSIVE:</span>
+                            <span style="color:#aaa;">${pos.openingThesis.aiSummary.aggressive.substring(0, 150)}...</span>
+                        </div>
+                    ` : ''}
+                    ${pos.openingThesis.aiSummary?.conservative ? `
+                        <div style="background:rgba(255,82,82,0.1);padding:8px;border-radius:4px;border-left:3px solid #ff5252;">
+                            <span style="color:#ff5252;font-weight:bold;">🔴 CONSERVATIVE:</span>
+                            <span style="color:#aaa;">${pos.openingThesis.aiSummary.conservative.substring(0, 150)}...</span>
+                        </div>
+                    ` : ''}
                 </div>
-                <div style="color:#aaa;font-size:13px;margin-top:5px;">
-                    ${pos.openingThesis.aiSummary?.summary || 'No summary available'}
-                </div>
+                ${pos.openingThesis.iv ? `
+                    <div style="margin-top:8px;font-size:11px;color:#666;">
+                        IV at entry: ${pos.openingThesis.iv}% | Range: ${pos.openingThesis.rangePosition}% | 
+                        Price: $${pos.openingThesis.priceAtAnalysis}
+                    </div>
+                ` : ''}
+                ${pos.openingThesis.aiSummary?.fullAnalysis ? `
+                    <div style="margin-top:12px;">
+                        <button onclick="const el = this.nextElementSibling; el.style.display = el.style.display === 'none' ? 'block' : 'none'; this.textContent = el.style.display === 'none' ? '📄 View Full Entry Analysis' : '📄 Hide Full Analysis';"
+                            style="background:#1a1a2e;border:1px solid #333;color:#00d9ff;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:11px;">
+                            📄 View Full Entry Analysis
+                        </button>
+                        <div style="display:none;margin-top:10px;background:#1a1a2e;padding:12px;border-radius:6px;border:1px solid #333;max-height:300px;overflow-y:auto;">
+                            <div style="white-space:pre-wrap;line-height:1.5;font-size:12px;color:#ccc;">
+${pos.openingThesis.aiSummary.fullAnalysis}
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
             </div>
             
             <div style="background:#0d0d1a;padding:20px;border-radius:8px;">

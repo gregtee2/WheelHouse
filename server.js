@@ -251,34 +251,48 @@ const mainHandler = async (req, res, next) => {
         return;
     }
     
-    // Restart server endpoint
+    // Restart server endpoint - properly kills old process before starting new one
     if (url.pathname === '/api/restart' && req.method === 'POST') {
-        console.log('[SERVER] 🔄 Restart requested - spawning new instance...');
+        console.log('[SERVER] 🔄 Restart requested...');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, message: 'Restarting...' }));
         
-        // Give time for response to send, then spawn new process and exit
+        // Give time for response to send, then exit (start.bat will handle restart)
         setTimeout(() => {
-            const child = spawn('node', ['server.js'], {
+            console.log('[SERVER] Exiting for restart...');
+            // On Windows, spawn a batch file that waits for this process to die, then starts a new one
+            const restartScript = `
+                @echo off
+                timeout /t 2 /nobreak >nul
+                for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8888 ^| findstr LISTENING 2^>nul') do (
+                    taskkill /F /PID %%a >nul 2>&1
+                )
+                cd /d "${__dirname.replace(/\\/g, '\\\\')}"
+                node server.js
+            `.trim();
+            
+            // Write temp batch file
+            const tempBat = path.join(__dirname, '.restart.bat');
+            fs.writeFileSync(tempBat, restartScript);
+            
+            // Spawn detached and exit
+            spawn('cmd', ['/c', tempBat], {
                 cwd: __dirname,
                 detached: true,
-                stdio: 'ignore'
-            });
-            child.unref();
-            console.log('[SERVER] ✅ New instance spawned, exiting old process');
+                stdio: 'ignore',
+                shell: true
+            }).unref();
+            
             process.exit(0);
-        }, 500);
+        }, 300);
         return;
     }
     
     // AI Trade Critique endpoint - analyze a closed trade's performance
     if (url.pathname === '/api/ai/critique' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', async () => {
-            try {
-                const data = JSON.parse(body);
-                const selectedModel = data.model || 'qwen2.5:14b'; // Use smarter model for critique
+        try {
+            const data = req.body;
+            const selectedModel = data.model || 'qwen2.5:14b'; // Use smarter model for critique
                 console.log('[AI] Critiquing trade:', data.ticker, 'with model:', selectedModel);
                 
                 const prompt = buildCritiquePrompt(data);
@@ -291,22 +305,18 @@ const mainHandler = async (req, res, next) => {
                     model: selectedModel
                 }));
                 console.log('[AI] ✅ Critique complete');
-            } catch (e) {
-                console.log('[AI] ❌ Critique error:', e.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: e.message }));
-            }
-        });
+        } catch (e) {
+            console.log('[AI] ❌ Critique error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
         return;
     }
     
     // AI Trade Idea Generator endpoint
     if (url.pathname === '/api/ai/ideas' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', async () => {
-            try {
-                const data = JSON.parse(body);
+        try {
+            const data = req.body;
                 const selectedModel = data.model || 'qwen2.5:14b';
                 console.log('[AI] Generating trade ideas with model:', selectedModel);
                 
@@ -326,22 +336,18 @@ const mainHandler = async (req, res, next) => {
                     candidates: realPrices // Include data for deep-dive
                 }));
                 console.log('[AI] ✅ Ideas generated');
-            } catch (e) {
-                console.log('[AI] ❌ Ideas error:', e.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: e.message }));
-            }
-        });
+        } catch (e) {
+            console.log('[AI] ❌ Ideas error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
         return;
     }
     
     // AI Deep Dive - comprehensive analysis of a single trade idea
     if (url.pathname === '/api/ai/deep-dive' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', async () => {
-            try {
-                const data = JSON.parse(body);
+        try {
+            const data = req.body;
                 const { ticker, strike, expiry, currentPrice, model } = data;
                 const selectedModel = model || 'qwen2.5:32b'; // Use best model for deep analysis
                 
@@ -369,22 +375,18 @@ const mainHandler = async (req, res, next) => {
                     premium: premium
                 }));
                 console.log('[AI] ✅ Deep dive complete');
-            } catch (e) {
-                console.log('[AI] ❌ Deep dive error:', e.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: e.message }));
-            }
-        });
+        } catch (e) {
+            console.log('[AI] ❌ Deep dive error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
         return;
     }
     
     // AI Position Checkup endpoint - compares opening thesis to current state
     if (url.pathname === '/api/ai/checkup' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', async () => {
-            try {
-                const data = JSON.parse(body);
+        try {
+            const data = req.body;
                 const { ticker, strike, expiry, openingThesis, model } = data;
                 const selectedModel = model || 'qwen2.5:7b';
                 
@@ -407,28 +409,45 @@ const mainHandler = async (req, res, next) => {
                     currentPremium
                 }));
                 console.log('[AI] ✅ Checkup complete');
-            } catch (e) {
-                console.log('[AI] ❌ Checkup error:', e.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: e.message }));
-            }
-        });
+        } catch (e) {
+            console.log('[AI] ❌ Checkup error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
         return;
     }
     
-    // AI Parse & Analyze Discord Trade Callout
+    // AI Parse & Analyze Discord Trade Callout (with SSE progress)
     if (url.pathname === '/api/ai/parse-trade' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', async () => {
-            try {
-                const { tradeText, model } = JSON.parse(body);
-                const selectedModel = model || 'qwen2.5:7b';
+        // Check if client wants streaming progress
+        const acceptsSSE = req.headers.accept?.includes('text/event-stream');
+        
+        // Helper to send SSE progress
+        const sendProgress = (step, message, data = {}) => {
+            if (acceptsSSE) {
+                res.write(`data: ${JSON.stringify({ type: 'progress', step, message, ...data })}\n\n`);
+            }
+            console.log(`[AI] Step ${step}: ${message}`);
+        };
+        
+        try {
+            const { tradeText, model } = req.body;
+            const selectedModel = model || 'qwen2.5:7b';
+            
+            // Set up SSE headers if streaming
+            if (acceptsSSE) {
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive'
+                });
+            }
                 
-                console.log('[AI] Parsing trade callout...');
+                sendProgress(1, `Loading ${selectedModel}...`, { total: 4 });
                 
                 // Step 1: Use AI to parse the trade text into structured data
                 const parsePrompt = buildTradeParsePrompt(tradeText);
+                sendProgress(1, `Parsing trade callout with ${selectedModel}...`);
                 const parsedJson = await callOllama(parsePrompt, selectedModel, 500);
                 
                 // Try to extract JSON from the response
@@ -502,14 +521,21 @@ const mainHandler = async (req, res, next) => {
                 }
                 
                 // Step 2: Fetch current data for the ticker
+                sendProgress(2, `Fetching market data for ${parsed.ticker}...`);
                 const tickerData = await fetchDeepDiveData(parsed.ticker);
                 if (!tickerData || !tickerData.price) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: `Could not fetch data for ${parsed.ticker}` }));
+                    if (acceptsSSE) {
+                        res.write(`data: ${JSON.stringify({ type: 'error', error: `Could not fetch data for ${parsed.ticker}` })}\n\n`);
+                        res.end();
+                    } else {
+                        res.writeHead(400, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: `Could not fetch data for ${parsed.ticker}` }));
+                    }
                     return;
                 }
                 
                 // Step 3: Try to get CBOE premium if we have strike/expiry
+                sendProgress(3, `Fetching CBOE options pricing...`);
                 let premium = null;
                 if (parsed.strike && parsed.expiry) {
                     const strikeNum = parseFloat(String(parsed.strike).replace(/[^0-9.]/g, ''));
@@ -517,76 +543,197 @@ const mainHandler = async (req, res, next) => {
                 }
                 
                 // Step 4: Build analysis prompt and get AI recommendation
+                sendProgress(4, `Generating AI analysis with ${selectedModel}...`);
                 const analysisPrompt = buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium);
                 const analysis = await callOllama(analysisPrompt, selectedModel, 1200);
                 
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ 
+                // Send final result
+                const result = { 
+                    type: 'complete',
                     success: true,
                     parsed,
                     tickerData,
                     premium,
                     analysis,
                     model: selectedModel
-                }));
-                console.log('[AI] ✅ Trade callout analyzed');
-            } catch (e) {
-                console.log('[AI] ❌ Parse trade error:', e.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
+                };
+                
+            if (acceptsSSE) {
+                res.write(`data: ${JSON.stringify(result)}\n\n`);
+                res.end();
+            } else {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(result));
+            }
+            console.log('[AI] ✅ Trade callout analyzed');
+        } catch (e) {
+            console.log('[AI] ❌ Parse trade error:', e.message);
+            if (acceptsSSE) {
+                res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+                res.end();
+            } else {
+                if (!res.headersSent) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                }
                 res.end(JSON.stringify({ error: e.message }));
             }
-        });
+        }
         return;
     }
     
     // AI Trade Advisor endpoint - uses Ollama with user-selected model
     if (url.pathname === '/api/ai/analyze' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', async () => {
-            try {
-                const data = JSON.parse(body);
-                const selectedModel = data.model || 'qwen2.5:7b';
-                console.log('[AI] Analyzing position:', data.ticker, 'with model:', selectedModel);
-                
-                // Build structured prompt from pre-computed data
-                const prompt = buildTradePrompt(data);
-                
-                // Call Ollama with selected model
-                const response = await callOllama(prompt, selectedModel);
-                
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ 
-                    success: true, 
-                    insight: response,
-                    model: selectedModel
-                }));
-                console.log('[AI] ✅ Analysis complete');
-            } catch (e) {
-                console.log('[AI] ❌ Error:', e.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: e.message }));
-            }
-        });
+        try {
+            const data = req.body;
+            const selectedModel = data.model || 'qwen2.5:7b';
+            console.log('[AI] Analyzing position:', data.ticker, 'with model:', selectedModel);
+            
+            // Scale token limit based on model size - bigger models can give more insight
+            const isLargeModel = selectedModel.includes('32b') || selectedModel.includes('70b') || selectedModel.includes('72b');
+            const tokenLimit = isLargeModel ? 800 : 500;
+            
+            // Build structured prompt from pre-computed data
+            const prompt = buildTradePrompt(data, isLargeModel);
+            
+            // Call Ollama with selected model
+            const response = await callOllama(prompt, selectedModel, tokenLimit);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true, 
+                insight: response,
+                model: selectedModel
+            }));
+            console.log('[AI] ✅ Analysis complete');
+        } catch (e) {
+            console.log('[AI] ❌ Error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
         return;
     }
     
-    // Check if AI/Ollama is available
+    // Check if AI/Ollama is available and what's loaded
     if (url.pathname === '/api/ai/status') {
         try {
+            // Get available models
             const ollamaRes = await fetchJsonHttp('http://localhost:11434/api/tags');
             const models = ollamaRes.models || [];
             const hasQwen = models.some(m => m.name?.includes('qwen'));
+            
+            // Get currently loaded models (in VRAM)
+            let loadedModels = [];
+            try {
+                const psRes = await fetchJsonHttp('http://localhost:11434/api/ps');
+                loadedModels = (psRes.models || []).map(m => ({
+                    name: m.name,
+                    sizeVram: m.size_vram,
+                    sizeVramGB: (m.size_vram / 1024 / 1024 / 1024).toFixed(1)
+                }));
+            } catch (e) {
+                // /api/ps might not exist in older Ollama versions
+            }
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ 
                 available: models.length > 0,
                 hasQwen,
-                models: models.map(m => ({ name: m.name, size: m.size }))
+                models: models.map(m => ({ 
+                    name: m.name, 
+                    size: m.size,
+                    sizeGB: (m.size / 1024 / 1024 / 1024).toFixed(1)
+                })),
+                loaded: loadedModels,
+                isWarm: loadedModels.length > 0
             }));
         } catch (e) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ available: false, error: 'Ollama not running' }));
+        }
+        return;
+    }
+    
+    // Warmup/preload a model into VRAM (with streaming progress)
+    if (url.pathname === '/api/ai/warmup' && req.method === 'POST') {
+        console.log(`[AI] 🔥 Warmup endpoint hit, body:`, req.body);
+        try {
+            // Express already parsed the body for us
+            const selectedModel = req.body?.model || 'qwen2.5:7b';
+            
+            console.log(`[AI] 🔥 Warming up model: ${selectedModel}...`);
+            
+            // Use SSE for progress updates
+            res.writeHead(200, {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            });
+            
+            res.write(`data: ${JSON.stringify({ type: 'progress', message: `Loading ${selectedModel}...`, percent: 10 })}\n\n`);
+            
+            const startTime = Date.now();
+                
+                // Call Ollama directly with longer timeout for warmup
+                const postData = JSON.stringify({
+                    model: selectedModel,
+                    prompt: 'Hi',
+                    stream: false,
+                    options: { num_predict: 1 }
+                });
+                
+                const ollamaReq = http.request({
+                    hostname: 'localhost',
+                    port: 11434,
+                    path: '/api/generate',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(postData)
+                    }
+                }, (ollamaRes) => {
+                    let data = '';
+                    
+                    // Send progress updates while waiting
+                    const progressInterval = setInterval(() => {
+                        const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+                        const percent = Math.min(90, 10 + parseInt(elapsed) * 5);
+                        res.write(`data: ${JSON.stringify({ type: 'progress', message: `Loading ${selectedModel}... ${elapsed}s`, percent })}\n\n`);
+                    }, 1000);
+                    
+                    ollamaRes.on('data', chunk => data += chunk);
+                    ollamaRes.on('end', () => {
+                        clearInterval(progressInterval);
+                        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                        console.log(`[AI] ✅ Model ${selectedModel} loaded in ${elapsed}s`);
+                        
+                        res.write(`data: ${JSON.stringify({ type: 'complete', success: true, message: `Loaded in ${elapsed}s`, model: selectedModel, loadTimeSeconds: parseFloat(elapsed) })}\n\n`);
+                        res.end();
+                    });
+                });
+                
+                ollamaReq.on('error', (e) => {
+                    console.log(`[AI] ❌ Warmup failed: ${e.message}`);
+                    res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+                    res.end();
+                });
+                
+                // Longer timeout for large models (3 minutes)
+                ollamaReq.setTimeout(180000, () => {
+                    ollamaReq.destroy();
+                    res.write(`data: ${JSON.stringify({ type: 'error', error: 'Timeout - model too large or Ollama busy' })}\n\n`);
+                    res.end();
+                });
+                
+                ollamaReq.write(postData);
+                ollamaReq.end();
+                
+        } catch (e) {
+            console.log(`[AI] ❌ Warmup failed: ${e.message}`);
+            if (!res.headersSent) {
+                res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+            }
+            res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+            res.end();
         }
         return;
     }
@@ -1197,7 +1344,12 @@ INSTRUCTIONS:
    - Do NOT swap or reorder the strikes
 3. Normalize strategy to: "short_put", "short_call", "covered_call", "bull_put_spread", "bear_call_spread", "call_debit_spread", "put_debit_spread"
 4. Format expiry as "Mon DD" (e.g., "Feb 21" or "Jan 23")
-5. Premium should be a number (remove $ sign)
+5. Premium should be the OPTION premium (what you pay/receive for the option), NOT the stock price
+   - If callout says "PLTR @ $167 - Sell $150 put" → $167 is STOCK PRICE, not premium. Premium is unknown.
+   - If callout says "Sell $150 put for $4.85" → Premium is 4.85
+   - If no premium mentioned, set premium to null
+6. IMPORTANT: Stock prices are typically $50-$500+, option premiums are typically $0.50-$15
+   - If you see "@" followed by a price, that's usually the stock price, NOT the option premium
 
 RESPOND WITH ONLY JSON, no explanation:
 {
@@ -1207,12 +1359,14 @@ RESPOND WITH ONLY JSON, no explanation:
     "strike": 100,
     "buyStrike": null,
     "sellStrike": null,
-    "premium": 1.50,
+    "premium": null,
+    "stockPrice": 167.00,
     "notes": "any additional context from the callout"
 }
 
 For spreads, strike should be null and buyStrike/sellStrike should have values.
-For single-leg options, strike should have a value and buyStrike/sellStrike should be null.`;
+For single-leg options, strike should have a value and buyStrike/sellStrike should be null.
+If premium is not explicitly stated, set it to null (we'll fetch live pricing).`;
 }
 
 // Build prompt to analyze a Discord trade callout
@@ -1227,6 +1381,27 @@ function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium) {
     const price = parseFloat(t.price) || 0;
     const strike = parseFloat(parsed.strike || parsed.sellStrike) || 0;
     const otmPercent = price > 0 ? ((price - strike) / price * 100).toFixed(1) : 'N/A';
+    
+    // Calculate range position (0% = at 3-month low, 100% = at 3-month high)
+    const threeMonthHigh = parseFloat(t.threeMonthHigh) || 0;
+    const threeMonthLow = parseFloat(t.threeMonthLow) || 0;
+    let rangePosition = 'N/A';
+    let rangeContext = '';
+    if (threeMonthHigh > threeMonthLow && price > 0) {
+        const pct = Math.round(((price - threeMonthLow) / (threeMonthHigh - threeMonthLow)) * 100);
+        rangePosition = pct;
+        if (pct <= 20) {
+            rangeContext = '🟢 NEAR 3-MONTH LOW - Stock has pulled back, good entry for short puts';
+        } else if (pct <= 40) {
+            rangeContext = '🟡 Lower half of range - Decent entry point';
+        } else if (pct <= 60) {
+            rangeContext = '⚪ Mid-range - Neutral positioning';
+        } else if (pct <= 80) {
+            rangeContext = '🟠 Upper half of range - Caution for short puts';
+        } else {
+            rangeContext = '🔴 NEAR 3-MONTH HIGH - Risky entry, stock may be topping';
+        }
+    }
     
     // Calculate DTE (days to expiry)
     let dte = 'unknown';
@@ -1253,33 +1428,40 @@ function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium) {
     
     // Calculate risk/reward - DIFFERENT FOR SPREADS vs SINGLE LEG
     let riskRewardSection = '';
-    const premiumNum = parseFloat(parsed.premium) || 0;
+    
+    // Validate premium: stock prices are >$50, option premiums typically $0.50-$15
+    // For SELLING options: you want HIGHER entry (above mid is good)
+    // For BUYING options: you want LOWER entry (below mid is good)
+    const isSelling = parsed.strategy?.includes('short') || parsed.strategy?.includes('credit') || 
+                      parsed.strategy?.includes('cash') || parsed.strategy?.includes('covered');
+    const calloutPremiumValid = parsed.premium && parsed.premium > 0.01 && parsed.premium < 50;
+    const effectivePremium = calloutPremiumValid ? parseFloat(parsed.premium) : (premium?.mid || 0);
     
     if (isSpread && parsed.buyStrike && parsed.sellStrike) {
         // SPREAD RISK/REWARD
         const buyStrike = parseFloat(parsed.buyStrike);
         const sellStrike = parseFloat(parsed.sellStrike);
         const spreadWidth = Math.abs(sellStrike - buyStrike);
-        const maxProfit = premiumNum * 100;
-        const maxLoss = (spreadWidth - premiumNum) * 100;
+        const maxProfit = effectivePremium * 100;
+        const maxLoss = (spreadWidth - effectivePremium) * 100;
         const capitalRequired = maxLoss; // For credit spreads, capital = max loss
         const returnOnRisk = maxLoss > 0 ? (maxProfit / maxLoss * 100).toFixed(1) : 'N/A';
-        const premiumVsWidth = ((premiumNum / spreadWidth) * 100).toFixed(1);
+        const premiumVsWidth = ((effectivePremium / spreadWidth) * 100).toFixed(1);
         
         // Breakeven for credit spreads
         const isBullPut = parsed.strategy?.includes('bull') || parsed.strategy?.includes('put_credit');
         const breakeven = isBullPut 
-            ? sellStrike - premiumNum  // Bull put: short strike - premium
-            : sellStrike + premiumNum; // Bear call: short strike + premium
+            ? sellStrike - effectivePremium  // Bull put: short strike - premium
+            : sellStrike + effectivePremium; // Bear call: short strike + premium
         
         riskRewardSection = `
 ═══ SPREAD RISK/REWARD MATH ═══
 Strategy: ${parsed.strategy?.toUpperCase()}
 Spread Width: $${spreadWidth} ($${buyStrike} to $${sellStrike})
-Premium: $${premiumNum} (${premiumVsWidth}% of spread width)
+Premium: $${effectivePremium.toFixed(2)} (${premiumVsWidth}% of spread width)${!calloutPremiumValid ? ' [using live mid]' : ''}
 Max Profit: $${maxProfit.toFixed(0)} (keep full credit if OTM at expiry)
 Max Loss: $${maxLoss.toFixed(0)} (spread width - premium)
-Return on Risk: ${returnOnRisk}% ($${maxProfit} profit / $${maxLoss} risk)
+Return on Risk: ${returnOnRisk}% ($${maxProfit.toFixed(0)} profit / $${maxLoss.toFixed(0)} risk)
 Capital Required: $${capitalRequired.toFixed(0)} (margin = max loss for spreads)
 Breakeven: $${breakeven.toFixed(2)}
 
@@ -1287,14 +1469,15 @@ Breakeven: $${breakeven.toFixed(2)}
 - Good spreads collect ≥30% of width as premium
 - This trade collects ${premiumVsWidth}% ${parseFloat(premiumVsWidth) >= 30 ? '✅' : '⚠️ (below 30%)'}`;
         
-    } else if (premiumNum && strike) {
+    } else if (effectivePremium && strike) {
         // SINGLE LEG (naked put, covered call, etc.)
-        const maxProfit = premiumNum * 100;
-        const maxRisk = (strike - premiumNum) * 100;
+        const maxProfit = effectivePremium * 100;
+        const maxRisk = (strike - effectivePremium) * 100;
         const riskRewardRatio = maxRisk > 0 ? (maxProfit / maxRisk * 100).toFixed(2) : 'N/A';
         
         riskRewardSection = `
 ═══ SINGLE-LEG RISK/REWARD MATH ═══
+Premium: $${effectivePremium.toFixed(2)}${!calloutPremiumValid ? ' [using live mid price]' : ''}
 Max Profit: $${maxProfit.toFixed(0)} (keep full premium if OTM at expiry)
 Max Risk: $${maxRisk.toFixed(0)} (if stock goes to $0)
 Risk/Reward: ${riskRewardRatio}% return on risk
@@ -1302,14 +1485,11 @@ Capital Required: $${(strike * 100).toFixed(0)} (to secure 1 contract)`;
     }
     
     // Format premium section
-    // For SELLING options: you want HIGHER entry (above mid is good)
-    // For BUYING options: you want LOWER entry (below mid is good)
-    const isSelling = parsed.strategy?.includes('short') || parsed.strategy?.includes('credit') || 
-                      parsed.strategy?.includes('cash') || parsed.strategy?.includes('covered');
     let premiumSection = '';
     if (premium) {
         let entryQuality = '';
-        if (premium.mid && parsed.premium) {
+        // Only compare if callout had a premium AND it looks like an option premium (not stock price)
+        if (premium.mid && calloutPremiumValid) {
             if (isSelling) {
                 // Selling: want to get MORE than mid
                 entryQuality = parsed.premium >= premium.mid 
@@ -1322,13 +1502,17 @@ Capital Required: $${(strike * 100).toFixed(0)} (to secure 1 contract)`;
                     : `(paid ${((parsed.premium/premium.mid - 1) * 100).toFixed(0)}% MORE than mid ⚠️)`;
             }
         }
+        
+        // Only show discrepancy if we have a valid callout premium to compare
+        const showDiscrepancy = calloutPremiumValid && Math.abs(premium.mid - parsed.premium) > 0.5;
+        
         premiumSection = `
 LIVE CBOE PRICING:
 Bid: $${premium.bid?.toFixed(2)} | Ask: $${premium.ask?.toFixed(2)} | Mid: $${premium.mid?.toFixed(2)}
 ${premium.iv ? `IV: ${premium.iv}%` : ''}
-Callout Entry: $${parsed.premium || 'N/A'} ${entryQuality}
-${premium.mid && parsed.premium && Math.abs(premium.mid - parsed.premium) > 0.5 ? '⚠️ LARGE DISCREPANCY between callout entry and current mid - trade may be stale!' : ''}`;
-    } else if (parsed.premium) {
+${calloutPremiumValid ? `Callout Entry: $${parsed.premium} ${entryQuality}` : 'Callout Entry: Not specified - using live mid price for calculations'}
+${showDiscrepancy ? '⚠️ LARGE DISCREPANCY between callout entry and current mid - trade may be stale!' : ''}`;
+    } else if (calloutPremiumValid) {
         premiumSection = `\nCALLOUT ENTRY PRICE: $${parsed.premium}`;
     }
 
@@ -1340,12 +1524,13 @@ Strategy: ${parsed.strategy}
 Strike: ${strikeDisplay}
 Expiry: ${parsed.expiry} (${dte} days to expiry)
 ${dteWarning ? dteWarning : ''}
-Entry Premium: $${parsed.premium || 'not specified'}
+Entry Premium: ${calloutPremiumValid ? '$' + parsed.premium : 'Not specified in callout'}
 ${parsed.notes ? `Notes: ${parsed.notes}` : ''}
 ${riskRewardSection}
 
 ═══ CURRENT MARKET DATA ═══
 Current Price: $${t.price}
+📊 RANGE POSITION: ${rangePosition}% ${rangeContext}
 ${strike ? `OTM Distance: ${otmPercent}%` : ''}
 52-Week Range: $${t.yearLow} - $${t.yearHigh}
 3-Month Range: $${t.threeMonthLow} - $${t.threeMonthHigh}
@@ -1364,7 +1549,7 @@ ${isSpread ? '- For spreads: Is the premium collected a good % of spread width? 
 ${dte <= 7 ? '- ⚠️ WITH ONLY ' + dte + ' DAYS TO EXPIRY, is there enough time for theta decay?' : ''}
 
 **2. TECHNICAL CHECK**
-- Where is the stock in its range? Near highs (risky for puts) or lows (opportunity)?
+- Note the RANGE POSITION above - use it to assess entry timing
 - How far OTM is the strike? Is there adequate cushion?
 - Are support levels being respected?
 
@@ -1377,15 +1562,23 @@ ${dte <= 7 ? '- ⚠️ WITH ONLY ' + dte + ' DAYS TO EXPIRY, is there enough tim
 - Any concerns? Earnings, ex-dividend, low volume, etc.?
 - Is this "chasing" a move or entering at support?
 
-**5. VERDICT** (REQUIRED - be decisive!)
-Rate this callout with ONE of these:
-- ✅ FOLLOW - Good setup, worth taking
-- ⚠️ PASS - Not ideal, wait for better entry  
-- ❌ AVOID - Poor setup or excessive risk
+**5. VERDICT SPECTRUM** (Give ALL THREE perspectives!)
 
-Give a 2-3 sentence summary of your recommendation.
+🟢 **AGGRESSIVE VIEW**: 
+- What's the bull case for taking this trade?
+- Probability of max profit (expires worthless): X%
 
-Be specific. Use the data. Make a call.`;
+🟡 **MODERATE VIEW**:
+- What's the balanced take?
+- Would you take this with position sizing adjustments?
+
+🔴 **CONSERVATIVE VIEW**:
+- What concerns would make you pass?
+- What would need to change for a better entry?
+
+**BOTTOM LINE**: In one sentence, what type of trader is this trade best suited for?
+
+Be specific. Use the data. Give percentages where possible.`;
 }
 
 // Helper to fetch JSON over HTTP (for local services like Ollama)
@@ -1437,12 +1630,12 @@ function compareVersions(a, b) {
 }
 
 // Build a structured prompt for the AI trade advisor
-function buildTradePrompt(data) {
+function buildTradePrompt(data, isLargeModel = false) {
     const {
         ticker, positionType, strike, premium, dte, contracts,
         spot, costBasis, breakeven, maxProfit, maxLoss,
         iv, riskPercent, winProbability, costToClose,
-        rollOptions, expertRecommendation
+        rollOptions, expertRecommendation, previousAnalysis
     } = data;
     
     // Determine position characteristics
@@ -1532,7 +1725,20 @@ ${creditRollsText}
 ═══ SYSTEM ANALYSIS ═══
 ${expertRecommendation || 'No system recommendation'}
 
-═══ DECISION GUIDANCE ═══
+${previousAnalysis ? `═══ PREVIOUS ANALYSIS ═══
+On ${new Date(previousAnalysis.timestamp).toLocaleDateString()}, you recommended: ${previousAnalysis.recommendation}
+
+At that time:
+• Spot: $${previousAnalysis.snapshot?.spot?.toFixed(2) || 'N/A'}
+• DTE: ${previousAnalysis.snapshot?.dte || 'N/A'} days
+• IV: ${previousAnalysis.snapshot?.iv?.toFixed(0) || 'N/A'}%
+• Risk: ${previousAnalysis.snapshot?.riskPercent?.toFixed(1) || 'N/A'}%
+
+Your previous reasoning:
+"${previousAnalysis.insight?.substring(0, 300)}${previousAnalysis.insight?.length > 300 ? '...' : ''}"
+
+⚠️ COMPARE: Has anything changed significantly? If your thesis is still valid, confirm it. If conditions changed, explain what's different.
+` : ''}═══ DECISION GUIDANCE ═══
 FIRST: Decide if you should roll at all!
 • If the position is OTM, low risk (<35%), and approaching expiration → "HOLD - let theta work" is often best
 • If the Expert Analysis says "on track for max profit" → you probably DON'T need to roll
@@ -1563,7 +1769,11 @@ If rolling IS needed, respond:
 
 3. [Risk] - One key thing to watch`}
 
-Be specific. Use the actual numbers provided. No headers or bullet points - just the numbered items.`;
+Be specific. Use the actual numbers provided. No headers or bullet points - just the numbered items.${isLargeModel ? `
+
+Since you're a larger model, provide additional insight:
+4. [Greeks] - Brief comment on theta/delta implications
+5. [Market context] - Any broader market factors to consider (if relevant)` : ''}`;
 }
 
 // Build a critique prompt for analyzing a closed trade

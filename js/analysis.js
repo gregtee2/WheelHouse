@@ -1700,6 +1700,10 @@ async function getAIInsight() {
         const modelSelect = document.getElementById('aiModelSelect');
         const selectedModel = modelSelect?.value || 'qwen2.5:7b';
         
+        // Get previous analysis for comparison (if any)
+        const positionId = state.currentPositionContext?.id;
+        const previousAnalysis = positionId ? (window.getLatestAnalysis?.(positionId) || null) : null;
+        
         // Build request payload
         const requestData = {
             ticker: ticker,
@@ -1723,7 +1727,8 @@ async function getAIInsight() {
             costToClose: costToClose,
             rollOptions: rollOptions,  // Pass all roll options!
             expertRecommendation: expertRec,
-            model: selectedModel  // Include selected model
+            model: selectedModel,  // Include selected model
+            previousAnalysis: previousAnalysis  // Include previous analysis for comparison
         };
         
         // Call our server endpoint
@@ -1740,6 +1745,36 @@ async function getAIInsight() {
         
         const result = await response.json();
         
+        // Extract recommendation (HOLD, ROLL, CLOSE) from AI response
+        const extractRecommendation = (text) => {
+            const upper = text.toUpperCase();
+            if (upper.includes('HOLD') || upper.includes('LET POSITION EXPIRE')) return 'HOLD';
+            if (upper.includes('ROLL TO') || upper.includes('ROLL -')) return 'ROLL';
+            if (upper.includes('CLOSE') || upper.includes('CUT LOSS') || upper.includes('EXIT')) return 'CLOSE';
+            return 'REVIEW';
+        };
+        
+        // Save analysis to position history (if we have a position context)
+        // positionId already declared above when getting previousAnalysis
+        if (positionId && window.saveAnalysisToPosition) {
+            const analysisData = {
+                insight: result.insight,
+                model: selectedModel,
+                recommendation: extractRecommendation(result.insight),
+                snapshot: {
+                    spot: state.spot,
+                    strike: state.strike,
+                    dte: state.dte,
+                    iv: state.optVol * 100,
+                    riskPercent: riskPct,
+                    winProbability: winPct,
+                    costToClose: costToClose
+                }
+            };
+            window.saveAnalysisToPosition(positionId, analysisData);
+            console.log('[AI] Saved analysis to position history');
+        }
+        
         // Format the AI response with better styling
         let formattedInsight = result.insight
             // Highlight trade execution lines
@@ -1750,11 +1785,16 @@ async function getAIInsight() {
             .replace(/(\$\d+)\s*(credit)/gi, '<span style="color:#00ff88;">$1 $2</span>')
             .replace(/(\$\d+)\s*(debit)/gi, '<span style="color:#ff5252;">$1 $2</span>');
         
+        // Check if we have previous analyses
+        const analysisHistory = window.getAnalysisHistory?.(positionId) || [];
+        const hasHistory = analysisHistory.length > 1; // >1 because we just added one
+        
         // Display the AI insight
         contentEl.innerHTML = `
             <div style="color:#ddd; line-height:1.6; white-space:pre-wrap; font-size:11px;">${formattedInsight}</div>
-            <div style="font-size:9px; color:#555; margin-top:8px; text-align:right;">
-                Qwen 7B • ${result.took || 'N/A'}
+            <div style="font-size:9px; color:#555; margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
+                <span>${selectedModel} • ${result.took || 'N/A'}</span>
+                ${hasHistory ? `<button onclick="window.showAnalysisHistory(${positionId})" style="background:none; border:1px solid #555; color:#888; padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px;">📜 History (${analysisHistory.length})</button>` : ''}
             </div>
         `;
         
@@ -1918,6 +1958,106 @@ function highlightAIPick(aiResponse) {
         }
     });
 }
+
+/**
+ * Show analysis history modal for a position
+ * @param {number} positionId - The position ID
+ */
+function showAnalysisHistory(positionId) {
+    const history = window.getAnalysisHistory?.(positionId) || [];
+    if (history.length === 0) {
+        alert('No analysis history for this position');
+        return;
+    }
+    
+    // Get position info
+    const position = state.positions?.find(p => p.id === positionId);
+    const ticker = position?.ticker || 'Unknown';
+    
+    // Build timeline HTML
+    let timelineHtml = history.map((entry, i) => {
+        const date = new Date(entry.timestamp);
+        const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        
+        // Recommendation color
+        const recColor = entry.recommendation === 'HOLD' ? '#00ff88' :
+                        entry.recommendation === 'ROLL' ? '#ffaa00' :
+                        entry.recommendation === 'CLOSE' ? '#ff5252' : '#888';
+        
+        // Snapshot diff if not first entry
+        let diffHtml = '';
+        if (i < history.length - 1) {
+            const prev = history[i + 1].snapshot || {};
+            const curr = entry.snapshot || {};
+            const diffs = [];
+            
+            if (curr.spot && prev.spot) {
+                const spotChange = ((curr.spot - prev.spot) / prev.spot * 100).toFixed(1);
+                if (Math.abs(spotChange) > 0.5) {
+                    diffs.push(`Spot ${spotChange > 0 ? '↑' : '↓'}${Math.abs(spotChange)}%`);
+                }
+            }
+            if (curr.iv && prev.iv) {
+                const ivChange = (curr.iv - prev.iv).toFixed(0);
+                if (Math.abs(ivChange) > 2) {
+                    diffs.push(`IV ${ivChange > 0 ? '↑' : '↓'}${Math.abs(ivChange)}%`);
+                }
+            }
+            if (curr.dte && prev.dte) {
+                const dteChange = prev.dte - curr.dte;
+                if (dteChange > 0) {
+                    diffs.push(`${dteChange} days passed`);
+                }
+            }
+            
+            if (diffs.length > 0) {
+                diffHtml = `<div style="font-size:9px; color:#888; margin-top:4px;">Changes: ${diffs.join(' • ')}</div>`;
+            }
+        }
+        
+        return `
+            <div style="border-left:3px solid ${recColor}; padding:8px 12px; margin-bottom:12px; background:rgba(255,255,255,0.03); border-radius:0 6px 6px 0;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <span style="color:${recColor}; font-weight:bold; font-size:12px;">${entry.recommendation}</span>
+                    <span style="color:#666; font-size:10px;">${dateStr} ${timeStr}</span>
+                </div>
+                <div style="font-size:10px; color:#aaa; margin-bottom:4px;">
+                    Spot: $${entry.snapshot?.spot?.toFixed(2) || '?'} • DTE: ${entry.snapshot?.dte || '?'} • IV: ${entry.snapshot?.iv?.toFixed(0) || '?'}% • Risk: ${entry.snapshot?.riskPercent?.toFixed(1) || '?'}%
+                </div>
+                <div style="font-size:11px; color:#ddd; white-space:pre-wrap; line-height:1.5; max-height:120px; overflow-y:auto;">${entry.insight?.substring(0, 500) || 'No insight saved'}${entry.insight?.length > 500 ? '...' : ''}</div>
+                ${diffHtml}
+                <div style="font-size:9px; color:#555; margin-top:4px;">${entry.model || 'unknown model'}</div>
+            </div>
+        `;
+    }).join('');
+    
+    // Create modal
+    const modal = document.createElement('div');
+    modal.id = 'analysisHistoryModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); display:flex; align-items:center; justify-content:center; z-index:10000;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border-radius:12px; padding:20px; max-width:600px; width:90%; max-height:80vh; overflow-y:auto; border:1px solid #333;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h3 style="color:#fff; margin:0;">📜 Analysis History - ${ticker}</h3>
+                <button onclick="this.closest('#analysisHistoryModal').remove()" style="background:none; border:none; color:#888; font-size:20px; cursor:pointer;">&times;</button>
+            </div>
+            <div style="color:#888; font-size:11px; margin-bottom:16px;">
+                ${history.length} analysis${history.length > 1 ? 'es' : ''} saved • Newest first
+            </div>
+            <div id="analysisTimeline">
+                ${timelineHtml}
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+}
+
+// Make available globally
+window.showAnalysisHistory = showAnalysisHistory;
 
 // Make globally accessible
 window.getAIInsight = getAIInsight;

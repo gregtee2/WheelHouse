@@ -5,25 +5,54 @@
 A powerful Monte Carlo-based options analysis tool with **real-time CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.5.0-blue)
+![Version](https://img.shields.io/badge/version-1.7.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
-## 🆕 What's New in v1.5.0
+## 🆕 What's New in v1.7.0
 
-### 🤖 AI Trade Advisor Upgrades
-- **Deep Dive Analysis** - Comprehensive scenario analysis for any trade idea with CBOE live pricing
-- **Discord Trade Analyzer** - Paste any trade callout and get instant AI analysis
-- **Spread Support** - Full risk/reward math for bull put spreads, bear call spreads, and more
-- **Position Checkup** - Compare your opening thesis to current market conditions
-- **Trade Critique** - AI reviews your closed trades and gives constructive feedback
+### 🧠 AI Model Improvements
+- **Model Selector for Discord Analyzer** - Choose 7B (fast), 14B, or 32B (best) - defaults to 32B
+- **Model Warmup Button** - Pre-load models into GPU memory for instant responses
+- **Real-time Progress** - See step-by-step progress during trade analysis with elapsed time
+- **Smart Token Scaling** - Larger models get higher token limits for more detailed analysis
 
-### 📊 New Analysis Features
-- **Stage → Confirm Flow** - Stage trades from AI analysis, confirm when executed with your broker
-- **Thesis Storage** - Each position remembers WHY you entered (support levels, technicals, AI verdict)
-- **DTE Warnings** - Red flags for short-dated trades (≤7 days, ≤3 days)
-- **Spread Math** - Proper risk/reward for credit/debit spreads (max profit, max loss, return on risk)
+### 📊 Verdict Spectrum (New!)
+Instead of binary FOLLOW/PASS, Discord Analyzer now gives **three perspectives**:
+- 🟢 **AGGRESSIVE VIEW** - Bull case, probability of max profit
+- 🟡 **MODERATE VIEW** - Balanced take with position sizing advice
+- 🔴 **CONSERVATIVE VIEW** - What concerns would make you pass
+- **BOTTOM LINE** - Who is this trade best suited for?
+
+### 📈 Enhanced Thesis Tracking
+- **Range Position Indicator** - See where stock is in its 3-month range (0%=low, 100%=high)
+- **IV Saved at Entry** - Compare entry IV to current IV during checkups
+- **Full Analysis Saved** - "View Full Entry Analysis" button to review original AI reasoning
+- **Analysis History** - Track multiple AI analyses over time with market snapshots
+- **Model Tracking** - Know which AI model was used for each analysis
+
+### 🔧 Bug Fixes
+- Fixed premium validation (stock prices no longer confused with option premiums)
+- Fixed range position interpretation (7B model was saying 1%=high, now has emoji hints)
+- Improved server restart handling (cleans up orphaned processes)
+
+---
+
+## 📦 Previous: v1.5.0
+
+### 🤖 AI Trade Advisor
+- **Deep Dive Analysis** - Comprehensive scenario analysis with CBOE live pricing
+- **Discord Trade Analyzer** - Paste any trade callout for instant AI analysis
+- **Spread Support** - Full risk/reward math for spreads
+- **Position Checkup** - Compare opening thesis to current conditions
+- **Trade Critique** - AI reviews closed trades with feedback
+
+### 📊 Analysis Features
+- **Stage → Confirm Flow** - Stage trades, confirm when executed
+- **Thesis Storage** - Each position remembers WHY you entered
+- **DTE Warnings** - Red flags for short-dated trades (≤7 days)
+- **Spread Math** - Proper risk/reward (max profit, max loss, return on risk)
 
 ---
 

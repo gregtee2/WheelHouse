@@ -2484,3 +2484,80 @@ window.exportAllData = exportAllData;
 window.importAllData = importAllData;
 window.toggleBuyWriteFields = toggleBuyWriteFields;
 window.togglePositionTypeFields = togglePositionTypeFields;
+
+/**
+ * Save an AI analysis to a position's analysis history
+ * @param {number} positionId - The position ID
+ * @param {object} analysisData - The analysis to save
+ * @param {string} analysisData.insight - The AI response text
+ * @param {string} analysisData.model - Model used
+ * @param {string} analysisData.recommendation - HOLD/ROLL/CLOSE extracted
+ * @param {object} analysisData.snapshot - Market conditions at time of analysis
+ */
+export function saveAnalysisToPosition(positionId, analysisData) {
+    const position = state.positions.find(p => p.id === positionId);
+    if (!position) {
+        console.warn('[Analysis] Position not found:', positionId);
+        return false;
+    }
+    
+    // Initialize analysisHistory if it doesn't exist
+    if (!position.analysisHistory) {
+        position.analysisHistory = [];
+    }
+    
+    // Create analysis entry
+    const entry = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        model: analysisData.model || 'unknown',
+        recommendation: analysisData.recommendation || 'UNKNOWN',
+        insight: analysisData.insight || '',
+        snapshot: analysisData.snapshot || {}
+    };
+    
+    // Add to history (newest first)
+    position.analysisHistory.unshift(entry);
+    
+    // Keep max 10 analyses per position
+    if (position.analysisHistory.length > 10) {
+        position.analysisHistory = position.analysisHistory.slice(0, 10);
+    }
+    
+    // Save to localStorage
+    savePositionsToStorage();
+    console.log('[Analysis] Saved analysis for', position.ticker, '- now has', position.analysisHistory.length, 'entries');
+    
+    return true;
+}
+
+/**
+ * Get the most recent analysis for a position
+ * @param {number} positionId - The position ID
+ * @returns {object|null} The most recent analysis or null
+ */
+export function getLatestAnalysis(positionId) {
+    const position = state.positions.find(p => p.id === positionId);
+    if (!position || !position.analysisHistory || position.analysisHistory.length === 0) {
+        return null;
+    }
+    return position.analysisHistory[0];
+}
+
+/**
+ * Get all analyses for a position
+ * @param {number} positionId - The position ID
+ * @returns {array} Array of analysis entries
+ */
+export function getAnalysisHistory(positionId) {
+    const position = state.positions.find(p => p.id === positionId);
+    if (!position || !position.analysisHistory) {
+        return [];
+    }
+    return position.analysisHistory;
+}
+
+// Make available globally
+window.saveAnalysisToPosition = saveAnalysisToPosition;
+window.getLatestAnalysis = getLatestAnalysis;
+window.getAnalysisHistory = getAnalysisHistory;
