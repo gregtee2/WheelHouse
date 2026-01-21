@@ -2,6 +2,63 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.4.0] - 2026-01-20
+
+### Added
+- **AI Trade Advisor** - Local AI-powered trade recommendations
+  - Uses Ollama with Qwen 2.5 models (7B/14B/32B)
+  - Model selector dropdown - choose speed vs intelligence
+  - Analyzes ALL roll options and picks the best one
+  - Highlights AI's pick with green border + "AI Pick" badge
+  - Smart handling of long calls/puts (no false "assignment risk" warnings)
+  - Decision guidance: prefers credit rolls over debit rolls when appropriate
+
+- **AI Health Check** - Skip AI for healthy positions
+  - Positions that are OTM + low risk + high win probability get instant "HOLD" advice
+  - No 5-15 second AI wait time for winning trades
+  - AI only consulted for troubled positions that actually need roll analysis
+
+- **Model Selection & Persistence**
+  - Choose between Qwen 7B (fast), 14B (better), 32B (best)
+  - Also supports Llama 3.1 8B and Mistral 7B
+  - Model preference saved to localStorage
+  - Shows which models are installed vs not installed
+
+### Changed
+- AI prompt now considers "HOLD - let theta work" as a valid recommendation
+- Expert Analysis and AI Advisor are now consistent (both can recommend holding)
+- Improved AI prompt with explicit guidance on credit vs debit roll decisions
+
+### Fixed
+- Long call/put positions no longer show "assignment risk" language
+- AI Pick highlighting now matches exact date (Feb 6 vs Feb 20)
+- Model dropdown shows ✓ for installed models, disables uninstalled ones
+
+## [1.3.0] - 2026-01-20
+
+### Added
+- **Greeks Display** - Roll suggestions now show delta, theta, and IV
+  - Each roll candidate shows: Δ (delta), θ (theta $/day), IV %
+  - Helps evaluate risk/reward of each roll option
+  - Purple badge row: 📊 Δ-0.25 · θ$15/d · IV 45%
+
+- **Expert System Advisor** - Rule-based trade recommendations
+  - Analyzes ITM/OTM status, DTE, and IV environment
+  - Provides situation assessment (🚨 CRITICAL to 🟢 LOW risk)
+  - Urgency indicator: CRITICAL, HIGH, MEDIUM, LOW
+  - Action recommendations based on position status
+  - IV context: High IV = good for rolling, Low IV = wait
+
+- **Earnings & Dividend Alerts** - Auto-fetch calendar events
+  - Warns when earnings date is BEFORE your expiration
+  - Warns when ex-dividend date creates early assignment risk
+  - Data from Yahoo Finance quoteSummary API
+  - Example: ⚠️ EARNINGS Feb 5 (12d) - BEFORE your expiration!
+
+### Changed
+- Roll Calculator now shows Expert Analysis section after suggestions
+- Added `/api/yahoo/calendar/:ticker` endpoint for calendar data
+
 ## [1.2.2] - 2026-01-20
 
 ### Fixed

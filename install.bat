@@ -79,7 +79,57 @@ REM Installation Complete
 REM ===================================================
 echo.
 echo  ===============================================
-echo     Installation Complete!
+echo     Core Installation Complete!
+echo  ===============================================
+echo.
+
+REM ===================================================
+REM Optional: AI Trade Advisor (Ollama + Qwen)
+REM ===================================================
+echo  OPTIONAL: AI Trade Advisor
+echo  -----------------------------------------------
+echo  WheelHouse includes an AI-powered trade advisor
+echo  that runs locally on your computer using Ollama.
+echo.
+echo  GPU Requirements:
+echo    - NVIDIA GPU with 8GB+ VRAM (recommended)
+echo    - Or: Apple Silicon Mac (M1/M2/M3)
+echo    - Or: CPU-only (slower, ~30 sec per query)
+echo.
+echo  The AI model (Qwen 2.5 7B) requires:
+echo    - ~5GB disk space
+echo    - ~8GB VRAM (GPU) or ~16GB RAM (CPU)
+echo.
+
+REM Check for NVIDIA GPU
+set "HAS_NVIDIA=0"
+nvidia-smi >nul 2>&1
+if not errorlevel 1 (
+    set "HAS_NVIDIA=1"
+    echo  Detected: NVIDIA GPU
+    for /f "tokens=*" %%a in ('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2^>nul') do (
+        echo    %%a
+    )
+    echo.
+)
+
+if "%HAS_NVIDIA%"=="0" (
+    echo  Note: No NVIDIA GPU detected. AI will run on CPU (slower).
+    echo.
+)
+
+set /p INSTALL_AI="Install AI Trade Advisor? (y/n): "
+if /i "%INSTALL_AI%"=="y" (
+    call :InstallOllama
+) else (
+    echo.
+    echo  Skipping AI installation.
+    echo  You can install later by running: ollama pull qwen2.5:7b
+)
+
+echo.
+echo  ===============================================
+echo     Setup Complete!
 echo  ===============================================
 echo.
 echo  To start WheelHouse, double-click:
@@ -88,6 +138,68 @@ echo.
 echo  Or run: node server.js
 echo.
 pause
+exit /b 0
+
+REM ===================================================
+REM Function: Install Ollama + Qwen model
+REM ===================================================
+:InstallOllama
+echo.
+echo  [AI] Checking for Ollama...
+
+where ollama >nul 2>&1
+if errorlevel 1 (
+    echo  [AI] Ollama not found. Downloading installer...
+    
+    REM Download Ollama installer
+    powershell -Command "& {[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile '%TEMP%\OllamaSetup.exe'}"
+    
+    if not exist "%TEMP%\OllamaSetup.exe" (
+        echo  [AI] ERROR: Failed to download Ollama
+        echo  [AI] You can install manually from https://ollama.com
+        exit /b 1
+    )
+    
+    echo  [AI] Installing Ollama...
+    echo  [AI] Please follow the installer prompts.
+    start /wait "" "%TEMP%\OllamaSetup.exe"
+    
+    REM Clean up
+    del "%TEMP%\OllamaSetup.exe" >nul 2>&1
+    
+    REM Verify installation
+    where ollama >nul 2>&1
+    if errorlevel 1 (
+        echo  [AI] Ollama installed but needs PATH update.
+        echo  [AI] Please restart your computer and run:
+        echo       ollama pull qwen2.5:7b
+        exit /b 0
+    )
+) else (
+    echo  [AI] Found Ollama
+)
+
+echo.
+echo  [AI] Downloading Qwen 2.5 7B model (~5GB)...
+echo  [AI] This may take several minutes...
+echo.
+
+REM Start Ollama service if not running
+start /b ollama serve >nul 2>&1
+timeout /t 3 /nobreak >nul
+
+REM Pull the model
+ollama pull qwen2.5:7b
+
+if errorlevel 1 (
+    echo.
+    echo  [AI] Model download failed.
+    echo  [AI] Try manually: ollama pull qwen2.5:7b
+) else (
+    echo.
+    echo  [AI] AI Trade Advisor installed successfully!
+)
+
 exit /b 0
 
 REM ===================================================

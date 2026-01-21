@@ -894,6 +894,7 @@ function renderClosedPositions() {
                     <th style="padding:6px; text-align:right;" title="Annualized ROC = ROC% × (365 / days held)">Ann%</th>
                     <th style="padding:6px; text-align:right;" title="Money left on table by closing early (max profit - actual). Assumes option would have expired OTM.">Left $</th>
                     <th style="padding:6px; text-align:center;" title="Link to another position's chain">🔗</th>
+                    <th style="padding:6px; text-align:center;" title="Link to a challenge">🏆</th>
                     <th style="padding:6px; text-align:center;">🗑️</th>
                 </tr>
             </thead>
@@ -975,6 +976,16 @@ function renderClosedPositions() {
                 daysHeld = Math.max(0, Math.ceil((close - open) / (1000 * 60 * 60 * 24)));
             }
             
+            // Check if position is linked to any challenges
+            const linkedChallenges = (pos.challengeIds || [])
+                .map(cid => (state.challenges || []).find(c => c.id === cid))
+                .filter(c => c);
+            const hasChallenges = linkedChallenges.length > 0;
+            const challengeNames = linkedChallenges.map(c => c.name).join(', ');
+            const challengeBadge = hasChallenges 
+                ? `<span title="Part of: ${challengeNames}" style="cursor:help; margin-left:4px;">🏆</span>` 
+                : '';
+            
             // Calculate days left until expiry when closed (how early you exited)
             let daysLeft = null;
             let daysLeftColor = '#888';
@@ -994,7 +1005,7 @@ function renderClosedPositions() {
             
             html += `
                 <tr style="${rowBorder}">
-                    <td style="padding:6px; ${indentStyle} color:#00d9ff;">${legLabel}${pos.ticker}</td>
+                    <td style="padding:6px; ${indentStyle} color:#00d9ff;">${legLabel}${pos.ticker}${challengeBadge}</td>
                     <td style="padding:6px;">${pos.type.replace('_', ' ')}</td>
                     <td style="padding:6px; text-align:right;">$${pos.strike.toFixed(2)}</td>
                     <td style="padding:6px; text-align:right;" title="$${pos.premium.toFixed(2)} × ${pos.contracts || 1} contracts × 100 shares">
@@ -1025,6 +1036,13 @@ function renderClosedPositions() {
                                 style="background:transparent; border:none; color:#6bf; cursor:pointer; font-size:11px;"
                                 title="Link to another position's roll chain">
                             🔗
+                        </button>
+                    </td>
+                    <td style="padding:6px; text-align:center;">
+                        <button onclick="window.showLinkToChallengeModal(${pos.id})" 
+                                style="background:transparent; border:none; color:${hasChallenges ? '#ffd700' : '#888'}; cursor:pointer; font-size:11px;"
+                                title="${hasChallenges ? 'Linked to: ' + challengeNames + ' (click to manage)' : 'Link to a challenge'}">
+                            🏆
                         </button>
                     </td>
                     <td style="padding:6px; text-align:center;">
@@ -1316,40 +1334,123 @@ export function renderHoldings() {
     
     section.style.display = 'block';
     
+    // Build comprehensive holdings display for covered call traders
     let html = `
         <table style="width:100%; border-collapse:collapse; font-size:12px;">
             <thead>
-                <tr style="color:#888;">
-                    <th style="padding:6px; text-align:left;">Ticker</th>
-                    <th style="padding:6px; text-align:right;">Shares</th>
-                    <th style="padding:6px; text-align:right;">Cost Basis</th>
-                    <th style="padding:6px; text-align:right;">Total Cost</th>
-                    <th style="padding:6px; text-align:center;">Assigned</th>
-                    <th style="padding:6px; text-align:right;">Premium Banked</th>
-                    <th style="padding:6px; text-align:center;">Actions</th>
+                <tr style="color:#888; background:rgba(0,0,0,0.3);">
+                    <th style="padding:8px; text-align:left;">Position</th>
+                    <th style="padding:8px; text-align:right;">Shares</th>
+                    <th style="padding:8px; text-align:right;" title="Your cost → Current value (unrealized P&L)">Stock Value</th>
+                    <th style="padding:8px; text-align:right;" title="Premium collected from selling the call">Premium</th>
+                    <th style="padding:8px; text-align:right;" title="Stock P&L + Premium = Total return so far">Total Return</th>
+                    <th style="padding:8px; text-align:right;" title="What you get if shares are called away at strike">If Called</th>
+                    <th style="padding:8px; text-align:center;" title="Upside you're missing if stock > strike">On Table</th>
+                    <th style="padding:8px; text-align:center;">Action</th>
                 </tr>
             </thead>
             <tbody>
     `;
     
+    // Store holding data for summary calculation after price fetch
+    const holdingData = [];
+    
     holdings.forEach(h => {
+        const isBuyWrite = h.source === 'buy_write';
+        const sourceLabel = isBuyWrite ? 'Buy/Write' : 'Assigned';
+        const sourceColor = isBuyWrite ? '#00d9ff' : '#fa0';
+        
+        // Get key values
+        const costBasis = h.costBasis || 0;  // Per-share cost
+        const shares = h.shares || 100;
+        const totalCost = h.totalCost || (costBasis * shares);
+        
+        // Try to find linked position for strike/premium if missing
+        let strike = h.strike;
+        let premiumTotal = h.premiumCredit || 0;
+        
+        if (isBuyWrite && h.linkedPositionId) {
+            const linkedPos = state.positions.find(p => p.id === h.linkedPositionId);
+            if (linkedPos) {
+                strike = strike || linkedPos.strike;
+                if (!premiumTotal && linkedPos.premium) {
+                    premiumTotal = linkedPos.premium * 100 * (linkedPos.contracts || 1);
+                }
+            }
+        }
+        
+        // Calculate max profit if called away
+        let maxProfit = h.maxProfit || 0;
+        if (!maxProfit && strike && costBasis) {
+            const gainOnShares = Math.max(0, (strike - costBasis) * shares);
+            maxProfit = gainOnShares + premiumTotal;
+        }
+        
+        // Net cost basis (breakeven price)
+        const netBasis = h.netCostBasis || (costBasis - (premiumTotal / shares));
+        
+        // Store for summary
+        holdingData.push({
+            id: h.id,
+            ticker: h.ticker,
+            shares,
+            costBasis,
+            totalCost,
+            strike: strike || 0,
+            premium: premiumTotal,
+            netBasis,
+            maxProfit,
+            isBuyWrite,
+            linkedPositionId: h.linkedPositionId
+        });
+        
+        // Unique IDs for async updates
+        const rowId = `holding-row-${h.id}`;
+        const priceId = `hp-${h.id}`;
+        const stockPnLId = `hspnl-${h.id}`;
+        const totalReturnId = `htr-${h.id}`;
+        const onTableId = `hot-${h.id}`;
+        const actionId = `hact-${h.id}`;
+        
+        const strikeDisplay = strike ? `$${strike.toFixed(2)}` : '—';
+        
         html += `
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
-                <td style="padding:8px; font-weight:bold; color:#fa0;">${h.ticker}</td>
-                <td style="padding:8px; text-align:right;">${h.shares}</td>
-                <td style="padding:8px; text-align:right;">$${h.costBasis.toFixed(2)}</td>
-                <td style="padding:8px; text-align:right;">$${h.totalCost.toFixed(0)}</td>
-                <td style="padding:8px; text-align:center; color:#888;">${h.assignedDate || '—'}</td>
-                <td style="padding:8px; text-align:right; color:#00ff88;">+$${h.premiumCredit.toFixed(0)}</td>
-                <td style="padding:8px; text-align:center; white-space:nowrap;">
-                    <button onclick="window.sellCoveredCall(${h.id})" 
-                            style="background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#0f8; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; margin-right:4px;"
-                            title="Sell Covered Call on these shares">
-                        📞 Sell CC
+            <tr id="${rowId}" style="border-bottom:1px solid rgba(255,255,255,0.1);">
+                <td style="padding:8px;">
+                    <div style="font-weight:bold; color:${sourceColor};">${h.ticker}</div>
+                    <div style="font-size:10px; color:#888;">${sourceLabel} · Call @ ${strikeDisplay}</div>
+                </td>
+                <td style="padding:8px; text-align:right; font-weight:bold;">${shares}</td>
+                <td style="padding:8px; text-align:right;">
+                    <div style="color:#888;">$${totalCost.toFixed(0)} →</div>
+                    <div id="${priceId}" style="font-weight:bold;">Loading...</div>
+                    <div id="${stockPnLId}" style="font-size:10px;"></div>
+                </td>
+                <td style="padding:8px; text-align:right;">
+                    <div style="color:#00ff88; font-weight:bold;">+$${premiumTotal.toFixed(0)}</div>
+                    <div style="font-size:10px; color:#888;">($${(premiumTotal/shares).toFixed(2)}/sh)</div>
+                </td>
+                <td id="${totalReturnId}" style="padding:8px; text-align:right; font-weight:bold;">
+                    <span style="color:#888;">—</span>
+                </td>
+                <td style="padding:8px; text-align:right;">
+                    <div style="color:#00d9ff; font-weight:bold;">${maxProfit > 0 ? `+$${maxProfit.toFixed(0)}` : '—'}</div>
+                    ${strike ? `<div style="font-size:10px; color:#888;">@ $${strike}</div>` : ''}
+                </td>
+                <td id="${onTableId}" style="padding:8px; text-align:center;">
+                    <span style="color:#888;">—</span>
+                </td>
+                <td id="${actionId}" style="padding:8px; text-align:center; white-space:nowrap;">
+                    ${isBuyWrite && h.linkedPositionId ? `
+                    <button onclick="window.analyzeHolding(${h.id})" 
+                            style="background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; margin-right:4px;"
+                            title="Analyze in P&L tab">
+                        🔬
                     </button>
+                    ` : ''}
                     <button onclick="window.sellShares(${h.id})" 
                             style="background:rgba(255,82,82,0.2); border:1px solid rgba(255,82,82,0.4); color:#f55; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px;"
-                            title="Sell shares (exit wheel)">
+                            title="Sell shares">
                         💰 Sell
                     </button>
                 </td>
@@ -1359,21 +1460,288 @@ export function renderHoldings() {
     
     html += '</tbody></table>';
     
-    // Summary
-    const totalCost = holdings.reduce((sum, h) => sum + h.totalCost, 0);
-    const totalPremium = holdings.reduce((sum, h) => sum + h.premiumCredit, 0);
+    // Summary section - will be updated after price fetch
     html += `
-        <div style="margin-top:10px; padding:8px; background:rgba(255,140,0,0.1); border-radius:4px; text-align:right; font-size:12px;">
-            <span style="color:#888;">Total Capital Deployed:</span>
-            <span style="color:#fa0; font-weight:bold; margin-left:8px;">$${totalCost.toFixed(0)}</span>
-            <span style="color:#888; margin-left:20px;">Premium Already Banked:</span>
-            <span style="color:#00ff88; font-weight:bold; margin-left:8px;">+$${totalPremium.toFixed(0)}</span>
+        <div id="holdingsSummary" style="margin-top:10px; padding:10px; background:rgba(255,140,0,0.1); border-radius:6px;">
+            <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; font-size:12px;">
+                <div>
+                    <div style="color:#888; font-size:10px;">Capital Invested</div>
+                    <div id="sumCapital" style="color:#fa0; font-weight:bold;">—</div>
+                </div>
+                <div>
+                    <div style="color:#888; font-size:10px;">Current Value</div>
+                    <div id="sumValue" style="color:#fff; font-weight:bold;">—</div>
+                </div>
+                <div>
+                    <div style="color:#888; font-size:10px;">Stock P&L</div>
+                    <div id="sumStockPnL" style="font-weight:bold;">—</div>
+                </div>
+                <div>
+                    <div style="color:#888; font-size:10px;">Premium Banked</div>
+                    <div id="sumPremium" style="color:#00ff88; font-weight:bold;">—</div>
+                </div>
+                <div>
+                    <div style="color:#888; font-size:10px;">Total Return</div>
+                    <div id="sumTotalReturn" style="font-weight:bold;">—</div>
+                </div>
+            </div>
         </div>
     `;
     
     table.innerHTML = html;
+    
+    // Store holding data globally for price fetch to use
+    window._holdingData = holdingData;
+    
+    // Fetch current prices for all holdings async
+    fetchHoldingPrices(holdingData);
 }
 window.renderHoldings = renderHoldings;
+
+/**
+ * Fetch current prices for holdings and calculate all metrics
+ * This is where the magic happens - we show traders what they need to know
+ */
+async function fetchHoldingPrices(holdingData) {
+    if (!holdingData || holdingData.length === 0) return;
+    
+    const tickers = [...new Set(holdingData.map(h => h.ticker))];
+    const priceMap = {};
+    
+    // Fetch all prices first
+    for (const ticker of tickers) {
+        try {
+            // Yahoo API - note: no /quote/ in path
+            const res = await fetch(`/api/yahoo/${ticker}`);
+            if (!res.ok) {
+                console.warn(`Price fetch failed for ${ticker}: ${res.status}`);
+                continue;
+            }
+            const data = await res.json();
+            
+            // Yahoo returns nested format: chart.result[0].meta.regularMarketPrice
+            const price = data.chart?.result?.[0]?.meta?.regularMarketPrice 
+                       || data.regularMarketPrice 
+                       || data.price 
+                       || 0;
+            
+            priceMap[ticker] = price;
+            console.log(`Fetched ${ticker}: $${price.toFixed(2)}`);
+        } catch (e) {
+            console.warn(`Failed to fetch price for ${ticker}:`, e);
+            priceMap[ticker] = 0;
+        }
+    }
+    
+    // Summary totals
+    let sumCapital = 0;
+    let sumCurrentValue = 0;
+    let sumStockPnL = 0;
+    let sumPremium = 0;
+    let sumOnTable = 0;
+    let hasPrices = false;  // Track if we got any valid prices
+    
+    // Update each holding row with calculated metrics
+    for (const h of holdingData) {
+        const currentPrice = priceMap[h.ticker] || 0;
+        
+        // Always add capital and premium to summary (we know these)
+        sumCapital += h.totalCost;
+        sumPremium += h.premium;
+        
+        // Only calculate current value metrics if we have a valid price
+        if (currentPrice > 0) {
+            hasPrices = true;
+            const currentValue = currentPrice * h.shares;
+            const stockPnL = currentValue - h.totalCost;
+            const totalReturn = stockPnL + h.premium;
+            const moneyOnTable = h.strike > 0 && currentPrice > h.strike 
+                ? (currentPrice - h.strike) * h.shares 
+                : 0;
+            
+            sumCurrentValue += currentValue;
+            sumStockPnL += stockPnL;
+            sumOnTable += moneyOnTable;
+            
+            // Update row with calculated values
+            updateHoldingRow(h, currentPrice, currentValue, stockPnL, totalReturn, moneyOnTable);
+        } else {
+            // Price fetch failed - show error state
+            showHoldingError(h);
+        }
+    }
+    
+    // Update summary row (only if we have prices)
+    updateHoldingSummary(sumCapital, sumCurrentValue, sumStockPnL, sumPremium, sumOnTable, hasPrices);
+}
+
+/**
+ * Update a single holding row with calculated values
+ */
+function updateHoldingRow(h, currentPrice, currentValue, stockPnL, totalReturn, moneyOnTable) {
+    // Stock Value column
+    const priceEl = document.getElementById(`hp-${h.id}`);
+    const stockPnLEl = document.getElementById(`hspnl-${h.id}`);
+    
+    if (priceEl) {
+        priceEl.textContent = `$${currentValue.toFixed(0)}`;
+        priceEl.style.color = '#fff';
+    }
+    
+    if (stockPnLEl) {
+        const pnlColor = stockPnL >= 0 ? '#00ff88' : '#ff5252';
+        const pnlSign = stockPnL >= 0 ? '+' : '';
+        const pnlPct = h.totalCost > 0 ? ((stockPnL / h.totalCost) * 100).toFixed(1) : 0;
+        stockPnLEl.innerHTML = `<span style="color:${pnlColor};">${pnlSign}$${stockPnL.toFixed(0)} (${pnlSign}${pnlPct}%)</span>`;
+    }
+    
+    // Total Return column
+    const totalReturnEl = document.getElementById(`htr-${h.id}`);
+    if (totalReturnEl) {
+        const trColor = totalReturn >= 0 ? '#00ff88' : '#ff5252';
+        const trSign = totalReturn >= 0 ? '+' : '';
+        const trPct = h.totalCost > 0 ? ((totalReturn / h.totalCost) * 100).toFixed(1) : 0;
+        totalReturnEl.innerHTML = `
+            <div style="color:${trColor}; font-size:14px;">${trSign}$${totalReturn.toFixed(0)}</div>
+            <div style="font-size:10px; color:${trColor};">${trSign}${trPct}%</div>
+        `;
+    }
+    
+    // Money On Table column
+    const onTableEl = document.getElementById(`hot-${h.id}`);
+    if (onTableEl) {
+        if (moneyOnTable > 0) {
+            onTableEl.innerHTML = `
+                <div style="color:#ff9800; font-weight:bold; font-size:13px;">$${moneyOnTable.toFixed(0)}</div>
+                <div style="font-size:10px; color:#ff5252;">⚠️ Roll UP!</div>
+            `;
+        } else if (h.strike > 0) {
+            const distToStrike = h.strike - currentPrice;
+            const distPct = ((distToStrike / currentPrice) * 100).toFixed(1);
+            if (distToStrike > 0) {
+                onTableEl.innerHTML = `
+                    <div style="color:#888;">—</div>
+                    <div style="font-size:10px; color:#00ff88;">${distPct}% cushion</div>
+                `;
+            } else {
+                onTableEl.innerHTML = `<span style="color:#00ff88;">ITM</span>`;
+            }
+        } else {
+            onTableEl.innerHTML = `<span style="color:#888;">—</span>`;
+        }
+    }
+    
+    // Action column - add contextual suggestion
+    const actionEl = document.getElementById(`hact-${h.id}`);
+    if (actionEl && h.strike > 0) {
+        const pctFromStrike = ((currentPrice - h.strike) / h.strike) * 100;
+        let suggestionHtml = '';
+        
+        if (pctFromStrike > 3) {
+            suggestionHtml = `<div style="font-size:10px; color:#ff5252; margin-top:4px;">📈 Roll up!</div>`;
+        } else if (pctFromStrike > 0) {
+            suggestionHtml = `<div style="font-size:10px; color:#ffaa00; margin-top:4px;">📞 May be called</div>`;
+        } else if (pctFromStrike > -5) {
+            suggestionHtml = `<div style="font-size:10px; color:#888; margin-top:4px;">⏳ Watch closely</div>`;
+        }
+        
+        if (suggestionHtml && !actionEl.innerHTML.includes('Roll up')) {
+            actionEl.innerHTML += suggestionHtml;
+        }
+    }
+}
+
+/**
+ * Show error state for a holding when price fetch fails
+ */
+function showHoldingError(h) {
+    const priceEl = document.getElementById(`hp-${h.id}`);
+    const stockPnLEl = document.getElementById(`hspnl-${h.id}`);
+    const totalReturnEl = document.getElementById(`htr-${h.id}`);
+    const onTableEl = document.getElementById(`hot-${h.id}`);
+    
+    if (priceEl) {
+        priceEl.innerHTML = `<span style="color:#ff5252;">⚠️ No price</span>`;
+    }
+    if (stockPnLEl) {
+        stockPnLEl.innerHTML = '';
+    }
+    if (totalReturnEl) {
+        totalReturnEl.innerHTML = `<span style="color:#888;">—</span>`;
+    }
+    if (onTableEl) {
+        onTableEl.innerHTML = `<span style="color:#888;">—</span>`;
+    }
+}
+
+/**
+ * Update the holdings summary row
+ */
+function updateHoldingSummary(sumCapital, sumCurrentValue, sumStockPnL, sumPremium, sumOnTable, hasPrices) {
+    const updateSum = (id, value, color) => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.textContent = value;
+            if (color) el.style.color = color;
+        }
+    };
+    
+    updateSum('sumCapital', `$${sumCapital.toFixed(0)}`, '#fa0');
+    updateSum('sumPremium', `+$${sumPremium.toFixed(0)}`, '#00ff88');
+    
+    if (hasPrices) {
+        const sumTotalReturn = sumStockPnL + sumPremium;
+        const returnPct = sumCapital > 0 ? ((sumTotalReturn / sumCapital) * 100).toFixed(1) : 0;
+        
+        updateSum('sumValue', `$${sumCurrentValue.toFixed(0)}`, '#fff');
+        updateSum('sumStockPnL', `${sumStockPnL >= 0 ? '+' : ''}$${sumStockPnL.toFixed(0)}`, sumStockPnL >= 0 ? '#00ff88' : '#ff5252');
+        updateSum('sumTotalReturn', `${sumTotalReturn >= 0 ? '+' : ''}$${sumTotalReturn.toFixed(0)} (${returnPct}%)`, sumTotalReturn >= 0 ? '#00ff88' : '#ff5252');
+        
+        // Add "on table" warning if significant
+        if (sumOnTable > 100) {
+            const summaryEl = document.getElementById('holdingsSummary');
+            if (summaryEl && !summaryEl.innerHTML.includes('On Table')) {
+                const warningHtml = `
+                    <div style="margin-top:10px; padding:8px; background:rgba(255,152,0,0.2); border:1px solid rgba(255,152,0,0.4); border-radius:4px;">
+                        <span style="color:#ff9800; font-weight:bold;">⚠️ $${sumOnTable.toFixed(0)} On Table</span>
+                        <span style="color:#888; margin-left:10px; font-size:11px;">Consider rolling up to capture more upside</span>
+                    </div>
+                `;
+                summaryEl.insertAdjacentHTML('beforeend', warningHtml);
+            }
+        }
+    } else {
+        // No prices available
+        updateSum('sumValue', '⚠️ No prices', '#ff5252');
+        updateSum('sumStockPnL', '—', '#888');
+        updateSum('sumTotalReturn', '—', '#888');
+    }
+}
+
+/**
+ * Analyze a Buy/Write holding - loads linked position into P&L tab
+ */
+window.analyzeHolding = function(holdingId) {
+    const holding = (state.holdings || []).find(h => h.id === holdingId);
+    if (!holding || !holding.linkedPositionId) {
+        showNotification('No linked position found', 'warning');
+        return;
+    }
+    
+    // Find the linked Buy/Write position
+    const position = state.positions.find(p => p.id === holding.linkedPositionId);
+    if (!position) {
+        showNotification('Linked position not found - may be closed', 'warning');
+        return;
+    }
+    
+    // Load position into analyzer - this switches to Options tab
+    // User can see the position loaded, then click Run Monte Carlo
+    if (window.loadPositionToAnalyze) {
+        window.loadPositionToAnalyze(position.id);
+        // loadPositionToAnalyze already switches to Options tab and shows notification
+    }
+};
 
 /**
  * Sell Covered Call - creates CC position linked to holding
@@ -1719,4 +2087,127 @@ window.unlinkPositionFromChain = function(positionId) {
     
     showNotification(`Position unlinked - now standalone`, 'info');
     renderPortfolio(false);
+};
+
+/**
+ * Show modal to link a closed position to a challenge
+ */
+window.showLinkToChallengeModal = function(positionId) {
+    // Find the position
+    const pos = (state.closedPositions || []).find(p => p.id === positionId);
+    if (!pos) {
+        console.error('Position not found:', positionId);
+        return;
+    }
+    
+    const challenges = state.challenges || [];
+    const linkedChallengeIds = pos.challengeIds || [];
+    
+    const modal = document.createElement('div');
+    modal.id = 'linkChallengeModal';
+    modal.style.cssText = `
+        position:fixed; top:0; left:0; right:0; bottom:0; 
+        background:rgba(0,0,0,0.85); display:flex; align-items:center; 
+        justify-content:center; z-index:10000;
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    // Build challenge options
+    let challengeOptionsHtml = '';
+    if (challenges.length === 0) {
+        challengeOptionsHtml = `
+            <div style="color:#888; padding:20px; text-align:center;">
+                No challenges created yet.<br>
+                <span style="font-size:11px;">Create a challenge in the Challenges tab first.</span>
+            </div>
+        `;
+    } else {
+        challengeOptionsHtml = challenges.map(ch => {
+            const isLinked = linkedChallengeIds.includes(ch.id);
+            const statusBadge = ch.status === 'completed' ? '✅' : ch.status === 'archived' ? '📦' : '🎯';
+            const dateRange = `${ch.startDate} → ${ch.endDate}`;
+            
+            return `
+                <div style="padding:12px; background:#0d0d1a; border:1px solid ${isLinked ? '#ffd700' : '#333'}; border-radius:8px; 
+                            margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <span style="color:${isLinked ? '#ffd700' : '#fff'}; font-weight:bold;">
+                            ${statusBadge} ${ch.name}
+                        </span>
+                        <div style="color:#888; font-size:11px; margin-top:4px;">${dateRange}</div>
+                    </div>
+                    <button onclick="window.togglePositionChallenge(${positionId}, ${ch.id}, ${isLinked})"
+                            style="padding:6px 12px; border-radius:6px; cursor:pointer; font-size:12px;
+                                   background:${isLinked ? '#ff5252' : '#00d9ff'}; 
+                                   color:${isLinked ? '#fff' : '#000'}; border:none;">
+                        ${isLinked ? 'Remove' : 'Add'}
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    modal.innerHTML = `
+        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border:1px solid #ffd700; 
+                    border-radius:16px; padding:30px; width:90%; max-width:450px; max-height:80vh; overflow-y:auto;
+                    box-shadow: 0 0 40px rgba(255, 215, 0, 0.2);">
+            
+            <h2 style="margin:0 0 10px 0; color:#fff; font-size:18px;">🏆 Link to Challenge</h2>
+            
+            <div style="background:#0d0d1a; border-radius:8px; padding:12px; margin-bottom:20px;">
+                <div style="color:#00d9ff; font-weight:bold; font-size:14px;">${pos.ticker}</div>
+                <div style="color:#888; font-size:12px;">
+                    ${pos.type.replace('_', ' ')} • $${pos.strike} • Closed ${pos.closeDate}
+                </div>
+            </div>
+            
+            <div style="color:#aaa; font-size:12px; margin-bottom:15px;">
+                Select challenges to link this position to:
+            </div>
+            
+            <div style="max-height:300px; overflow-y:auto;">
+                ${challengeOptionsHtml}
+            </div>
+            
+            <div style="margin-top:20px; text-align:right;">
+                <button onclick="document.getElementById('linkChallengeModal').remove()"
+                        style="padding:10px 20px; background:#333; color:#fff; border:none; border-radius:8px; cursor:pointer;">
+                    Done
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
+ * Toggle a position's link to a challenge
+ */
+window.togglePositionChallenge = function(positionId, challengeId, isCurrentlyLinked) {
+    const pos = (state.closedPositions || []).find(p => p.id === positionId);
+    if (!pos) return;
+    
+    if (!pos.challengeIds) pos.challengeIds = [];
+    
+    if (isCurrentlyLinked) {
+        // Remove from challenge
+        pos.challengeIds = pos.challengeIds.filter(cid => cid !== challengeId);
+        showNotification('Removed from challenge', 'info');
+    } else {
+        // Add to challenge
+        if (!pos.challengeIds.includes(challengeId)) {
+            pos.challengeIds.push(challengeId);
+        }
+        showNotification('✅ Added to challenge', 'success');
+    }
+    
+    saveClosedPositions();
+    
+    // Refresh the modal to show updated state
+    document.getElementById('linkChallengeModal')?.remove();
+    window.showLinkToChallengeModal(positionId);
+    
+    // Refresh the table in background
+    renderClosedPositions();
 };

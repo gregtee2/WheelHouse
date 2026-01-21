@@ -2,6 +2,7 @@
 // Track trading challenges with goals, time limits, and linked positions
 
 import { state } from './state.js';
+import { loadClosedPositions } from './portfolio.js';
 
 const CHALLENGES_KEY = 'wheelhouse_challenges';
 
@@ -176,7 +177,12 @@ export function getChallengePositions(challengeId) {
         return false;
     };
     
-    const isTagged = (pos) => pos.challengeIds?.includes(challengeId);
+    // Ensure we compare as numbers (IDs can be strings or numbers)
+    const challengeIdNum = Number(challengeId);
+    const isTagged = (pos) => {
+        if (!pos.challengeIds || pos.challengeIds.length === 0) return false;
+        return pos.challengeIds.some(cid => Number(cid) === challengeIdNum);
+    };
     
     // Open positions
     const open = (state.positions || []).filter(pos => 
@@ -291,7 +297,9 @@ export function renderChallenges() {
     const container = document.getElementById('challenges');
     if (!container) return;
     
+    // Reload all data from localStorage to get latest state
     loadChallenges();
+    loadClosedPositions();  // Reload closed positions to pick up any changes from Portfolio
     
     const activeChallenges = (state.challenges || []).filter(c => c.status === 'active');
     const archivedChallenges = (state.challenges || []).filter(c => c.status === 'archived');

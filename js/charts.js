@@ -151,9 +151,13 @@ export function drawPayoffChart() {
     const posType = getPositionType();
     const isPut = posType.isPut;
     const isShort = posType.isShort;
+    const isBuyWrite = posType.isBuyWrite || posType.isCoveredCall;
     const contracts = state.currentPositionContext?.contracts || 1;
     const premium = state.currentPositionContext?.premium || 
                    (isPut ? state.optionResults?.putPrice : state.optionResults?.callPrice) || 1;
+    
+    // For Buy/Write, we need the stock purchase price
+    const stockPrice = state.currentPositionContext?.stockPrice || state.spot;
     
     // Calculate price range (center on strike, show ±30%)
     const strike = state.strike;
@@ -164,12 +168,24 @@ export function drawPayoffChart() {
     
     // Calculate P&L at key points
     const multiplier = contracts * 100;
-    const maxProfit = premium * multiplier;  // Short option max profit
-    const breakeven = isPut ? strike - premium : strike + premium;
+    
+    // For Buy/Write: Max profit = (Strike - Stock Price + Premium) × 100
+    // For Short Put: Max profit = Premium × 100
+    let maxProfit, breakeven;
+    if (isBuyWrite) {
+        maxProfit = (strike - stockPrice + premium) * multiplier;
+        breakeven = stockPrice - premium; // Net cost basis
+    } else {
+        maxProfit = premium * multiplier;  // Short option max profit
+        breakeven = isPut ? strike - premium : strike + premium;
+    }
     
     // Calculate max loss for display (at edge of chart)
     let maxLossAtEdge;
-    if (isShort && isPut) {
+    if (isBuyWrite) {
+        // Buy/Write max loss: Stock goes to zero, you lose (stockPrice - premium) × shares
+        maxLossAtEdge = (stockPrice - premium) * multiplier;
+    } else if (isShort && isPut) {
         maxLossAtEdge = (strike - premium - minS) * multiplier;  // Loss if stock goes to minS
     } else if (isShort && !isPut) {
         maxLossAtEdge = (maxS - strike - premium) * multiplier;  // Loss if stock goes to maxS
@@ -202,12 +218,24 @@ export function drawPayoffChart() {
     ctx.beginPath(); ctx.moveTo(M.left, zeroY); ctx.lineTo(W - M.right, zeroY); ctx.stroke();
     
     // Calculate P&L for a given stock price at expiration
-    const calcPnL = (stockPrice) => {
+    // stockPriceAtExp = price at expiration
+    const calcPnL = (stockPriceAtExp) => {
+        // Buy/Write (Covered Call): Long stock + Short call
+        // P&L = (Stock P&L) + (Call premium) - (Call intrinsic if exercised)
+        if (isBuyWrite) {
+            const stockPnL = stockPriceAtExp - stockPrice; // Stock gain/loss per share
+            const callIntrinsic = Math.max(stockPriceAtExp - strike, 0); // Call ITM value
+            // Short call: keep premium, but pay intrinsic if ITM
+            const callPnL = premium - callIntrinsic;
+            return (stockPnL + callPnL) * multiplier;
+        }
+        
+        // Regular option P&L
         let intrinsicValue;
         if (isPut) {
-            intrinsicValue = Math.max(strike - stockPrice, 0);
+            intrinsicValue = Math.max(strike - stockPriceAtExp, 0);
         } else {
-            intrinsicValue = Math.max(stockPrice - strike, 0);
+            intrinsicValue = Math.max(stockPriceAtExp - strike, 0);
         }
         
         if (isShort) {
@@ -353,7 +381,12 @@ export function drawPayoffChart() {
     ctx.fillStyle = '#aaa';
     ctx.font = '11px -apple-system, sans-serif';
     ctx.textAlign = 'left';
-    const posLabel = (isShort ? 'SHORT ' : 'LONG ') + (isPut ? 'PUT' : 'CALL') + ' × ' + contracts;
+    let posLabel;
+    if (isBuyWrite) {
+        posLabel = 'COVERED CALL × ' + contracts;
+    } else {
+        posLabel = (isShort ? 'SHORT ' : 'LONG ') + (isPut ? 'PUT' : 'CALL') + ' × ' + contracts;
+    }
     ctx.fillText(posLabel, M.left + 5, M.top - 8);
     
     // Legend
@@ -475,27 +508,59 @@ export function drawPnLChart() {
     
     const posType = getPositionType();
     const isPut = posType.isPut;
+    const isBuyWrite = posType.isBuyWrite || posType.isCoveredCall;
+    
+    const contracts = state.currentPositionContext?.contracts || 1;
+    const multiplier = contracts * 100;
+    
+    // Get premium from position context or option results
+    const premium = state.currentPositionContext?.premium || 
+                   (isPut ? (state.optionResults.putPrice || 0) : (state.optionResults.callPrice || 0));
+    
+    // For Buy/Write, get stock purchase price
+    const stockPrice = state.currentPositionContext?.stockPrice || state.spot;
     
     const pnlData = [];
     let maxPnL = 0, minPnL = 0;
     
-    // Use stored option results for premium
-    const premium = isPut ? (state.optionResults.putPrice || 0) : (state.optionResults.callPrice || 0);
-    
+    // Calculate P&L data points
     for (let price = minPrice; price <= maxPrice; price += priceRange / 100) {
         let pnl;
-        if (isPut) {
-            pnl = (price >= state.strike) ? premium * 100 : (premium - (state.strike - price)) * 100;
+        
+        if (isBuyWrite) {
+            // Covered Call P&L: Stock gain + premium - call intrinsic if exercised
+            const stockGain = price - stockPrice;
+            const callIntrinsic = Math.max(price - state.strike, 0);
+            pnl = (stockGain + premium - callIntrinsic) * multiplier;
+        } else if (isPut) {
+            // Short put P&L
+            pnl = (price >= state.strike) ? premium * multiplier : (premium - (state.strike - price)) * multiplier;
         } else {
-            pnl = (price <= state.strike) ? premium * 100 : (premium - (price - state.strike)) * 100;
+            // Short call P&L
+            pnl = (price <= state.strike) ? premium * multiplier : (premium - (price - state.strike)) * multiplier;
         }
+        
         pnlData.push({price, pnl});
         maxPnL = Math.max(maxPnL, pnl);
         minPnL = Math.min(minPnL, pnl);
     }
     
-    const contracts = state.currentPositionContext?.contracts || 1;
-    const calculatedBreakEven = isPut ? state.strike - premium : state.strike + premium;
+    // Calculate break-even and max profit/loss
+    let calculatedBreakEven, maxProfit, maxLoss;
+    
+    if (isBuyWrite) {
+        calculatedBreakEven = stockPrice - premium;  // Net cost basis
+        maxProfit = (state.strike - stockPrice + premium) * multiplier;
+        maxLoss = (stockPrice - premium) * multiplier;  // If stock goes to zero
+    } else if (isPut) {
+        calculatedBreakEven = state.strike - premium;
+        maxProfit = premium * multiplier;
+        maxLoss = (state.strike - premium) * multiplier;
+    } else {
+        calculatedBreakEven = state.strike + premium;
+        maxProfit = premium * multiplier;
+        maxLoss = 'Unlimited';
+    }
     
     // Update UI with null checks
     const breakEvenEl = document.getElementById('breakEvenPrice');
@@ -503,8 +568,8 @@ export function drawPnLChart() {
     const maxLossEl = document.getElementById('maxLoss');
     
     if (breakEvenEl) breakEvenEl.textContent = '$' + calculatedBreakEven.toFixed(2);
-    if (maxProfitEl) maxProfitEl.textContent = '$' + (premium * 100 * contracts).toFixed(0);
-    if (maxLossEl) maxLossEl.textContent = isPut ? '$' + ((state.strike - premium) * 100 * contracts).toFixed(0) : 'Unlimited';
+    if (maxProfitEl) maxProfitEl.textContent = '$' + maxProfit.toFixed(0);
+    if (maxLossEl) maxLossEl.textContent = typeof maxLoss === 'number' ? '$' + maxLoss.toFixed(0) : maxLoss;
     
     // Grid
     ctx.strokeStyle = 'rgba(255,255,255,0.1)';

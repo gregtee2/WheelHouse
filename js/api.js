@@ -66,8 +66,42 @@ export async function fetchFromYahoo(ticker) {
 }
 
 /**
+ * Fetch earnings and dividend calendar data from Yahoo Finance
+ * Returns upcoming earnings date and ex-dividend date
+ * @param {string} ticker - Stock ticker symbol
+ * @returns {object} - { earningsDate, exDividendDate, dividendDate }
+ */
+export async function fetchCalendarData(ticker) {
+    const tickerUpper = ticker.toUpperCase();
+    
+    // Try local proxy first
+    try {
+        const localUrl = `/api/yahoo/calendar/${tickerUpper}.json`;
+        const response = await fetch(localUrl);
+        if (response.ok) {
+            const data = await response.json();
+            return data;
+        }
+    } catch (e) {
+        console.log('Calendar fetch failed:', e.message);
+    }
+    
+    // Return empty data if failed (non-critical feature)
+    return {
+        ticker: tickerUpper,
+        earningsDate: null,
+        exDividendDate: null,
+        dividendDate: null
+    };
+}
+
+// Make fetchCalendarData globally available
+window.fetchCalendarData = fetchCalendarData;
+
+/**
  * Fetch options chain from CBOE (free delayed quotes)
  * @param {string} ticker - Stock ticker symbol (e.g., "AAPL")
+
  * @returns {object} - { calls: [], puts: [], expirations: [], timestamp: string }
  */
 export async function fetchOptionsChain(ticker) {

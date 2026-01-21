@@ -183,7 +183,56 @@ h1 {
 
 .controls-panel { max-height: calc(100vh - 100px); overflow-y: auto; }
 
-/* P&L Tab - no scroll layout */
+/* P&L Tab - 3-column wide layout */
+.pnl-layout {
+    display: grid;
+    grid-template-columns: minmax(400px, 1fr) minmax(280px, 350px) minmax(260px, 340px);
+    gap: 12px;
+    height: calc(100vh - 100px);
+    overflow: hidden;
+}
+
+.pnl-charts {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 12px;
+    overflow-y: auto;
+}
+
+.pnl-roll-calc {
+    background: rgba(0, 217, 255, 0.08);
+    border: 1px solid rgba(0, 217, 255, 0.2);
+    border-radius: 8px;
+    padding: 10px;
+    overflow-y: auto;
+}
+
+.pnl-expert {
+    background: rgba(255, 170, 0, 0.08);
+    border: 1px solid rgba(255, 170, 0, 0.2);
+    border-radius: 8px;
+    padding: 10px;
+    overflow-y: auto;
+}
+
+/* Fallback for narrower screens */
+@media (max-width: 1200px) {
+    .pnl-layout {
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto;
+    }
+    .pnl-charts {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 800px) {
+    .pnl-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Legacy P&L tab styles - keep for compatibility */
 #pnl .main-grid {
     height: calc(100vh - 100px);
 }

@@ -44,8 +44,95 @@ export function init() {
     // Check for updates (after a short delay to not block init)
     setTimeout(checkForUpdates, 2000);
     
+    // Check AI availability (show/hide AI panel)
+    setTimeout(checkAIAvailability, 1000);
+    
     console.log('✅ Initialization complete');
 }
+
+/**
+ * Check if AI Trade Advisor (Ollama) is available
+ */
+async function checkAIAvailability() {
+    const aiPanel = document.getElementById('aiInsightsPanel');
+    const aiBtn = document.getElementById('aiInsightBtn');
+    const aiContent = document.getElementById('aiInsightContent');
+    const modelSelect = document.getElementById('aiModelSelect');
+    const modelStatus = document.getElementById('aiModelStatus');
+    
+    if (!aiPanel) return;
+    
+    // Restore saved model preference
+    const savedModel = localStorage.getItem('wheelhouse_ai_model') || 'qwen2.5:7b';
+    if (modelSelect) {
+        modelSelect.value = savedModel;
+    }
+    
+    try {
+        const res = await fetch('/api/ai/status');
+        if (!res.ok) throw new Error('API error');
+        
+        const data = await res.json();
+        
+        if (data.available) {
+            // AI is ready - show which models are available
+            const models = data.models || [];
+            const modelNames = models.map(m => m.name);
+            console.log('🧠 AI Trade Advisor: Ready. Available models:', modelNames.join(', '));
+            
+            aiPanel.style.display = 'block';
+            aiPanel.style.opacity = '1';
+            
+            // Update model dropdown to show installed status
+            if (modelSelect) {
+                Array.from(modelSelect.options).forEach(opt => {
+                    const isInstalled = modelNames.some(m => m.startsWith(opt.value.split(':')[0]));
+                    opt.textContent = opt.textContent.replace(' ✓', '').replace(' (not installed)', '');
+                    if (isInstalled) {
+                        opt.textContent += ' ✓';
+                        opt.disabled = false;
+                    } else {
+                        opt.textContent += ' (not installed)';
+                        opt.disabled = true;
+                    }
+                });
+            }
+            
+            if (aiContent) {
+                aiContent.innerHTML = `Click <b>Get Insight</b> after loading a position for AI-powered analysis.`;
+            }
+        } else {
+            // Ollama not running
+            console.log('🧠 AI Trade Advisor: Ollama not running (AI features disabled)');
+            aiPanel.style.display = 'block';
+            aiPanel.style.opacity = '0.5';
+            if (aiContent) {
+                aiContent.innerHTML = `<span style="color:#888;">AI not available.</span><br>
+                    <span style="font-size:10px;">Install Ollama from <a href="https://ollama.com" target="_blank" style="color:#00d9ff;">ollama.com</a> for AI insights.</span>`;
+            }
+            if (aiBtn) {
+                aiBtn.disabled = true;
+                aiBtn.title = 'Ollama not running';
+            }
+            if (modelSelect) modelSelect.disabled = true;
+        }
+    } catch (e) {
+        // Server doesn't support AI endpoint - hide panel entirely
+        console.log('🧠 AI Trade Advisor: Not available');
+        if (aiPanel) aiPanel.style.display = 'none';
+    }
+}
+
+/**
+ * Save AI model preference to localStorage
+ */
+window.saveAIModelPreference = function() {
+    const modelSelect = document.getElementById('aiModelSelect');
+    if (modelSelect) {
+        localStorage.setItem('wheelhouse_ai_model', modelSelect.value);
+        console.log('AI model preference saved:', modelSelect.value);
+    }
+};
 
 /**
  * Check for updates from GitHub

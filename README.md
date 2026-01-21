@@ -5,7 +5,7 @@
 A powerful Monte Carlo-based options analysis tool with **real-time CBOE pricing**, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.4.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
@@ -56,6 +56,37 @@ A powerful Monte Carlo-based options analysis tool with **real-time CBOE pricing
 - Track shares from assignments
 - Cost basis management
 - Covered call integration
+
+### 🧠 AI Trade Advisor (Optional)
+- **Local AI-powered** trade analysis using Qwen 2.5 models
+- Runs entirely on your machine via [Ollama](https://ollama.com)
+- No cloud API keys or subscriptions required
+- **Model Selection**: Choose between 7B (fast), 14B (better), 32B (best)
+- **Smart Health Check**: Skips AI for healthy positions, instant "HOLD" advice
+- **AI Pick Highlighting**: Green border + badge on recommended roll
+- Get natural language recommendations based on:
+  - Current position parameters (ITM/OTM, DTE, IV)
+  - Monte Carlo probabilities
+  - ALL available roll options (analyzed and ranked)
+  - Credit vs debit roll comparison
+  - Expert Analysis context
+
+**Supported Models:**
+| Model | Size | Speed | Quality |
+|-------|------|-------|---------|
+| qwen2.5:7b | ~5GB | Fast (5s) | Good |
+| qwen2.5:14b | ~9GB | Medium (10s) | Better |
+| qwen2.5:32b | ~20GB | Slower (20s) | Best |
+| llama3.1:8b | ~5GB | Fast | Good |
+| mistral:7b | ~4GB | Fast | Good |
+
+**GPU Requirements for AI:**
+| Hardware | Speed | Notes |
+|----------|-------|-------|
+| NVIDIA GPU (8GB+ VRAM) | Fast (~5-10 sec) | RTX 3060 or better recommended |
+| NVIDIA GPU (24GB+ VRAM) | Fast | Can run 32B model for best quality |
+| Apple Silicon (M1/M2/M3) | Fast | Native Metal acceleration |
+| CPU Only | Slow (~30 sec) | Works but not recommended |
 
 ---
 

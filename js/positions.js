@@ -604,11 +604,79 @@ export function loadPositions() {
         state.positions = [];
     }
     
-    // Load holdings (share ownership from assignments)
+    // Load holdings (share ownership from assignments and buy/writes)
     try {
         const savedHoldings = localStorage.getItem(HOLDINGS_KEY);
         if (savedHoldings) {
             state.holdings = JSON.parse(savedHoldings) || [];
+            
+            // Load positions first so we can link holdings to them
+            const savedPositions = localStorage.getItem(STORAGE_KEY);
+            const positions = savedPositions ? JSON.parse(savedPositions) : [];
+            
+            // Migrate old holdings - add missing fields for display compatibility
+            let needsSave = false;
+            state.holdings.forEach(h => {
+                // Add totalCost if missing
+                if (h.totalCost === undefined && h.costBasis && h.shares) {
+                    h.totalCost = h.costBasis * h.shares;
+                    needsSave = true;
+                }
+                
+                // For Buy/Write holdings, try to find the linked position to get strike/premium
+                if (h.source === 'buy_write') {
+                    // Try to find linked position by ID or by ticker + type
+                    let linkedPos = null;
+                    if (h.linkedPositionId) {
+                        linkedPos = positions.find(p => p.id === h.linkedPositionId);
+                    }
+                    if (!linkedPos) {
+                        // Fall back to finding a buy_write position for this ticker
+                        linkedPos = positions.find(p => p.ticker === h.ticker && p.type === 'buy_write');
+                    }
+                    
+                    if (linkedPos) {
+                        // Copy strike from position if missing
+                        if (!h.strike && linkedPos.strike) {
+                            h.strike = linkedPos.strike;
+                            needsSave = true;
+                        }
+                        // Copy premium from position if missing
+                        if (!h.premiumCredit && linkedPos.premium) {
+                            h.premiumCredit = linkedPos.premium * 100 * (linkedPos.contracts || 1);
+                            needsSave = true;
+                        }
+                        // Link the position if not already
+                        if (!h.linkedPositionId) {
+                            h.linkedPositionId = linkedPos.id;
+                            needsSave = true;
+                        }
+                        // Calculate max profit if missing
+                        if (!h.maxProfit && h.strike && h.costBasis) {
+                            const gainOnShares = Math.max(0, (h.strike - h.costBasis) * h.shares);
+                            h.maxProfit = gainOnShares + (h.premiumCredit || 0);
+                            needsSave = true;
+                        }
+                    }
+                }
+                
+                // Add premiumCredit if still missing (default to 0)
+                if (h.premiumCredit === undefined) {
+                    h.premiumCredit = 0;
+                    needsSave = true;
+                }
+                
+                // Use acquiredDate as assignedDate if missing
+                if (!h.assignedDate && h.acquiredDate) {
+                    h.assignedDate = h.acquiredDate;
+                    needsSave = true;
+                }
+            });
+            
+            if (needsSave) {
+                localStorage.setItem(HOLDINGS_KEY, JSON.stringify(state.holdings));
+                console.log('Migrated holdings with new fields from linked positions');
+            }
         } else {
             state.holdings = [];
         }
@@ -896,23 +964,46 @@ export function addPosition() {
         // For Buy/Write, also add to holdings automatically
         if (type === 'buy_write') {
             const shares = contracts * 100;
-            const existingHolding = state.holdings.find(h => h.ticker === ticker);
+            const holdingId = Date.now() + 1;
+            const totalCostValue = stockPrice * shares;
+            const premiumCollected = premium * 100 * contracts;
+            
+            // Max profit = (strike - stockPrice) * shares + premium collected
+            // If stock rises to strike, you keep premium + gain on shares
+            const maxProfitFromShares = Math.max(0, (strike - stockPrice) * shares);
+            const maxProfitTotal = maxProfitFromShares + premiumCollected;
+            
+            const existingHolding = state.holdings.find(h => h.ticker === ticker && h.source === 'buy_write');
             if (existingHolding) {
                 // Average into existing holding
-                const totalShares = existingHolding.shares + shares;
-                const totalCost = (existingHolding.costBasis * existingHolding.shares) + (stockPrice * shares);
-                existingHolding.shares = totalShares;
-                existingHolding.costBasis = totalCost / totalShares;
+                const newTotalShares = existingHolding.shares + shares;
+                const newTotalCost = existingHolding.totalCost + totalCostValue;
+                existingHolding.shares = newTotalShares;
+                existingHolding.costBasis = newTotalCost / newTotalShares;
+                existingHolding.totalCost = newTotalCost;
+                existingHolding.premiumCredit = (existingHolding.premiumCredit || 0) + premiumCollected;
+                existingHolding.maxProfit = (existingHolding.maxProfit || 0) + maxProfitTotal;
+                existingHolding.linkedPositionId = position.id; // Link to newest position
             } else {
                 state.holdings.push({
-                    id: Date.now() + 1,
+                    id: holdingId,
                     ticker,
                     shares,
                     costBasis: stockPrice,
+                    totalCost: totalCostValue,
+                    strike,
+                    premiumCredit: premiumCollected,
+                    netCostBasis: stockPrice - premium, // Effective cost after premium
+                    maxProfit: maxProfitTotal,
                     acquiredDate: openDate,
-                    source: 'buy_write'
+                    assignedDate: openDate, // Use acquiredDate as assignedDate for display
+                    source: 'buy_write',
+                    linkedPositionId: position.id, // Link to the call position
+                    contracts
                 });
             }
+            // Also store holding ID on the position for cross-reference
+            position.linkedHoldingId = holdingId;
             localStorage.setItem(HOLDINGS_KEY, JSON.stringify(state.holdings));
         }
         
@@ -1253,7 +1344,11 @@ export function loadPositionToAnalyze(id) {
         premium: pos.premium,
         contracts: pos.contracts,
         expiry: pos.expiry,
-        dte: pos.dte
+        dte: pos.dte,
+        // Buy/Write specific fields
+        stockPrice: pos.stockPrice || null,
+        costBasis: pos.costBasis || null,
+        linkedHoldingId: pos.linkedHoldingId || null
     });
     
     // Update form fields
@@ -1312,14 +1407,32 @@ export function loadPositionToAnalyze(id) {
     document.querySelector('[data-tab="options"]').classList.add('active');
     document.getElementById('options').classList.add('active');
     
-    // Update position info display
+    // Pre-populate Roll Calculator for this position
+    const rollStrikeEl = document.getElementById('rollNewStrike');
+    const rollDteEl = document.getElementById('rollNewDte');
+    const rollExpiryEl = document.getElementById('rollNewExpiry');
+    
+    if (rollStrikeEl) rollStrikeEl.value = pos.strike;
+    if (rollDteEl) rollDteEl.value = pos.dte || 45;
+    
+    // Set suggested expiry (4-6 weeks out)
+    if (rollExpiryEl) {
+        const suggestedExpiry = new Date();
+        suggestedExpiry.setDate(suggestedExpiry.getDate() + 45);
+        rollExpiryEl.value = suggestedExpiry.toISOString().split('T')[0];
+    }
+    
+    // Update position info display - handle Buy/Write specially
     const posInfo = document.getElementById('positionInfo');
+    const posTypeDisplay = pos.type === 'buy_write' ? 'BUY/WRITE' : pos.type.toUpperCase();
+    const stockPriceInfo = pos.stockPrice ? ` | Stock: $${pos.stockPrice.toFixed(2)}` : '';
+    
     if (posInfo) {
         posInfo.innerHTML = `
             <div style="background: #1a1a2e; padding: 10px; border-radius: 6px; margin-bottom: 15px; border-left: 3px solid #00d9ff;">
                 <div style="color: #00d9ff; font-weight: bold; margin-bottom: 5px;">Analyzing Position:</div>
-                <div style="color: #fff;">${pos.ticker} ${pos.type.toUpperCase()} @ $${pos.strike} (${pos.contracts} contract${pos.contracts > 1 ? 's' : ''})</div>
-                <div style="color: #888; font-size: 12px;">Premium: $${pos.premium.toFixed(2)} | Expires: ${pos.expiry}</div>
+                <div style="color: #fff;">${pos.ticker} ${posTypeDisplay} @ $${pos.strike} (${pos.contracts} contract${pos.contracts > 1 ? 's' : ''})</div>
+                <div style="color: #888; font-size: 12px;">Premium: $${pos.premium.toFixed(2)} | Expires: ${pos.expiry}${stockPriceInfo}</div>
             </div>
         `;
     }
@@ -1444,7 +1557,7 @@ function renderPositionsTable(container, openPositions) {
         // Strike display - different for spreads
         const strikeDisplay = isSpread 
             ? `$${pos.buyStrike}/$${pos.sellStrike}`
-            : `$${pos.strike?.toFixed(0) || '—'}`;
+            : `$${pos.strike?.toFixed(2) || '—'}`;
         
         // Buy/Write extra info
         const buyWriteInfo = pos.type === 'buy_write' && pos.stockPrice 

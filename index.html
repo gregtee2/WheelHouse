@@ -198,85 +198,128 @@
             </div>
         </div>
 
-        <!-- P&L TAB -->
+        <!-- P&L TAB - New Wide Layout -->
         <div class="tab-content" id="pnl">
-            <div class="main-grid">
-                <div class="canvas-section">
-                    <h3 style="color:var(--accent-cyan); margin-bottom:4px; font-size:12px;">💰 P&L at Expiration</h3>
-                    <canvas id="pnlCanvas" width="800" height="160"></canvas>
+            <div class="pnl-layout">
+                <!-- LEFT: Charts (narrower) -->
+                <div class="pnl-charts">
+                    <h3 style="color:var(--accent-cyan); margin-bottom:4px; font-size:13px;">💰 P&L at Expiration</h3>
+                    <canvas id="pnlCanvas" width="600" height="120"></canvas>
                     
-                    <h3 style="color:var(--accent-cyan); margin:8px 0 4px; font-size:12px;">📊 Probability Cone (1σ, 2σ, 3σ)</h3>
-                    <canvas id="probConeCanvas" width="800" height="150"></canvas>
+                    <h3 style="color:var(--accent-cyan); margin:8px 0 4px; font-size:13px;">📊 Probability Cone</h3>
+                    <canvas id="probConeCanvas" width="600" height="110"></canvas>
                     
                     <div style="display:flex; align-items:center; gap:10px; margin:8px 0 4px;">
-                        <h3 style="color:var(--accent-cyan); margin:0; font-size:12px;">🔥 P&L Heat Map</h3>
+                        <h3 style="color:var(--accent-cyan); margin:0; font-size:13px;">🔥 Heat Map</h3>
                         <div style="display:flex; align-items:center; gap:6px; margin-left:auto;">
-                            <label style="font-size:11px; color:var(--accent-orange);">Spot $</label>
-                            <input type="number" id="heatMapSpot" class="value-input" step="0.01" style="width:60px; padding:3px;">
-                            <button id="heatMapFetchBtn" class="btn-secondary" style="padding:3px 6px; font-size:10px;" title="Fetch live price">📊</button>
-                            <button id="heatMapUpdateBtn" class="btn-primary" style="padding:3px 8px; font-size:10px;">Update</button>
+                            <label style="font-size:12px; color:var(--accent-orange);">Spot $</label>
+                            <input type="number" id="heatMapSpot" class="value-input" step="0.01" style="width:70px; padding:4px;">
+                            <button id="heatMapFetchBtn" class="btn-secondary" style="padding:4px 8px; font-size:11px;" title="Fetch live price">📊</button>
+                            <button id="heatMapUpdateBtn" class="btn-primary" style="padding:4px 10px; font-size:11px;">Update</button>
                         </div>
                     </div>
-                    <canvas id="heatMapCanvas" width="800" height="160"></canvas>
+                    <canvas id="heatMapCanvas" width="600" height="120"></canvas>
+                    
+                    <!-- Break-Even Analysis -->
+                    <div class="results-box" style="padding:10px; margin-top:10px;">
+                        <h3 style="font-size:13px; margin-bottom:8px;">📊 Break-Even Analysis</h3>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div class="result-row" style="padding:4px 0; font-size:13px;"><span class="result-label">Break-Even:</span><span class="result-value" id="breakEvenPrice">—</span></div>
+                            <div class="result-row" style="padding:4px 0; font-size:13px;"><span class="result-label">Max Profit:</span><span class="result-value call" id="maxProfit">—</span></div>
+                            <div class="result-row" style="padding:4px 0; font-size:13px;"><span class="result-label">Max Loss:</span><span class="result-value put" id="maxLoss">—</span></div>
+                            <div class="result-row" style="padding:4px 0; font-size:13px;"><span class="result-label">Expected Value:</span><span class="result-value" id="expectedValue">—</span></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="controls-panel">
-                    <div class="results-box" style="padding:8px;">
-                        <h3 style="font-size:11px;">📊 Break-Even Analysis</h3>
-                        <div class="result-row" style="padding:2px 0; font-size:11px;"><span class="result-label">Break-Even:</span><span class="result-value" id="breakEvenPrice">—</span></div>
-                        <div class="result-row" style="padding:2px 0; font-size:11px;"><span class="result-label">Max Profit:</span><span class="result-value call" id="maxProfit">—</span></div>
-                        <div class="result-row" style="padding:2px 0; font-size:11px;"><span class="result-label">Max Loss:</span><span class="result-value put" id="maxLoss">—</span></div>
-                        <div class="result-row" style="padding:2px 0; font-size:11px;"><span class="result-label">Expected Value:</span><span class="result-value" id="expectedValue">—</span></div>
+                
+                <!-- MIDDLE: Roll Calculator & Suggestions -->
+                <div class="pnl-roll-calc">
+                    <h3 style="color:var(--accent-green); margin-bottom:8px; font-size:13px;">🔄 Roll Calculator</h3>
+                    
+                    <!-- Current Position Info - Compact -->
+                    <div style="background:rgba(255,170,0,0.15); padding:8px; border-radius:4px; margin-bottom:10px; font-size:12px;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:3px;">
+                            <span>Strike: $<span id="rollCurrentStrike">—</span></span>
+                            <span>DTE: <span id="rollCurrentDte">—</span>d</span>
+                            <span>Risk: <span id="rollCurrentRisk">—</span>%</span>
+                            <span>Prem: $<span id="rollCurrentPremium">—</span></span>
+                        </div>
                     </div>
                     
-                    <div style="margin-top:10px; padding:10px; background:rgba(0,217,255,0.1); border-radius:6px;">
-                        <h3 style="color:var(--accent-green); margin-bottom:8px; font-size:12px;">🔄 Roll Calculator</h3>
-                        <div style="background:rgba(0,0,0,0.3); padding:6px; border-radius:4px; margin-bottom:8px; font-size:11px;">
-                            <div style="color:var(--accent-orange);">Current: $<span id="rollCurrentStrike">—</span> | <span id="rollCurrentDte">—</span>d | Risk: <span id="rollCurrentRisk">—</span>% | Premium: $<span id="rollCurrentPremium">—</span></div>
+                    <!-- Roll Inputs - Compact 4-col -->
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:6px; margin-bottom:8px;">
+                        <div class="control-group">
+                            <label style="font-size:10px;">Strike</label>
+                            <input type="number" id="rollNewStrike" class="value-input" min="1" max="500" step="0.5" value="95" style="width:100%; padding:5px; font-size:12px;">
                         </div>
-                        
-                        <!-- Always visible 2-column layout -->
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                            <!-- LEFT: Inputs + Suggestions -->
-                            <div>
-                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
-                                    <div class="control-group" style="margin-bottom:0;">
-                                        <label style="font-size:10px;">Strike <input type="number" id="rollNewStrike" class="value-input" min="1" max="500" step="0.5" value="95" style="width:50px;"></label>
-                                    </div>
-                                    <div class="control-group" style="margin-bottom:0;">
-                                        <label style="font-size:10px;">DTE <input type="number" id="rollNewDte" class="value-input" min="1" max="365" step="1" value="45" style="width:45px;"></label>
-                                    </div>
-                                </div>
-                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
-                                    <div class="control-group" style="margin-bottom:0;">
-                                        <label style="font-size:10px;">📅 Expiry</label>
-                                        <input type="date" id="rollNewExpiry" style="width:100%; padding:3px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; font-size:10px;">
-                                    </div>
-                                    <div class="control-group" style="margin-bottom:0;">
-                                        <label style="font-size:10px;">Cr/Dr $ <input type="number" id="rollCredit" class="value-input" min="-10000" max="10000" step="1" value="50" style="width:55px;" title="Total. Negative = debit"></label>
-                                    </div>
-                                </div>
-                                <div style="display:flex; gap:4px; margin-bottom:8px;">
-                                    <button id="rollBtn" class="btn-primary" style="flex:1; padding:5px; font-size:11px;">🧮 Calc</button>
-                                    <button id="suggestRollBtn" class="btn-primary" style="flex:1; padding:5px; font-size:11px; background:linear-gradient(135deg, #8b5cf6, #6366f1);">✨ Suggest</button>
-                                </div>
-                                
-                                <!-- Suggestions (appears after clicking Suggest) -->
-                                <div id="rollSuggestions" style="display:none; padding:6px; background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:4px; font-size:10px;">
-                                    <div style="color:#8b5cf6; font-weight:bold; margin-bottom:4px;">✨ Suggestions</div>
-                                    <div id="rollSuggestionsList"></div>
-                                </div>
-                            </div>
-                            
-                            <!-- RIGHT: Results (always visible, shows placeholder until calculated) -->
-                            <div id="rollResults" style="padding:8px; background:rgba(0,0,0,0.3); border-radius:4px; font-size:11px;">
-                                <div style="color:var(--accent-cyan); font-weight:bold; margin-bottom:6px; font-size:10px;">📊 Roll Results</div>
-                                <div class="result-row" style="padding:2px 0;"><span class="result-label">Strike:</span><span class="result-value" id="rollNewStrikeDisp">—</span></div>
-                                <div class="result-row" style="padding:2px 0;"><span class="result-label">DTE:</span><span class="result-value" id="rollNewDteDisp">—</span></div>
-                                <div class="result-row" style="padding:2px 0;"><span class="result-label">Risk:</span><span class="result-value put" id="rollNewRisk">—</span></div>
-                                <div class="result-row" style="padding:2px 0;"><span class="result-label">Premium:</span><span class="result-value call" id="rollTotalPremium">—</span></div>
-                                <div class="result-row" style="padding:2px 0;"><span class="result-label">Net:</span><span class="result-value" id="rollNetCredit">—</span></div>
-                                <div id="rollComparison" style="margin-top:6px; padding:5px; background:rgba(0,217,255,0.15); border-radius:4px; font-size:9px; min-height:40px; color:#666;">Click Calculate or pick a suggestion</div>
-                            </div>
+                        <div class="control-group">
+                            <label style="font-size:10px;">DTE</label>
+                            <input type="number" id="rollNewDte" class="value-input" min="1" max="365" step="1" value="45" style="width:100%; padding:5px; font-size:12px;">
+                        </div>
+                        <div class="control-group">
+                            <label style="font-size:10px;">📅 Expiry</label>
+                            <input type="date" id="rollNewExpiry" style="width:100%; padding:5px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; font-size:11px;">
+                        </div>
+                        <div class="control-group">
+                            <label style="font-size:10px;">Cr/Dr $</label>
+                            <input type="number" id="rollCredit" class="value-input" min="-10000" max="10000" step="1" value="50" style="width:100%; padding:5px; font-size:12px;" title="Total. Negative = debit">
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:6px; margin-bottom:10px;">
+                        <button id="rollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px;">🧮 Calc</button>
+                        <button id="suggestRollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px; background:linear-gradient(135deg, #8b5cf6, #6366f1);">✨ Suggest</button>
+                    </div>
+                    
+                    <!-- Roll Results - Compact -->
+                    <div id="rollResults" style="padding:8px; background:rgba(0,0,0,0.3); border-radius:4px; font-size:12px; margin-bottom:10px;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:4px; font-size:11px;">
+                            <div class="result-row"><span class="result-label">Strike</span><span class="result-value" id="rollNewStrikeDisp">—</span></div>
+                            <div class="result-row"><span class="result-label">DTE</span><span class="result-value" id="rollNewDteDisp">—</span></div>
+                            <div class="result-row"><span class="result-label">Risk</span><span class="result-value put" id="rollNewRisk">—</span></div>
+                            <div class="result-row"><span class="result-label">Prem</span><span class="result-value call" id="rollTotalPremium">—</span></div>
+                        </div>
+                        <div class="result-row" style="margin-top:6px; padding-top:6px; border-top:1px solid #333; display:flex; justify-content:space-between;">
+                            <span class="result-label">Net Result:</span>
+                            <span class="result-value" id="rollNetCredit" style="font-size:14px; font-weight:bold;">—</span>
+                        </div>
+                        <div id="rollComparison" style="margin-top:6px; padding:6px; background:rgba(0,217,255,0.15); border-radius:4px; font-size:11px; color:#888;">Click Calculate or pick a suggestion</div>
+                    </div>
+                    
+                    <!-- Suggestions -->
+                    <div id="rollSuggestions" style="display:none; padding:8px; background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:4px; font-size:11px;">
+                        <div style="color:#8b5cf6; font-weight:bold; margin-bottom:6px; font-size:12px;">✨ Roll Suggestions</div>
+                        <div id="rollSuggestionsList"></div>
+                    </div>
+                </div>
+                
+                <!-- RIGHT: Expert Analysis -->
+                <div class="pnl-expert">
+                    <h3 style="color:var(--accent-orange); margin-bottom:8px; font-size:13px;">🤖 Expert Analysis</h3>
+                    <div id="expertAnalysis">
+                        <div style="color:#888; font-size:12px; padding:15px; text-align:center;">
+                            Load a position and click<br><b>✨ Suggest</b> to see analysis
+                        </div>
+                    </div>
+                    
+                    <!-- AI Insights (Ollama) -->
+                    <div id="aiInsightsPanel" style="margin-top:12px; padding:10px; background:rgba(0,217,255,0.08); border:1px solid rgba(0,217,255,0.3); border-radius:6px; max-height:400px; overflow-y:auto;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <span style="color:var(--accent-cyan); font-weight:bold; font-size:12px;">🧠 AI Trade Advisor</span>
+                            <button id="aiInsightBtn" onclick="getAIInsight()" class="btn-mini" style="font-size:10px; padding:3px 8px;">💡 Get Insight</button>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                            <label style="font-size:10px; color:#888;">Model:</label>
+                            <select id="aiModelSelect" onchange="saveAIModelPreference()" style="font-size:10px; padding:2px 4px; background:#1a1a2e; color:#ddd; border:1px solid #444; border-radius:3px;">
+                                <option value="qwen2.5:7b">Qwen 7B (Fast)</option>
+                                <option value="qwen2.5:14b">Qwen 14B (Better)</option>
+                                <option value="qwen2.5:32b">Qwen 32B (Best)</option>
+                                <option value="llama3.1:8b">Llama 3.1 8B</option>
+                                <option value="mistral:7b">Mistral 7B</option>
+                            </select>
+                            <span id="aiModelStatus" style="font-size:9px; color:#666;"></span>
+                        </div>
+                        <div id="aiInsightContent" style="color:#aaa; font-size:11px; line-height:1.5;">
+                            Click <b>Get Insight</b> after clicking <b>✨ Suggest</b> to get AI-powered trade recommendations.
                         </div>
                     </div>
                 </div>
@@ -510,9 +553,10 @@
                     
                     <div id="portfolioTable"></div>
                     
-                    <!-- Holdings: Share Ownership from Assignments -->
+                    <!-- Holdings: Share Ownership from Assignments & Buy/Writes -->
                     <div id="holdingsSection" style="margin-top:20px; padding:15px; background:rgba(255,140,0,0.05); border-radius:8px; border:1px solid rgba(255,140,0,0.2); display:none;">
                         <h4 style="color:#fa0; margin:0 0 10px;">📦 Share Holdings (Wheel in Progress)</h4>
+                        <div style="font-size:11px; color:#888; margin-bottom:10px;">Shares from Buy/Writes and Put Assignments</div>
                         <div id="holdingsTable" style="color:#888; font-size:13px;">No shares from assignments.</div>
                     </div>
                     

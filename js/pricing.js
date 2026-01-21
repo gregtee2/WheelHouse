@@ -197,9 +197,23 @@ export async function calcGreeks() {
 export function getPositionType() {
     if (state.currentPositionContext?.type) {
         const type = state.currentPositionContext.type;
+        
+        // Buy/Write = Long stock + Short call (covered call at entry)
+        // Covered Call = Short call against existing shares
+        const isBuyWrite = type === 'buy_write';
+        const isCoveredCall = type === 'covered_call' || isBuyWrite;
+        const isLongCall = type === 'long_call';
+        const isLongPut = type === 'long_put';
+        const isLong = isLongCall || isLongPut;
+        
         return {
             isPut: type.includes('put'),
-            isShort: type.includes('short'),
+            isShort: type.includes('short') || isCoveredCall, // CC/BW is short the call
+            isLong: isLong,
+            isLongCall: isLongCall,
+            isLongPut: isLongPut,
+            isBuyWrite: isBuyWrite,
+            isCoveredCall: isCoveredCall,
             source: 'position'
         };
     }
@@ -207,6 +221,11 @@ export function getPositionType() {
     return {
         isPut: state.spot <= state.strike,
         isShort: true,
+        isLong: false,
+        isLongCall: false,
+        isLongPut: false,
+        isBuyWrite: false,
+        isCoveredCall: false,
         source: 'heuristic'
     };
 }
