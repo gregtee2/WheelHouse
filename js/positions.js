@@ -1534,6 +1534,131 @@ export function cancelRoll() {
 window.cancelRoll = cancelRoll;
 
 /**
+ * Show modal to mark an old position as "rolled" to a new position
+ * Use when: You did the roll at broker, then imported the new position,
+ * but the old position is still showing as open.
+ */
+window.showMarkAsRolledModal = function(oldPositionId) {
+    const oldPos = state.positions.find(p => p.id === oldPositionId);
+    if (!oldPos) return;
+    
+    // Find other open positions with same ticker that could be the "new" position
+    const candidates = state.positions.filter(p => 
+        p.id !== oldPositionId && 
+        p.ticker === oldPos.ticker &&
+        p.type === oldPos.type
+    );
+    
+    if (candidates.length === 0) {
+        showNotification(`No other ${oldPos.ticker} positions found to link as roll target`, 'warning');
+        return;
+    }
+    
+    const modal = document.createElement('div');
+    modal.id = 'markAsRolledModal';
+    modal.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;z-index:10001;`;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e;border:1px solid #ce93d8;border-radius:12px;padding:24px;max-width:500px;width:90%;">
+            <h3 style="margin:0 0 16px 0;color:#ce93d8;">🔄 Mark as Rolled</h3>
+            <p style="color:#888;margin-bottom:16px;">
+                This will close the old position and link it to the new one (from broker import).
+            </p>
+            
+            <div style="background:#252540;padding:12px;border-radius:8px;margin-bottom:16px;">
+                <strong style="color:#ff5252;">OLD Position (will be closed):</strong><br>
+                <span style="color:#fff;">${oldPos.ticker} $${oldPos.strike} ${oldPos.type.replace('_',' ')} - ${oldPos.dte}d DTE</span>
+            </div>
+            
+            <div style="margin-bottom:16px;">
+                <label style="color:#888;display:block;margin-bottom:4px;">Closing Price (what you paid to buy back):</label>
+                <input type="number" id="rollClosePrice" step="0.01" value="0" 
+                    style="width:100%;padding:8px;background:#333;border:1px solid #555;border-radius:4px;color:#fff;">
+            </div>
+            
+            <div style="margin-bottom:16px;">
+                <label style="color:#888;display:block;margin-bottom:4px;">Rolled TO (select new position):</label>
+                <select id="rollTargetSelect" style="width:100%;padding:8px;background:#333;border:1px solid #555;border-radius:4px;color:#fff;">
+                    ${candidates.map(p => `
+                        <option value="${p.id}">$${p.strike} ${p.type.replace('_',' ')} - ${p.dte || '?'}d DTE (Premium: $${p.premium})</option>
+                    `).join('')}
+                </select>
+            </div>
+            
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+                <button onclick="this.closest('#markAsRolledModal').remove()" 
+                    style="padding:10px 20px;background:#333;border:none;border-radius:6px;color:#fff;cursor:pointer;">
+                    Cancel
+                </button>
+                <button onclick="window.executeMarkAsRolled(${oldPositionId})" 
+                    style="padding:10px 20px;background:#ce93d8;border:none;border-radius:6px;color:#000;font-weight:bold;cursor:pointer;">
+                    ✓ Link & Close Old
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
+ * Execute the "mark as rolled" operation
+ */
+window.executeMarkAsRolled = function(oldPositionId) {
+    const closePrice = parseFloat(document.getElementById('rollClosePrice').value) || 0;
+    const targetId = parseInt(document.getElementById('rollTargetSelect').value);
+    
+    const oldPos = state.positions.find(p => p.id === oldPositionId);
+    const newPos = state.positions.find(p => p.id === targetId);
+    
+    if (!oldPos || !newPos) {
+        showNotification('Position not found', 'error');
+        return;
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    const chainId = oldPos.chainId || oldPos.id;
+    
+    // Calculate P&L on old position
+    const premiumReceived = oldPos.premium * 100 * oldPos.contracts;
+    const closingCost = closePrice * 100 * oldPos.contracts;
+    const realizedPnL = premiumReceived - closingCost;
+    
+    // Close old position and add to closedPositions
+    if (!state.closedPositions) state.closedPositions = [];
+    state.closedPositions.push({
+        ...oldPos,
+        status: 'closed',
+        closeDate: today,
+        closePrice: closePrice,
+        closeReason: 'rolled',
+        realizedPnL: realizedPnL,
+        chainId: chainId,
+        rolledTo: `$${newPos.strike} exp ${newPos.expiry}`
+    });
+    saveClosedToStorage();
+    
+    // Remove old from open positions
+    state.positions = state.positions.filter(p => p.id !== oldPositionId);
+    
+    // Update new position to inherit chainId
+    newPos.chainId = chainId;
+    newPos.rolledFrom = `$${oldPos.strike} @ $${oldPos.premium.toFixed(2)}`;
+    
+    savePositionsToStorage();
+    
+    // Close modal
+    document.getElementById('markAsRolledModal')?.remove();
+    
+    const pnlStr = realizedPnL >= 0 ? `+$${realizedPnL.toFixed(0)}` : `-$${Math.abs(realizedPnL).toFixed(0)}`;
+    showNotification(`Linked roll: ${oldPos.ticker} $${oldPos.strike} → $${newPos.strike} (${pnlStr})`, 'success');
+    
+    renderPositions();
+    updatePortfolioSummary();
+};
+
+/**
  * Cancel editing and reset form
  */
 export function cancelEdit() {
@@ -1964,7 +2089,12 @@ function renderPositionsTable(container, openPositions) {
                     ` : ''}
                     <button onclick="window.rollPosition(${pos.id})" 
                             style="display:inline-block; background: rgba(140,80,160,0.3); border: 1px solid rgba(140,80,160,0.5); color: #b9b; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
-                            title="Roll">🔄</button>
+                            title="Roll (enter new position details)">🔄</button>
+                    ${state.positions.some(p => p.id !== pos.id && p.ticker === pos.ticker && p.type === pos.type) ? `
+                    <button onclick="window.showMarkAsRolledModal(${pos.id})" 
+                            style="display:inline-block; background: rgba(255,140,0,0.3); border: 1px solid rgba(255,140,0,0.5); color: #fa0; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            title="Link to imported position (already rolled at broker)">🔗→</button>
+                    ` : ''}
                     ${hasRollHistory(pos) ? `
                     <button onclick="window.showRollHistory(${pos.chainId || pos.id})" 
                             style="display:inline-block; background: rgba(0,150,255,0.3); border: 1px solid rgba(0,150,255,0.5); color: #6bf; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
