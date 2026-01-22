@@ -646,7 +646,8 @@ const mainHandler = async (req, res, next) => {
         try {
             const data = req.body;
             const selectedModel = data.model || 'qwen2.5:7b';
-            console.log('[AI] Analyzing position:', data.ticker, 'with model:', selectedModel);
+            const useMoE = data.useMoE !== false; // Default to true for 32B
+            console.log('[AI] Analyzing position:', data.ticker, 'with model:', selectedModel, 'MoE:', useMoE);
             
             // Scale token limit based on model size - bigger models can give more insight
             const isLargeModel = selectedModel.includes('32b') || selectedModel.includes('70b') || selectedModel.includes('72b');
@@ -655,14 +656,33 @@ const mainHandler = async (req, res, next) => {
             // Build structured prompt from pre-computed data
             const prompt = buildTradePrompt(data, isLargeModel);
             
-            // Call Ollama with selected model
-            const response = await callOllama(prompt, selectedModel, tokenLimit);
+            let response;
+            let took = '';
+            let moeDetails = null;
+            
+            // Use Mixture of Experts for 32B model
+            if (isLargeModel && useMoE) {
+                const moeResult = await callMoE(prompt, data);
+                response = moeResult.response;
+                took = `MoE: ${moeResult.timing.total}ms (7B+14B: ${moeResult.timing.parallel}ms, 32B judge: ${moeResult.timing.judge}ms)`;
+                moeDetails = {
+                    opinions: moeResult.opinions,
+                    timing: moeResult.timing
+                };
+            } else {
+                // Single model call
+                const start = Date.now();
+                response = await callOllama(prompt, selectedModel, tokenLimit);
+                took = `${Date.now() - start}ms`;
+            }
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ 
                 success: true, 
                 insight: response,
-                model: selectedModel
+                model: selectedModel,
+                took,
+                moe: moeDetails
             }));
             console.log('[AI] ✅ Analysis complete');
         } catch (e) {
@@ -2178,6 +2198,79 @@ function callOllama(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
         req.write(postData);
         req.end();
     });
+}
+
+/**
+ * Mixture of Experts (MoE) approach
+ * 1. Run 7B and 14B in parallel with the same prompt
+ * 2. Pass both opinions to 32B for final nuanced decision
+ */
+async function callMoE(basePrompt, data) {
+    const startTime = Date.now();
+    console.log('[AI] 🧠 Starting MoE analysis (7B + 14B → 32B)...');
+    
+    // Build a shorter prompt for the smaller models (they just need to give a quick opinion)
+    const quickPrompt = `${basePrompt}
+
+IMPORTANT: Be concise. Give your recommendation in 2-3 sentences. Format:
+VERDICT: [HOLD/ROLL/CLOSE]
+REASON: [Brief explanation]
+${data.rollOptions?.creditRolls?.length > 0 || data.rollOptions?.riskReduction?.length > 0 ? 'PICK: [If rolling, which option and why]' : ''}`;
+
+    // Run 7B and 14B in parallel
+    console.log('[AI] ⚡ Running 7B and 14B in parallel...');
+    const [opinion7B, opinion14B] = await Promise.all([
+        callOllama(quickPrompt, 'qwen2.5:7b', 200).catch(e => `Error: ${e.message}`),
+        callOllama(quickPrompt, 'qwen2.5:14b', 200).catch(e => `Error: ${e.message}`)
+    ]);
+    
+    const parallelTime = Date.now() - startTime;
+    console.log(`[AI] ✓ Parallel phase done in ${parallelTime}ms`);
+    console.log('[AI] 7B opinion:', opinion7B.substring(0, 100) + '...');
+    console.log('[AI] 14B opinion:', opinion14B.substring(0, 100) + '...');
+    
+    // Now build the judge prompt for 32B
+    const judgePrompt = `You are a senior options trading advisor reviewing assessments from two junior analysts.
+
+═══ POSITION DATA ═══
+${basePrompt.split('═══')[1] || 'See below'}
+
+═══ ANALYST #1 (Quick Model) ═══
+${opinion7B}
+
+═══ ANALYST #2 (Standard Model) ═══
+${opinion14B}
+
+═══ YOUR TASK ═══
+As the senior advisor, synthesize both opinions and make the final call.
+
+If both analysts AGREE:
+- Confirm their recommendation with additional nuance
+- Explain why this consensus makes sense
+
+If they DISAGREE:
+- Adjudicate the disagreement
+- Explain which analyst's reasoning is more sound and why
+- Make the final call
+
+Your response format:
+1. [Your final pick] - The specific action to take (e.g., "Roll to $48 May 15 - $505 credit" or "HOLD - let expire")
+2. [Why this one] - 2-3 sentences synthesizing the analyst opinions
+3. [Key risk] - Main risk with this approach
+4. [Consensus note] - "Both analysts agreed" or "Overriding Analyst X because..."`;
+
+    // Call 32B as the judge
+    console.log('[AI] 👨‍⚖️ Running 32B as judge...');
+    const finalResponse = await callOllama(judgePrompt, 'qwen2.5:32b', 600);
+    
+    const totalTime = Date.now() - startTime;
+    console.log(`[AI] ✅ MoE complete in ${totalTime}ms (parallel: ${parallelTime}ms, judge: ${totalTime - parallelTime}ms)`);
+    
+    return {
+        response: finalResponse,
+        opinions: { '7B': opinion7B, '14B': opinion14B },
+        timing: { total: totalTime, parallel: parallelTime, judge: totalTime - parallelTime }
+    };
 }
 
 // Use main handler as Express middleware

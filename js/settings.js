@@ -616,11 +616,11 @@ async function refreshSchwabOrders() {
         
         const accountHash = accountSelect.value;
         
-        // Fetch orders from last 7 days
-        const toDate = new Date().toISOString().split('T')[0];
-        const fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        // Fetch orders from last 7 days - Schwab needs full ISO 8601 format
+        const toDate = new Date().toISOString();
+        const fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
         
-        const response = await fetch(`/api/schwab/accounts/${accountHash}/orders?fromEnteredTime=${fromDate}&toEnteredTime=${toDate}`);
+        const response = await fetch(`/api/schwab/accounts/${accountHash}/orders?fromEnteredTime=${encodeURIComponent(fromDate)}&toEnteredTime=${encodeURIComponent(toDate)}`);
         const data = await response.json();
         
         if (!data.success) {

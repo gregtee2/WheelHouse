@@ -1789,12 +1789,25 @@ async function getAIInsight() {
         const analysisHistory = window.getAnalysisHistory?.(positionId) || [];
         const hasHistory = analysisHistory.length > 1; // >1 because we just added one
         
+        // Build MoE indicator if used
+        const isMoE = result.moe && result.moe.opinions;
+        const moeIndicator = isMoE ? 
+            `<span style="color:#8b5cf6; margin-right:8px;" title="Mixture of Experts: 7B + 14B opinions synthesized by 32B">🧠 MoE</span>` : '';
+        
+        // Store MoE opinions for "View Opinions" button
+        if (isMoE) {
+            window._lastMoeOpinions = result.moe.opinions;
+        }
+        
         // Display the AI insight
         contentEl.innerHTML = `
             <div style="color:#ddd; line-height:1.6; white-space:pre-wrap; font-size:11px;">${formattedInsight}</div>
-            <div style="font-size:9px; color:#555; margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
-                <span>${selectedModel} • ${result.took || 'N/A'}</span>
-                ${hasHistory ? `<button onclick="window.showAnalysisHistory(${positionId})" style="background:none; border:1px solid #555; color:#888; padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px;">📜 History (${analysisHistory.length})</button>` : ''}
+            <div style="font-size:9px; color:#555; margin-top:8px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px;">
+                <span>${moeIndicator}${selectedModel} • ${result.took || 'N/A'}</span>
+                <div style="display:flex; gap:4px;">
+                    ${isMoE ? `<button onclick="window.showMoeOpinions()" style="background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#a78bfa; padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px;">👁️ View Opinions</button>` : ''}
+                    ${hasHistory ? `<button onclick="window.showAnalysisHistory(${positionId})" style="background:none; border:1px solid #555; color:#888; padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px;">📜 History (${analysisHistory.length})</button>` : ''}
+                </div>
             </div>
         `;
         
@@ -2056,8 +2069,67 @@ function showAnalysisHistory(positionId) {
     document.body.appendChild(modal);
 }
 
+/**
+ * Show the MoE opinions modal - displays what 7B and 14B said before 32B made the final call
+ */
+function showMoeOpinions() {
+    const opinions = window._lastMoeOpinions;
+    if (!opinions) {
+        alert('No MoE opinions available');
+        return;
+    }
+    
+    const modal = document.createElement('div');
+    modal.id = 'moeOpinionsModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); display:flex; align-items:center; justify-content:center; z-index:10000;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border-radius:12px; padding:20px; max-width:700px; width:90%; max-height:80vh; overflow-y:auto; border:1px solid #333;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h3 style="color:#fff; margin:0;">🧠 Mixture of Experts - Analyst Opinions</h3>
+                <button onclick="this.closest('#moeOpinionsModal').remove()" style="background:none; border:none; color:#888; font-size:20px; cursor:pointer;">&times;</button>
+            </div>
+            <div style="color:#888; font-size:11px; margin-bottom:16px;">
+                The 7B and 14B models ran in parallel, then 32B synthesized their opinions into the final recommendation.
+            </div>
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <!-- 7B Opinion -->
+                <div style="background:rgba(0,217,255,0.1); border:1px solid rgba(0,217,255,0.3); border-radius:8px; padding:12px;">
+                    <div style="color:#00d9ff; font-weight:bold; margin-bottom:8px; font-size:12px;">
+                        ⚡ Analyst #1 (Qwen 7B)
+                    </div>
+                    <div style="color:#ccc; font-size:11px; line-height:1.5; white-space:pre-wrap;">
+                        ${opinions['7B'] || 'No response'}
+                    </div>
+                </div>
+                
+                <!-- 14B Opinion -->
+                <div style="background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.3); border-radius:8px; padding:12px;">
+                    <div style="color:#ffaa00; font-weight:bold; margin-bottom:8px; font-size:12px;">
+                        📊 Analyst #2 (Qwen 14B)
+                    </div>
+                    <div style="color:#ccc; font-size:11px; line-height:1.5; white-space:pre-wrap;">
+                        ${opinions['14B'] || 'No response'}
+                    </div>
+                </div>
+            </div>
+            
+            <div style="margin-top:16px; padding-top:12px; border-top:1px solid #444; text-align:center;">
+                <span style="color:#8b5cf6; font-size:11px;">
+                    👨‍⚖️ The 32B model reviewed both opinions and made the final call shown above
+                </span>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+}
+
 // Make available globally
 window.showAnalysisHistory = showAnalysisHistory;
+window.showMoeOpinions = showMoeOpinions;
 
 // Make globally accessible
 window.getAIInsight = getAIInsight;
