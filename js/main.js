@@ -581,11 +581,10 @@ window.getTradeIdeas = async function() {
         // Debug: log raw response to see exact format
         console.log('Raw AI response:', result.ideas.substring(0, 500));
         
-        // First, add Deep Dive buttons BEFORE applying styling
-        // Handle both "1. TICKER" and "1. **TICKER" formats (AI sometimes bolds)
-        let formatted = result.ideas.replace(/^(\d+\.)\s*\*{0,2}([A-Z]{2,5})\s*@\s*\$[\d.]+\s*-\s*Sell\s*\$[\d.]+\s*put[^*]*\*{0,2}/gm, 
+        // Add Deep Dive buttons - match "1. TICKER @ $XX.XX" format
+        let formatted = result.ideas.replace(/^(\d+)\.\s*([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
-                console.log('Matched:', match.substring(0, 60), 'Ticker:', ticker);
+                console.log('Deep Dive match:', match, 'Ticker:', ticker);
                 return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;" title="Comprehensive scenario analysis">🔍 Deep Dive</button>`;
             });
         

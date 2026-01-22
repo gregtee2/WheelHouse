@@ -1222,7 +1222,20 @@ async function fetchWheelCandidatePrices(buyingPower, excludeTickers = []) {
         results.push(...batchResults.filter(r => r !== null));
     }
     
-    console.log(`[AI] Found ${results.length} affordable candidates with context data`);
+    // IMPORTANT: Sort to prefer better wheel candidates (lower range = near support)
+    // Keep all results for display, but sort so AI sees best candidates first
+    results.sort((a, b) => {
+        const rangeA = parseInt(a.rangePosition) || 50;
+        const rangeB = parseInt(b.rangePosition) || 50;
+        // Prefer lower range (0-50% = near lows = better put entry)
+        // Also penalize very high range (80%+)
+        const scoreA = rangeA < 50 ? 0 : (rangeA > 80 ? 2 : 1);
+        const scoreB = rangeB < 50 ? 0 : (rangeB > 80 ? 2 : 1);
+        if (scoreA !== scoreB) return scoreA - scoreB;
+        return rangeA - rangeB; // Within same tier, prefer lower
+    });
+    
+    console.log(`[AI] Found ${results.length} affordable candidates (sorted by range position - lower = better)`);
     return results;
 }
 
@@ -2231,6 +2244,11 @@ function buildIdeaPrompt(data, realPrices = []) {
 PRIORITIZE variety - pick from DIFFERENT sectors. Spread across all available sectors.
 If you see "Active Today" or "Trending" stocks, INCLUDE at least 2-3 of them - these are today's movers!
 
+═══ CRITICAL RULES ═══
+⚠️ NEVER pick stocks above 70% of range - they are EXTENDED and risky for puts!
+⚠️ PREFER stocks 0-50% of range - these are near SUPPORT = safer put entries
+⚠️ Negative month change is GOOD - pullbacks = better premium capture
+
 ═══ ACCOUNT ═══
 Buying Power: $${buyingPower?.toLocaleString() || '25,000'}
 Target ROC: ${targetAnnualROC || 25}%/year
@@ -2243,15 +2261,20 @@ ${sectorsToAvoid ? `Avoid sectors: ${sectorsToAvoid}` : ''}
 ${priceData}
 
 ═══ WHEEL STRATEGY CRITERIA ═══
-Good candidates have:
-- Price LOW in its range (e.g., 20-40% = near support, good entry)
-- Recent pullback (negative month change = cheaper premiums)
-- NO earnings before expiry (or use shorter expiry)
-- Strike ~10% below current = support level
+✅ IDEAL candidates (PICK THESE):
+- Range 0-40%: NEAR LOWS = excellent put entry
+- Negative month change: pullback = juicy premium
+- NO earnings before expiry
+- Strike ~10% below current
 
-Avoid:
-- Price HIGH in range (80%+ = extended, risky to sell puts)
-- Earnings between now and expiry (unless you want the IV crush gamble)
+⚠️ OKAY candidates (use judgment):
+- Range 40-65%: mid-range = acceptable if other factors align
+- Small positive month gain (<5%): not ideal but workable
+
+❌ DO NOT PICK (skip these entirely):
+- Range 70%+: EXTENDED, high risk of assignment
+- Range 100%: AT MONTHLY HIGH - worst possible put entry
+- Large positive month gain (>10%): chasing momentum
 
 ═══ FORMAT (exactly like this) ═══
 1. [TICKER] @ $XX.XX - Sell $XX put, ${expiryDates[0]?.date || 'Feb 21'}
@@ -2262,7 +2285,7 @@ Avoid:
 2. ... (continue through 10)
 
 Give me 10 different ideas from DIFFERENT sectors. USE THE DATA. Copy the Capital value from the candidate data.
-If you see stocks marked "Active Today" or "Trending", prioritize those - they're today's opportunity!`;
+SKIP any stock above 70% of range - those are extended and risky!`;
 }
 
 // Call Ollama API
