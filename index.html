@@ -426,6 +426,19 @@ Examples:
                             <div class="result-row"><span class="result-label" title="Average loss when assigned = (Strike - Avg Price - Premium) × 100 × Contracts. This is a realistic loss estimate based on simulation, not worst-case.">Expected Loss:</span><span class="result-value put" id="expectedLoss">—</span></div>
                         </div>
                     </div>
+                    
+                    <!-- Margin Impact Box -->
+                    <div class="results-box" id="marginImpactBox" style="display:none; background:rgba(255,170,0,0.08); border:1px solid rgba(255,170,0,0.3);">
+                        <h3 style="font-size:12px; color:#ffaa00;">💳 Margin Impact <span id="marginOptionType" style="font-weight:normal; color:#888;">(Short Put)</span></h3>
+                        <div class="metrics-grid">
+                            <div class="result-row"><span class="result-label" title="Margin requirement for this short option">Margin Required:</span><span class="result-value" id="marginRequired">—</span></div>
+                            <div class="result-row"><span class="result-label" title="Your current buying power from Schwab">Your Buying Power:</span><span class="result-value" id="marginBuyingPower">—</span></div>
+                            <div class="result-row"><span class="result-label" title="Buying power remaining after this trade">After Trade:</span><span class="result-value" id="marginAfterTrade">—</span></div>
+                            <div class="result-row"><span class="result-label" title="What % of your buying power this trade uses">BP Utilization:</span><span class="result-value" id="marginUtilization">—</span></div>
+                        </div>
+                        <div id="marginVerdict" style="margin-top:8px; padding:6px 8px; border-radius:4px; font-size:11px; text-align:center;"></div>
+                        <div id="marginCoveredNote" style="display:none; margin-top:6px; font-size:10px; color:#888; text-align:center;">💡 Covered calls don't require margin if you own the shares</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -832,6 +845,36 @@ Entry: $3.75"
         <div class="tab-content" id="portfolio">
             <div class="main-grid">
                 <div class="canvas-section" style="overflow-y: auto;">
+                    <!-- Account Balances Banner -->
+                    <div id="accountBalancesBanner" style="display:none; background:linear-gradient(135deg, rgba(0,217,255,0.12), rgba(0,255,136,0.08)); border:1px solid rgba(0,217,255,0.3); border-radius:10px; padding:12px 16px; margin-bottom:15px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div style="display:flex; gap:30px; flex-wrap:wrap;">
+                                <div style="text-align:center;">
+                                    <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Cash Available</div>
+                                    <div id="balCashAvailable" style="font-size:20px; font-weight:600; color:#00ff88;">—</div>
+                                </div>
+                                <div style="text-align:center;">
+                                    <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Buying Power</div>
+                                    <div id="balBuyingPower" style="font-size:20px; font-weight:600; color:#00d9ff;">—</div>
+                                </div>
+                                <div style="text-align:center;">
+                                    <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Account Value</div>
+                                    <div id="balAccountValue" style="font-size:20px; font-weight:600; color:#fff;">—</div>
+                                </div>
+                                <div style="text-align:center;">
+                                    <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Margin Used</div>
+                                    <div id="balMarginUsed" style="font-size:20px; font-weight:600; color:#ffaa00;">—</div>
+                                </div>
+                                <div style="text-align:center;">
+                                    <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Day Trade BP</div>
+                                    <div id="balDayTradeBP" style="font-size:20px; font-weight:600; color:#888;">—</div>
+                                </div>
+                            </div>
+                            <button id="refreshBalancesBtn" style="background:transparent; border:1px solid rgba(0,217,255,0.4); color:#00d9ff; padding:6px 10px; border-radius:5px; cursor:pointer; font-size:11px;" title="Refresh balances from Schwab">🔄</button>
+                        </div>
+                        <div id="balanceLastUpdated" style="font-size:10px; color:#666; margin-top:6px; text-align:right;">—</div>
+                    </div>
+                    
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                         <h3 style="color:var(--accent-cyan); margin:0;">💼 Portfolio P&L Tracker</h3>
                         <div style="display:flex; gap:12px; align-items:center;">

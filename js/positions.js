@@ -2081,7 +2081,7 @@ function renderPositionsTable(container, openPositions) {
                     <th style="padding: 6px; text-align: right; width: 30px;">DTE</th>
                     <th style="padding: 6px; text-align: right; width: 45px;">Credit</th>
                     <th style="padding: 6px; text-align: right; width: 40px;" title="Annualized Return on Capital">Ann%</th>
-                    <th style="padding: 6px; text-align: center; width: 100px;">Actions</th>
+                    <th style="padding: 6px; text-align: left; min-width: 180px;">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -2191,57 +2191,59 @@ function renderPositionsTable(container, openPositions) {
                 <td style="padding: 6px; text-align: right; color: ${annualRocColor}; font-weight: bold;">
                     ${isSpread || isDebitPosition(pos.type) || isSkip ? '—' : annualRoc.toFixed(0) + '%'}
                 </td>
-                <td style="padding: 4px; text-align: center; white-space: nowrap;">
+                <td style="padding: 4px; text-align: left;">
+                    <div style="display: flex; flex-wrap: nowrap; gap: 4px; justify-content: flex-start; align-items: center; padding-left: 4px;">
                     ${isSkip ? `
                     <button onclick="window.showSkipExplanation(${pos.id})" 
-                            style="display:inline-block; background: rgba(0,217,255,0.3); border: 1px solid rgba(0,217,255,0.5); color: #0df; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(0,217,255,0.3); border: 1px solid rgba(0,217,255,0.5); color: #0df; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="SKIP™ Strategy Explanation">🎯</button>
                     ` : isSpread ? `
                     <button onclick="window.showSpreadExplanation(${pos.id})" 
-                            style="display:inline-block; background: rgba(139,92,246,0.3); border: 1px solid rgba(139,92,246,0.5); color: #b9f; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(139,92,246,0.3); border: 1px solid rgba(139,92,246,0.5); color: #b9f; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="AI Spread Explanation">🤖</button>
                     ` : `
                     <button onclick="window.loadPositionToAnalyze(${pos.id})" 
-                            style="display:inline-block; background: rgba(0,180,220,0.3); border: 1px solid rgba(0,180,220,0.5); color: #6dd; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(0,180,220,0.3); border: 1px solid rgba(0,180,220,0.5); color: #6dd; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Analyze">📊</button>
                     `}
                     ${pos.openingThesis ? `
                     <button onclick="window.runPositionCheckup(${pos.id})" 
-                            style="display:inline-block; background: rgba(0,255,136,0.3); border: 1px solid rgba(0,255,136,0.5); color: #0f8; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(0,255,136,0.3); border: 1px solid rgba(0,255,136,0.5); color: #0f8; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Thesis Checkup - Compare opening assumptions to current state">🩺</button>
-                    ` : ''}
+                    ` : `<div style="width: 28px;"></div>`}
                     <button onclick="window.showClosePanel(${pos.id})" 
-                            style="display:inline-block; background: rgba(80,180,80,0.3); border: 1px solid rgba(80,180,80,0.5); color: #6c6; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(80,180,80,0.3); border: 1px solid rgba(80,180,80,0.5); color: #6c6; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Close">✅</button>
                     ${pos.type.includes('put') ? `
                     <button onclick="window.assignPosition(${pos.id})" 
-                            style="display:inline-block; background: rgba(255,140,0,0.3); border: 1px solid rgba(255,140,0,0.5); color: #fa0; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(255,140,0,0.3); border: 1px solid rgba(255,140,0,0.5); color: #fa0; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Got Assigned - Take Shares">📦</button>
-                    ` : ''}
+                    ` : `<div style="width: 28px;"></div>`}
                     ${pos.type.includes('call') && (state.holdings || []).some(h => h.ticker === pos.ticker) ? `
                     <button onclick="window.calledAway(${pos.id})" 
-                            style="display:inline-block; background: rgba(255,215,0,0.3); border: 1px solid rgba(255,215,0,0.5); color: #fd0; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(255,215,0,0.3); border: 1px solid rgba(255,215,0,0.5); color: #fd0; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Shares Called Away">🎯</button>
-                    ` : ''}
+                    ` : `<div style="width: 28px;"></div>`}
                     <button onclick="window.rollPosition(${pos.id})" 
-                            style="display:inline-block; background: rgba(140,80,160,0.3); border: 1px solid rgba(140,80,160,0.5); color: #b9b; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(140,80,160,0.3); border: 1px solid rgba(140,80,160,0.5); color: #b9b; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Roll (enter new position details)">🔄</button>
                     ${state.positions.some(p => p.id !== pos.id && p.ticker === pos.ticker) ? `
                     <button onclick="window.showMarkAsRolledModal(${pos.id})" 
-                            style="display:inline-block; background: rgba(255,140,0,0.3); border: 1px solid rgba(255,140,0,0.5); color: #fa0; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(255,140,0,0.3); border: 1px solid rgba(255,140,0,0.5); color: #fa0; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Link to imported position (already rolled at broker)">🔗→</button>
-                    ` : ''}
+                    ` : `<div style="width: 28px;"></div>`}
                     ${hasRollHistory(pos) ? `
                     <button onclick="window.showRollHistory(${pos.chainId || pos.id})" 
-                            style="display:inline-block; background: rgba(0,150,255,0.3); border: 1px solid rgba(0,150,255,0.5); color: #6bf; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(0,150,255,0.3); border: 1px solid rgba(0,150,255,0.5); color: #6bf; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="View Roll History">🔗</button>
-                    ` : ''}
+                    ` : `<div style="width: 28px;"></div>`}
                     <button onclick="window.editPosition(${pos.id})" 
-                            style="display:inline-block; background: rgba(200,160,60,0.3); border: 1px solid rgba(200,160,60,0.5); color: #db9; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(200,160,60,0.3); border: 1px solid rgba(200,160,60,0.5); color: #db9; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Edit">✏️</button>
                     <button onclick="window.deletePosition(${pos.id})" 
-                            style="display:inline-block; background: rgba(180,80,80,0.3); border: 1px solid rgba(180,80,80,0.5); color: #c88; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
+                            style="width: 28px; background: rgba(180,80,80,0.3); border: 1px solid rgba(180,80,80,0.5); color: #c88; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Delete">✕</button>
+                    </div>
                 </td>
             </tr>
         `;

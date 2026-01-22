@@ -275,6 +275,130 @@ function calculateIsItWorthIt(expectedValue, isPut, premium, contracts) {
     setEl('kellyPct', kellyPct.toFixed(1) + '%', () => kellyPct > 0 ? '#00ff88' : '#ff5252');
     setEl('avgIfAssigned', assignedCount > 0 ? `$${avgPriceIfAssigned.toFixed(2)}` : 'N/A');
     setEl('expectedLoss', expectedLossIfAssigned > 0 ? `-$${expectedLossIfAssigned.toFixed(0)}` : '$0');
+    
+    // Calculate margin impact for short options (puts and naked calls)
+    calculateMarginImpact(state.spot, state.strike, premium, contracts, isPut);
+}
+
+/**
+ * Calculate margin impact for selling a short option (put or call)
+ * Uses Schwab's standard margin formula:
+ * 
+ * SHORT PUT:
+ *   Margin = max(20% of stock - OTM amount + premium, 10% of strike + premium)
+ * 
+ * SHORT CALL (naked):
+ *   Margin = max(20% of stock + OTM amount + premium, 10% of stock + premium)
+ * 
+ * Note: Covered calls don't require margin if you own the shares
+ */
+async function calculateMarginImpact(spot, strike, premium, contracts, isPut) {
+    const marginBox = document.getElementById('marginImpactBox');
+    if (!marginBox) return;
+    
+    let totalMarginRequired;
+    let marginType;
+    
+    if (isPut) {
+        // SHORT PUT margin
+        const otmAmount = Math.max(0, spot - strike);  // Positive if OTM
+        const optionA = (0.20 * spot - otmAmount + premium) * 100;
+        const optionB = (0.10 * strike + premium) * 100;
+        const marginPerContract = Math.max(optionA, optionB);
+        totalMarginRequired = marginPerContract * contracts;
+        marginType = 'Short Put';
+        
+        console.log(`[MARGIN] PUT: Spot=$${spot}, Strike=$${strike}, Premium=$${premium}`);
+        console.log(`[MARGIN] OTM=$${otmAmount.toFixed(2)}, OptionA=$${optionA.toFixed(0)}, OptionB=$${optionB.toFixed(0)}`);
+    } else {
+        // SHORT CALL margin (naked call - assumes no shares owned)
+        const otmAmount = Math.max(0, strike - spot);  // Positive if OTM
+        const optionA = (0.20 * spot + otmAmount + premium) * 100;
+        const optionB = (0.10 * spot + premium) * 100;
+        const marginPerContract = Math.max(optionA, optionB);
+        totalMarginRequired = marginPerContract * contracts;
+        marginType = 'Short Call';
+        
+        console.log(`[MARGIN] CALL: Spot=$${spot}, Strike=$${strike}, Premium=$${premium}`);
+        console.log(`[MARGIN] OTM=$${otmAmount.toFixed(2)}, OptionA=$${optionA.toFixed(0)}, OptionB=$${optionB.toFixed(0)}`);
+    }
+    
+    console.log(`[MARGIN] ${marginType}: $${totalMarginRequired.toFixed(0)} required`);
+    
+    // Update the option type label
+    const typeLabel = document.getElementById('marginOptionType');
+    if (typeLabel) typeLabel.textContent = `(${marginType})`;
+    
+    // Show covered call note for calls
+    const coveredNote = document.getElementById('marginCoveredNote');
+    if (coveredNote) coveredNote.style.display = isPut ? 'none' : 'block';
+    
+    // Fetch current buying power from Schwab
+    let buyingPower = null;
+    try {
+        const res = await fetch('/api/schwab/accounts');
+        if (res.ok) {
+            const accounts = await res.json();
+            const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
+            buyingPower = marginAccount?.securitiesAccount?.currentBalances?.buyingPower;
+        }
+    } catch (e) {
+        console.log('[MARGIN] Could not fetch buying power:', e.message);
+    }
+    
+    // Format helper
+    const fmt = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    
+    // Update display
+    document.getElementById('marginRequired').textContent = fmt(totalMarginRequired);
+    
+    if (buyingPower !== null) {
+        const afterTrade = buyingPower - totalMarginRequired;
+        const utilization = (totalMarginRequired / buyingPower) * 100;
+        
+        document.getElementById('marginBuyingPower').textContent = fmt(buyingPower);
+        document.getElementById('marginBuyingPower').style.color = '#00d9ff';
+        
+        document.getElementById('marginAfterTrade').textContent = fmt(afterTrade);
+        document.getElementById('marginAfterTrade').style.color = afterTrade > 0 ? '#00ff88' : '#ff5252';
+        
+        document.getElementById('marginUtilization').textContent = utilization.toFixed(1) + '%';
+        document.getElementById('marginUtilization').style.color = utilization < 25 ? '#00ff88' : utilization < 50 ? '#ffaa00' : '#ff5252';
+        
+        // Verdict
+        const verdictEl = document.getElementById('marginVerdict');
+        if (afterTrade < 0) {
+            verdictEl.innerHTML = '❌ <strong>INSUFFICIENT MARGIN</strong> - You need $' + fmt(Math.abs(afterTrade)).replace('$','') + ' more buying power';
+            verdictEl.style.background = 'rgba(255,82,82,0.2)';
+            verdictEl.style.color = '#ff5252';
+        } else if (utilization > 50) {
+            verdictEl.innerHTML = '⚠️ <strong>HIGH UTILIZATION</strong> - This uses ' + utilization.toFixed(0) + '% of your buying power';
+            verdictEl.style.background = 'rgba(255,170,0,0.2)';
+            verdictEl.style.color = '#ffaa00';
+        } else if (utilization > 25) {
+            verdictEl.innerHTML = '✓ <strong>OK</strong> - Uses ' + utilization.toFixed(0) + '% of buying power';
+            verdictEl.style.background = 'rgba(0,217,255,0.2)';
+            verdictEl.style.color = '#00d9ff';
+        } else {
+            verdictEl.innerHTML = '✅ <strong>LOW IMPACT</strong> - Only uses ' + utilization.toFixed(0) + '% of buying power';
+            verdictEl.style.background = 'rgba(0,255,136,0.2)';
+            verdictEl.style.color = '#00ff88';
+        }
+    } else {
+        // No Schwab connection
+        document.getElementById('marginBuyingPower').textContent = '—';
+        document.getElementById('marginBuyingPower').style.color = '#888';
+        document.getElementById('marginAfterTrade').textContent = '—';
+        document.getElementById('marginUtilization').textContent = '—';
+        
+        const verdictEl = document.getElementById('marginVerdict');
+        verdictEl.innerHTML = '💡 Connect Schwab to see if you can afford this trade';
+        verdictEl.style.background = 'rgba(255,255,255,0.1)';
+        verdictEl.style.color = '#888';
+    }
+    
+    // Show the box
+    marginBox.style.display = 'block';
 }
 
 /**

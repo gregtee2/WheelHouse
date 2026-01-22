@@ -2068,7 +2068,7 @@ window.renderPendingTrades = function() {
                         <th style="padding:6px;">Credit</th>
                         <th style="padding:6px;">Ann%</th>
                         <th style="padding:6px;">Staged</th>
-                        <th style="padding:6px;">Actions</th>
+                        <th style="padding:6px; min-width:180px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2082,19 +2082,28 @@ window.renderPendingTrades = function() {
                             <td style="padding:8px; color:${p.annReturn && parseFloat(p.annReturn) >= 25 ? '#00ff88' : '#ffaa00'};">${p.annReturn ? p.annReturn + '%' : '-'}</td>
                             <td style="padding:8px; color:#888;">${new Date(p.stagedAt).toLocaleDateString()}</td>
                             <td style="padding:8px;">
-                                <button onclick="window.showTickerChart('${p.ticker}')" 
-                                        title="View 3-month chart with Bollinger Bands"
-                                        style="background:#00d9ff; color:#000; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; margin-right:4px;">
-                                    📊
-                                </button>
-                                <button onclick="window.confirmStagedTrade(${p.id})" 
-                                        style="background:#00ff88; color:#000; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; margin-right:4px;">
-                                    ✓ Confirm
-                                </button>
-                                <button onclick="window.removeStagedTrade(${p.id})" 
-                                        style="background:#ff5252; color:#fff; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px;">
-                                    ✕
-                                </button>
+                                <div style="display:flex; flex-wrap:nowrap; gap:4px; justify-content:flex-start;">
+                                    <button onclick="window.checkMarginForTrade('${p.ticker}', ${p.strike}, ${p.premium || 0})" 
+                                            title="Check margin requirement"
+                                            style="background:#ffaa00; color:#000; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:11px; white-space:nowrap;">
+                                        💳
+                                    </button>
+                                    <button onclick="window.showTickerChart('${p.ticker}')" 
+                                            title="View 3-month chart"
+                                            style="background:#00d9ff; color:#000; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:11px; white-space:nowrap;">
+                                        📊
+                                    </button>
+                                    <button onclick="window.confirmStagedTrade(${p.id})" 
+                                            title="Confirm trade executed"
+                                            style="background:#00ff88; color:#000; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; white-space:nowrap;">
+                                        ✓ Confirm
+                                    </button>
+                                    <button onclick="window.removeStagedTrade(${p.id})" 
+                                            title="Remove staged trade"
+                                            style="background:#ff5252; color:#fff; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:11px; white-space:nowrap;">
+                                        ✕
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     `).join('')}
@@ -2313,6 +2322,141 @@ window.removeStagedTrade = function(id) {
     localStorage.setItem('wheelhouse_pending', JSON.stringify(updated));
     renderPendingTrades();
     showNotification('Staged trade removed', 'info');
+};
+
+/**
+ * Check margin requirement for a pending trade
+ */
+window.checkMarginForTrade = async function(ticker, strike, premium) {
+    // First fetch current stock price
+    let spot = null;
+    try {
+        // Try Schwab first
+        const schwabRes = await fetch(`/api/schwab/quotes?symbols=${ticker}`);
+        if (schwabRes.ok) {
+            const data = await schwabRes.json();
+            spot = data[ticker]?.quote?.lastPrice || data[ticker]?.quote?.mark;
+        }
+        
+        // Fallback to Yahoo
+        if (!spot) {
+            const yahooRes = await fetch(`/api/yahoo/quote/${ticker}`);
+            if (yahooRes.ok) {
+                const data = await yahooRes.json();
+                spot = data.price;
+            }
+        }
+    } catch (e) {
+        console.log('[MARGIN] Price fetch error:', e);
+    }
+    
+    if (!spot) {
+        showNotification(`Could not fetch ${ticker} price`, 'error');
+        return;
+    }
+    
+    // Calculate margin requirement for SHORT PUT
+    // Margin = max(20% of stock - OTM amount + premium, 10% of strike + premium)
+    const otmAmount = Math.max(0, spot - strike);  // Positive if OTM
+    const optionA = (0.20 * spot - otmAmount + premium) * 100;
+    const optionB = (0.10 * strike + premium) * 100;
+    const marginRequired = Math.max(optionA, optionB);
+    
+    // Fetch buying power
+    let buyingPower = null;
+    try {
+        const res = await fetch('/api/schwab/accounts');
+        if (res.ok) {
+            const accounts = await res.json();
+            const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
+            buyingPower = marginAccount?.securitiesAccount?.currentBalances?.buyingPower;
+        }
+    } catch (e) {
+        console.log('[MARGIN] Account fetch error:', e);
+    }
+    
+    // Format helper
+    const fmt = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    
+    // Build verdict
+    let verdict, verdictColor, verdictBg;
+    if (buyingPower !== null) {
+        const afterTrade = buyingPower - marginRequired;
+        const utilization = (marginRequired / buyingPower) * 100;
+        
+        if (afterTrade < 0) {
+            verdict = `❌ INSUFFICIENT - Need ${fmt(Math.abs(afterTrade))} more BP`;
+            verdictColor = '#ff5252';
+            verdictBg = 'rgba(255,82,82,0.2)';
+        } else if (utilization > 50) {
+            verdict = `⚠️ HIGH - Uses ${utilization.toFixed(0)}% of BP (${fmt(afterTrade)} left)`;
+            verdictColor = '#ffaa00';
+            verdictBg = 'rgba(255,170,0,0.2)';
+        } else {
+            verdict = `✅ OK - Uses ${utilization.toFixed(0)}% of BP (${fmt(afterTrade)} left)`;
+            verdictColor = '#00ff88';
+            verdictBg = 'rgba(0,255,136,0.2)';
+        }
+    } else {
+        verdict = '💡 Connect Schwab to check if you can afford this';
+        verdictColor = '#888';
+        verdictBg = 'rgba(255,255,255,0.1)';
+    }
+    
+    // Show modal
+    document.getElementById('marginCheckModal')?.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'marginCheckModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:10000;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border-radius:12px; padding:24px; border:2px solid #ffaa00; max-width:400px; width:90%;">
+            <h3 style="color:#ffaa00; margin:0 0 16px 0;">💳 Margin Check: ${ticker}</h3>
+            
+            <div style="background:#0d0d1a; border-radius:8px; padding:12px; margin-bottom:16px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <span style="color:#888;">Stock Price:</span>
+                    <span style="color:#fff;">${fmt(spot)}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <span style="color:#888;">Put Strike:</span>
+                    <span style="color:#ffaa00;">${fmt(strike)}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <span style="color:#888;">Premium:</span>
+                    <span style="color:#00ff88;">$${premium.toFixed(2)}</span>
+                </div>
+                <div style="border-top:1px solid #333; padding-top:8px; margin-top:8px;">
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="color:#888;">Margin Required:</span>
+                        <span style="color:#fff; font-weight:bold; font-size:16px;">${fmt(marginRequired)}</span>
+                    </div>
+                </div>
+            </div>
+            
+            ${buyingPower !== null ? `
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <span style="color:#888;">Your Buying Power:</span>
+                    <span style="color:#00d9ff;">${fmt(buyingPower)}</span>
+                </div>
+            ` : ''}
+            
+            <div style="background:${verdictBg}; border-radius:8px; padding:12px; text-align:center; color:${verdictColor}; font-weight:bold;">
+                ${verdict}
+            </div>
+            
+            <div style="margin-top:16px; text-align:center;">
+                <button onclick="document.getElementById('marginCheckModal').remove()" 
+                        style="background:#333; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer;">
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
 };
 
 /**
@@ -2791,6 +2935,8 @@ function setupTabs() {
             // Tab-specific initialization
             if (targetId === 'portfolio') {
                 renderPortfolio(true); // Fetch fresh prices
+                // Also fetch account balances
+                if (window.fetchAccountBalances) window.fetchAccountBalances();
             } else if (targetId === 'pnl') {
                 // Auto-run pricing if not already done
                 if (!state.optionResults?.finalPrices) {

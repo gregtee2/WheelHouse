@@ -520,19 +520,34 @@ export async function fetchTickerPrice(tickerOverride = null) {
                 statusEl.style.color = '#00ff88';
             }
             
-            // Suggest barriers
+            // Suggest barriers based on volatility
             const spread = state.optVol > 0.5 ? 0.20 : 0.15;
             const suggestedLower = Math.round(price * (1 - spread));
             const suggestedUpper = Math.round(price * (1 + spread));
             
+            // Auto-fill the barrier inputs
+            const lowerBarrierSlider = document.getElementById('lowerSlider');
+            const lowerBarrierInput = document.getElementById('lowerInput');
+            const upperBarrierSlider = document.getElementById('upperSlider');
+            const upperBarrierInput = document.getElementById('upperInput');
+            
+            if (lowerBarrierSlider) lowerBarrierSlider.value = suggestedLower;
+            if (lowerBarrierInput) lowerBarrierInput.value = suggestedLower;
+            if (upperBarrierSlider) upperBarrierSlider.value = suggestedUpper;
+            if (upperBarrierInput) upperBarrierInput.value = suggestedUpper;
+            
+            // Update state
+            state.lowerBarrier = suggestedLower;
+            state.upperBarrier = suggestedUpper;
+            
             if (statusEl) {
                 setTimeout(() => {
-                    statusEl.textContent = `💡 Suggested barriers: $${suggestedLower} / $${suggestedUpper}`;
-                    statusEl.style.color = '#ffaa00';
-                }, 2000);
+                    statusEl.innerHTML = `💡 Suggested barriers: <span style="cursor:pointer; text-decoration:underline;" onclick="document.getElementById('lowerInput').value=${suggestedLower}; document.getElementById('lowerSlider').value=${suggestedLower}; document.getElementById('upperInput').value=${suggestedUpper}; document.getElementById('upperSlider').value=${suggestedUpper};">$${suggestedLower} / $${suggestedUpper}</span> (auto-filled)`;
+                    statusEl.style.color = '#00ff88';
+                }, 1500);
             }
             
-            showNotification(`${ticker}: $${price.toFixed(2)}`, 'success');
+            showNotification(`${ticker}: $${price.toFixed(2)} - Barriers set to $${suggestedLower}/$${suggestedUpper}`, 'success');
         } else {
             throw new Error('Price not found');
         }

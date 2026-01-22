@@ -2,7 +2,43 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
-## [Unreleased]
+## [1.8.0] - 2026-01-22
+
+### Added
+- **💳 Margin Impact Calculator** - See if you can afford to sell an option
+  - Shows margin requirement for short puts AND short calls
+  - Compares to your current buying power from Schwab
+  - Shows remaining buying power after trade
+  - BP Utilization percentage with color coding
+  - Verdict: "Low Impact" / "OK" / "High Utilization" / "Insufficient Margin"
+  - Note for covered calls (no margin if you own shares)
+
+- **💳 Margin Check on Pending Trades** - New button in Pending Trades section
+  - Click 💳 to instantly check if you can afford the trade
+  - Fetches live stock price (Schwab → Yahoo fallback)
+  - Shows modal with margin required vs your buying power
+  - Clear verdict: ✅ OK / ⚠️ HIGH / ❌ INSUFFICIENT
+
+- **🎯 Auto-Fill Barriers** - Suggested barriers now auto-populate
+  - When fetching a ticker, barriers are auto-set based on volatility
+  - High vol (>50%): ±20% from spot
+  - Normal vol: ±15% from spot
+  - No more manual entry needed
+
+- **💰 Portfolio Balances Banner** - See your Schwab account info at a glance
+  - Cash Available, Buying Power, Account Value, Margin Used, Day Trade BP
+  - Auto-fetches when opening Portfolio tab
+  - 🔄 button to manually refresh
+  - Only shows when Schwab is connected
+
+### Changed
+- **🔧 Positions Actions Column** - Cleaner, aligned button layout
+  - All buttons now fixed-width (28px) for consistent vertical alignment
+  - Invisible placeholders hold space for conditional buttons (Assign, Called Away, etc.)
+  - No more jumbled/misaligned buttons across different position types
+  - Flexbox layout with proper 4px gaps
+
+## [1.7.0] - 2026-01-21
 
 ### Added
 - **🤖 AI Holding Suggestions with Model Toggle** - Choose Grok (best) or Ollama (free)

@@ -9,6 +9,91 @@ import { saveHoldingsToStorage } from './positions.js';
 const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
 
+// ============================================================
+// ACCOUNT BALANCES
+// ============================================================
+
+/**
+ * Fetch and display Schwab account balances
+ */
+export async function fetchAccountBalances() {
+    const banner = document.getElementById('accountBalancesBanner');
+    if (!banner) return;
+    
+    try {
+        const res = await fetch('/api/schwab/accounts');
+        if (!res.ok) {
+            console.log('[BALANCES] Schwab not connected or auth failed');
+            banner.style.display = 'none';
+            return;
+        }
+        
+        const accounts = await res.json();
+        
+        // Find the main trading account (MARGIN type preferred, or first with balances)
+        const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
+        const account = marginAccount || accounts.find(a => a.securitiesAccount?.currentBalances);
+        
+        if (!account?.securitiesAccount?.currentBalances) {
+            console.log('[BALANCES] No balance data found');
+            banner.style.display = 'none';
+            return;
+        }
+        
+        const bal = account.securitiesAccount.currentBalances;
+        const fmt = (v) => {
+            if (v === undefined || v === null) return '—';
+            return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+        
+        // Update display - use correct Schwab field names
+        document.getElementById('balCashAvailable').textContent = fmt(bal.availableFunds ?? bal.cashBalance);
+        document.getElementById('balBuyingPower').textContent = fmt(bal.buyingPower);
+        document.getElementById('balAccountValue').textContent = fmt(bal.equity ?? bal.liquidationValue);
+        document.getElementById('balMarginUsed').textContent = fmt(bal.marginBalance || 0);
+        document.getElementById('balDayTradeBP').textContent = fmt(bal.dayTradingBuyingPower);
+        
+        // Timestamp
+        const now = new Date();
+        document.getElementById('balanceLastUpdated').textContent = `Updated ${now.toLocaleTimeString()}`;
+        
+        // Show the banner
+        banner.style.display = 'block';
+        
+        console.log('[BALANCES] Displayed:', {
+            cash: bal.cashAvailableForTrading,
+            buyingPower: bal.buyingPower,
+            equity: bal.liquidationValue
+        });
+        
+    } catch (e) {
+        console.log('[BALANCES] Error:', e.message);
+        banner.style.display = 'none';
+    }
+}
+
+// Initialize balance refresh button
+document.addEventListener('DOMContentLoaded', () => {
+    const refreshBtn = document.getElementById('refreshBalancesBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            fetchAccountBalances();
+            showNotification('Refreshing balances...', 'info', 1500);
+        });
+    }
+    
+    // Auto-fetch balances when Portfolio tab is opened
+    document.querySelectorAll('[data-tab="portfolio"]').forEach(tab => {
+        tab.addEventListener('click', () => {
+            // Small delay to ensure tab is visible
+            setTimeout(fetchAccountBalances, 100);
+        });
+    });
+});
+
+// Export for use in main.js init
+window.fetchAccountBalances = fetchAccountBalances;
+
 /**
  * Check if a position type is a debit (you pay premium)
  * Debit positions: long_call, long_put, debit spreads
