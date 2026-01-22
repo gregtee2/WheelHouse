@@ -1866,7 +1866,7 @@ Be specific with dollar amounts and percentages. Don't be vague.`;
             body: JSON.stringify({
                 ticker: holding.ticker,
                 customPrompt: prompt,
-                model: 'qwen2.5:14b'
+                model: 'qwen2.5:32b'
             })
         });
         
