@@ -2,6 +2,46 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.8.0] - 2026-01-21
+
+### Added
+- **Schwab API Integration** - Real-time option pricing from your brokerage
+  - Schwab-first pricing with CBOE fallback
+  - Full Greeks: Delta, Theta, Gamma, IV directly from Schwab
+  - Win probability calculated from delta
+  - Data source indicator: 🔴 Schwab (real-time) vs 🔵 CBOE (delayed)
+
+- **Smart Strike Lookup** - No more guessing invalid strikes
+  - Fetches ALL available strikes from Schwab (`strikeCount=50`)
+  - Finds closest match to requested strike
+  - Shows adjustment: "⚠️ Using actual strike $150 (requested $152)"
+
+- **TradingView Charts for Staged Trades** - Pre-trade analysis
+  - 📊 Chart button on each pending trade
+  - 3-month chart with Bollinger Bands
+  - Dark theme matching WheelHouse UI
+  - Check if stock is oversold before entering
+
+- **Friday Expiry Validation** - Options never expire on weekends
+  - `snapToFriday()` auto-corrects AI dates (Feb 21 → Feb 20)
+  - Prompt now shows exact valid Friday expiry dates
+  - No more invalid Saturday/Sunday expirations
+
+- **AI Trade Ideas Generator Improvements**
+  - 54 curated stocks + Yahoo Most Active + Trending discovery
+  - 10 ideas per run (was 3)
+  - Range position filtering (rejects stocks >70% of range)
+  - "Show Different Stocks" button for variety
+  - 15-minute cache for Yahoo rate limiting
+
+### Fixed
+- **IV Display Bug** - Was showing 6500% instead of 65% (×100 error)
+- **Deep Dive Buttons** - Regex now handles **bold** markdown format
+- **localStorage Persistence** - Trade ideas cached for 24 hours
+- **Annualized ROC** - Now displayed in Deep Dive premium section
+
+---
+
 ## [1.6.0] - 2026-01-20
 
 ### Added

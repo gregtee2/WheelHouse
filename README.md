@@ -2,15 +2,54 @@
 
 **The Wheel Strategy Options Analyzer & Position Tracker**
 
-A powerful Monte Carlo-based options analysis tool with **real-time CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
+A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.7.0-blue)
+![Version](https://img.shields.io/badge/version-1.8.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
-## 🆕 What's New in v1.7.0
+## 🆕 What's New in v1.8.0
+
+### 💹 Schwab API Integration (Real-Time Pricing!)
+- **Schwab-first option pricing** - Real-time bid/ask/Greeks from your Schwab account
+- **CBOE fallback** - Automatically falls back to CBOE delayed quotes if Schwab unavailable
+- **Full Greeks** - Delta, Theta, Gamma, IV all from Schwab's live data
+- **Win Probability** - Calculated from delta (e.g., -0.23 delta ≈ 77% profit probability)
+- **Data source indicator** - 🔴 Schwab (real-time) vs 🔵 CBOE (15-min delayed)
+
+### 🎯 Smart Strike Lookup
+- **Finds REAL strikes** - No more guessing! Fetches all available strikes from Schwab
+- **Auto-adjustment** - If you request $152 but only $150 exists, it uses $150 and tells you
+- **Strike adjustment notes** - "⚠️ Using actual strike $150 (requested $152)"
+
+### 📊 TradingView Charts for Staged Trades
+- **📊 Chart button** on each staged trade
+- **3-month chart** with **Bollinger Bands** pre-loaded
+- **Dark theme** matching WheelHouse
+- Perfect for checking if stock is oversold before entering
+
+### 🗓️ Friday Expiry Validation
+- **Auto-snaps to Fridays** - Options expire on Fridays, never weekends
+- If AI says "Feb 21" (Saturday), auto-corrects to **"Feb 20"** (Friday)
+- Prompt now shows exact valid expiry dates to AI
+
+### 🤖 AI Trade Ideas Generator Improvements
+- **54 curated stocks** + Yahoo Most Active + Trending discovery
+- **10 ideas per run** (was 3)
+- **Range position filtering** - Rejects stocks >70% of range (extended/risky)
+- **"Show Different Stocks"** button for variety
+- **15-minute cache** for Yahoo rate limiting
+
+### 🔧 Bug Fixes
+- Fixed IV display (was 6500%, now shows correct 65%)
+- Fixed Deep Dive buttons not appearing (regex now handles **bold** markdown)
+- Fixed localStorage persistence for trade ideas (24-hour cache)
+
+---
+
+## 📦 Previous: v1.7.0
 
 ### 🧠 AI Model Improvements
 - **Model Selector for Discord Analyzer** - Choose 7B (fast), 14B, or 32B (best) - defaults to 32B
@@ -58,12 +97,14 @@ Instead of binary FOLLOW/PASS, Discord Analyzer now gives **three perspectives**
 
 ## ✨ Key Features
 
-### 📡 Real-Time CBOE Options Pricing
-- **Live bid/ask/last prices** from CBOE's delayed quotes API
+### 📡 Real-Time Options Pricing (Schwab + CBOE)
+- **Schwab API integration** - Real-time bid/ask/last from your brokerage account
+- **Full Greeks from Schwab** - Delta, Theta, Gamma, IV for accurate risk assessment
+- **CBOE delayed quotes fallback** - 15-min delayed data when Schwab unavailable
+- **Smart strike lookup** - Fetches all available strikes, finds closest match
 - **Staleness indicators** - Know when prices are stale vs fresh
 - **Rate of Change (ROC)** tracking for mark-to-market P&L
-- Automatic refresh with visual freshness indicators
-- Fallback to Yahoo Finance when CBOE unavailable
+- Fallback to Yahoo Finance for stock quotes
 
 ### 💰 Monte Carlo Simulation Engine
 - **10,000+ path Brownian motion** simulations
