@@ -732,6 +732,177 @@ window.restoreXSentiment = function() {
 setTimeout(() => window.restoreXSentiment(), 1000);
 
 /**
+ * Save X Sentiment to history for trend comparison (keep last 10)
+ */
+window.saveXSentimentToHistory = function(data) {
+    try {
+        let history = JSON.parse(localStorage.getItem('wheelhouse_x_sentiment_history') || '[]');
+        
+        // Add new entry
+        history.unshift({
+            timestamp: data.timestamp,
+            timeString: data.timeString,
+            tickers: data.tickers,
+            rawText: data.rawText
+        });
+        
+        // Keep only last 10
+        if (history.length > 10) history = history.slice(0, 10);
+        
+        localStorage.setItem('wheelhouse_x_sentiment_history', JSON.stringify(history));
+        console.log(`[X Sentiment] History saved (${history.length} entries)`);
+    } catch (e) {
+        console.error('[X Sentiment] History save failed:', e);
+    }
+};
+
+/**
+ * Show X Sentiment history comparison modal
+ */
+window.showXSentimentHistory = function() {
+    const history = JSON.parse(localStorage.getItem('wheelhouse_x_sentiment_history') || '[]');
+    
+    if (history.length < 2) {
+        showNotification('Need at least 2 sentiment runs to compare. Run X Sentiment again later!', 'info');
+        return;
+    }
+    
+    // Analyze trends across history
+    const tickerCounts = {};
+    history.forEach((entry, idx) => {
+        (entry.tickers || []).forEach(t => {
+            if (!tickerCounts[t]) tickerCounts[t] = { count: 0, appearances: [] };
+            tickerCounts[t].count++;
+            tickerCounts[t].appearances.push(idx);
+        });
+    });
+    
+    // Sort by frequency (most mentioned across runs)
+    const sorted = Object.entries(tickerCounts)
+        .sort((a, b) => b[1].count - a[1].count);
+    
+    const persistent = sorted.filter(([_, data]) => data.count >= 2);
+    const oneTime = sorted.filter(([_, data]) => data.count === 1);
+    
+    // Build comparison between latest and previous
+    const latest = history[0];
+    const previous = history[1];
+    const latestTickers = new Set(latest.tickers || []);
+    const prevTickers = new Set(previous.tickers || []);
+    
+    const newTickers = [...latestTickers].filter(t => !prevTickers.has(t));
+    const droppedTickers = [...prevTickers].filter(t => !latestTickers.has(t));
+    const stillTrending = [...latestTickers].filter(t => prevTickers.has(t));
+    
+    const timeDiff = latest.timestamp - previous.timestamp;
+    const hoursDiff = Math.round(timeDiff / (1000 * 60 * 60) * 10) / 10;
+    
+    const modal = document.createElement('div');
+    modal.id = 'xHistoryModal';
+    modal.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;z-index:10001;`;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e;border:1px solid #1da1f2;border-radius:12px;padding:24px;max-width:700px;width:90%;max-height:85vh;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h2 style="margin:0;color:#1da1f2;">📊 X Sentiment Trend Analysis</h2>
+                <button onclick="this.closest('#xHistoryModal').remove()" 
+                    style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
+            </div>
+            
+            <div style="background:rgba(29,161,242,0.1);padding:12px;border-radius:8px;margin-bottom:16px;">
+                <strong>Comparing:</strong> ${latest.timeString} vs ${previous.timeString} 
+                <span style="color:#888;">(${hoursDiff} hours apart)</span>
+            </div>
+            
+            ${stillTrending.length > 0 ? `
+            <div style="margin-bottom:16px;">
+                <h3 style="color:#00ff88;margin:0 0 8px 0;">🔥 Still Trending (Persistent Buzz)</h3>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                    ${stillTrending.map(t => `
+                        <span onclick="window.xDeepDive('${t}')" 
+                            style="background:#00ff88;color:#000;padding:6px 12px;border-radius:16px;cursor:pointer;font-weight:bold;">
+                            ${t}
+                        </span>
+                    `).join('')}
+                </div>
+                <div style="color:#888;font-size:11px;margin-top:4px;">
+                    💡 These tickers appeared in both scans - sustained interest!
+                </div>
+            </div>
+            ` : ''}
+            
+            ${newTickers.length > 0 ? `
+            <div style="margin-bottom:16px;">
+                <h3 style="color:#ffaa00;margin:0 0 8px 0;">🆕 Newly Trending</h3>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                    ${newTickers.map(t => `
+                        <span onclick="window.xDeepDive('${t}')" 
+                            style="background:#ffaa00;color:#000;padding:6px 12px;border-radius:16px;cursor:pointer;font-weight:bold;">
+                            ${t}
+                        </span>
+                    `).join('')}
+                </div>
+                <div style="color:#888;font-size:11px;margin-top:4px;">
+                    ⚡ New in latest scan - emerging momentum
+                </div>
+            </div>
+            ` : ''}
+            
+            ${droppedTickers.length > 0 ? `
+            <div style="margin-bottom:16px;">
+                <h3 style="color:#888;margin:0 0 8px 0;">📉 Dropped Off</h3>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                    ${droppedTickers.map(t => `
+                        <span style="background:#333;color:#888;padding:6px 12px;border-radius:16px;">
+                            ${t}
+                        </span>
+                    `).join('')}
+                </div>
+                <div style="color:#888;font-size:11px;margin-top:4px;">
+                    Yesterday's news - buzz faded
+                </div>
+            </div>
+            ` : ''}
+            
+            <div style="margin-top:20px;padding-top:16px;border-top:1px solid #333;">
+                <h3 style="color:#1da1f2;margin:0 0 12px 0;">📈 All-Time Frequency (Last ${history.length} Scans)</h3>
+                <table style="width:100%;font-size:12px;">
+                    <tr style="color:#888;">
+                        <th style="text-align:left;padding:4px;">Ticker</th>
+                        <th style="text-align:center;padding:4px;">Mentions</th>
+                        <th style="text-align:left;padding:4px;">Status</th>
+                    </tr>
+                    ${persistent.slice(0, 10).map(([ticker, data]) => `
+                        <tr style="border-top:1px solid #333;">
+                            <td style="padding:6px;color:#00d9ff;font-weight:bold;cursor:pointer;" 
+                                onclick="window.xDeepDive('${ticker}')">${ticker}</td>
+                            <td style="padding:6px;text-align:center;">${data.count}x</td>
+                            <td style="padding:6px;color:${latestTickers.has(ticker) ? '#00ff88' : '#888'};">
+                                ${latestTickers.has(ticker) ? '🔥 Active' : '💤 Quiet'}
+                            </td>
+                        </tr>
+                    `).join('')}
+                </table>
+            </div>
+            
+            <div style="margin-top:20px;text-align:center;">
+                <button onclick="this.closest('#xHistoryModal').remove()" 
+                    style="padding:10px 24px;background:#1da1f2;border:none;border-radius:6px;color:#fff;font-weight:bold;cursor:pointer;">
+                    Got It
+                </button>
+                <button onclick="if(confirm('Clear all sentiment history?')){localStorage.removeItem('wheelhouse_x_sentiment_history');this.closest('#xHistoryModal').remove();showNotification('History cleared','info');}" 
+                    style="padding:10px 24px;background:#333;border:none;border-radius:6px;color:#888;cursor:pointer;margin-left:10px;">
+                    Clear History
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
  * Get X/Twitter sentiment via Grok (Grok-only feature)
  */
 window.getXSentiment = async function() {
@@ -798,11 +969,18 @@ window.getXSentiment = async function() {
                 `<span class="x-ticker" onclick="window.xDeepDive('${ticker}')" style="color:#00ff88; cursor:pointer; text-decoration:underline; font-weight:bold;" title="Click for Deep Dive on ${ticker}">$1</span>`);
         });
         
-        // Add header with refresh button
+        // Add header with refresh button and history button
         const timestamp = new Date().toLocaleTimeString();
+        const historyCount = JSON.parse(localStorage.getItem('wheelhouse_x_sentiment_history') || '[]').length;
+        const historyBtn = historyCount >= 2 
+            ? `<button onclick="window.showXSentimentHistory()" style="font-size:10px; padding:3px 8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer; margin-right:6px;" title="Compare with previous scans">📊 Trends (${historyCount})</button>`
+            : '';
         const header = `<div style="color:#1da1f2; font-weight:bold; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;">
             <span>🔥 Live from X/Twitter <span style="color:#666; font-size:10px;">(${timestamp})</span></span>
-            <button onclick="window.getXSentiment()" style="font-size:10px; padding:3px 8px; background:#1da1f2; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔄 Refresh</button>
+            <div>
+                ${historyBtn}
+                <button onclick="window.getXSentiment()" style="font-size:10px; padding:3px 8px; background:#1da1f2; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔄 Refresh</button>
+            </div>
         </div>
         <div style="font-size:10px; color:#888; margin-bottom:10px; padding:6px; background:rgba(0,255,136,0.1); border-radius:4px;">
             💡 <strong style="color:#00ff88;">Click any ticker</strong> for Deep Dive analysis | Found: ${window._xTrendingTickers.join(', ')}
@@ -816,13 +994,18 @@ window.getXSentiment = async function() {
         }
         
         // Save to localStorage for persistence across tab switches
-        localStorage.setItem('wheelhouse_x_sentiment', JSON.stringify({
+        const sentimentData = {
             html: fullHtml,
             tickers: window._xTrendingTickers,
             timestamp: Date.now(),
-            timeString: timestamp
-        }));
-        console.log('[X Sentiment] Saved to localStorage');
+            timeString: timestamp,
+            rawText: result.insight  // Store raw text for comparison
+        };
+        localStorage.setItem('wheelhouse_x_sentiment', JSON.stringify(sentimentData));
+        
+        // Also save to history (keep last 10 runs)
+        window.saveXSentimentToHistory(sentimentData);
+        console.log('[X Sentiment] Saved to localStorage and history');
         
         // Show the X tickers integration checkbox
         const tickerCount = window._xTrendingTickers.length;
@@ -2631,12 +2814,16 @@ function setupTabs() {
                     switchSubTab('analyze', 'analyze-pricing');
                 }
             } else if (targetId === 'ideas') {
-                // Ideas tab - check AI status and restore saved ideas
+                // Ideas tab - check AI status and restore saved content
                 checkAIStatus?.();
-                // Try to restore previously saved ideas if no new ones shown
+                // Try to restore X Sentiment first, then Trade Ideas
                 const ideaContent = document.getElementById('ideaContentLarge');
-                if (ideaContent && !ideaContent.innerHTML.includes('Entry:')) {
-                    window.restoreSavedIdeas?.();
+                if (ideaContent && ideaContent.innerHTML.trim() === '') {
+                    // First try X Sentiment (more likely what user wants)
+                    if (!window.restoreXSentiment?.()) {
+                        // Fall back to Trade Ideas
+                        window.restoreSavedIdeas?.();
+                    }
                 }
             }
         });
