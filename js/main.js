@@ -1005,8 +1005,7 @@ window.getXSentiment = async function() {
         };
         localStorage.setItem('wheelhouse_x_sentiment', JSON.stringify(sentimentData));
         
-        // Increment usage counter
-        const usageCount = (parseInt(localStorage.getItem('wheelhouse_x_sentiment_usage') || '0')) + 1;
+        // Save the incremented usage counter (usageCount already calculated above)
         localStorage.setItem('wheelhouse_x_sentiment_usage', usageCount.toString());
         console.log(`[X Sentiment] API call #${usageCount}`);
         
