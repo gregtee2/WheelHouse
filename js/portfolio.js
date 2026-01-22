@@ -1859,21 +1859,85 @@ One important risk or thing to watch.
 
 Be specific with dollar amounts and percentages. Don't be vague.`;
 
+    // Store context for retry with different model
+    window._aiHoldingContext = {
+        holding, position, currentPrice, strike, premium, costBasis, dte, expiry,
+        shares, stockValue, stockGainLoss, onTable, cushion, ifCalled, breakeven,
+        isITM, isOTM, isDeep, prompt
+    };
+    
+    // Run analysis with selected model
+    await runHoldingAnalysis('ollama');
+};
+
+/**
+ * Run the holding analysis with specified model (called by toggle)
+ */
+async function runHoldingAnalysis(modelType) {
+    const ctx = window._aiHoldingContext;
+    if (!ctx) return;
+    
+    const { holding, position, currentPrice, strike, premium, costBasis, dte, 
+            stockGainLoss, onTable, cushion, ifCalled, isITM, prompt, shares } = ctx;
+    
+    // Update modal to show loading
+    const contentDiv = document.querySelector('#aiHoldingModal > div');
+    if (!contentDiv) return;
+    
+    contentDiv.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3 style="margin:0;color:#ffaa00;">🤖 AI Suggestion: ${holding.ticker}</h3>
+            <button onclick="this.closest('#aiHoldingModal').remove()" 
+                style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
+        </div>
+        
+        <!-- Model toggle -->
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <button id="btnOllama" onclick="runHoldingAnalysis('ollama')" 
+                style="flex:1;padding:8px;border:1px solid ${modelType === 'ollama' ? '#00ff88' : '#444'};
+                       background:${modelType === 'ollama' ? 'rgba(0,255,136,0.15)' : '#252540'};
+                       color:${modelType === 'ollama' ? '#00ff88' : '#888'};border-radius:6px;cursor:pointer;font-size:11px;">
+                🦙 Ollama (32B) - Free
+            </button>
+            <button id="btnGrok" onclick="runHoldingAnalysis('grok')" 
+                style="flex:1;padding:8px;border:1px solid ${modelType === 'grok' ? '#1da1f2' : '#444'};
+                       background:${modelType === 'grok' ? 'rgba(29,161,242,0.15)' : '#252540'};
+                       color:${modelType === 'grok' ? '#1da1f2' : '#888'};border-radius:6px;cursor:pointer;font-size:11px;">
+                🔥 Grok - ~$0.02
+            </button>
+        </div>
+        
+        <div style="text-align:center;padding:40px;color:#888;">
+            <div style="font-size:24px;margin-bottom:10px;">🔄</div>
+            <div>Analyzing with ${modelType === 'grok' ? 'Grok' : 'Ollama 32B'}...</div>
+        </div>
+    `;
+    
     try {
-        const response = await fetch('/api/ai/analyze', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                ticker: holding.ticker,
-                customPrompt: prompt,
-                model: 'qwen2.5:32b'
-            })
-        });
+        let response, result, analysis;
+        
+        if (modelType === 'grok') {
+            response = await fetch('/api/ai/grok', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, maxTokens: 800 })
+            });
+        } else {
+            response = await fetch('/api/ai/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ticker: holding.ticker,
+                    customPrompt: prompt,
+                    model: 'qwen2.5:32b'
+                })
+            });
+        }
         
         if (!response.ok) throw new Error('AI analysis failed');
         
-        const result = await response.json();
-        const analysis = result.insight || result.analysis || 'No analysis returned';
+        result = await response.json();
+        analysis = result.insight || result.analysis || 'No analysis returned';
         
         // Better formatting for section headers
         const formatted = analysis
@@ -1888,11 +1952,31 @@ Be specific with dollar amounts and percentages. Don't be vague.`;
             // Line breaks
             .replace(/\n/g, '<br>');
         
-        document.querySelector('#aiHoldingModal > div').innerHTML = `
+        const modelBadge = modelType === 'grok' 
+            ? '<span style="background:rgba(29,161,242,0.2);color:#1da1f2;padding:2px 8px;border-radius:4px;font-size:10px;margin-left:8px;">🔥 Grok</span>'
+            : '<span style="background:rgba(0,255,136,0.2);color:#00ff88;padding:2px 8px;border-radius:4px;font-size:10px;margin-left:8px;">🦙 Ollama</span>';
+        
+        contentDiv.innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-                <h3 style="margin:0;color:#ffaa00;">🤖 AI Suggestion: ${holding.ticker}</h3>
+                <h3 style="margin:0;color:#ffaa00;">🤖 AI Suggestion: ${holding.ticker} ${modelBadge}</h3>
                 <button onclick="this.closest('#aiHoldingModal').remove()" 
                     style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
+            </div>
+            
+            <!-- Model toggle -->
+            <div style="display:flex;gap:8px;margin-bottom:16px;">
+                <button onclick="runHoldingAnalysis('ollama')" 
+                    style="flex:1;padding:8px;border:1px solid ${modelType === 'ollama' ? '#00ff88' : '#444'};
+                           background:${modelType === 'ollama' ? 'rgba(0,255,136,0.15)' : '#252540'};
+                           color:${modelType === 'ollama' ? '#00ff88' : '#888'};border-radius:6px;cursor:pointer;font-size:11px;">
+                    🦙 Ollama (32B) - Free
+                </button>
+                <button onclick="runHoldingAnalysis('grok')" 
+                    style="flex:1;padding:8px;border:1px solid ${modelType === 'grok' ? '#1da1f2' : '#444'};
+                           background:${modelType === 'grok' ? 'rgba(29,161,242,0.15)' : '#252540'};
+                           color:${modelType === 'grok' ? '#1da1f2' : '#888'};border-radius:6px;cursor:pointer;font-size:11px;">
+                    🔥 Grok - ~$0.02
+                </button>
             </div>
             
             <!-- Position snapshot -->
@@ -1956,17 +2040,31 @@ Be specific with dollar amounts and percentages. Don't be vague.`;
         `;
     } catch (e) {
         console.error('AI Holding suggestion error:', e);
-        document.querySelector('#aiHoldingModal > div').innerHTML = `
+        contentDiv.innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
                 <h3 style="margin:0;color:#ff5252;">❌ AI Error</h3>
                 <button onclick="this.closest('#aiHoldingModal').remove()" 
                     style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
             </div>
+            
+            <!-- Model toggle for retry -->
+            <div style="display:flex;gap:8px;margin-bottom:16px;">
+                <button onclick="runHoldingAnalysis('ollama')" 
+                    style="flex:1;padding:8px;border:1px solid #444;background:#252540;color:#888;border-radius:6px;cursor:pointer;font-size:11px;">
+                    🦙 Retry with Ollama
+                </button>
+                <button onclick="runHoldingAnalysis('grok')" 
+                    style="flex:1;padding:8px;border:1px solid #444;background:#252540;color:#888;border-radius:6px;cursor:pointer;font-size:11px;">
+                    🔥 Retry with Grok
+                </button>
+            </div>
+            
             <p style="color:#888;">Failed to get AI analysis: ${e.message}</p>
-            <p style="color:#666;font-size:11px;">Make sure Ollama is running with a model loaded.</p>
+            <p style="color:#666;font-size:11px;">${modelType === 'grok' ? 'Check your Grok API key in Settings.' : 'Make sure Ollama is running with qwen2.5:32b loaded.'}</p>
         `;
     }
-};
+}
+window.runHoldingAnalysis = runHoldingAnalysis;
 
 /**
  * Analyze a Buy/Write holding - loads linked position into P&L tab

@@ -457,6 +457,35 @@ const mainHandler = async (req, res, next) => {
         return;
     }
     
+    // Generic Grok prompt endpoint - for any custom prompt using Grok
+    if (url.pathname === '/api/ai/grok' && req.method === 'POST') {
+        try {
+            const { prompt, maxTokens } = req.body;
+            
+            if (!process.env.GROK_API_KEY) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Grok API key not configured. Add in Settings.' }));
+                return;
+            }
+            
+            console.log('[AI] Grok custom prompt request...');
+            const response = await callGrok(prompt, 'grok-3', maxTokens || 800);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true, 
+                insight: response,
+                source: 'grok-3'
+            }));
+            console.log('[AI] ✅ Grok custom prompt complete');
+        } catch (e) {
+            console.log('[AI] ❌ Grok error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+    
     // X/Twitter Sentiment - Grok-only feature using real-time X access
     if (url.pathname === '/api/ai/x-sentiment' && req.method === 'POST') {
         try {
