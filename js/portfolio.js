@@ -1301,7 +1301,18 @@ export function renderHoldings() {
     const table = document.getElementById('holdingsTable');
     if (!section || !table) return;
     
-    const holdings = state.holdings || [];
+    const allHoldings = state.holdings || [];
+    
+    // Get hidden tickers list
+    const hiddenTickers = JSON.parse(localStorage.getItem('wheelhouse_hidden_tickers') || '[]');
+    const showHidden = window._showHiddenHoldings || false;
+    
+    // Filter out hidden holdings unless showing all
+    const holdings = showHidden 
+        ? allHoldings 
+        : allHoldings.filter(h => !hiddenTickers.includes(h.ticker));
+    
+    const hiddenCount = allHoldings.length - allHoldings.filter(h => !hiddenTickers.includes(h.ticker)).length;
     
     // Update collapsible header summary
     const summaryEl = document.getElementById('holdingsSummary');
@@ -1323,8 +1334,17 @@ export function renderHoldings() {
     
     // Build comprehensive holdings display - card-based layout for clarity
     let html = `
-        <div style="font-size:10px; color:#666; margin-bottom:10px; padding:0 8px;">
-            Shares from Buy/Writes and Put Assignments
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#666; margin-bottom:10px; padding:0 8px;">
+            <span>Shares from Buy/Writes and Put Assignments</span>
+            ${hiddenCount > 0 ? `
+            <button onclick="window.toggleHiddenHoldings()" 
+                    style="background:${showHidden ? 'rgba(255,170,0,0.2)' : 'rgba(100,100,100,0.2)'}; 
+                           border:1px solid ${showHidden ? '#ffaa00' : '#555'}; 
+                           color:${showHidden ? '#ffaa00' : '#888'}; 
+                           padding:3px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
+                ${showHidden ? '👁️ Showing' : '👁️‍🗨️ Show'} ${hiddenCount} hidden
+            </button>
+            ` : ''}
         </div>
     `;
     
@@ -1335,6 +1355,7 @@ export function renderHoldings() {
         const isBuyWrite = h.source === 'buy_write';
         const sourceLabel = isBuyWrite ? 'Buy/Write' : 'Assigned';
         const sourceColor = isBuyWrite ? '#00d9ff' : '#fa0';
+        const isHidden = hiddenTickers.includes(h.ticker);
         
         // Get key values
         const costBasis = h.costBasis || 0;  // Per-share cost
@@ -1391,8 +1412,9 @@ export function renderHoldings() {
         const strikeDisplay = strike ? `$${strike.toFixed(2)}` : '—';
         
         // Card-based layout - cleaner and more scannable
+        // Hidden cards get muted styling
         html += `
-            <div id="${rowId}" style="background:#1a1a2e; border-radius:8px; padding:12px; margin-bottom:8px; border:1px solid #333;">
+            <div id="${rowId}" style="background:${isHidden ? '#151520' : '#1a1a2e'}; border-radius:8px; padding:12px; margin-bottom:8px; border:1px solid ${isHidden ? '#222' : '#333'}; ${isHidden ? 'opacity:0.6;' : ''}">
                 <!-- Header Row: Ticker + Buttons -->
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                     <div style="display:flex; align-items:center; gap:10px;">
@@ -1400,8 +1422,15 @@ export function renderHoldings() {
                         <span style="font-size:11px; color:#888; background:rgba(0,0,0,0.3); padding:2px 8px; border-radius:4px;">
                             ${sourceLabel} · ${shares} shares · Call @ ${strikeDisplay}
                         </span>
+                        ${isHidden ? '<span style="font-size:10px; color:#ff9800; background:rgba(255,152,0,0.15); padding:2px 6px; border-radius:4px;">HIDDEN</span>' : ''}
                     </div>
                     <div style="display:flex; gap:6px;">
+                        <!-- Hide/Unhide button -->
+                        <button onclick="window.toggleHoldingVisibility('${h.ticker}')" 
+                                style="background:rgba(100,100,100,0.2); border:1px solid #555; color:#888; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
+                                title="${isHidden ? 'Show this ticker' : 'Hide this ticker'}">
+                            ${isHidden ? '👁️ Show' : '👁️‍🗨️ Hide'}
+                        </button>
                         ${isBuyWrite && h.linkedPositionId ? `
                         <button onclick="window.aiHoldingSuggestion(${h.id})" 
                                 style="background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#ffaa00; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
@@ -2197,6 +2226,42 @@ window.saveHoldingStrategy = function(holdingId) {
 window.getHoldingStrategy = function(holdingId) {
     const holding = state.holdings?.find(h => h.id === holdingId);
     return holding?.savedStrategy || null;
+};
+
+/**
+ * Toggle visibility of a specific ticker (hide/unhide)
+ */
+window.toggleHoldingVisibility = function(ticker) {
+    const hiddenTickers = JSON.parse(localStorage.getItem('wheelhouse_hidden_tickers') || '[]');
+    
+    const idx = hiddenTickers.indexOf(ticker);
+    if (idx >= 0) {
+        // Currently hidden, unhide it
+        hiddenTickers.splice(idx, 1);
+        showNotification(`${ticker} is now visible`, 'success');
+    } else {
+        // Currently visible, hide it
+        hiddenTickers.push(ticker);
+        showNotification(`${ticker} hidden - click "Show hidden" to see it`, 'info');
+    }
+    
+    localStorage.setItem('wheelhouse_hidden_tickers', JSON.stringify(hiddenTickers));
+    renderHoldings();
+};
+
+/**
+ * Toggle showing all hidden holdings
+ */
+window.toggleHiddenHoldings = function() {
+    window._showHiddenHoldings = !window._showHiddenHoldings;
+    renderHoldings();
+};
+
+/**
+ * Get list of hidden tickers
+ */
+window.getHiddenTickers = function() {
+    return JSON.parse(localStorage.getItem('wheelhouse_hidden_tickers') || '[]');
 };
 
 /**
