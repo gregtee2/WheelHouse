@@ -1422,7 +1422,14 @@ export function renderHoldings() {
                 </div>
                 
                 <!-- Stats Grid -->
-                <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; text-align:center;">
+                <div style="display:grid; grid-template-columns:repeat(6, 1fr); gap:8px; text-align:center;">
+                    <!-- Cost Basis -->
+                    <div style="background:rgba(255,255,255,0.05); padding:8px; border-radius:6px;">
+                        <div style="font-size:9px; color:#666; margin-bottom:2px;">COST BASIS</div>
+                        <div style="font-size:14px; font-weight:bold; color:#ccc;">$${costBasis.toFixed(2)}</div>
+                        <div style="font-size:10px; color:#888;">per share</div>
+                    </div>
+                    
                     <!-- Stock Value -->
                     <div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:6px;">
                         <div style="font-size:9px; color:#666; margin-bottom:2px;">STOCK VALUE</div>
