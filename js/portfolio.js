@@ -1706,58 +1706,21 @@ window.aiHoldingSuggestion = async function(holdingId) {
         ? state.positions.find(p => p.id === holding.linkedPositionId)
         : null;
     
-    // Get current price from DOM if available
-    const priceEl = document.getElementById(`hp-${holdingId}`);
-    const priceText = priceEl?.textContent || '';
-    const currentPrice = parseFloat(priceText.replace(/[$,]/g, '')) || 0;
-    
     const shares = holding.shares || 100;
     const strike = position?.strike || holding.strike || 0;
     const premium = holding.premiumCredit || (position?.premium * 100) || 0;
     const costBasis = holding.stockPrice || holding.costBasis || 0;
-    const dte = position?.dte || 0;
+    const dte = position?.dte || position?.expiry ? Math.max(0, Math.round((new Date(position.expiry) - new Date()) / 86400000)) : 0;
+    const expiry = position?.expiry || 'unknown';
     
-    // Calculate metrics
-    const stockValue = currentPrice * shares;
-    const stockGainLoss = costBasis > 0 ? (currentPrice - costBasis) * shares : 0;
-    const onTable = strike && currentPrice > strike ? (currentPrice - strike) * shares : 0;
-    const ifCalled = strike ? (strike - costBasis) * shares + premium : 0;
-    
-    // Build prompt
-    const prompt = `You are a wheel strategy options trading expert. Analyze this covered call position and give specific, actionable advice.
-
-POSITION:
-- Ticker: ${holding.ticker}
-- Shares: ${shares} @ $${costBasis.toFixed(2)} cost basis
-- Current stock price: $${currentPrice.toFixed(2)}
-- Covered call strike: $${strike.toFixed(2)}
-- Premium collected: $${premium.toFixed(0)}
-- Days to expiration: ${dte}
-
-CALCULATED METRICS:
-- Stock gain/loss: ${stockGainLoss >= 0 ? '+' : ''}$${stockGainLoss.toFixed(0)}
-- Money "on table" (above strike): $${onTable.toFixed(0)}
-- If called away profit: $${ifCalled.toFixed(0)}
-
-The stock is ${currentPrice > strike ? 'ABOVE the strike (ITM)' : currentPrice < strike ? 'BELOW the strike (OTM)' : 'AT the strike'}.
-${onTable > 0 ? `There is $${onTable.toFixed(0)} of upside being left on the table.` : ''}
-
-Give advice in this format:
-1. SITUATION SUMMARY (2-3 sentences explaining their current position)
-2. RECOMMENDATION (HOLD / ROLL UP / ROLL OUT / LET CALL / BUY BACK CALL)
-3. SPECIFIC ACTION (if rolling: suggest strike and expiry; if holding: explain why)
-4. RISK CONSIDERATION (one downside to consider)
-
-Be concise but specific. Use real numbers from the position.`;
-
-    // Show loading modal
+    // Show loading modal immediately
     const modal = document.createElement('div');
     modal.id = 'aiHoldingModal';
     modal.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;z-index:10001;`;
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
     modal.innerHTML = `
-        <div style="background:#1a1a2e;border:1px solid #ffaa00;border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;">
+        <div style="background:#1a1a2e;border:1px solid #ffaa00;border-radius:12px;padding:24px;max-width:650px;width:90%;max-height:85vh;overflow-y:auto;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
                 <h3 style="margin:0;color:#ffaa00;">🤖 AI Suggestion: ${holding.ticker}</h3>
                 <button onclick="this.closest('#aiHoldingModal').remove()" 
@@ -1765,12 +1728,104 @@ Be concise but specific. Use real numbers from the position.`;
             </div>
             <div style="text-align:center;padding:40px;color:#888;">
                 <div style="font-size:24px;margin-bottom:10px;">🔄</div>
-                Analyzing position...
+                <div>Fetching current price...</div>
             </div>
         </div>
     `;
     document.body.appendChild(modal);
     
+    // Fetch current stock price
+    let currentPrice = 0;
+    try {
+        const quoteRes = await fetch(`/api/schwab/quote/${holding.ticker}`);
+        if (quoteRes.ok) {
+            const quoteData = await quoteRes.json();
+            currentPrice = quoteData.lastPrice || quoteData.price || 0;
+        }
+    } catch (e) {
+        console.warn('Failed to fetch Schwab quote, trying Yahoo');
+    }
+    
+    if (!currentPrice) {
+        try {
+            const yahooRes = await fetch(`/api/yahoo/quote/${holding.ticker}`);
+            if (yahooRes.ok) {
+                const yahooData = await yahooRes.json();
+                currentPrice = yahooData.price || yahooData.regularMarketPrice || 0;
+            }
+        } catch (e) {
+            console.warn('Failed to fetch Yahoo quote');
+        }
+    }
+    
+    if (!currentPrice) {
+        document.querySelector('#aiHoldingModal > div').innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="margin:0;color:#ff5252;">❌ Price Error</h3>
+                <button onclick="this.closest('#aiHoldingModal').remove()" 
+                    style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
+            </div>
+            <p style="color:#888;">Could not fetch current price for ${holding.ticker}.</p>
+        `;
+        return;
+    }
+    
+    // Update modal to show analyzing
+    document.querySelector('#aiHoldingModal > div > div:last-child').innerHTML = `
+        <div style="font-size:24px;margin-bottom:10px;">🤔</div>
+        <div>Analyzing position...</div>
+    `;
+    
+    // Calculate metrics with real per-share price
+    const stockValue = currentPrice * shares;
+    const stockGainLoss = costBasis > 0 ? (currentPrice - costBasis) * shares : 0;
+    const onTable = strike && currentPrice > strike ? (currentPrice - strike) * shares : 0;
+    const cushion = strike && currentPrice < strike ? (strike - currentPrice) * shares : 0;
+    const ifCalled = strike ? (strike - costBasis) * shares + premium : 0;
+    const breakeven = costBasis - (premium / shares);
+    
+    // Determine situation
+    const isITM = currentPrice > strike;
+    const isOTM = currentPrice < strike;
+    const isDeep = isITM ? (currentPrice - strike) / strike > 0.05 : (strike - currentPrice) / strike > 0.1;
+    
+    // Build detailed prompt
+    const prompt = `You are a wheel strategy options expert. Analyze this covered call position and give SPECIFIC, ACTIONABLE advice.
+
+=== POSITION DETAILS ===
+Ticker: ${holding.ticker}
+Shares: ${shares} @ $${costBasis.toFixed(2)} cost basis (Total: $${(costBasis * shares).toFixed(0)})
+Current stock price: $${currentPrice.toFixed(2)}
+Covered call: $${strike.toFixed(2)} strike, expires ${expiry} (${dte} DTE)
+Premium collected: $${premium.toFixed(0)} total ($${(premium/shares).toFixed(2)}/share)
+Breakeven: $${breakeven.toFixed(2)}
+
+=== CURRENT STATUS ===
+Stock P&L: ${stockGainLoss >= 0 ? '+' : ''}$${stockGainLoss.toFixed(0)} (${((stockGainLoss / (costBasis * shares)) * 100).toFixed(1)}%)
+Option status: ${isITM ? 'IN THE MONEY (ITM)' : 'OUT OF THE MONEY (OTM)'}
+${isITM ? `Money on table (above strike): $${onTable.toFixed(0)}` : `Cushion to strike: $${cushion.toFixed(0)} (${((strike - currentPrice) / currentPrice * 100).toFixed(1)}%)`}
+If called at expiry: +$${ifCalled.toFixed(0)} total profit
+
+=== YOUR TASK ===
+Provide a COMPLETE analysis with these sections:
+
+**SITUATION SUMMARY**
+Explain what's happening with this position in 2-3 sentences. Is the covered call working as intended? What's the risk?
+
+**RECOMMENDATION** 
+Choose ONE: HOLD / ROLL UP / ROLL OUT / ROLL UP & OUT / LET IT GET CALLED / BUY BACK THE CALL
+Explain WHY this is the best action right now.
+
+**SPECIFIC ACTION**
+If holding: Explain what price levels would change your recommendation.
+If rolling: Suggest specific new strike (e.g., "$31 or $32") and timeframe (e.g., "30-45 DTE").
+If letting call: Explain what to expect at expiration.
+
+**KEY RISK**
+One important risk or thing to watch.
+
+Be specific with dollar amounts and percentages. Don't be vague.`;
+
     try {
         const response = await fetch('/api/ai/analyze', {
             method: 'POST',
@@ -1787,11 +1842,17 @@ Be concise but specific. Use real numbers from the position.`;
         const result = await response.json();
         const analysis = result.insight || result.analysis || 'No analysis returned';
         
-        // Format the response
+        // Better formatting for section headers
         const formatted = analysis
+            // Bold text
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#ffaa00;">$1</strong>')
-            .replace(/^(#{1,3})\s*(.+)$/gm, '<h4 style="color:#00d9ff;margin:12px 0 6px 0;">$2</h4>')
-            .replace(/^(\d+\.)\s*([A-Z ]+:?)/gm, '<div style="color:#00ff88;font-weight:bold;margin-top:12px;">$1 $2</div>')
+            // Section headers like "**SITUATION SUMMARY**" or "SITUATION SUMMARY"
+            .replace(/^[\*]*\s*(SITUATION SUMMARY|RECOMMENDATION|SPECIFIC ACTION|KEY RISK)[:\*]*/gim, 
+                '<div style="color:#00d9ff;font-weight:bold;font-size:14px;margin-top:16px;margin-bottom:6px;border-bottom:1px solid #333;padding-bottom:4px;">$1</div>')
+            // Numbered headers like "1. SITUATION"
+            .replace(/^(\d+)\.\s*(SITUATION|RECOMMENDATION|SPECIFIC|KEY|RISK)/gim,
+                '<div style="color:#00d9ff;font-weight:bold;font-size:14px;margin-top:16px;margin-bottom:6px;border-bottom:1px solid #333;padding-bottom:4px;">$2</div>')
+            // Line breaks
             .replace(/\n/g, '<br>');
         
         document.querySelector('#aiHoldingModal > div').innerHTML = `
@@ -1801,26 +1862,49 @@ Be concise but specific. Use real numbers from the position.`;
                     style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
             </div>
             
-            <div style="background:#252540;padding:12px;border-radius:8px;margin-bottom:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;">
-                <div>
-                    <div style="font-size:10px;color:#666;">STOCK</div>
-                    <div style="font-weight:bold;color:${stockGainLoss >= 0 ? '#00ff88' : '#ff5252'};">
-                        ${stockGainLoss >= 0 ? '+' : ''}$${stockGainLoss.toFixed(0)}
+            <!-- Position snapshot -->
+            <div style="background:#252540;padding:12px;border-radius:8px;margin-bottom:16px;">
+                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:12px;margin-bottom:10px;">
+                    <div><span style="color:#666;">Stock:</span> <span style="color:#fff;">$${currentPrice.toFixed(2)}</span></div>
+                    <div><span style="color:#666;">Strike:</span> <span style="color:#fff;">$${strike.toFixed(2)}</span></div>
+                    <div><span style="color:#666;">Cost:</span> <span style="color:#fff;">$${costBasis.toFixed(2)}</span></div>
+                    <div><span style="color:#666;">DTE:</span> <span style="color:#fff;">${dte} days</span></div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center;padding-top:10px;border-top:1px solid #333;">
+                    <div>
+                        <div style="font-size:9px;color:#666;">STOCK P&L</div>
+                        <div style="font-weight:bold;color:${stockGainLoss >= 0 ? '#00ff88' : '#ff5252'};">
+                            ${stockGainLoss >= 0 ? '+' : ''}$${stockGainLoss.toFixed(0)}
+                        </div>
                     </div>
-                </div>
-                <div>
-                    <div style="font-size:10px;color:#666;">PREMIUM</div>
-                    <div style="font-weight:bold;color:#00ff88;">+$${premium.toFixed(0)}</div>
-                </div>
-                <div>
-                    <div style="font-size:10px;color:#666;">ON TABLE</div>
-                    <div style="font-weight:bold;color:${onTable > 0 ? '#ffaa00' : '#888'};">
-                        ${onTable > 0 ? '$' + onTable.toFixed(0) : '—'}
+                    <div>
+                        <div style="font-size:9px;color:#666;">PREMIUM</div>
+                        <div style="font-weight:bold;color:#00ff88;">+$${premium.toFixed(0)}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:9px;color:#666;">${isITM ? 'ON TABLE' : 'CUSHION'}</div>
+                        <div style="font-weight:bold;color:${isITM ? '#ffaa00' : '#00d9ff'};">
+                            ${isITM ? '$' + onTable.toFixed(0) : '$' + cushion.toFixed(0)}
+                        </div>
+                    </div>
+                    <div>
+                        <div style="font-size:9px;color:#666;">IF CALLED</div>
+                        <div style="font-weight:bold;color:#00ff88;">+$${ifCalled.toFixed(0)}</div>
                     </div>
                 </div>
             </div>
             
-            <div style="line-height:1.6;font-size:13px;">
+            <!-- Status badge -->
+            <div style="margin-bottom:12px;">
+                <span style="background:${isITM ? 'rgba(255,152,0,0.2)' : 'rgba(0,217,255,0.2)'}; 
+                       color:${isITM ? '#ff9800' : '#00d9ff'}; 
+                       padding:4px 12px; border-radius:12px; font-size:11px; font-weight:bold;">
+                    ${isITM ? '⚠️ IN THE MONEY' : '✅ OUT OF THE MONEY'}
+                </span>
+            </div>
+            
+            <!-- AI Analysis -->
+            <div style="line-height:1.7;font-size:13px;">
                 ${formatted}
             </div>
             
