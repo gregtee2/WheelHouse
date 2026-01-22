@@ -798,10 +798,12 @@ window.xDeepDive = async function(ticker) {
     
     try {
         // Fetch current stock price
-        const quoteRes = await fetch(`/api/yahoo/quote/${ticker}`);
+        const quoteRes = await fetch(`/api/yahoo/${ticker}`);
         if (!quoteRes.ok) throw new Error('Could not fetch stock price');
         const quote = await quoteRes.json();
-        const price = quote.price;
+        // Yahoo response structure: chart.result[0].meta.regularMarketPrice
+        const price = quote.chart?.result?.[0]?.meta?.regularMarketPrice;
+        if (!price) throw new Error('Price not available');
         
         // Calculate a reasonable put strike (10% OTM) and expiry (30-45 DTE)
         const strike = Math.floor(price * 0.9);
