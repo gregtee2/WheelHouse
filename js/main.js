@@ -664,17 +664,24 @@ function updateXSentimentButton() {
  * Get X/Twitter sentiment via Grok (Grok-only feature)
  */
 window.getXSentiment = async function() {
-    const ideaBtn = document.getElementById('xSentimentBtn');
-    const ideaResults = document.getElementById('ideaResults');
-    const ideaContent = document.getElementById('ideaContent');
+    // Try both panels - Ideas tab uses "Large" suffix, Positions tab doesn't
+    const ideaBtn = document.getElementById('xSentimentBtn2') || document.getElementById('xSentimentBtn');
+    const ideaResults = document.getElementById('ideaResultsLarge') || document.getElementById('ideaResults');
+    const ideaContent = document.getElementById('ideaContentLarge') || document.getElementById('ideaContent');
     
-    if (!ideaBtn || !ideaResults || !ideaContent) return;
+    if (!ideaResults || !ideaContent) {
+        console.error('Could not find result containers');
+        return;
+    }
     
-    const buyingPower = parseFloat(document.getElementById('ideaBuyingPower')?.value) || 25000;
+    const buyingPower = parseFloat(document.getElementById('ideaBuyingPower2')?.value) || 
+                        parseFloat(document.getElementById('ideaBuyingPower')?.value) || 25000;
     
     // Show loading
-    ideaBtn.disabled = true;
-    ideaBtn.textContent = '⏳ Scanning X...';
+    if (ideaBtn) {
+        ideaBtn.disabled = true;
+        ideaBtn.textContent = '⏳ Scanning X...';
+    }
     ideaResults.style.display = 'block';
     ideaContent.innerHTML = '<span style="color:#1da1f2;">🔄 Grok is scanning X/Twitter for trader sentiment... (5-10 seconds)</span>';
     
@@ -704,16 +711,20 @@ window.getXSentiment = async function() {
         </div>`;
         
         ideaContent.innerHTML = header + formatted;
-        ideaBtn.textContent = '🔥 Trending on X (Grok)';
-        ideaBtn.disabled = false;
+        if (ideaBtn) {
+            ideaBtn.textContent = '🔥 Trending on X (Grok)';
+            ideaBtn.disabled = false;
+        }
         
     } catch (e) {
         console.error('X Sentiment error:', e);
         ideaContent.innerHTML = `<span style="color:#ff5252;">❌ ${e.message}</span>
 <br><br>
 <span style="color:#888;">X Sentiment requires Grok API. Make sure it's configured in Settings.</span>`;
-        ideaBtn.textContent = '🔥 Retry';
-        ideaBtn.disabled = false;
+        if (ideaBtn) {
+            ideaBtn.textContent = '🔥 Retry';
+            ideaBtn.disabled = false;
+        }
     }
 };
 
