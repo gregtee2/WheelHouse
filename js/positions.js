@@ -1744,6 +1744,18 @@ window.executeMarkAsRolled = function(oldPositionId) {
     
     savePositionsToStorage();
     
+    // Update any holdings that were linked to the old position → link to new position
+    if (state.holdings && state.holdings.length > 0) {
+        const holdingsUpdated = state.holdings.filter(h => h.linkedPositionId === oldPositionId);
+        holdingsUpdated.forEach(h => {
+            h.linkedPositionId = newPos.id;
+            console.log(`[Roll Link] Updated holding ${h.ticker} to link to new position ${newPos.id}`);
+        });
+        if (holdingsUpdated.length > 0) {
+            localStorage.setItem('wheelhouse_holdings', JSON.stringify(state.holdings));
+        }
+    }
+    
     // Close modal
     document.getElementById('markAsRolledModal')?.remove();
     

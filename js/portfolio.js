@@ -1402,6 +1402,11 @@ export function renderHoldings() {
                     </div>
                     <div style="display:flex; gap:6px;">
                         ${isBuyWrite && h.linkedPositionId ? `
+                        <button onclick="window.aiHoldingSuggestion(${h.id})" 
+                                style="background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#ffaa00; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
+                                title="AI suggestions for this holding">
+                            🤖 AI
+                        </button>
                         <button onclick="window.analyzeHolding(${h.id})" 
                                 style="background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
                                 title="Analyze in P&L tab">
@@ -1688,6 +1693,163 @@ function updateHoldingSummary(sumCapital, sumCurrentValue, sumStockPnL, sumPremi
         updateSum('sumTotalReturn', '—', '#888');
     }
 }
+
+/**
+ * Get AI suggestions for a holding (roll up, sell, hold, etc.)
+ */
+window.aiHoldingSuggestion = async function(holdingId) {
+    const holding = (state.holdings || []).find(h => h.id === holdingId);
+    if (!holding) return;
+    
+    // Find linked position
+    const position = holding.linkedPositionId 
+        ? state.positions.find(p => p.id === holding.linkedPositionId)
+        : null;
+    
+    // Get current price from DOM if available
+    const priceEl = document.getElementById(`hp-${holdingId}`);
+    const priceText = priceEl?.textContent || '';
+    const currentPrice = parseFloat(priceText.replace(/[$,]/g, '')) || 0;
+    
+    const shares = holding.shares || 100;
+    const strike = position?.strike || holding.strike || 0;
+    const premium = holding.premiumCredit || (position?.premium * 100) || 0;
+    const costBasis = holding.stockPrice || holding.costBasis || 0;
+    const dte = position?.dte || 0;
+    
+    // Calculate metrics
+    const stockValue = currentPrice * shares;
+    const stockGainLoss = costBasis > 0 ? (currentPrice - costBasis) * shares : 0;
+    const onTable = strike && currentPrice > strike ? (currentPrice - strike) * shares : 0;
+    const ifCalled = strike ? (strike - costBasis) * shares + premium : 0;
+    
+    // Build prompt
+    const prompt = `You are a wheel strategy options trading expert. Analyze this covered call position and give specific, actionable advice.
+
+POSITION:
+- Ticker: ${holding.ticker}
+- Shares: ${shares} @ $${costBasis.toFixed(2)} cost basis
+- Current stock price: $${currentPrice.toFixed(2)}
+- Covered call strike: $${strike.toFixed(2)}
+- Premium collected: $${premium.toFixed(0)}
+- Days to expiration: ${dte}
+
+CALCULATED METRICS:
+- Stock gain/loss: ${stockGainLoss >= 0 ? '+' : ''}$${stockGainLoss.toFixed(0)}
+- Money "on table" (above strike): $${onTable.toFixed(0)}
+- If called away profit: $${ifCalled.toFixed(0)}
+
+The stock is ${currentPrice > strike ? 'ABOVE the strike (ITM)' : currentPrice < strike ? 'BELOW the strike (OTM)' : 'AT the strike'}.
+${onTable > 0 ? `There is $${onTable.toFixed(0)} of upside being left on the table.` : ''}
+
+Give advice in this format:
+1. SITUATION SUMMARY (2-3 sentences explaining their current position)
+2. RECOMMENDATION (HOLD / ROLL UP / ROLL OUT / LET CALL / BUY BACK CALL)
+3. SPECIFIC ACTION (if rolling: suggest strike and expiry; if holding: explain why)
+4. RISK CONSIDERATION (one downside to consider)
+
+Be concise but specific. Use real numbers from the position.`;
+
+    // Show loading modal
+    const modal = document.createElement('div');
+    modal.id = 'aiHoldingModal';
+    modal.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;z-index:10001;`;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e;border:1px solid #ffaa00;border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="margin:0;color:#ffaa00;">🤖 AI Suggestion: ${holding.ticker}</h3>
+                <button onclick="this.closest('#aiHoldingModal').remove()" 
+                    style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
+            </div>
+            <div style="text-align:center;padding:40px;color:#888;">
+                <div style="font-size:24px;margin-bottom:10px;">🔄</div>
+                Analyzing position...
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    try {
+        const response = await fetch('/api/ai/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ticker: holding.ticker,
+                customPrompt: prompt,
+                model: 'qwen2.5:14b'
+            })
+        });
+        
+        if (!response.ok) throw new Error('AI analysis failed');
+        
+        const result = await response.json();
+        const analysis = result.insight || result.analysis || 'No analysis returned';
+        
+        // Format the response
+        const formatted = analysis
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#ffaa00;">$1</strong>')
+            .replace(/^(#{1,3})\s*(.+)$/gm, '<h4 style="color:#00d9ff;margin:12px 0 6px 0;">$2</h4>')
+            .replace(/^(\d+\.)\s*([A-Z ]+:?)/gm, '<div style="color:#00ff88;font-weight:bold;margin-top:12px;">$1 $2</div>')
+            .replace(/\n/g, '<br>');
+        
+        document.querySelector('#aiHoldingModal > div').innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="margin:0;color:#ffaa00;">🤖 AI Suggestion: ${holding.ticker}</h3>
+                <button onclick="this.closest('#aiHoldingModal').remove()" 
+                    style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
+            </div>
+            
+            <div style="background:#252540;padding:12px;border-radius:8px;margin-bottom:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;">
+                <div>
+                    <div style="font-size:10px;color:#666;">STOCK</div>
+                    <div style="font-weight:bold;color:${stockGainLoss >= 0 ? '#00ff88' : '#ff5252'};">
+                        ${stockGainLoss >= 0 ? '+' : ''}$${stockGainLoss.toFixed(0)}
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size:10px;color:#666;">PREMIUM</div>
+                    <div style="font-weight:bold;color:#00ff88;">+$${premium.toFixed(0)}</div>
+                </div>
+                <div>
+                    <div style="font-size:10px;color:#666;">ON TABLE</div>
+                    <div style="font-weight:bold;color:${onTable > 0 ? '#ffaa00' : '#888'};">
+                        ${onTable > 0 ? '$' + onTable.toFixed(0) : '—'}
+                    </div>
+                </div>
+            </div>
+            
+            <div style="line-height:1.6;font-size:13px;">
+                ${formatted}
+            </div>
+            
+            <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;">
+                ${position ? `
+                <button onclick="window.rollPosition(${position.id});this.closest('#aiHoldingModal').remove();" 
+                    style="padding:10px 16px;background:#ce93d8;border:none;border-radius:6px;color:#000;font-weight:bold;cursor:pointer;">
+                    🔄 Roll This Call
+                </button>
+                ` : ''}
+                <button onclick="this.closest('#aiHoldingModal').remove()" 
+                    style="padding:10px 16px;background:#333;border:none;border-radius:6px;color:#fff;cursor:pointer;">
+                    Close
+                </button>
+            </div>
+        `;
+    } catch (e) {
+        console.error('AI Holding suggestion error:', e);
+        document.querySelector('#aiHoldingModal > div').innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="margin:0;color:#ff5252;">❌ AI Error</h3>
+                <button onclick="this.closest('#aiHoldingModal').remove()" 
+                    style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
+            </div>
+            <p style="color:#888;">Failed to get AI analysis: ${e.message}</p>
+            <p style="color:#666;font-size:11px;">Make sure Ollama is running with a model loaded.</p>
+        `;
+    }
+};
 
 /**
  * Analyze a Buy/Write holding - loads linked position into P&L tab
