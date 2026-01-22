@@ -5,12 +5,38 @@ All notable changes to WheelHouse will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- **🤖 AI Holding Suggestions** - Get AI advice for your covered call holdings
+- **🤖 AI Holding Suggestions with Model Toggle** - Choose Grok (best) or Ollama (free)
   - Click 🤖 AI button on any holding card in Portfolio tab
   - Fetches live stock price (Schwab → Yahoo → CBOE fallback)
   - Shows position snapshot: Stock P&L, Premium, On Table/Cushion, If Called
   - AI recommends: HOLD / ROLL UP / ROLL OUT / LET CALL / BUY BACK
+  - **Grok now default** - significantly better accuracy for ITM/OTM assessment
+  - Toggle buttons to switch between models mid-analysis
   - "Roll This Call" button opens Roll Panel directly
+
+- **💾 Save Strategy** - Store AI recommendation for future reference
+  - Saves: recommendation, full analysis, market snapshot at time of save
+  - Used for checkup comparisons and smart risk indicators
+
+- **🔄 Strategy Checkup** - Compare current conditions to saved strategy
+  - Side-by-side: Original vs Current conditions
+  - AI evaluates: "Stick with plan" or "Adjust strategy"
+  - **Recommendation change detection** - warns if AI advice has changed
+  - One-click "Update Strategy" button when recommendation changes
+
+- **🎯 Strategy-Aware Risk Indicator** - Context-smart position badges
+  - If strategy is "LET CALL": 🎯 55% (cyan, on track) instead of 🔴 55% (red, danger)
+  - Tooltip shows: "55% assignment probability - Strategy: LET CALL ✓"
+  - System understands assignment can be GOOD for covered calls
+
+- **📊 Cost Basis Display** - Now shown in Holdings cards
+  - Click to edit if imported incorrectly
+  - Enables accurate AI analysis and P&L calculations
+
+- **👁️ Hide Holdings** - Clean up stale/irrelevant holdings
+  - Hide by ticker (persists across re-imports)
+  - "Show X hidden" toggle to reveal hidden items
+  - Great for hiding CUSIPs, money markets, etc.
 
 - **🔗→ Mark as Rolled** - Link broker-imported positions retroactively
   - For when you roll at broker, then re-import transactions
@@ -23,15 +49,19 @@ All notable changes to WheelHouse will be documented in this file.
   - If linked position was rolled, AI auto-finds the open position for that ticker
   - Updates holding link automatically for future use
 
-- **X Sentiment Persistence** - Survives tab switches
-  - Cached to localStorage with 4-hour expiry
+- **X Sentiment Enhancements**
+  - Persistence: Survives tab switches (4-hour cache)
   - Trend history: Compare current vs previous runs
   - Shows "Still Trending", "Newly Trending", "Dropped Off" categories
+  - Usage counter: Track Grok API calls (~$0.015 each)
+
+- **Generic Grok API Endpoint** - `/api/ai/grok` for custom prompts
 
 ### Fixed
 - **Staged trades from X Sentiment** - Now show proper DTE, Credit, Ann% in Pending panel
 - **Roll linking across types** - buy_write → covered_call rolls now link correctly
 - **Holdings update on roll** - Holdings now point to new position after roll link
+- **saveHoldingsToStorage import** - Fixed missing import in portfolio.js
 
 ---
 
