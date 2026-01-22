@@ -27,6 +27,7 @@ const ALLOWED_SETTINGS = [
     'SCHWAB_ACCESS_TOKEN',
     // AI
     'OPENAI_API_KEY',
+    'GROK_API_KEY',
     // Market Data
     'POLYGON_API_KEY',
     // Notifications
@@ -41,6 +42,7 @@ const SECRET_SETTINGS = new Set([
     'SCHWAB_REFRESH_TOKEN',
     'SCHWAB_ACCESS_TOKEN',
     'OPENAI_API_KEY',
+    'GROK_API_KEY',
     'POLYGON_API_KEY',
     'TELEGRAM_BOT_TOKEN'
 ]);
@@ -294,6 +296,57 @@ router.post('/test', requireLocalhost, express.json(), async (req, res) => {
                     }).on('error', (e) => {
                         resolve({ success: false, message: e.message });
                     });
+                });
+                result = testResult;
+                break;
+            }
+            
+            case 'grok': {
+                const apiKey = getSetting('GROK_API_KEY');
+                
+                if (!apiKey) {
+                    result = { success: false, message: 'Missing Grok API Key' };
+                    break;
+                }
+                
+                // Test Grok API with a simple models list request
+                const https = require('https');
+                const testResult = await new Promise((resolve) => {
+                    const req = https.request({
+                        hostname: 'api.x.ai',
+                        path: '/v1/models',
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }, (response) => {
+                        let data = '';
+                        response.on('data', chunk => data += chunk);
+                        response.on('end', () => {
+                            if (response.statusCode === 200) {
+                                try {
+                                    const json = JSON.parse(data);
+                                    const models = json.data?.map(m => m.id).join(', ') || 'grok-2';
+                                    resolve({ success: true, message: `Connected! Available models: ${models}` });
+                                } catch (e) {
+                                    resolve({ success: true, message: 'Grok API connected successfully' });
+                                }
+                            } else if (response.statusCode === 401) {
+                                resolve({ success: false, message: 'Invalid Grok API key' });
+                            } else {
+                                resolve({ success: false, message: `Grok API error: ${response.statusCode}` });
+                            }
+                        });
+                    });
+                    req.on('error', (e) => {
+                        resolve({ success: false, message: `Connection error: ${e.message}` });
+                    });
+                    req.setTimeout(10000, () => {
+                        req.destroy();
+                        resolve({ success: false, message: 'Connection timeout' });
+                    });
+                    req.end();
                 });
                 result = testResult;
                 break;

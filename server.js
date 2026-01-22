@@ -357,7 +357,7 @@ const mainHandler = async (req, res, next) => {
                 console.log('[AI] Critiquing trade:', data.ticker, 'with model:', selectedModel);
                 
                 const prompt = buildCritiquePrompt(data);
-                const response = await callOllama(prompt, selectedModel, 500); // More tokens for detailed critique
+                const response = await callAI(prompt, selectedModel, 500); // More tokens for detailed critique
                 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ 
@@ -387,7 +387,7 @@ const mainHandler = async (req, res, next) => {
                 const realPrices = await fetchWheelCandidatePrices(buyingPower, excludeTickers);
                 
                 const prompt = buildIdeaPrompt(data, realPrices);
-                const response = await callOllama(prompt, selectedModel, 1500); // More tokens for 10 ideas
+                const response = await callAI(prompt, selectedModel, 1500); // More tokens for 10 ideas
                 
                 // Count discovery sources
                 const discoveredCount = realPrices.filter(p => p.sector === 'Active Today' || p.sector === 'Trending').length;
@@ -430,7 +430,7 @@ const mainHandler = async (req, res, next) => {
                 }
                 
                 const prompt = buildDeepDivePrompt(data, tickerData);
-                const response = await callOllama(prompt, selectedModel, 1000); // More tokens for deep analysis
+                const response = await callAI(prompt, selectedModel, 1000); // More tokens for deep analysis
                 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ 
@@ -464,7 +464,7 @@ const mainHandler = async (req, res, next) => {
                 
                 // Build comparison prompt
                 const prompt = buildCheckupPrompt(data, openingThesis, currentData, currentPremium);
-                const response = await callOllama(prompt, selectedModel, 800);
+                const response = await callAI(prompt, selectedModel, 800);
                 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ 
@@ -514,7 +514,7 @@ const mainHandler = async (req, res, next) => {
                 // Step 1: Use AI to parse the trade text into structured data
                 const parsePrompt = buildTradeParsePrompt(tradeText);
                 sendProgress(1, `Parsing trade callout with ${selectedModel}...`);
-                const parsedJson = await callOllama(parsePrompt, selectedModel, 500);
+                const parsedJson = await callAI(parsePrompt, selectedModel, 500);
                 
                 // Try to extract JSON from the response
                 let parsed;
@@ -611,7 +611,7 @@ const mainHandler = async (req, res, next) => {
                 // Step 4: Build analysis prompt and get AI recommendation
                 sendProgress(4, `Generating AI analysis with ${selectedModel}...`);
                 const analysisPrompt = buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium);
-                const analysis = await callOllama(analysisPrompt, selectedModel, 1200);
+                const analysis = await callAI(analysisPrompt, selectedModel, 1200);
                 
                 // Send final result
                 const result = { 
@@ -678,7 +678,7 @@ const mainHandler = async (req, res, next) => {
             } else {
                 // Single model call
                 const start = Date.now();
-                response = await callOllama(prompt, selectedModel, tokenLimit);
+                response = await callAI(prompt, selectedModel, tokenLimit);
                 took = `${Date.now() - start}ms`;
             }
             
@@ -2432,6 +2432,64 @@ Mid-term: ${expiryDates[1]?.date || 'Mar 20'} (${expiryDates[1]?.dte || 60} DTE)
 Give me 10 different ideas from DIFFERENT sectors. USE THE DATA. Copy the Capital value from the candidate data.
 SKIP any stock above 70% of range - those are extended and risky!
 USE ONLY the expiry dates listed above - they are valid Friday expirations.`;
+}
+
+/**
+ * Universal AI call - routes to Ollama or Grok based on model name
+ */
+async function callAI(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
+    // Check if this is a Grok model
+    if (model.startsWith('grok')) {
+        return callGrok(prompt, model, maxTokens);
+    }
+    // Otherwise use Ollama
+    return callOllama(prompt, model, maxTokens);
+}
+
+/**
+ * Call Grok API (xAI)
+ */
+async function callGrok(prompt, model = 'grok-2', maxTokens = 400) {
+    const apiKey = process.env.GROK_API_KEY;
+    
+    if (!apiKey) {
+        throw new Error('Grok API key not configured. Add GROK_API_KEY to Settings.');
+    }
+    
+    console.log(`[AI] Using Grok model: ${model}, maxTokens: ${maxTokens}`);
+    
+    try {
+        const response = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: model,
+                messages: [
+                    { role: 'user', content: prompt }
+                ],
+                max_tokens: maxTokens,
+                temperature: 0.7
+            })
+        });
+        
+        if (!response.ok) {
+            const errText = await response.text();
+            console.log(`[AI] Grok API error: ${response.status} - ${errText}`);
+            throw new Error(`Grok API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content || 'No response from Grok';
+        console.log(`[AI] Grok response length: ${content.length} chars`);
+        return content;
+        
+    } catch (e) {
+        console.log(`[AI] Grok call failed: ${e.message}`);
+        throw e;
+    }
 }
 
 // Call Ollama API

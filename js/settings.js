@@ -38,6 +38,11 @@ async function loadSettings() {
             updateStatus('openaiStatus', true, 'Configured');
         }
         
+        if (settings.GROK_API_KEY) {
+            document.getElementById('settingGrokKey').value = settings.GROK_API_KEY;
+            updateStatus('grokStatus', true, 'Configured');
+        }
+        
         if (settings.TELEGRAM_BOT_TOKEN) {
             document.getElementById('settingTelegramToken').value = settings.TELEGRAM_BOT_TOKEN;
         }
@@ -69,6 +74,7 @@ async function saveAllSettings() {
         SCHWAB_APP_SECRET: document.getElementById('settingSchwabAppSecret')?.value || '',
         SCHWAB_REFRESH_TOKEN: document.getElementById('settingSchwabRefreshToken')?.value || '',
         OPENAI_API_KEY: document.getElementById('settingOpenAIKey')?.value || '',
+        GROK_API_KEY: document.getElementById('settingGrokKey')?.value || '',
         TELEGRAM_BOT_TOKEN: document.getElementById('settingTelegramToken')?.value || '',
         TELEGRAM_CHAT_ID: document.getElementById('settingTelegramChatId')?.value || ''
     };
@@ -92,6 +98,9 @@ async function saveAllSettings() {
             }
             if (settings.OPENAI_API_KEY && settings.OPENAI_API_KEY !== '••••••••') {
                 updateStatus('openaiStatus', true, 'Configured');
+            }
+            if (settings.GROK_API_KEY && settings.GROK_API_KEY !== '••••••••') {
+                updateStatus('grokStatus', true, 'Configured');
             }
             if (settings.TELEGRAM_BOT_TOKEN && settings.TELEGRAM_BOT_TOKEN !== '••••••••') {
                 updateStatus('telegramStatus', true, 'Configured');
@@ -406,6 +415,27 @@ async function testOpenAIConnection() {
         updateStatus('openaiStatus', result.success, result.message);
     } catch (error) {
         updateStatus('openaiStatus', false, 'Connection failed');
+    }
+}
+
+async function testGrokConnection() {
+    const settings = {
+        GROK_API_KEY: document.getElementById('settingGrokKey')?.value || ''
+    };
+    
+    updateStatus('grokStatus', null, 'Testing...');
+    
+    try {
+        const response = await fetch('/api/settings/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ service: 'grok', settings })
+        });
+        
+        const result = await response.json();
+        updateStatus('grokStatus', result.success, result.message);
+    } catch (error) {
+        updateStatus('grokStatus', false, 'Connection failed');
     }
 }
 
@@ -856,6 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
 window.saveAllSettings = saveAllSettings;
 window.testSchwabConnection = testSchwabConnection;
 window.testOpenAIConnection = testOpenAIConnection;
+window.testGrokConnection = testGrokConnection;
 window.testTelegramConnection = testTelegramConnection;
 window.startSchwabOAuth = startSchwabOAuth;
 window.syncAccountFromSchwab = syncAccountFromSchwab;
