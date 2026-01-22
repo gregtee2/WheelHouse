@@ -382,7 +382,8 @@ const mainHandler = async (req, res, next) => {
                 
                 // Fetch real prices for wheel candidates
                 const buyingPower = data.buyingPower || 25000;
-                const realPrices = await fetchWheelCandidatePrices(buyingPower);
+                const excludeTickers = data.excludeTickers || [];
+                const realPrices = await fetchWheelCandidatePrices(buyingPower, excludeTickers);
                 
                 const prompt = buildIdeaPrompt(data, realPrices);
                 const response = await callOllama(prompt, selectedModel, 600); // More tokens for 3 ideas
@@ -1004,36 +1005,78 @@ function fetchJson(url) {
 }
 
 // Fetch current prices for a list of tickers (for AI trade ideas)
-async function fetchWheelCandidatePrices(buyingPower) {
-    // Popular wheel stocks across sectors
-    const candidates = [
-        // Tech (various price points)
+async function fetchWheelCandidatePrices(buyingPower, excludeTickers = []) {
+    // Expanded wheel-friendly stock universe (~50 candidates)
+    const allCandidates = [
+        // Tech - Large Cap
         { ticker: 'AAPL', sector: 'Tech' },
+        { ticker: 'MSFT', sector: 'Tech' },
+        { ticker: 'GOOGL', sector: 'Tech' },
+        { ticker: 'META', sector: 'Tech' },
+        { ticker: 'NVDA', sector: 'Tech' },
+        // Tech - Mid Cap / High IV
         { ticker: 'AMD', sector: 'Tech' },
         { ticker: 'INTC', sector: 'Tech' },
         { ticker: 'PLTR', sector: 'Tech' },
+        { ticker: 'CRWD', sector: 'Tech' },
+        { ticker: 'SNOW', sector: 'Tech' },
+        { ticker: 'NET', sector: 'Tech' },
+        { ticker: 'DDOG', sector: 'Tech' },
+        { ticker: 'MU', sector: 'Tech' },
+        { ticker: 'UBER', sector: 'Tech' },
+        { ticker: 'SHOP', sector: 'Tech' },
         // Finance
         { ticker: 'BAC', sector: 'Finance' },
         { ticker: 'C', sector: 'Finance' },
+        { ticker: 'JPM', sector: 'Finance' },
+        { ticker: 'GS', sector: 'Finance' },
         { ticker: 'SOFI', sector: 'Finance' },
+        { ticker: 'COIN', sector: 'Finance' },
+        { ticker: 'SCHW', sector: 'Finance' },
+        { ticker: 'V', sector: 'Finance' },
         // Energy
         { ticker: 'XOM', sector: 'Energy' },
         { ticker: 'OXY', sector: 'Energy' },
-        // Consumer
+        { ticker: 'CVX', sector: 'Energy' },
+        { ticker: 'DVN', sector: 'Energy' },
+        { ticker: 'HAL', sector: 'Energy' },
+        // Consumer / Retail
         { ticker: 'KO', sector: 'Consumer' },
         { ticker: 'F', sector: 'Consumer' },
-        // Healthcare
+        { ticker: 'GM', sector: 'Consumer' },
+        { ticker: 'NKE', sector: 'Consumer' },
+        { ticker: 'SBUX', sector: 'Consumer' },
+        { ticker: 'DIS', sector: 'Consumer' },
+        { ticker: 'TGT', sector: 'Consumer' },
+        // Healthcare / Biotech
         { ticker: 'PFE', sector: 'Healthcare' },
         { ticker: 'ABBV', sector: 'Healthcare' },
+        { ticker: 'JNJ', sector: 'Healthcare' },
+        { ticker: 'MRK', sector: 'Healthcare' },
+        { ticker: 'MRNA', sector: 'Healthcare' },
         // ETFs
         { ticker: 'SPY', sector: 'ETF' },
+        { ticker: 'QQQ', sector: 'ETF' },
         { ticker: 'IWM', sector: 'ETF' },
         { ticker: 'SLV', sector: 'ETF' },
-        // High IV
+        { ticker: 'GLD', sector: 'ETF' },
+        { ticker: 'XLF', sector: 'ETF' },
+        // High IV / Meme / Speculative
         { ticker: 'MSTR', sector: 'High IV' },
         { ticker: 'HOOD', sector: 'High IV' },
-        { ticker: 'RIVN', sector: 'High IV' }
+        { ticker: 'RIVN', sector: 'High IV' },
+        { ticker: 'LCID', sector: 'High IV' },
+        { ticker: 'NIO', sector: 'High IV' },
+        { ticker: 'TSLA', sector: 'High IV' },
+        { ticker: 'GME', sector: 'High IV' },
+        { ticker: 'AMC', sector: 'High IV' }
     ];
+    
+    // Filter out excluded tickers (for "Show Different" feature)
+    let candidates = allCandidates.filter(c => !excludeTickers.includes(c.ticker));
+    
+    // Shuffle and pick a random subset (15-18 tickers for variety)
+    candidates = shuffleArray(candidates).slice(0, 18);
     
     const results = [];
     const maxStrike = buyingPower / 100; // Max strike we can afford
@@ -1099,6 +1142,16 @@ async function fetchWheelCandidatePrices(buyingPower) {
     
     console.log(`[AI] Found ${results.length} affordable candidates with context data`);
     return results;
+}
+
+// Fisher-Yates shuffle for randomizing ticker selection
+function shuffleArray(array) {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
 }
 
 // Convert any expiry format to "Mon DD" format for CBOE lookup

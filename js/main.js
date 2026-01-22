@@ -2318,8 +2318,9 @@ window.getTradeIdeas2 = async function() {
         
         const result = await response.json();
         
-        // Store candidates for deep dive
+        // Store candidates for deep dive and "Show Different" feature
         window._lastTradeIdeas = result.candidates || [];
+        window._lastSuggestedTickers = extractSuggestedTickers(result.ideas);
         
         // Format with deep dive buttons
         let formatted = result.ideas.replace(/^(\d+\.)\s*\*{0,2}([A-Z]{2,5})\s*@\s*\$[\d.]+\s*-\s*Sell\s*\$[\d.]+\s*put[^*]*\*{0,2}/gm, 
@@ -2332,6 +2333,115 @@ window.getTradeIdeas2 = async function() {
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#00d9ff;">$1</strong>')
             .replace(/(Entry:|Why:|Risk:|Capital:)/gi, '<span style="color:#888;">$1</span>')
             .replace(/✅|📊|💡|🎯|⚠️/g, match => `<span style="font-size:1.1em;">${match}</span>`);
+        
+        // Add "Show Different Stocks" button at the end
+        formatted += `
+            <div style="margin-top:20px; padding-top:15px; border-top:1px solid #333; text-align:center;">
+                <button onclick="window.getTradeIdeasDifferent()" style="padding:8px 16px; background:#444; border:none; border-radius:5px; color:#00d9ff; cursor:pointer; font-size:13px;" title="Get fresh suggestions from different stocks">
+                    🔄 Show Different Stocks
+                </button>
+                <span style="margin-left:10px; color:#666; font-size:11px;">${result.candidatesChecked || 0} stocks scanned</span>
+            </div>`;
+        
+        ideaContent.innerHTML = formatted;
+        
+    } catch (error) {
+        ideaContent.innerHTML = `<span style="color:#ff5252;">❌ ${error.message}</span>`;
+    } finally {
+        ideaBtn.disabled = false;
+        ideaBtn.textContent = '💡 Generate Trade Ideas';
+    }
+};
+
+/**
+ * Extract ticker symbols from AI response text
+ */
+function extractSuggestedTickers(text) {
+    const matches = text.match(/\*\*([A-Z]{2,5})\*\*/g) || [];
+    return [...new Set(matches.map(m => m.replace(/\*/g, '')))];
+}
+
+/**
+ * "Show Different Stocks" - Re-run ideas excluding previously suggested tickers
+ */
+window.getTradeIdeasDifferent = async function() {
+    const ideaBtn = document.getElementById('ideaBtn2');
+    const ideaResults = document.getElementById('ideaResultsLarge');
+    const ideaContent = document.getElementById('ideaContentLarge');
+    
+    if (!ideaBtn || !ideaResults || !ideaContent) return;
+    
+    // Get previously suggested tickers to exclude
+    const excludeTickers = window._lastSuggestedTickers || [];
+    console.log('[Ideas] Excluding previous picks:', excludeTickers);
+    
+    // Get inputs from Ideas tab
+    const buyingPower = parseFloat(document.getElementById('ideaBuyingPower2')?.value) || 25000;
+    const targetROC = parseFloat(document.getElementById('ideaTargetROC2')?.value) || 25;
+    const sectorsToAvoid = document.getElementById('ideaSectorsAvoid2')?.value || '';
+    const selectedModel = document.getElementById('ideaModelSelect2')?.value || 'qwen2.5:32b';
+    
+    // Gather current positions for context
+    const currentPositions = (window.state?.positions || []).map(p => ({
+        ticker: p.ticker,
+        type: p.type,
+        strike: p.strike,
+        sector: p.sector || 'Unknown'
+    }));
+    
+    // Show loading
+    ideaBtn.disabled = true;
+    ideaContent.innerHTML = '<span style="color:#888;">🔄 Finding different stocks... (15-30 seconds)</span>';
+    
+    try {
+        const response = await fetch('/api/ai/ideas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                buyingPower,
+                targetAnnualROC: targetROC,
+                sectorsToAvoid,
+                currentPositions,
+                model: selectedModel,
+                excludeTickers  // Pass exclusion list
+            })
+        });
+        
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'API error');
+        }
+        
+        const result = await response.json();
+        
+        // Accumulate excluded tickers for next "Show Different"
+        const newTickers = extractSuggestedTickers(result.ideas);
+        window._lastSuggestedTickers = [...new Set([...excludeTickers, ...newTickers])];
+        window._lastTradeIdeas = result.candidates || [];
+        
+        // Format with deep dive buttons
+        let formatted = result.ideas.replace(/^(\d+\.)\s*\*{0,2}([A-Z]{2,5})\s*@\s*\$[\d.]+\s*-\s*Sell\s*\$[\d.]+\s*put[^*]*\*{0,2}/gm, 
+            (match, num, ticker) => {
+                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔍 Deep Dive</button>`;
+            });
+        
+        // Apply styling
+        formatted = formatted
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#00d9ff;">$1</strong>')
+            .replace(/(Entry:|Why:|Risk:|Capital:)/gi, '<span style="color:#888;">$1</span>')
+            .replace(/✅|📊|💡|🎯|⚠️/g, match => `<span style="font-size:1.1em;">${match}</span>`);
+        
+        // Add "Show Different" button + "Reset" option
+        formatted += `
+            <div style="margin-top:20px; padding-top:15px; border-top:1px solid #333; text-align:center;">
+                <button onclick="window.getTradeIdeasDifferent()" style="padding:8px 16px; background:#444; border:none; border-radius:5px; color:#00d9ff; cursor:pointer; font-size:13px;">
+                    🔄 Show More Different Stocks
+                </button>
+                <button onclick="window._lastSuggestedTickers=[]; window.getTradeIdeas2();" style="padding:8px 16px; margin-left:10px; background:#333; border:none; border-radius:5px; color:#888; cursor:pointer; font-size:13px;" title="Reset exclusions and start fresh">
+                    ↩️ Reset
+                </button>
+                <span style="margin-left:10px; color:#666; font-size:11px;">${window._lastSuggestedTickers.length} stocks excluded</span>
+            </div>`;
         
         ideaContent.innerHTML = formatted;
         
