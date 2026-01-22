@@ -797,13 +797,35 @@ window.xDeepDive = async function(ticker) {
     document.body.appendChild(modal);
     
     try {
-        // Fetch current stock price
-        const quoteRes = await fetch(`/api/yahoo/${ticker}`);
-        if (!quoteRes.ok) throw new Error('Could not fetch stock price');
-        const quote = await quoteRes.json();
-        // Yahoo response structure: chart.result[0].meta.regularMarketPrice
-        const price = quote.chart?.result?.[0]?.meta?.regularMarketPrice;
-        if (!price) throw new Error('Price not available');
+        // Fetch current stock price - try Schwab first, fallback to Yahoo
+        let price = null;
+        let priceSource = '';
+        
+        // Try Schwab first (real-time if configured)
+        try {
+            const schwabRes = await fetch(`/api/schwab/quote/${ticker}`);
+            if (schwabRes.ok) {
+                const schwabData = await schwabRes.json();
+                // Schwab returns { TICKER: { quote: { lastPrice: ... } } }
+                price = schwabData[ticker]?.quote?.lastPrice || schwabData[ticker]?.quote?.mark;
+                if (price) priceSource = 'Schwab';
+            }
+        } catch (e) {
+            console.log('[xDeepDive] Schwab failed, trying Yahoo...');
+        }
+        
+        // Fallback to Yahoo if Schwab failed
+        if (!price) {
+            const yahooRes = await fetch(`/api/yahoo/${ticker}`);
+            if (yahooRes.ok) {
+                const yahooData = await yahooRes.json();
+                price = yahooData.chart?.result?.[0]?.meta?.regularMarketPrice;
+                if (price) priceSource = 'Yahoo';
+            }
+        }
+        
+        if (!price) throw new Error('Could not fetch stock price from Schwab or Yahoo');
+        console.log(`[xDeepDive] ${ticker} = $${price} (via ${priceSource})`);
         
         // Calculate a reasonable put strike (10% OTM) and expiry (30-45 DTE)
         const strike = Math.floor(price * 0.9);
@@ -843,7 +865,7 @@ window.xDeepDive = async function(ticker) {
         
         document.getElementById('xDeepDiveContent').innerHTML = `
             <div style="background:rgba(29,161,242,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
-                <strong style="color:#1da1f2;">${ticker}</strong> @ $${price.toFixed(2)}
+                <strong style="color:#1da1f2;">${ticker}</strong> @ $${price.toFixed(2)} <span style="color:#666; font-size:10px;">(${priceSource})</span>
                 <span style="margin-left:20px;">Analyzing: Sell $${strike} Put expiring ${expiry}</span>
             </div>
             ${premiumInfo}
