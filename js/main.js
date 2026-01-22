@@ -964,9 +964,9 @@ window.xDeepDive = async function(ticker) {
             </div>
         `;
         
-        // Attach click handler with closure to preserve analysis text
+        // Attach click handler with closure to preserve analysis text and premium
         document.getElementById('xDeepDiveStageBtn').onclick = () => {
-            window.stageFromXSentiment(ticker, price, strike, expiry, result.analysis);
+            window.stageFromXSentiment(ticker, price, strike, expiry, result.analysis, result.premium);
             document.getElementById('xDeepDiveModal')?.remove();
         };
         
@@ -988,8 +988,8 @@ window.xDeepDive = async function(ticker) {
 /**
  * Stage a trade from X Sentiment Deep Dive
  */
-window.stageFromXSentiment = function(ticker, price, strike, expiry, analysis) {
-    console.log('[Stage] Starting stage for', ticker, strike, expiry);
+window.stageFromXSentiment = function(ticker, price, strike, expiry, analysis, cboPremium) {
+    console.log('[Stage] Starting stage for', ticker, strike, expiry, 'premium:', cboPremium);
     
     // Close modal
     document.getElementById('xDeepDiveModal')?.remove();
@@ -1012,7 +1012,7 @@ window.stageFromXSentiment = function(ticker, price, strike, expiry, analysis) {
         strike: parseFloat(strike),
         expiry: expiry,
         currentPrice: parseFloat(price),
-        premium: 0,  // User will set when confirming
+        premium: cboPremium ? parseFloat(cboPremium) : 0,  // Use CBOE premium if available
         stagedAt: new Date().toISOString(),
         source: 'x-sentiment',
         // Store thesis if analysis provided
@@ -2041,13 +2041,22 @@ window.confirmStagedTrade = function(id) {
  * Parse "Feb 20" or "Mar 21" to YYYY-MM-DD
  */
 function parseExpiryToDate(expiry) {
+    if (!expiry) return '';
+    
+    // If already ISO format (2026-02-27), return as-is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+        return expiry;
+    }
+    
+    // Parse "Feb 27" or "Feb 27, 2026" format
     const monthMap = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
                       Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
-    const match = expiry.match(/(\w+)\s+(\d+)/);
+    const match = expiry.match(/(\w+)\s+(\d+)(?:,?\s*(\d{4}))?/);
     if (!match) return '';
     const month = monthMap[match[1]] || '01';
     const day = match[2].padStart(2, '0');
-    return `2026-${month}-${day}`;
+    const year = match[3] || '2026';
+    return `${year}-${month}-${day}`;
 }
 
 /**
