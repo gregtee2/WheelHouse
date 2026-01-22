@@ -1369,6 +1369,11 @@ window.renderPendingTrades = function() {
                             <td style="padding:8px; color:${p.annReturn && parseFloat(p.annReturn) >= 25 ? '#00ff88' : '#ffaa00'};">${p.annReturn ? p.annReturn + '%' : '-'}</td>
                             <td style="padding:8px; color:#888;">${new Date(p.stagedAt).toLocaleDateString()}</td>
                             <td style="padding:8px;">
+                                <button onclick="window.showTickerChart('${p.ticker}')" 
+                                        title="View 3-month chart with Bollinger Bands"
+                                        style="background:#00d9ff; color:#000; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; margin-right:4px;">
+                                    📊
+                                </button>
                                 <button onclick="window.confirmStagedTrade(${p.id})" 
                                         style="background:#00ff88; color:#000; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; margin-right:4px;">
                                     ✓ Confirm
@@ -1384,6 +1389,65 @@ window.renderPendingTrades = function() {
             </table>
         </div>
     `;
+};
+
+/**
+ * Show TradingView chart with Bollinger Bands for a ticker
+ */
+window.showTickerChart = function(ticker) {
+    // Remove any existing chart modal
+    document.getElementById('chartModal')?.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'chartModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); display:flex; align-items:center; justify-content:center; z-index:10000;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    // Generate unique container ID
+    const containerId = 'tradingview_' + Date.now();
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border-radius:12px; width:90%; max-width:1000px; padding:24px; border:1px solid #00d9ff; max-height:90vh; overflow:hidden;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h2 style="color:#00d9ff; margin:0;">📊 ${ticker} - 3 Month Chart with Bollinger Bands</h2>
+                <button onclick="document.getElementById('chartModal').remove()" 
+                        style="background:#333; color:#888; border:none; padding:8px 16px; border-radius:8px; cursor:pointer;">
+                    ✕ Close
+                </button>
+            </div>
+            <div id="${containerId}" style="height:500px; width:100%;"></div>
+            <div style="margin-top:12px; font-size:11px; color:#888;">
+                💡 <b>Bollinger Bands:</b> Price near lower band = potentially oversold (good for selling puts). 
+                Price near upper band = potentially overbought (caution).
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Load TradingView widget script and create chart
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/tv.js';
+    script.onload = function() {
+        new TradingView.widget({
+            "width": "100%",
+            "height": 500,
+            "symbol": ticker,
+            "interval": "D",
+            "timezone": "America/New_York",
+            "theme": "dark",
+            "style": "1",
+            "locale": "en",
+            "toolbar_bg": "#1a1a2e",
+            "enable_publishing": false,
+            "hide_side_toolbar": false,
+            "allow_symbol_change": true,
+            "range": "3M",
+            "studies": ["BB@tv-basicstudies"],
+            "container_id": containerId
+        });
+    };
+    document.head.appendChild(script);
 };
 
 /**
