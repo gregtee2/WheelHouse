@@ -953,7 +953,7 @@ window.xDeepDive = async function(ticker) {
             ${premiumInfo}
             <div style="white-space:pre-wrap;">${formatted}</div>
             <div style="margin-top:20px; padding-top:16px; border-top:1px solid #333; display:flex; gap:10px;">
-                <button onclick="window.stageFromXSentiment('${ticker}', ${price}, ${strike}, '${expiry}')" 
+                <button id="xDeepDiveStageBtn" 
                     style="padding:10px 20px; background:#00ff88; border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer;">
                     📋 Stage This Trade
                 </button>
@@ -963,6 +963,12 @@ window.xDeepDive = async function(ticker) {
                 </button>
             </div>
         `;
+        
+        // Attach click handler with closure to preserve analysis text
+        document.getElementById('xDeepDiveStageBtn').onclick = () => {
+            window.stageFromXSentiment(ticker, price, strike, expiry, result.analysis);
+            document.getElementById('xDeepDiveModal')?.remove();
+        };
         
     } catch (e) {
         console.error('X Deep Dive error:', e);
@@ -982,99 +988,57 @@ window.xDeepDive = async function(ticker) {
 /**
  * Stage a trade from X Sentiment Deep Dive
  */
-window.stageFromXSentiment = function(ticker, price, strike, expiry) {
+window.stageFromXSentiment = function(ticker, price, strike, expiry, analysis) {
     console.log('[Stage] Starting stage for', ticker, strike, expiry);
     
     // Close modal
     document.getElementById('xDeepDiveModal')?.remove();
     
-    // Switch to Positions tab using proper tab system
-    const positionsTab = document.querySelector('.tab-btn[data-tab="positions"]');
-    if (positionsTab) {
-        console.log('[Stage] Clicking positions tab');
-        positionsTab.click();
-    } else {
-        console.error('[Stage] Could not find positions tab button!');
+    // Load existing pending trades
+    let pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+    
+    // Check for duplicates
+    const exists = pending.find(p => p.ticker === ticker && p.strike === strike && p.expiry === expiry);
+    if (exists) {
+        showNotification(`${ticker} $${strike} put already staged`, 'info');
+        return;
     }
     
-    // Fill in the form after tab switch completes
-    setTimeout(() => {
-        // Get form elements with correct IDs
-        const tickerInput = document.getElementById('posTicker');
-        const typeSelect = document.getElementById('posType');
-        const strikeInput = document.getElementById('posStrike');
-        const expiryInput = document.getElementById('posExpiry');
-        const premiumInput = document.getElementById('posPremium');
-        
-        console.log('[Stage] Form elements found:', {
-            ticker: !!tickerInput,
-            type: !!typeSelect,
-            strike: !!strikeInput,
-            expiry: !!expiryInput
-        });
-        
-        // Fill values
-        if (tickerInput) {
-            tickerInput.value = ticker;
-            console.log('[Stage] Set ticker to', ticker);
-        }
-        if (typeSelect) {
-            typeSelect.value = 'short_put';
-            // Trigger change event to update any dependent UI
-            typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        if (strikeInput) strikeInput.value = strike;
-        if (expiryInput) expiryInput.value = expiry;
-        
-        // Clear premium so user knows to fill it
-        if (premiumInput) premiumInput.value = '';
-        
-        // Find the controls panel (form) - it's on the right side
-        const positionsPanel = document.getElementById('positions');
-        const formPanel = positionsPanel?.querySelector('.controls-panel');
-        
-        if (formPanel) {
-            // Strong visual highlight
-            formPanel.style.boxShadow = '0 0 30px rgba(29, 161, 242, 0.8), inset 0 0 10px rgba(29, 161, 242, 0.2)';
-            formPanel.style.border = '2px solid #1da1f2';
-            formPanel.style.transition = 'all 0.3s';
-            
-            // Flash the ticker input
-            if (tickerInput) {
-                tickerInput.style.background = '#1da1f2';
-                tickerInput.style.color = '#000';
-                tickerInput.style.fontWeight = 'bold';
-                setTimeout(() => {
-                    tickerInput.style.background = '';
-                    tickerInput.style.color = '';
-                    tickerInput.style.fontWeight = '';
-                }, 1500);
+    // Create pending trade with X Sentiment source
+    const trade = {
+        id: Date.now(),
+        ticker: ticker,
+        type: 'short_put',
+        strike: parseFloat(strike),
+        expiry: expiry,
+        currentPrice: parseFloat(price),
+        premium: 0,  // User will set when confirming
+        stagedAt: new Date().toISOString(),
+        source: 'x-sentiment',
+        // Store thesis if analysis provided
+        openingThesis: analysis ? {
+            analyzedAt: new Date().toISOString(),
+            priceAtAnalysis: parseFloat(price),
+            source: 'X/Twitter Sentiment → Deep Dive',
+            aiSummary: {
+                fullAnalysis: analysis
             }
-            
-            // Scroll the form into view (right side panel)
-            formPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            
-            // Focus on premium field so user can type
-            setTimeout(() => {
-                if (premiumInput) {
-                    premiumInput.focus();
-                    premiumInput.placeholder = '← Enter premium received!';
-                }
-            }, 500);
-            
-            // Remove highlight after 3 seconds
-            setTimeout(() => {
-                formPanel.style.boxShadow = '';
-                formPanel.style.border = '';
-            }, 3000);
-            
-            console.log('[Stage] Highlighted form panel');
-        } else {
-            console.error('[Stage] Could not find form panel!');
-        }
-        
-        showNotification(`📋 Staged ${ticker} $${strike} put → Fill in PREMIUM and click Add Position!`, 'success', 5000);
-    }, 300);
+        } : null
+    };
+    
+    pending.push(trade);
+    localStorage.setItem('wheelhouse_pending', JSON.stringify(pending));
+    
+    showNotification(`📥 Staged: ${ticker} $${strike} put, ${expiry} (with thesis)`, 'success');
+    
+    // Switch to Positions tab
+    const positionsTab = document.querySelector('.tab-btn[data-tab="positions"]');
+    if (positionsTab) positionsTab.click();
+    
+    // Render pending trades
+    setTimeout(() => {
+        window.renderPendingTrades?.();
+    }, 100);
 };
 
 /**
