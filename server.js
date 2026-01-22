@@ -379,14 +379,60 @@ const mainHandler = async (req, res, next) => {
         try {
             const data = req.body;
                 const selectedModel = data.model || 'qwen2.5:14b';
+                const xTrendingTickers = data.xTrendingTickers || [];
                 console.log('[AI] Generating trade ideas with model:', selectedModel);
+                if (xTrendingTickers.length > 0) {
+                    console.log('[AI] Including X trending tickers:', xTrendingTickers.join(', '));
+                }
                 
                 // Fetch real prices for wheel candidates
                 const buyingPower = data.buyingPower || 25000;
                 const excludeTickers = data.excludeTickers || [];
                 const realPrices = await fetchWheelCandidatePrices(buyingPower, excludeTickers);
                 
-                const prompt = buildIdeaPrompt(data, realPrices);
+                // Fetch prices for X trending tickers if provided
+                let xTickerPrices = [];
+                if (xTrendingTickers.length > 0) {
+                    const xPricePromises = xTrendingTickers.map(async (ticker) => {
+                        try {
+                            const quoteRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1mo`);
+                            if (quoteRes.ok) {
+                                const data = await quoteRes.json();
+                                const result = data.chart?.result?.[0];
+                                if (result?.meta?.regularMarketPrice) {
+                                    const price = result.meta.regularMarketPrice;
+                                    const prevClose = result.meta.previousClose || price;
+                                    const highs = result.indicators?.quote?.[0]?.high || [];
+                                    const lows = result.indicators?.quote?.[0]?.low || [];
+                                    const monthHigh = Math.max(...highs.filter(h => h));
+                                    const monthLow = Math.min(...lows.filter(l => l));
+                                    const monthChange = prevClose ? ((price - prevClose) / prevClose * 100).toFixed(1) : 0;
+                                    const rangePosition = monthHigh - monthLow > 0 ? Math.round((price - monthLow) / (monthHigh - monthLow) * 100) : 50;
+                                    
+                                    return {
+                                        ticker,
+                                        price: price.toFixed(2),
+                                        monthLow: monthLow?.toFixed(2) || price.toFixed(2),
+                                        monthHigh: monthHigh?.toFixed(2) || price.toFixed(2),
+                                        monthChange,
+                                        rangePosition,
+                                        sector: '🔥 X Trending'
+                                    };
+                                }
+                            }
+                        } catch (e) {
+                            console.log(`[AI] Failed to fetch X ticker ${ticker}:`, e.message);
+                        }
+                        return null;
+                    });
+                    xTickerPrices = (await Promise.all(xPricePromises)).filter(p => p !== null);
+                    console.log(`[AI] Fetched ${xTickerPrices.length} X ticker prices`);
+                }
+                
+                // Combine: X trending first, then regular candidates
+                const allCandidates = [...xTickerPrices, ...realPrices];
+                
+                const prompt = buildIdeaPrompt(data, allCandidates, xTrendingTickers);
                 const response = await callAI(prompt, selectedModel, 1500); // More tokens for 10 ideas
                 
                 // Count discovery sources
@@ -397,11 +443,12 @@ const mainHandler = async (req, res, next) => {
                     success: true, 
                     ideas: response,
                     model: selectedModel,
-                    candidatesChecked: realPrices.length,
+                    candidatesChecked: allCandidates.length,
                     discoveredCount: discoveredCount,
-                    candidates: realPrices // Include data for deep-dive
+                    xTrendingCount: xTickerPrices.length,
+                    candidates: allCandidates // Include data for deep-dive
                 }));
-                console.log(`[AI] ✅ Ideas generated (${realPrices.length} candidates, ${discoveredCount} from discovery)`);
+                console.log(`[AI] ✅ Ideas generated (${allCandidates.length} candidates, ${discoveredCount} from discovery, ${xTickerPrices.length} from X)`);
         } catch (e) {
             console.log('[AI] ❌ Ideas error:', e.message);
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -2383,7 +2430,7 @@ Be honest but constructive. Focus on the PROCESS, not just the outcome. A losing
 }
 
 // Build a prompt for generating trade ideas (with real prices!)
-function buildIdeaPrompt(data, realPrices = []) {
+function buildIdeaPrompt(data, realPrices = [], xTrendingTickers = []) {
     const { buyingPower, targetAnnualROC, currentPositions, sectorsToAvoid } = data;
     
     // Calculate upcoming monthly expiry dates (3rd Friday of month)
@@ -2437,6 +2484,7 @@ function buildIdeaPrompt(data, realPrices = []) {
     return `You are a WHEEL STRATEGY advisor. Analyze the data below and pick 10 SHORT PUT trades.
 PRIORITIZE variety - pick from DIFFERENT sectors. Spread across all available sectors.
 If you see "Active Today" or "Trending" stocks, INCLUDE at least 2-3 of them - these are today's movers!
+${xTrendingTickers.length > 0 ? `\n🔥 X/TWITTER PRIORITY: ${xTrendingTickers.join(', ')} - These are trending on FinTwit right now! Include at least 2-3 if they meet criteria!` : ''}
 
 ═══ CRITICAL RULES ═══
 ⚠️ NEVER pick stocks above 70% of range - they are EXTENDED and risky for puts!

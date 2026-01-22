@@ -699,15 +699,41 @@ window.getXSentiment = async function() {
         
         const result = await response.json();
         
+        // Extract tickers from the response for Deep Dive and Trade Ideas integration
+        const tickerPattern = /\b([A-Z]{2,5})\b(?:\s*-\s*[A-Za-z]|\s+is\s|\s+has\s|\s+could|\s+looks|\s+breaking)/g;
+        const foundTickers = new Set();
+        let match;
+        while ((match = tickerPattern.exec(result.sentiment)) !== null) {
+            const ticker = match[1];
+            // Filter out common words that look like tickers
+            if (!['AI', 'IV', 'OTM', 'ATM', 'ITM', 'ETF', 'EV', 'CEO', 'CFO', 'IPO', 'PE', 'EPS', 'GDP', 'CPI', 'FED', 'SEC', 'USD', 'EUR'].includes(ticker)) {
+                foundTickers.add(ticker);
+            }
+        }
+        // Store for Trade Ideas integration
+        window._xTrendingTickers = Array.from(foundTickers);
+        console.log('[X Sentiment] Extracted tickers:', window._xTrendingTickers);
+        
         // Format the response with nice styling
         let formatted = result.sentiment
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#1da1f2;">$1</strong>')
             .replace(/(\$[\d,]+\.?\d*)/g, '<span style="color:#ffaa00;">$1</span>')
             .replace(/(🔥|📢|⚠️|💰|🚀)/g, '<span style="font-size:14px;">$1</span>');
         
-        // Add header
-        const header = `<div style="color:#1da1f2; font-weight:bold; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #333;">
-            🔥 Live from X/Twitter <span style="color:#666; font-size:10px;">(${new Date().toLocaleTimeString()})</span>
+        // Make tickers clickable for Deep Dive
+        window._xTrendingTickers.forEach(ticker => {
+            const tickerRegex = new RegExp(`\\b(${ticker})\\b`, 'g');
+            formatted = formatted.replace(tickerRegex, 
+                `<span class="x-ticker" onclick="window.xDeepDive('${ticker}')" style="color:#00ff88; cursor:pointer; text-decoration:underline; font-weight:bold;" title="Click for Deep Dive on ${ticker}">$1</span>`);
+        });
+        
+        // Add header with refresh button
+        const header = `<div style="color:#1da1f2; font-weight:bold; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;">
+            <span>🔥 Live from X/Twitter <span style="color:#666; font-size:10px;">(${new Date().toLocaleTimeString()})</span></span>
+            <button onclick="window.getXSentiment()" style="font-size:10px; padding:3px 8px; background:#1da1f2; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔄 Refresh</button>
+        </div>
+        <div style="font-size:10px; color:#888; margin-bottom:10px; padding:6px; background:rgba(0,255,136,0.1); border-radius:4px;">
+            💡 <strong style="color:#00ff88;">Click any ticker</strong> for Deep Dive analysis | Found: ${window._xTrendingTickers.join(', ')}
         </div>`;
         
         ideaContent.innerHTML = header + formatted;
@@ -715,6 +741,17 @@ window.getXSentiment = async function() {
             ideaBtn.textContent = '🔥 Trending on X (Grok)';
             ideaBtn.disabled = false;
         }
+        
+        // Show the X tickers integration checkbox
+        const tickerCount = window._xTrendingTickers.length;
+        ['', '2'].forEach(suffix => {
+            const optionDiv = document.getElementById('xTickersOption' + suffix);
+            const countSpan = document.getElementById('xTickerCount' + suffix);
+            if (optionDiv && tickerCount > 0) {
+                optionDiv.style.display = 'block';
+                if (countSpan) countSpan.textContent = tickerCount;
+            }
+        });
         
     } catch (e) {
         console.error('X Sentiment error:', e);
@@ -726,6 +763,146 @@ window.getXSentiment = async function() {
             ideaBtn.disabled = false;
         }
     }
+};
+
+/**
+ * Deep Dive from X Sentiment - fetches live price and runs analysis
+ */
+window.xDeepDive = async function(ticker) {
+    // Fetch current price
+    const selectedModel = document.getElementById('ideaModelSelect2')?.value || 
+                          document.getElementById('ideaModelSelect')?.value || 'qwen2.5:32b';
+    
+    // Show loading modal
+    const modal = document.createElement('div');
+    modal.id = 'xDeepDiveModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:10000; padding:20px;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border-radius:12px; max-width:800px; width:100%; max-height:90vh; overflow-y:auto; padding:24px; border:1px solid #333;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid #333; padding-bottom:12px;">
+                <h2 style="margin:0; color:#1da1f2;">🔥 X → Deep Dive: ${ticker}</h2>
+                <button onclick="this.closest('#xDeepDiveModal').remove()" style="background:none; border:none; color:#888; font-size:24px; cursor:pointer;">✕</button>
+            </div>
+            <div id="xDeepDiveContent" style="color:#ddd; line-height:1.7;">
+                <div style="text-align:center; padding:40px;">
+                    <div style="font-size:24px; margin-bottom:10px;">⏳</div>
+                    <div style="color:#1da1f2;">Fetching ${ticker} data and running analysis...</div>
+                    <div style="color:#666; font-size:12px; margin-top:8px;">Using ${selectedModel}</div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    try {
+        // Fetch current stock price
+        const quoteRes = await fetch(`/api/yahoo/quote/${ticker}`);
+        if (!quoteRes.ok) throw new Error('Could not fetch stock price');
+        const quote = await quoteRes.json();
+        const price = quote.price;
+        
+        // Calculate a reasonable put strike (10% OTM) and expiry (30-45 DTE)
+        const strike = Math.floor(price * 0.9);
+        const targetDate = new Date();
+        targetDate.setDate(targetDate.getDate() + 35);
+        // Snap to Friday
+        while (targetDate.getDay() !== 5) targetDate.setDate(targetDate.getDate() + 1);
+        const expiry = targetDate.toISOString().split('T')[0];
+        
+        // Call Deep Dive API
+        const response = await fetch('/api/ai/deep-dive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticker, strike, expiry, currentPrice: price, model: selectedModel })
+        });
+        
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'Deep Dive failed');
+        }
+        
+        const result = await response.json();
+        
+        // Format the analysis
+        let formatted = result.analysis
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#8b5cf6;">$1</strong>')
+            .replace(/(\$[\d,]+\.?\d*)/g, '<span style="color:#ffaa00;">$1</span>')
+            .replace(/(🎯|⚠️|💡|📊)/g, '<span style="font-size:14px;">$1</span>')
+            .replace(/\n/g, '<br>');
+        
+        // Get CBOE premium if available
+        const premiumInfo = result.premium ? 
+            `<div style="background:rgba(139,92,246,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
+                <strong style="color:#8b5cf6;">Current Premium:</strong> $${result.premium} per contract
+                <span style="color:#666; margin-left:10px;">(via CBOE delayed)</span>
+            </div>` : '';
+        
+        document.getElementById('xDeepDiveContent').innerHTML = `
+            <div style="background:rgba(29,161,242,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
+                <strong style="color:#1da1f2;">${ticker}</strong> @ $${price.toFixed(2)}
+                <span style="margin-left:20px;">Analyzing: Sell $${strike} Put expiring ${expiry}</span>
+            </div>
+            ${premiumInfo}
+            <div style="white-space:pre-wrap;">${formatted}</div>
+            <div style="margin-top:20px; padding-top:16px; border-top:1px solid #333; display:flex; gap:10px;">
+                <button onclick="window.stageFromXSentiment('${ticker}', ${price}, ${strike}, '${expiry}')" 
+                    style="padding:10px 20px; background:#00ff88; border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer;">
+                    📋 Stage This Trade
+                </button>
+                <button onclick="this.closest('#xDeepDiveModal').remove()" 
+                    style="padding:10px 20px; background:#333; border:none; border-radius:6px; color:#fff; cursor:pointer;">
+                    Close
+                </button>
+            </div>
+        `;
+        
+    } catch (e) {
+        console.error('X Deep Dive error:', e);
+        document.getElementById('xDeepDiveContent').innerHTML = `
+            <div style="color:#ff5252; text-align:center; padding:20px;">
+                ❌ ${e.message}
+                <br><br>
+                <button onclick="this.closest('#xDeepDiveModal').remove()" 
+                    style="padding:8px 16px; background:#333; border:none; border-radius:6px; color:#fff; cursor:pointer;">
+                    Close
+                </button>
+            </div>
+        `;
+    }
+};
+
+/**
+ * Stage a trade from X Sentiment Deep Dive
+ */
+window.stageFromXSentiment = function(ticker, price, strike, expiry) {
+    // Close modal
+    document.getElementById('xDeepDiveModal')?.remove();
+    
+    // Switch to Positions tab and open add form
+    const positionsTab = document.querySelector('[data-tab="positions"]');
+    if (positionsTab) positionsTab.click();
+    
+    // Fill in the form
+    setTimeout(() => {
+        const addBtn = document.getElementById('addPositionBtn');
+        if (addBtn) addBtn.click();
+        
+        setTimeout(() => {
+            const tickerInput = document.getElementById('ticker');
+            const typeSelect = document.getElementById('type');
+            const strikeInput = document.getElementById('strike');
+            const expiryInput = document.getElementById('expiry');
+            
+            if (tickerInput) tickerInput.value = ticker;
+            if (typeSelect) typeSelect.value = 'short_put';
+            if (strikeInput) strikeInput.value = strike;
+            if (expiryInput) expiryInput.value = expiry;
+            
+            showNotification(`📋 Staged ${ticker} $${strike} put - verify premium and save!`, 'success');
+        }, 200);
+    }, 100);
 };
 
 /**
@@ -744,6 +921,10 @@ window.getTradeIdeas = async function() {
     const sectorsToAvoid = document.getElementById('ideaSectorsAvoid')?.value || '';
     const selectedModel = document.getElementById('ideaModelSelect')?.value || 'qwen2.5:32b';
     
+    // Check if X trending tickers should be included
+    const useXTickers = document.getElementById('useXTickers')?.checked;
+    const xTrendingTickers = (useXTickers && window._xTrendingTickers?.length > 0) ? window._xTrendingTickers : [];
+    
     // Gather current positions for context
     const currentPositions = (window.state?.positions || []).map(p => ({
         ticker: p.ticker,
@@ -756,7 +937,8 @@ window.getTradeIdeas = async function() {
     ideaBtn.disabled = true;
     ideaBtn.textContent = '⏳ Generating...';
     ideaResults.style.display = 'block';
-    ideaContent.innerHTML = '<span style="color:#888;">🔄 AI is researching trade ideas... (15-30 seconds)</span>';
+    const xNote = xTrendingTickers.length > 0 ? ` (including ${xTrendingTickers.length} from X)` : '';
+    ideaContent.innerHTML = `<span style="color:#888;">🔄 AI is researching trade ideas${xNote}... (15-30 seconds)</span>`;
     
     try {
         const response = await fetch('/api/ai/ideas', {
@@ -767,7 +949,8 @@ window.getTradeIdeas = async function() {
                 targetAnnualROC: targetROC,
                 sectorsToAvoid,
                 currentPositions,
-                model: selectedModel
+                model: selectedModel,
+                xTrendingTickers  // Pass X tickers to backend
             })
         });
         
@@ -2686,6 +2869,10 @@ window.getTradeIdeas2 = async function() {
     const sectorsToAvoid = document.getElementById('ideaSectorsAvoid2')?.value || '';
     const selectedModel = document.getElementById('ideaModelSelect2')?.value || 'qwen2.5:32b';
     
+    // Check if X trending tickers should be included
+    const useXTickers = document.getElementById('useXTickers2')?.checked;
+    const xTrendingTickers = (useXTickers && window._xTrendingTickers?.length > 0) ? window._xTrendingTickers : [];
+    
     // Gather current positions for context
     const currentPositions = (window.state?.positions || []).map(p => ({
         ticker: p.ticker,
@@ -2698,7 +2885,8 @@ window.getTradeIdeas2 = async function() {
     ideaBtn.disabled = true;
     ideaBtn.textContent = '⏳ Generating...';
     ideaResults.style.display = 'block';
-    ideaContent.innerHTML = '<span style="color:#888;">🔄 AI is researching trade ideas... (15-30 seconds)</span>';
+    const xNote = xTrendingTickers.length > 0 ? ` (including ${xTrendingTickers.length} from X)` : '';
+    ideaContent.innerHTML = `<span style="color:#888;">🔄 AI is researching trade ideas${xNote}... (15-30 seconds)</span>`;
     
     try {
         const response = await fetch('/api/ai/ideas', {
@@ -2709,7 +2897,8 @@ window.getTradeIdeas2 = async function() {
                 targetAnnualROC: targetROC,
                 sectorsToAvoid,
                 currentPositions,
-                model: selectedModel
+                model: selectedModel,
+                xTrendingTickers  // Pass X tickers to backend
             })
         });
         
