@@ -697,9 +697,32 @@ window.deepDive = async function(ticker) {
         let premiumHtml = '';
         if (result.premium) {
             const p = result.premium;
+            const source = p.source === 'schwab' ? '🔴 Schwab (real-time)' : '🔵 CBOE (15-min delay)';
+            
+            // Calculate annualized ROC
+            const expiryMatch = expiry.match(/(\w+)\s+(\d+)/);
+            let dte = 30, annualizedRoc = 0;
+            if (expiryMatch) {
+                const monthMap = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+                const expMonth = monthMap[expiryMatch[1]];
+                const expDay = parseInt(expiryMatch[2]);
+                const expYear = expMonth < new Date().getMonth() ? new Date().getFullYear() + 1 : new Date().getFullYear();
+                const expDate = new Date(expYear, expMonth, expDay);
+                dte = Math.max(1, Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24)));
+            }
+            const roc = (p.mid / parseFloat(strike)) * 100;
+            annualizedRoc = (roc * (365 / dte)).toFixed(1);
+            
+            // Probability of profit from delta
+            let probProfit = '';
+            if (p.delta) {
+                const pop = ((1 - Math.abs(p.delta)) * 100).toFixed(0);
+                probProfit = `<div style="color:#00ff88;">Win Prob: ~${pop}%</div>`;
+            }
+            
             premiumHtml = `
                 <div style="background:#1e3a5f; border:1px solid #00d9ff; border-radius:8px; padding:12px; margin-bottom:16px;">
-                    <div style="color:#00d9ff; font-weight:bold; margin-bottom:8px;">💰 Live CBOE Pricing</div>
+                    <div style="color:#00d9ff; font-weight:bold; margin-bottom:8px;">💰 ${source}</div>
                     <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; font-size:12px;">
                         <div>Bid: <span style="color:#00ff88;">$${p.bid.toFixed(2)}</span></div>
                         <div>Ask: <span style="color:#ffaa00;">$${p.ask.toFixed(2)}</span></div>
@@ -707,9 +730,15 @@ window.deepDive = async function(ticker) {
                         <div>Volume: ${p.volume}</div>
                         <div>OI: ${p.openInterest}</div>
                         ${p.iv ? `<div>IV: ${p.iv}%</div>` : ''}
+                        ${probProfit}
+                        ${p.delta ? `<div>Delta: ${p.delta.toFixed(2)}</div>` : ''}
+                        ${p.theta ? `<div>Theta: ${p.theta.toFixed(3)}</div>` : ''}
                     </div>
-                    <div style="margin-top:8px; color:#888; font-size:11px;">
-                        Premium: $${(p.mid * 100).toFixed(0)} per contract | If assigned, cost basis: $${(parseFloat(strike) - p.mid).toFixed(2)}/share
+                    <div style="margin-top:10px; padding-top:8px; border-top:1px solid #335577; display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; font-size:12px;">
+                        <div>Premium: <span style="color:#00ff88;">$${(p.mid * 100).toFixed(0)}</span>/contract</div>
+                        <div>ROC: <span style="color:#00ff88;">${roc.toFixed(2)}%</span> (${annualizedRoc}% ann.)</div>
+                        <div>DTE: ${dte} days</div>
+                        <div>Cost Basis: <span style="color:#ffaa00;">$${(parseFloat(strike) - p.mid).toFixed(2)}</span>/sh</div>
                     </div>
                 </div>`;
         }

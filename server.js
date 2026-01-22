@@ -14,6 +14,7 @@ const { execSync, spawn } = require('child_process');
 // Import settings routes
 const settingsRoutes = require('./src/routes/settingsRoutes');
 const schwabRoutes = require('./src/routes/schwabRoutes');
+const { schwabApiCall } = schwabRoutes; // For internal option chain calls
 
 const PORT = process.env.PORT || 8888;
 const app = express();
@@ -1332,8 +1333,100 @@ function parseExpiryDate(expiry) {
     return null;
 }
 
-// Fetch CBOE option premium for a specific strike/expiry
+// Fetch option premium - Schwab first, CBOE fallback
 async function fetchOptionPremium(ticker, strike, expiry) {
+    // Try Schwab first (real-time data)
+    const schwabResult = await fetchOptionPremiumSchwab(ticker, strike, expiry);
+    if (schwabResult) {
+        return schwabResult;
+    }
+    
+    // Fallback to CBOE (delayed but always available)
+    console.log(`[OPTION] Schwab unavailable, falling back to CBOE for ${ticker}`);
+    return await fetchOptionPremiumCBOE(ticker, strike, expiry);
+}
+
+// Fetch option premium from Schwab
+async function fetchOptionPremiumSchwab(ticker, strike, expiry) {
+    try {
+        // Parse expiry "Feb 20" or "Feb 21" to YYYY-MM-DD format
+        const expiryParts = expiry.match(/(\w+)\s+(\d+)/);
+        if (!expiryParts) {
+            console.log(`[SCHWAB] Could not parse expiry: ${expiry}`);
+            return null;
+        }
+        
+        const monthMap = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+                          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
+        const month = monthMap[expiryParts[1]];
+        const day = expiryParts[2].padStart(2, '0');
+        const year = new Date().getFullYear(); // Assume current year, adjust if month < current month
+        const currentMonth = new Date().getMonth() + 1;
+        const expiryYear = parseInt(month) < currentMonth ? year + 1 : year;
+        const expiryDate = `${expiryYear}-${month}-${day}`;
+        
+        console.log(`[SCHWAB] Fetching option chain for ${ticker} strike $${strike} expiry ${expiryDate}`);
+        
+        // Call Schwab option chain API
+        const chainData = await schwabApiCall(`/marketdata/v1/chains?symbol=${ticker}&contractType=PUT&strike=${strike}&fromDate=${expiryDate}&toDate=${expiryDate}`);
+        
+        if (!chainData || chainData.status === 'FAILED') {
+            console.log(`[SCHWAB] No option chain data for ${ticker}`);
+            return null;
+        }
+        
+        // Find the PUT option at our strike
+        const putExpDateMap = chainData.putExpDateMap;
+        if (!putExpDateMap) {
+            console.log(`[SCHWAB] No put options in chain for ${ticker}`);
+            return null;
+        }
+        
+        // putExpDateMap is structured like { "2026-02-21:30": { "95.0": [...] } }
+        let matchingOption = null;
+        for (const dateKey of Object.keys(putExpDateMap)) {
+            const strikeMap = putExpDateMap[dateKey];
+            // Look for our strike (may be "95.0" or "95")
+            for (const strikeKey of Object.keys(strikeMap)) {
+                if (Math.abs(parseFloat(strikeKey) - strike) < 0.01) {
+                    const options = strikeMap[strikeKey];
+                    if (options && options.length > 0) {
+                        matchingOption = options[0]; // First match
+                        break;
+                    }
+                }
+            }
+            if (matchingOption) break;
+        }
+        
+        if (!matchingOption) {
+            console.log(`[SCHWAB] No matching put at strike $${strike} for ${ticker}`);
+            return null;
+        }
+        
+        console.log(`[SCHWAB] Found: ${matchingOption.symbol} bid=${matchingOption.bid} ask=${matchingOption.ask} delta=${matchingOption.delta}`);
+        
+        return {
+            bid: matchingOption.bid || 0,
+            ask: matchingOption.ask || 0,
+            last: matchingOption.last || 0,
+            mid: ((matchingOption.bid || 0) + (matchingOption.ask || 0)) / 2,
+            volume: matchingOption.totalVolume || 0,
+            openInterest: matchingOption.openInterest || 0,
+            iv: matchingOption.volatility ? (matchingOption.volatility * 100).toFixed(1) : null,
+            delta: matchingOption.delta || null,
+            theta: matchingOption.theta || null,
+            gamma: matchingOption.gamma || null,
+            source: 'schwab'
+        };
+    } catch (e) {
+        console.log(`[SCHWAB] Failed to fetch option for ${ticker}: ${e.message}`);
+        return null;
+    }
+}
+
+// Fetch option premium from CBOE (fallback)
+async function fetchOptionPremiumCBOE(ticker, strike, expiry) {
     try {
         const cacheBuster = Date.now();
         const cboeUrl = `https://cdn.cboe.com/api/global/delayed_quotes/options/${ticker}.json?_=${cacheBuster}`;
@@ -1395,7 +1488,8 @@ async function fetchOptionPremium(ticker, strike, expiry) {
                     volume: closest.volume || 0,
                     openInterest: closest.open_interest || 0,
                     iv: closest.iv ? (closest.iv * 100).toFixed(1) : null,
-                    actualStrike: parseFloat(closest.option.slice(-8)) / 1000
+                    actualStrike: parseFloat(closest.option.slice(-8)) / 1000,
+                    source: 'cboe'
                 };
             }
             return null;
@@ -1409,7 +1503,8 @@ async function fetchOptionPremium(ticker, strike, expiry) {
             mid: ((match.bid || 0) + (match.ask || 0)) / 2,
             volume: match.volume || 0,
             openInterest: match.open_interest || 0,
-            iv: match.iv ? (match.iv * 100).toFixed(1) : null
+            iv: match.iv ? (match.iv * 100).toFixed(1) : null,
+            source: 'cboe'
         };
     } catch (e) {
         console.log(`[CBOE] Failed to fetch premium for ${ticker}: ${e.message}`);
@@ -1516,14 +1611,37 @@ function buildDeepDivePrompt(tradeData, tickerData) {
         const totalPremium = (p.mid * 100).toFixed(0);
         const costBasis = (strikeNum - p.mid).toFixed(2);
         const roc = ((p.mid / strikeNum) * 100).toFixed(2);
+        
+        // Calculate DTE for annualized ROC
+        const expiryParts = expiry.match(/(\w+)\s+(\d+)/);
+        let dte = 30; // Default
+        if (expiryParts) {
+            const monthMap = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+            const expMonth = monthMap[expiryParts[1]];
+            const expDay = parseInt(expiryParts[2]);
+            const expYear = expMonth < new Date().getMonth() ? new Date().getFullYear() + 1 : new Date().getFullYear();
+            const expDate = new Date(expYear, expMonth, expDay);
+            dte = Math.max(1, Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24)));
+        }
+        const annualizedRoc = ((p.mid / strikeNum) * (365 / dte) * 100).toFixed(1);
+        
+        // Probability of profit from delta (if available)
+        let probProfit = '';
+        if (p.delta) {
+            const pop = ((1 - Math.abs(p.delta)) * 100).toFixed(0);
+            probProfit = `\nProbability of Profit: ~${pop}% (based on delta ${p.delta.toFixed(2)})`;
+        }
+        
+        const source = p.source === 'schwab' ? '🔴 SCHWAB (real-time)' : '🔵 CBOE (15-min delay)';
+        
         premiumSection = `
-═══ LIVE OPTION PRICING (CBOE) ═══
+═══ LIVE OPTION PRICING — ${source} ═══
 Bid: $${p.bid.toFixed(2)} | Ask: $${p.ask.toFixed(2)} | Mid: $${premiumPerShare}
 Volume: ${p.volume} | Open Interest: ${p.openInterest}
-${p.iv ? `Implied Volatility: ${p.iv}%` : ''}
+${p.iv ? `Implied Volatility: ${p.iv}%` : ''}${probProfit}
 Premium Income: $${totalPremium} (for 1 contract)
-If Assigned, Cost Basis: $${costBasis}/share ($${strikeNum} - $${premiumPerShare} premium)
-Return on Capital: ${roc}% for this trade`;
+If Assigned, Cost Basis: $${costBasis}/share
+Return on Capital: ${roc}% for ${dte} days = ${annualizedRoc}% annualized`;
     }
     
     return `You are analyzing a WHEEL STRATEGY trade in depth. Provide comprehensive analysis.

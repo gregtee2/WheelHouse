@@ -588,4 +588,6 @@ router.get('/userPreference', async (req, res) => {
     }
 });
 
+// Export router and schwabApiCall for internal use
 module.exports = router;
+module.exports.schwabApiCall = schwabApiCall;
