@@ -699,7 +699,14 @@ window.deepDive = async function(ticker) {
             const p = result.premium;
             const source = p.source === 'schwab' ? '🔴 Schwab (real-time)' : '🔵 CBOE (15-min delay)';
             
-            // Calculate annualized ROC
+            // Note if strike was adjusted
+            const actualStrike = p.actualStrike || parseFloat(strike);
+            const strikeAdjusted = p.actualStrike && Math.abs(p.actualStrike - parseFloat(strike)) > 0.01;
+            const strikeNote = strikeAdjusted 
+                ? `<div style="color:#ffaa00; grid-column: span 3; font-size:11px;">⚠️ Using actual strike $${p.actualStrike} (requested $${strike})</div>` 
+                : '';
+            
+            // Calculate annualized ROC using actual strike
             const expiryMatch = expiry.match(/(\w+)\s+(\d+)/);
             let dte = 30, annualizedRoc = 0;
             if (expiryMatch) {
@@ -710,7 +717,7 @@ window.deepDive = async function(ticker) {
                 const expDate = new Date(expYear, expMonth, expDay);
                 dte = Math.max(1, Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24)));
             }
-            const roc = (p.mid / parseFloat(strike)) * 100;
+            const roc = (p.mid / actualStrike) * 100;
             annualizedRoc = (roc * (365 / dte)).toFixed(1);
             
             // Probability of profit from delta
@@ -723,6 +730,7 @@ window.deepDive = async function(ticker) {
             premiumHtml = `
                 <div style="background:#1e3a5f; border:1px solid #00d9ff; border-radius:8px; padding:12px; margin-bottom:16px;">
                     <div style="color:#00d9ff; font-weight:bold; margin-bottom:8px;">💰 ${source}</div>
+                    ${strikeNote}
                     <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; font-size:12px;">
                         <div>Bid: <span style="color:#00ff88;">$${p.bid.toFixed(2)}</span></div>
                         <div>Ask: <span style="color:#ffaa00;">$${p.ask.toFixed(2)}</span></div>
@@ -738,7 +746,7 @@ window.deepDive = async function(ticker) {
                         <div>Premium: <span style="color:#00ff88;">$${(p.mid * 100).toFixed(0)}</span>/contract</div>
                         <div>ROC: <span style="color:#00ff88;">${roc.toFixed(2)}%</span> (${annualizedRoc}% ann.)</div>
                         <div>DTE: ${dte} days</div>
-                        <div>Cost Basis: <span style="color:#ffaa00;">$${(parseFloat(strike) - p.mid).toFixed(2)}</span>/sh</div>
+                        <div>Cost Basis: <span style="color:#ffaa00;">$${(actualStrike - p.mid).toFixed(2)}</span>/sh</div>
                     </div>
                 </div>`;
         }

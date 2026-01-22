@@ -1360,51 +1360,66 @@ async function fetchOptionPremiumSchwab(ticker, strike, expiry) {
                           Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
         const month = monthMap[expiryParts[1]];
         const day = expiryParts[2].padStart(2, '0');
-        const year = new Date().getFullYear(); // Assume current year, adjust if month < current month
+        const year = new Date().getFullYear();
         const currentMonth = new Date().getMonth() + 1;
         const expiryYear = parseInt(month) < currentMonth ? year + 1 : year;
         const expiryDate = `${expiryYear}-${month}-${day}`;
         
-        console.log(`[SCHWAB] Fetching option chain for ${ticker} strike $${strike} expiry ${expiryDate}`);
+        console.log(`[SCHWAB] Fetching ALL puts for ${ticker} near expiry ${expiryDate}`);
         
-        // Call Schwab option chain API
-        const chainData = await schwabApiCall(`/marketdata/v1/chains?symbol=${ticker}&contractType=PUT&strike=${strike}&fromDate=${expiryDate}&toDate=${expiryDate}`);
+        // Fetch ALL puts for this expiry (don't filter by strike - we'll find closest)
+        // Use a date range to catch nearby expirations (weekly vs monthly)
+        const fromDate = expiryDate;
+        const toDate = new Date(new Date(expiryDate).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // +7 days
+        
+        const chainData = await schwabApiCall(`/marketdata/v1/chains?symbol=${ticker}&contractType=PUT&fromDate=${fromDate}&toDate=${toDate}&strikeCount=50`);
         
         if (!chainData || chainData.status === 'FAILED') {
             console.log(`[SCHWAB] No option chain data for ${ticker}`);
             return null;
         }
         
-        // Find the PUT option at our strike
         const putExpDateMap = chainData.putExpDateMap;
-        if (!putExpDateMap) {
+        if (!putExpDateMap || Object.keys(putExpDateMap).length === 0) {
             console.log(`[SCHWAB] No put options in chain for ${ticker}`);
             return null;
         }
         
-        // putExpDateMap is structured like { "2026-02-21:30": { "95.0": [...] } }
-        let matchingOption = null;
+        // Collect ALL available puts with their strikes
+        const allPuts = [];
         for (const dateKey of Object.keys(putExpDateMap)) {
             const strikeMap = putExpDateMap[dateKey];
-            // Look for our strike (may be "95.0" or "95")
             for (const strikeKey of Object.keys(strikeMap)) {
-                if (Math.abs(parseFloat(strikeKey) - strike) < 0.01) {
-                    const options = strikeMap[strikeKey];
-                    if (options && options.length > 0) {
-                        matchingOption = options[0]; // First match
-                        break;
-                    }
+                const options = strikeMap[strikeKey];
+                if (options && options.length > 0) {
+                    const opt = options[0];
+                    allPuts.push({
+                        strike: parseFloat(strikeKey),
+                        expiry: dateKey.split(':')[0], // "2026-02-21:30" -> "2026-02-21"
+                        option: opt
+                    });
                 }
             }
-            if (matchingOption) break;
         }
         
-        if (!matchingOption) {
-            console.log(`[SCHWAB] No matching put at strike $${strike} for ${ticker}`);
+        if (allPuts.length === 0) {
+            console.log(`[SCHWAB] No puts found for ${ticker}`);
             return null;
         }
         
-        console.log(`[SCHWAB] Found: ${matchingOption.symbol} bid=${matchingOption.bid} ask=${matchingOption.ask} delta=${matchingOption.delta}`);
+        console.log(`[SCHWAB] Found ${allPuts.length} puts. Available strikes: $${allPuts.map(p => p.strike).sort((a,b) => a-b).join(', $')}`);
+        
+        // Find closest strike to requested
+        allPuts.sort((a, b) => Math.abs(a.strike - strike) - Math.abs(b.strike - strike));
+        const closest = allPuts[0];
+        const matchingOption = closest.option;
+        
+        // Warn if we had to adjust
+        if (Math.abs(closest.strike - strike) > 0.01) {
+            console.log(`[SCHWAB] ⚠️ Adjusted strike: $${strike} → $${closest.strike} (closest available)`);
+        }
+        
+        console.log(`[SCHWAB] Using: ${matchingOption.symbol} strike=$${closest.strike} bid=${matchingOption.bid} ask=${matchingOption.ask} delta=${matchingOption.delta}`);
         
         return {
             bid: matchingOption.bid || 0,
@@ -1417,6 +1432,8 @@ async function fetchOptionPremiumSchwab(ticker, strike, expiry) {
             delta: matchingOption.delta || null,
             theta: matchingOption.theta || null,
             gamma: matchingOption.gamma || null,
+            actualStrike: closest.strike, // The REAL strike used
+            actualExpiry: closest.expiry, // The REAL expiry used
             source: 'schwab'
         };
     } catch (e) {
@@ -1451,51 +1468,49 @@ async function fetchOptionPremiumCBOE(ticker, strike, expiry) {
         const day = expiryParts[2].padStart(2, '0');
         const year = '26'; // Just last 2 digits for 2026
         
-        // Build the option symbol pattern: TICKER + YYMMDD + P
-        const symbolPrefix = `${ticker}${year}${month}${day}P`;
-        
-        // Format strike for CBOE: $95 -> 00095000 (8 digits, strike × 1000)
-        const strikeFormatted = String(Math.round(strike * 1000)).padStart(8, '0');
-        const targetSymbol = `${symbolPrefix}${strikeFormatted}`;
-        
-        console.log(`[CBOE] Looking for: ${targetSymbol}`);
-        
-        // Find matching put option
+        // Get ALL puts for this ticker
         const options = data.data.options;
-        const match = options.find(opt => opt.option === targetSymbol);
+        const allPuts = options.filter(opt => opt.option?.includes('P'));
         
-        if (!match) {
-            // Try finding nearby strikes
-            const nearbyMatches = options.filter(opt => 
-                opt.option?.startsWith(symbolPrefix) && 
-                Math.abs(parseFloat(opt.option.slice(-8)) / 1000 - strike) <= 2
-            );
-            console.log(`[CBOE] Exact match not found. Nearby puts: ${nearbyMatches.length}`);
-            if (nearbyMatches.length > 0) {
-                // Pick closest strike
-                nearbyMatches.sort((a, b) => {
-                    const aStrike = parseFloat(a.option.slice(-8)) / 1000;
-                    const bStrike = parseFloat(b.option.slice(-8)) / 1000;
-                    return Math.abs(aStrike - strike) - Math.abs(bStrike - strike);
-                });
-                const closest = nearbyMatches[0];
-                console.log(`[CBOE] Using closest: ${closest.option} bid=${closest.bid} ask=${closest.ask}`);
-                return {
-                    bid: closest.bid || 0,
-                    ask: closest.ask || 0,
-                    last: closest.last_trade_price || 0,
-                    mid: ((closest.bid || 0) + (closest.ask || 0)) / 2,
-                    volume: closest.volume || 0,
-                    openInterest: closest.open_interest || 0,
-                    iv: closest.iv ? (closest.iv * 100).toFixed(1) : null,
-                    actualStrike: parseFloat(closest.option.slice(-8)) / 1000,
-                    source: 'cboe'
-                };
-            }
+        // Build date prefix to filter by expiry (or nearby expirations)
+        const datePrefix = `${ticker}${year}${month}`;
+        
+        // Filter to puts near our target expiry (within a week)
+        const targetDay = parseInt(day);
+        const nearbyPuts = allPuts.filter(opt => {
+            if (!opt.option?.startsWith(datePrefix)) return false;
+            // Extract day from symbol
+            const symDay = parseInt(opt.option.substring(ticker.length + 4, ticker.length + 6));
+            return Math.abs(symDay - targetDay) <= 7;
+        });
+        
+        if (nearbyPuts.length === 0) {
+            console.log(`[CBOE] No puts found for ${ticker} near ${month}/${day}`);
             return null;
         }
         
-        console.log(`[CBOE] Found: ${match.option} bid=${match.bid} ask=${match.ask}`);
+        // Extract strikes and find available options
+        const putsWithStrikes = nearbyPuts.map(opt => ({
+            option: opt,
+            strike: parseFloat(opt.option.slice(-8)) / 1000,
+            expiry: `${opt.option.substring(ticker.length, ticker.length + 6)}` // YYMMDD
+        }));
+        
+        const availableStrikes = [...new Set(putsWithStrikes.map(p => p.strike))].sort((a, b) => a - b);
+        console.log(`[CBOE] Found ${nearbyPuts.length} puts. Available strikes: $${availableStrikes.slice(0, 15).join(', $')}${availableStrikes.length > 15 ? '...' : ''}`);
+        
+        // Find closest strike to requested
+        putsWithStrikes.sort((a, b) => Math.abs(a.strike - strike) - Math.abs(b.strike - strike));
+        const closest = putsWithStrikes[0];
+        
+        // Warn if we adjusted
+        if (Math.abs(closest.strike - strike) > 0.01) {
+            console.log(`[CBOE] ⚠️ Adjusted strike: $${strike} → $${closest.strike} (closest available)`);
+        }
+        
+        const match = closest.option;
+        console.log(`[CBOE] Using: ${match.option} strike=$${closest.strike} bid=${match.bid} ask=${match.ask}`);
+        
         return {
             bid: match.bid || 0,
             ask: match.ask || 0,
@@ -1504,6 +1519,7 @@ async function fetchOptionPremiumCBOE(ticker, strike, expiry) {
             volume: match.volume || 0,
             openInterest: match.open_interest || 0,
             iv: match.iv ? (match.iv * 100).toFixed(1) : null,
+            actualStrike: closest.strike,
             source: 'cboe'
         };
     } catch (e) {
@@ -1634,8 +1650,14 @@ function buildDeepDivePrompt(tradeData, tickerData) {
         
         const source = p.source === 'schwab' ? '🔴 SCHWAB (real-time)' : '🔵 CBOE (15-min delay)';
         
+        // Note if strike was adjusted to actual available strike
+        let strikeNote = '';
+        if (p.actualStrike && Math.abs(p.actualStrike - strikeNum) > 0.01) {
+            strikeNote = `\n⚠️ NOTE: Using actual available strike $${p.actualStrike} (requested $${strikeNum} not available)`;
+        }
+        
         premiumSection = `
-═══ LIVE OPTION PRICING — ${source} ═══
+═══ LIVE OPTION PRICING — ${source} ═══${strikeNote}
 Bid: $${p.bid.toFixed(2)} | Ask: $${p.ask.toFixed(2)} | Mid: $${premiumPerShare}
 Volume: ${p.volume} | Open Interest: ${p.openInterest}
 ${p.iv ? `Implied Volatility: ${p.iv}%` : ''}${probProfit}
