@@ -581,8 +581,8 @@ window.getTradeIdeas = async function() {
         // Debug: log raw response to see exact format
         console.log('Raw AI response:', result.ideas.substring(0, 500));
         
-        // Add Deep Dive buttons - match "1. TICKER @ $XX.XX" format
-        let formatted = result.ideas.replace(/^(\d+)\.\s*([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
+        // Add Deep Dive buttons - match "1. TICKER" or "1. **TICKER" format
+        let formatted = result.ideas.replace(/^(\d+)\.\s*\*{0,2}([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
                 console.log('Deep Dive match:', match, 'Ticker:', ticker);
                 return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;" title="Comprehensive scenario analysis">🔍 Deep Dive</button>`;
@@ -2296,9 +2296,13 @@ window.restoreSavedIdeas = function() {
         window._lastTradeIdeas = data.candidates || [];
         window._lastSuggestedTickers = extractSuggestedTickers(data.ideas);
         
-        // Format with deep dive buttons
-        let formatted = data.ideas.replace(/^(\d+)\.\s*([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
+        // Debug: log raw ideas to see format
+        console.log('[Ideas] Raw saved ideas (first 300 chars):', data.ideas.substring(0, 300));
+        
+        // Format with deep dive buttons - match "1. TICKER" or "1. **TICKER" format
+        let formatted = data.ideas.replace(/^(\d+)\.\s*\*{0,2}([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
+                console.log('[Ideas] Deep Dive match:', match, '→ Ticker:', ticker);
                 return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔍 Deep Dive</button>`;
             });
         
@@ -2423,8 +2427,8 @@ window.getTradeIdeas2 = async function() {
             timestamp: Date.now()
         }));
         
-        // Format with deep dive buttons - match "1. TICKER @ $XX.XX - Sell $XX put"
-        let formatted = result.ideas.replace(/^(\d+)\.\s*([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
+        // Format with deep dive buttons - match "1. TICKER" or "1. **TICKER" format
+        let formatted = result.ideas.replace(/^(\d+)\.\s*\*{0,2}([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
                 return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;" title="Comprehensive scenario analysis">🔍 Deep Dive</button>`;
             });
@@ -2542,8 +2546,8 @@ window.getTradeIdeasDifferent = async function() {
             timestamp: Date.now()
         }));
         
-        // Format with deep dive buttons - match "1. TICKER @ $XX.XX"
-        let formatted = result.ideas.replace(/^(\d+)\.\s*([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
+        // Format with deep dive buttons - match "1. TICKER" or "1. **TICKER" format
+        let formatted = result.ideas.replace(/^(\d+)\.\s*\*{0,2}([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
                 return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔍 Deep Dive</button>`;
             });
