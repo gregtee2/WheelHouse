@@ -4,6 +4,7 @@
 import { state } from './state.js';
 import { showNotification } from './utils.js';
 import { fetchStockPrice, fetchStockPricesBatch, fetchOptionsChain, findOption } from './api.js';
+import { saveHoldingsToStorage } from './positions.js';
 
 const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
