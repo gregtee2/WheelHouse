@@ -1866,8 +1866,8 @@ Be specific with dollar amounts and percentages. Don't be vague.`;
         isITM, isOTM, isDeep, prompt
     };
     
-    // Run analysis with selected model
-    await runHoldingAnalysis('ollama');
+    // Run analysis with Grok by default (better quality)
+    await runHoldingAnalysis('grok');
 };
 
 /**
