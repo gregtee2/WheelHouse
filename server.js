@@ -386,7 +386,10 @@ const mainHandler = async (req, res, next) => {
                 const realPrices = await fetchWheelCandidatePrices(buyingPower, excludeTickers);
                 
                 const prompt = buildIdeaPrompt(data, realPrices);
-                const response = await callOllama(prompt, selectedModel, 600); // More tokens for 3 ideas
+                const response = await callOllama(prompt, selectedModel, 900); // More tokens for 5 ideas
+                
+                // Count discovery sources
+                const discoveredCount = realPrices.filter(p => p.sector === 'Active Today' || p.sector === 'Trending').length;
                 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ 
@@ -394,9 +397,10 @@ const mainHandler = async (req, res, next) => {
                     ideas: response,
                     model: selectedModel,
                     candidatesChecked: realPrices.length,
+                    discoveredCount: discoveredCount,
                     candidates: realPrices // Include data for deep-dive
                 }));
-                console.log('[AI] ✅ Ideas generated');
+                console.log(`[AI] ✅ Ideas generated (${realPrices.length} candidates, ${discoveredCount} from discovery)`);
         } catch (e) {
             console.log('[AI] ❌ Ideas error:', e.message);
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -987,7 +991,7 @@ function fetchJson(url) {
     return new Promise((resolve, reject) => {
         https.get(url, { 
             headers: { 
-                'User-Agent': 'Mozilla/5.0',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept': 'application/json'
             }
         }, (res) => {
@@ -1003,6 +1007,10 @@ function fetchJson(url) {
         }).on('error', reject);
     });
 }
+
+// Discovery cache - refresh every 15 minutes
+let discoveryCache = { mostActive: [], trending: [], timestamp: 0 };
+const DISCOVERY_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 
 // Fetch Yahoo's Most Active stocks (high volume today)
 async function fetchMostActiveStocks() {
@@ -1114,11 +1122,27 @@ async function fetchWheelCandidatePrices(buyingPower, excludeTickers = []) {
     ];
     
     // Fetch dynamic discovery lists (most active + trending today)
-    console.log('[Discovery] Fetching most active and trending stocks...');
-    const [mostActive, trending] = await Promise.all([
-        fetchMostActiveStocks(),
-        fetchTrendingStocks()
-    ]);
+    // Use cache to avoid Yahoo rate limiting
+    const now = Date.now();
+    let mostActive = [];
+    let trending = [];
+    
+    if (now - discoveryCache.timestamp < DISCOVERY_CACHE_TTL && discoveryCache.mostActive.length > 0) {
+        console.log('[Discovery] Using cached results (', Math.round((DISCOVERY_CACHE_TTL - (now - discoveryCache.timestamp)) / 1000), 's until refresh)');
+        mostActive = discoveryCache.mostActive;
+        trending = discoveryCache.trending;
+    } else {
+        console.log('[Discovery] Fetching fresh most active and trending stocks...');
+        [mostActive, trending] = await Promise.all([
+            fetchMostActiveStocks(),
+            fetchTrendingStocks()
+        ]);
+        
+        // Update cache if we got results
+        if (mostActive.length > 0 || trending.length > 0) {
+            discoveryCache = { mostActive, trending, timestamp: now };
+        }
+    }
     
     // Merge all sources, removing duplicates (curated takes priority for sector)
     const curatedTickers = new Set(curatedCandidates.map(c => c.ticker));
@@ -2203,7 +2227,9 @@ function buildIdeaPrompt(data, realPrices = []) {
         }).join('\n');
     }
     
-    return `You are a WHEEL STRATEGY advisor. Analyze the data below and pick 3 SHORT PUT trades.
+    return `You are a WHEEL STRATEGY advisor. Analyze the data below and pick 5 SHORT PUT trades.
+PRIORITIZE variety - pick from DIFFERENT sectors. Don't pick 3 tech stocks.
+If you see "Active Today" or "Trending" stocks, INCLUDE at least one - these are today's movers!
 
 ═══ ACCOUNT ═══
 Buying Power: $${buyingPower?.toLocaleString() || '25,000'}
@@ -2234,12 +2260,12 @@ Avoid:
    Capital: $X,XXX (COPY from data above - it's strike × 100)
 
 2. ...
-
 3. ...
+4. ...
+5. ...
 
-USE THE DATA. Copy the Capital value from the candidate data - it's already calculated for you.
-Don't make up company names - if you don't know what the ticker is, just use the ticker symbol.`;
-}
+Give me 5 different ideas from DIFFERENT sectors. USE THE DATA. Copy the Capital value from the candidate data - it's already calculated for you.
+If you see stocks marked "Active Today" or "Trending", prioritize those - they're today's opportunity!`;
 
 // Call Ollama API
 function callOllama(prompt, model = 'qwen2.5:7b', maxTokens = 400) {

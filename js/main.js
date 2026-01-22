@@ -2334,19 +2334,29 @@ window.getTradeIdeas2 = async function() {
             .replace(/(Entry:|Why:|Risk:|Capital:)/gi, '<span style="color:#888;">$1</span>')
             .replace(/✅|📊|💡|🎯|⚠️/g, match => `<span style="font-size:1.1em;">${match}</span>`);
         
-        // Show discovery source badges for suggested tickers
-        const discoveredTickers = (result.candidates || []).filter(c => c.sector === 'Active Today' || c.sector === 'Trending');
-        const discoveryNote = discoveredTickers.length > 0 
-            ? `<div style="margin-top:15px; padding:10px; background:#1a1a2e; border-radius:5px; font-size:11px; color:#888;">
-                 🔍 <strong style="color:#00d9ff;">Discovery Mode:</strong> Scanned ${result.candidatesChecked || 0} stocks 
-                 (54 curated + today's most active + trending). 
-                 ${discoveredTickers.map(t => `<span style="background:#333; padding:2px 6px; border-radius:3px; margin-left:4px;">${t.ticker} <span style="color:#ffaa00;">${t.sector}</span></span>`).join('')}
-               </div>`
-            : '';
+        // Show what stocks were in the candidate pool
+        const allCandidates = result.candidates || [];
+        const discoveredTickers = allCandidates.filter(c => c.sector === 'Active Today' || c.sector === 'Trending');
+        const curatedTickers = allCandidates.filter(c => c.sector !== 'Active Today' && c.sector !== 'Trending');
+        
+        const poolNote = `<div style="margin-top:15px; padding:12px; background:#1a1a2e; border-radius:5px; font-size:11px;">
+            <div style="color:#888; margin-bottom:8px;">
+                📊 <strong style="color:#00d9ff;">Candidate Pool:</strong> ${result.candidatesChecked || 0} stocks scanned
+                ${result.discoveredCount > 0 ? `(including <span style="color:#ffaa00;">${result.discoveredCount} market movers</span>)` : ''}
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                ${allCandidates.map(t => {
+                    const isDiscovered = t.sector === 'Active Today' || t.sector === 'Trending';
+                    const bg = isDiscovered ? '#4a3500' : '#333';
+                    const border = isDiscovered ? '1px solid #ffaa00' : 'none';
+                    return `<span style="background:${bg}; border:${border}; padding:2px 6px; border-radius:3px; color:#ccc;">${t.ticker}</span>`;
+                }).join('')}
+            </div>
+        </div>`;
         
         // Add "Show Different Stocks" button at the end
         formatted += `
-            ${discoveryNote}
+            ${poolNote}
             <div style="margin-top:15px; padding-top:15px; border-top:1px solid #333; text-align:center;">
                 <button onclick="window.getTradeIdeasDifferent()" style="padding:8px 16px; background:#444; border:none; border-radius:5px; color:#00d9ff; cursor:pointer; font-size:13px;" title="Get fresh suggestions from different stocks">
                     🔄 Show Different Stocks
@@ -2442,18 +2452,26 @@ window.getTradeIdeasDifferent = async function() {
             .replace(/(Entry:|Why:|Risk:|Capital:)/gi, '<span style="color:#888;">$1</span>')
             .replace(/✅|📊|💡|🎯|⚠️/g, match => `<span style="font-size:1.1em;">${match}</span>`);
         
-        // Show discovery source badges
-        const discoveredTickers = (result.candidates || []).filter(c => c.sector === 'Active Today' || c.sector === 'Trending');
-        const discoveryNote = discoveredTickers.length > 0 
-            ? `<div style="margin-top:15px; padding:10px; background:#1a1a2e; border-radius:5px; font-size:11px; color:#888;">
-                 🔍 <strong style="color:#00d9ff;">Discovery Mode:</strong> Found opportunities from today's market movers.
-                 ${discoveredTickers.map(t => `<span style="background:#333; padding:2px 6px; border-radius:3px; margin-left:4px;">${t.ticker} <span style="color:#ffaa00;">${t.sector}</span></span>`).join('')}
-               </div>`
-            : '';
+        // Show what stocks were in the candidate pool
+        const allCandidates = result.candidates || [];
+        const poolNote = `<div style="margin-top:15px; padding:12px; background:#1a1a2e; border-radius:5px; font-size:11px;">
+            <div style="color:#888; margin-bottom:8px;">
+                📊 <strong style="color:#00d9ff;">Candidate Pool:</strong> ${result.candidatesChecked || 0} stocks scanned
+                ${result.discoveredCount > 0 ? `(including <span style="color:#ffaa00;">${result.discoveredCount} market movers</span>)` : ''}
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                ${allCandidates.map(t => {
+                    const isDiscovered = t.sector === 'Active Today' || t.sector === 'Trending';
+                    const bg = isDiscovered ? '#4a3500' : '#333';
+                    const border = isDiscovered ? '1px solid #ffaa00' : 'none';
+                    return `<span style="background:${bg}; border:${border}; padding:2px 6px; border-radius:3px; color:#ccc;">${t.ticker}</span>`;
+                }).join('')}
+            </div>
+        </div>`;
         
         // Add "Show Different" button + "Reset" option
         formatted += `
-            ${discoveryNote}
+            ${poolNote}
             <div style="margin-top:15px; padding-top:15px; border-top:1px solid #333; text-align:center;">
                 <button onclick="window.getTradeIdeasDifferent()" style="padding:8px 16px; background:#444; border:none; border-radius:5px; color:#00d9ff; cursor:pointer; font-size:13px;">
                     🔄 Show More Different Stocks
