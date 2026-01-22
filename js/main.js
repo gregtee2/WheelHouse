@@ -904,29 +904,36 @@ window.stageFromXSentiment = function(ticker, price, strike, expiry) {
     // Close modal
     document.getElementById('xDeepDiveModal')?.remove();
     
-    // Switch to Positions tab and open add form
+    // Switch to Positions tab
     const positionsTab = document.querySelector('[data-tab="positions"]');
     if (positionsTab) positionsTab.click();
     
-    // Fill in the form
+    // Fill in the form (form is always visible, no button to click)
     setTimeout(() => {
-        const addBtn = document.getElementById('addPositionBtn');
-        if (addBtn) addBtn.click();
+        // Get form elements with correct IDs
+        const tickerInput = document.getElementById('posTicker');
+        const typeSelect = document.getElementById('posType');
+        const strikeInput = document.getElementById('posStrike');
+        const expiryInput = document.getElementById('posExpiry');
         
-        setTimeout(() => {
-            const tickerInput = document.getElementById('ticker');
-            const typeSelect = document.getElementById('type');
-            const strikeInput = document.getElementById('strike');
-            const expiryInput = document.getElementById('expiry');
-            
-            if (tickerInput) tickerInput.value = ticker;
-            if (typeSelect) typeSelect.value = 'short_put';
-            if (strikeInput) strikeInput.value = strike;
-            if (expiryInput) expiryInput.value = expiry;
-            
-            showNotification(`📋 Staged ${ticker} $${strike} put - verify premium and save!`, 'success');
-        }, 200);
-    }, 100);
+        // Fill values
+        if (tickerInput) tickerInput.value = ticker;
+        if (typeSelect) typeSelect.value = 'short_put';
+        if (strikeInput) strikeInput.value = strike;
+        if (expiryInput) expiryInput.value = expiry;
+        
+        // Scroll to form
+        tickerInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Highlight the form briefly
+        const formPanel = tickerInput?.closest('.controls-panel');
+        if (formPanel) {
+            formPanel.style.boxShadow = '0 0 20px rgba(29, 161, 242, 0.6)';
+            setTimeout(() => formPanel.style.boxShadow = '', 2000);
+        }
+        
+        showNotification(`📋 Staged ${ticker} $${strike} put - verify premium and click Add Position!`, 'success');
+    }, 200);
 };
 
 /**
