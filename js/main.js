@@ -661,6 +661,77 @@ function updateXSentimentButton() {
 })();
 
 /**
+ * Restore X Sentiment from localStorage (persists across tab switches)
+ */
+window.restoreXSentiment = function() {
+    try {
+        const saved = localStorage.getItem('wheelhouse_x_sentiment');
+        if (!saved) return false;
+        
+        const data = JSON.parse(saved);
+        if (!data.html || !data.tickers) return false;
+        
+        // Check if data is less than 4 hours old
+        const ageMs = Date.now() - data.timestamp;
+        const ageHours = ageMs / (1000 * 60 * 60);
+        if (ageHours > 4) {
+            console.log('[X Sentiment] Cached data too old, clearing');
+            localStorage.removeItem('wheelhouse_x_sentiment');
+            return false;
+        }
+        
+        // Restore to both panels
+        const ageMinutes = Math.round(ageMs / 60000);
+        const ageDisplay = ageMinutes < 60 ? `${ageMinutes}m ago` : `${Math.round(ageMinutes/60)}h ago`;
+        
+        // Update header with age indicator
+        let html = data.html.replace(
+            /\([\d:]+\s*[AP]M\)/i, 
+            `(${data.timeString} - <span style="color:#ffaa00;">${ageDisplay}</span>)`
+        );
+        
+        // Restore to Ideas tab
+        const ideaContentLarge = document.getElementById('ideaContentLarge');
+        const ideaResultsLarge = document.getElementById('ideaResultsLarge');
+        if (ideaContentLarge && ideaResultsLarge) {
+            ideaContentLarge.innerHTML = html;
+            ideaResultsLarge.style.display = 'block';
+        }
+        
+        // Restore to Positions tab
+        const ideaContent = document.getElementById('ideaContent');
+        const ideaResults = document.getElementById('ideaResults');
+        if (ideaContent && ideaResults) {
+            ideaContent.innerHTML = html;
+            ideaResults.style.display = 'block';
+        }
+        
+        // Restore tickers for Trade Ideas integration
+        window._xTrendingTickers = data.tickers;
+        
+        // Show X tickers integration checkbox
+        const tickerCount = data.tickers.length;
+        ['', '2'].forEach(suffix => {
+            const optionDiv = document.getElementById('xTickersOption' + suffix);
+            const countSpan = document.getElementById('xTickerCount' + suffix);
+            if (optionDiv && tickerCount > 0) {
+                optionDiv.style.display = 'block';
+                if (countSpan) countSpan.textContent = tickerCount;
+            }
+        });
+        
+        console.log(`[X Sentiment] Restored from cache (${ageDisplay}):`, data.tickers);
+        return true;
+    } catch (e) {
+        console.error('[X Sentiment] Restore failed:', e);
+        return false;
+    }
+};
+
+// Restore X Sentiment on page load
+setTimeout(() => window.restoreXSentiment(), 1000);
+
+/**
  * Get X/Twitter sentiment via Grok (Grok-only feature)
  */
 window.getXSentiment = async function() {
@@ -728,19 +799,30 @@ window.getXSentiment = async function() {
         });
         
         // Add header with refresh button
+        const timestamp = new Date().toLocaleTimeString();
         const header = `<div style="color:#1da1f2; font-weight:bold; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;">
-            <span>🔥 Live from X/Twitter <span style="color:#666; font-size:10px;">(${new Date().toLocaleTimeString()})</span></span>
+            <span>🔥 Live from X/Twitter <span style="color:#666; font-size:10px;">(${timestamp})</span></span>
             <button onclick="window.getXSentiment()" style="font-size:10px; padding:3px 8px; background:#1da1f2; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔄 Refresh</button>
         </div>
         <div style="font-size:10px; color:#888; margin-bottom:10px; padding:6px; background:rgba(0,255,136,0.1); border-radius:4px;">
             💡 <strong style="color:#00ff88;">Click any ticker</strong> for Deep Dive analysis | Found: ${window._xTrendingTickers.join(', ')}
         </div>`;
         
-        ideaContent.innerHTML = header + formatted;
+        const fullHtml = header + formatted;
+        ideaContent.innerHTML = fullHtml;
         if (ideaBtn) {
             ideaBtn.textContent = '🔥 Trending on X (Grok)';
             ideaBtn.disabled = false;
         }
+        
+        // Save to localStorage for persistence across tab switches
+        localStorage.setItem('wheelhouse_x_sentiment', JSON.stringify({
+            html: fullHtml,
+            tickers: window._xTrendingTickers,
+            timestamp: Date.now(),
+            timeString: timestamp
+        }));
+        console.log('[X Sentiment] Saved to localStorage');
         
         // Show the X tickers integration checkbox
         const tickerCount = window._xTrendingTickers.length;
