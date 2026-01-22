@@ -2449,7 +2449,7 @@ async function callAI(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
 /**
  * Call Grok API (xAI)
  */
-async function callGrok(prompt, model = 'grok-2', maxTokens = 400) {
+async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
     const apiKey = process.env.GROK_API_KEY;
     
     if (!apiKey) {
