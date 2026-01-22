@@ -1543,10 +1543,10 @@ window.showMarkAsRolledModal = function(oldPositionId) {
     if (!oldPos) return;
     
     // Find other open positions with same ticker that could be the "new" position
+    // Allow different types (e.g., buy_write → covered_call)
     const candidates = state.positions.filter(p => 
         p.id !== oldPositionId && 
-        p.ticker === oldPos.ticker &&
-        p.type === oldPos.type
+        p.ticker === oldPos.ticker
     );
     
     if (candidates.length === 0) {
@@ -2090,7 +2090,7 @@ function renderPositionsTable(container, openPositions) {
                     <button onclick="window.rollPosition(${pos.id})" 
                             style="display:inline-block; background: rgba(140,80,160,0.3); border: 1px solid rgba(140,80,160,0.5); color: #b9b; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
                             title="Roll (enter new position details)">🔄</button>
-                    ${state.positions.some(p => p.id !== pos.id && p.ticker === pos.ticker && p.type === pos.type) ? `
+                    ${state.positions.some(p => p.id !== pos.id && p.ticker === pos.ticker) ? `
                     <button onclick="window.showMarkAsRolledModal(${pos.id})" 
                             style="display:inline-block; background: rgba(255,140,0,0.3); border: 1px solid rgba(255,140,0,0.5); color: #fa0; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 11px; vertical-align: middle;"
                             title="Link to imported position (already rolled at broker)">🔗→</button>
