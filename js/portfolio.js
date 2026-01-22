@@ -1701,16 +1701,33 @@ window.aiHoldingSuggestion = async function(holdingId) {
     const holding = (state.holdings || []).find(h => h.id === holdingId);
     if (!holding) return;
     
-    // Find linked position
-    const position = holding.linkedPositionId 
+    // Find linked position - first try the stored linkedPositionId
+    let position = holding.linkedPositionId 
         ? state.positions.find(p => p.id === holding.linkedPositionId)
         : null;
+    
+    // If not found (position may have been rolled/closed), find the current OPEN position for this ticker
+    if (!position) {
+        // Look for any open covered_call or buy_write for this ticker
+        position = state.positions.find(p => 
+            p.ticker === holding.ticker && 
+            (p.type === 'covered_call' || p.type === 'buy_write') &&
+            p.status !== 'closed'
+        );
+        
+        // If found, update the holding's link
+        if (position && holding.linkedPositionId !== position.id) {
+            console.log(`[AI] Auto-linking ${holding.ticker} holding to position ${position.id}`);
+            holding.linkedPositionId = position.id;
+            localStorage.setItem('wheelhouse_holdings', JSON.stringify(state.holdings));
+        }
+    }
     
     const shares = holding.shares || 100;
     const strike = position?.strike || holding.strike || 0;
     const premium = holding.premiumCredit || (position?.premium * 100) || 0;
     const costBasis = holding.stockPrice || holding.costBasis || 0;
-    const dte = position?.dte || position?.expiry ? Math.max(0, Math.round((new Date(position.expiry) - new Date()) / 86400000)) : 0;
+    const dte = position?.expiry ? Math.max(0, Math.round((new Date(position.expiry) - new Date()) / 86400000)) : 0;
     const expiry = position?.expiry || 'unknown';
     
     // Show loading modal immediately
