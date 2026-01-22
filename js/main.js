@@ -626,6 +626,87 @@ setTimeout(checkAIStatus, 2000);
 setInterval(checkAIStatus, 30000); // Refresh every 30 seconds
 
 /**
+ * Show/hide X Sentiment button based on model selection
+ */
+function updateXSentimentButton() {
+    const modelSelect = document.getElementById('ideaModelSelect');
+    const xBtn = document.getElementById('xSentimentBtn');
+    if (!modelSelect || !xBtn) return;
+    
+    const isGrok = modelSelect.value?.startsWith('grok');
+    xBtn.style.display = isGrok ? 'block' : 'none';
+}
+
+// Listen for model changes
+document.addEventListener('DOMContentLoaded', () => {
+    const modelSelect = document.getElementById('ideaModelSelect');
+    if (modelSelect) {
+        modelSelect.addEventListener('change', updateXSentimentButton);
+        // Also check on page load if Grok is configured
+        if (localStorage.getItem('wheelhouse_grok_configured') === 'true') {
+            updateXSentimentButton();
+        }
+    }
+});
+
+/**
+ * Get X/Twitter sentiment via Grok (Grok-only feature)
+ */
+window.getXSentiment = async function() {
+    const ideaBtn = document.getElementById('xSentimentBtn');
+    const ideaResults = document.getElementById('ideaResults');
+    const ideaContent = document.getElementById('ideaContent');
+    
+    if (!ideaBtn || !ideaResults || !ideaContent) return;
+    
+    const buyingPower = parseFloat(document.getElementById('ideaBuyingPower')?.value) || 25000;
+    
+    // Show loading
+    ideaBtn.disabled = true;
+    ideaBtn.textContent = '⏳ Scanning X...';
+    ideaResults.style.display = 'block';
+    ideaContent.innerHTML = '<span style="color:#1da1f2;">🔄 Grok is scanning X/Twitter for trader sentiment... (5-10 seconds)</span>';
+    
+    try {
+        const response = await fetch('/api/ai/x-sentiment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ buyingPower })
+        });
+        
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'API error');
+        }
+        
+        const result = await response.json();
+        
+        // Format the response with nice styling
+        let formatted = result.sentiment
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#1da1f2;">$1</strong>')
+            .replace(/(\$[\d,]+\.?\d*)/g, '<span style="color:#ffaa00;">$1</span>')
+            .replace(/(🔥|📢|⚠️|💰|🚀)/g, '<span style="font-size:14px;">$1</span>');
+        
+        // Add header
+        const header = `<div style="color:#1da1f2; font-weight:bold; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #333;">
+            🔥 Live from X/Twitter <span style="color:#666; font-size:10px;">(${new Date().toLocaleTimeString()})</span>
+        </div>`;
+        
+        ideaContent.innerHTML = header + formatted;
+        ideaBtn.textContent = '🔥 Trending on X (Grok)';
+        ideaBtn.disabled = false;
+        
+    } catch (e) {
+        console.error('X Sentiment error:', e);
+        ideaContent.innerHTML = `<span style="color:#ff5252;">❌ ${e.message}</span>
+<br><br>
+<span style="color:#888;">X Sentiment requires Grok API. Make sure it's configured in Settings.</span>`;
+        ideaBtn.textContent = '🔥 Retry';
+        ideaBtn.disabled = false;
+    }
+};
+
+/**
  * Get AI-powered trade ideas
  */
 window.getTradeIdeas = async function() {

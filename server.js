@@ -410,6 +410,59 @@ const mainHandler = async (req, res, next) => {
         return;
     }
     
+    // X/Twitter Sentiment - Grok-only feature using real-time X access
+    if (url.pathname === '/api/ai/x-sentiment' && req.method === 'POST') {
+        try {
+            const data = req.body;
+            const { buyingPower } = data;
+            
+            // This ONLY works with Grok (has X access)
+            if (!process.env.GROK_API_KEY) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'X Sentiment requires Grok API. Configure in Settings.' }));
+                return;
+            }
+            
+            console.log('[AI] 🔥 Fetching X/Twitter sentiment via Grok...');
+            
+            const prompt = `You have real-time access to X (Twitter). I'm a wheel strategy options trader with $${buyingPower || 25000} buying power.
+
+Scan X/Twitter RIGHT NOW and find me:
+
+1. **🔥 TRENDING TICKERS** - What stocks are traders actively discussing today? Look for unusual volume mentions, breakout alerts, or momentum plays.
+
+2. **📢 EARNINGS PLAYS** - Any upcoming earnings that FinTwit is buzzing about? Stocks where people expect big moves?
+
+3. **⚠️ CAUTION FLAGS** - Any stocks where sentiment has turned negative? Shorts piling in? Bad news circulating?
+
+4. **💰 PUT SELLING OPPORTUNITIES** - Based on X chatter, which stocks might be good for selling puts? Look for stocks that got beaten down but sentiment is turning, or stable stocks with elevated IV from news.
+
+5. **🚀 SECTOR MOMENTUM** - What sectors are traders most bullish/bearish on today based on X discussion?
+
+FORMAT each ticker mention like: **TICKER** @ $XX.XX (if you know the price)
+
+Be specific about WHAT you're seeing on X - quote tweets if relevant, mention influencers if they're driving discussion. I want the "street feel" that only live X access can provide.
+
+Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage).`;
+
+            const response = await callGrok(prompt, 'grok-3', 1500);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true, 
+                sentiment: response,
+                source: 'grok-x-realtime',
+                timestamp: new Date().toISOString()
+            }));
+            console.log('[AI] ✅ X sentiment retrieved');
+        } catch (e) {
+            console.log('[AI] ❌ X sentiment error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+    
     // AI Deep Dive - comprehensive analysis of a single trade idea
     if (url.pathname === '/api/ai/deep-dive' && req.method === 'POST') {
         try {
@@ -2483,6 +2536,12 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
         
         const data = await response.json();
         const content = data.choices?.[0]?.message?.content || 'No response from Grok';
+        
+        // Log token usage for cost tracking
+        const usage = data.usage;
+        if (usage) {
+            console.log(`[AI] Grok tokens: ${usage.prompt_tokens} in → ${usage.completion_tokens} out = ${usage.total_tokens} total`);
+        }
         console.log(`[AI] Grok response length: ${content.length} chars`);
         return content;
         
