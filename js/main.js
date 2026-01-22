@@ -2332,7 +2332,7 @@ window.restoreSavedIdeas = function() {
         
         // Add buttons
         formatted += poolHtml;
-            <div style="margin-top:15px; padding-top:15px; border-top:1px solid #333; text-align:center;">
+        formatted += `<div style="margin-top:15px; padding-top:15px; border-top:1px solid #333; text-align:center;">
                 <button onclick="window.getTradeIdeas2()" style="padding:8px 16px; background:#8b5cf6; border:none; border-radius:5px; color:#fff; cursor:pointer; font-size:13px;">
                     🔄 Generate Fresh Ideas
                 </button>
