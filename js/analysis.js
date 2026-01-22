@@ -1227,7 +1227,7 @@ export function analyzePositionExpert(position, spot, optionChainData) {
     if (isCallPosition) {
         const stockPrice = position.stockPrice || spot;
         const premium = position.premium || 0;
-        const costBasis = position.costBasis || (stockPrice - premium);
+        const costBasis = position.costBasis || position.holdingCostBasis || stockPrice;
         const contracts = position.contracts || 1;
         const shares = contracts * 100;
         
@@ -1236,11 +1236,11 @@ export function analyzePositionExpert(position, spot, optionChainData) {
         const callDepth = callIsITM ? ((spot - strike) / strike * 100) : 0;
         const otmDistance = !callIsITM ? ((strike - spot) / spot * 100) : 0;
         
-        // Calculate max profit if called away
-        const gainOnShares = Math.max(0, (strike - stockPrice)) * shares;
+        // Calculate max profit if called away - use costBasis for true gain
+        const gainOnShares = Math.max(0, (strike - costBasis)) * shares;
         const premiumCollected = premium * 100 * contracts;
         const maxProfit = gainOnShares + premiumCollected;
-        const maxProfitPct = (maxProfit / (stockPrice * shares)) * 100;
+        const maxProfitPct = (maxProfit / (costBasis * shares)) * 100;
         
         // Current unrealized on stock
         const unrealizedStock = (spot - stockPrice) * shares;
@@ -1249,8 +1249,11 @@ export function analyzePositionExpert(position, spot, optionChainData) {
             results.situation = '📞 ITM CALL - LIKELY ASSIGNMENT';
             results.urgency = 'medium';
             results.recommendation = 'Prepare for shares to be called away at profit';
+            const profitBreakdown1 = gainOnShares > 0 
+                ? `$${gainOnShares.toFixed(0)} stock + $${premiumCollected.toFixed(0)} prem`
+                : `$${premiumCollected.toFixed(0)} premium`;
             results.actions = [
-                `Max profit if assigned: $${maxProfit.toFixed(0)} (${maxProfitPct.toFixed(1)}%)`,
+                `Max profit if assigned: $${maxProfit.toFixed(0)} (${maxProfitPct.toFixed(1)}%) = ${profitBreakdown1}`,
                 'Let expire ITM for clean assignment, or...',
                 'Roll out+up to keep shares & collect more premium'
             ];
@@ -1260,8 +1263,11 @@ export function analyzePositionExpert(position, spot, optionChainData) {
             results.situation = '📈 CALL ITM - SHARES RALLYING';
             results.urgency = 'low';
             results.recommendation = 'On track for max profit - let it ride';
+            const profitBreakdown2 = gainOnShares > 0 
+                ? `$${gainOnShares.toFixed(0)} stock + $${premiumCollected.toFixed(0)} prem`
+                : `$${premiumCollected.toFixed(0)} premium`;
             results.actions = [
-                `Max profit at assignment: $${maxProfit.toFixed(0)}`,
+                `Max profit at assignment: $${maxProfit.toFixed(0)} (${maxProfitPct.toFixed(1)}%) = ${profitBreakdown2}`,
                 'Can roll up+out for more upside (costs debit)',
                 'Or let expire for clean assignment'
             ];
