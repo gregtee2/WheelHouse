@@ -972,12 +972,14 @@ window.getXSentiment = async function() {
         // Add header with refresh button and history button
         const timestamp = new Date().toLocaleTimeString();
         const historyCount = JSON.parse(localStorage.getItem('wheelhouse_x_sentiment_history') || '[]').length;
+        const usageCount = parseInt(localStorage.getItem('wheelhouse_x_sentiment_usage') || '0') + 1; // +1 because we haven't saved yet
         const historyBtn = historyCount >= 2 
             ? `<button onclick="window.showXSentimentHistory()" style="font-size:10px; padding:3px 8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer; margin-right:6px;" title="Compare with previous scans">📊 Trends (${historyCount})</button>`
             : '';
         const header = `<div style="color:#1da1f2; font-weight:bold; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;">
             <span>🔥 Live from X/Twitter <span style="color:#666; font-size:10px;">(${timestamp})</span></span>
-            <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:9px; color:#666; background:rgba(29,161,242,0.15); padding:2px 6px; border-radius:3px;" title="Total Grok API calls">📊 #${usageCount}</span>
                 ${historyBtn}
                 <button onclick="window.getXSentiment()" style="font-size:10px; padding:3px 8px; background:#1da1f2; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔄 Refresh</button>
             </div>
@@ -1002,6 +1004,11 @@ window.getXSentiment = async function() {
             rawText: result.insight  // Store raw text for comparison
         };
         localStorage.setItem('wheelhouse_x_sentiment', JSON.stringify(sentimentData));
+        
+        // Increment usage counter
+        const usageCount = (parseInt(localStorage.getItem('wheelhouse_x_sentiment_usage') || '0')) + 1;
+        localStorage.setItem('wheelhouse_x_sentiment_usage', usageCount.toString());
+        console.log(`[X Sentiment] API call #${usageCount}`);
         
         // Also save to history (keep last 10 runs)
         window.saveXSentimentToHistory(sentimentData);
