@@ -1004,6 +1004,7 @@ window.stageFromXSentiment = function(ticker, price, strike, expiry) {
         const typeSelect = document.getElementById('posType');
         const strikeInput = document.getElementById('posStrike');
         const expiryInput = document.getElementById('posExpiry');
+        const premiumInput = document.getElementById('posPremium');
         
         console.log('[Stage] Form elements found:', {
             ticker: !!tickerInput,
@@ -1015,7 +1016,6 @@ window.stageFromXSentiment = function(ticker, price, strike, expiry) {
         // Fill values
         if (tickerInput) {
             tickerInput.value = ticker;
-            tickerInput.focus();
             console.log('[Stage] Set ticker to', ticker);
         }
         if (typeSelect) {
@@ -1026,22 +1026,54 @@ window.stageFromXSentiment = function(ticker, price, strike, expiry) {
         if (strikeInput) strikeInput.value = strike;
         if (expiryInput) expiryInput.value = expiry;
         
-        // Scroll to form - find the positions panel first
+        // Clear premium so user knows to fill it
+        if (premiumInput) premiumInput.value = '';
+        
+        // Find the controls panel (form) - it's on the right side
         const positionsPanel = document.getElementById('positions');
         const formPanel = positionsPanel?.querySelector('.controls-panel');
         
         if (formPanel) {
+            // Strong visual highlight
+            formPanel.style.boxShadow = '0 0 30px rgba(29, 161, 242, 0.8), inset 0 0 10px rgba(29, 161, 242, 0.2)';
+            formPanel.style.border = '2px solid #1da1f2';
+            formPanel.style.transition = 'all 0.3s';
+            
+            // Flash the ticker input
+            if (tickerInput) {
+                tickerInput.style.background = '#1da1f2';
+                tickerInput.style.color = '#000';
+                tickerInput.style.fontWeight = 'bold';
+                setTimeout(() => {
+                    tickerInput.style.background = '';
+                    tickerInput.style.color = '';
+                    tickerInput.style.fontWeight = '';
+                }, 1500);
+            }
+            
+            // Scroll the form into view (right side panel)
             formPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            // Highlight the form briefly
-            formPanel.style.boxShadow = '0 0 20px rgba(29, 161, 242, 0.6)';
-            formPanel.style.transition = 'box-shadow 0.3s';
-            setTimeout(() => formPanel.style.boxShadow = '', 2000);
+            
+            // Focus on premium field so user can type
+            setTimeout(() => {
+                if (premiumInput) {
+                    premiumInput.focus();
+                    premiumInput.placeholder = '← Enter premium received!';
+                }
+            }, 500);
+            
+            // Remove highlight after 3 seconds
+            setTimeout(() => {
+                formPanel.style.boxShadow = '';
+                formPanel.style.border = '';
+            }, 3000);
+            
             console.log('[Stage] Highlighted form panel');
         } else {
             console.error('[Stage] Could not find form panel!');
         }
         
-        showNotification(`📋 Staged ${ticker} $${strike} put - verify premium and click Add Position!`, 'success');
+        showNotification(`📋 Staged ${ticker} $${strike} put → Fill in PREMIUM and click Add Position!`, 'success', 5000);
     }, 300);
 };
 
