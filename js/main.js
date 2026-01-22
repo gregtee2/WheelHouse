@@ -983,14 +983,21 @@ window.xDeepDive = async function(ticker) {
  * Stage a trade from X Sentiment Deep Dive
  */
 window.stageFromXSentiment = function(ticker, price, strike, expiry) {
+    console.log('[Stage] Starting stage for', ticker, strike, expiry);
+    
     // Close modal
     document.getElementById('xDeepDiveModal')?.remove();
     
-    // Switch to Positions tab
-    const positionsTab = document.querySelector('[data-tab="positions"]');
-    if (positionsTab) positionsTab.click();
+    // Switch to Positions tab using proper tab system
+    const positionsTab = document.querySelector('.tab-btn[data-tab="positions"]');
+    if (positionsTab) {
+        console.log('[Stage] Clicking positions tab');
+        positionsTab.click();
+    } else {
+        console.error('[Stage] Could not find positions tab button!');
+    }
     
-    // Fill in the form (form is always visible, no button to click)
+    // Fill in the form after tab switch completes
     setTimeout(() => {
         // Get form elements with correct IDs
         const tickerInput = document.getElementById('posTicker');
@@ -998,24 +1005,44 @@ window.stageFromXSentiment = function(ticker, price, strike, expiry) {
         const strikeInput = document.getElementById('posStrike');
         const expiryInput = document.getElementById('posExpiry');
         
+        console.log('[Stage] Form elements found:', {
+            ticker: !!tickerInput,
+            type: !!typeSelect,
+            strike: !!strikeInput,
+            expiry: !!expiryInput
+        });
+        
         // Fill values
-        if (tickerInput) tickerInput.value = ticker;
-        if (typeSelect) typeSelect.value = 'short_put';
+        if (tickerInput) {
+            tickerInput.value = ticker;
+            tickerInput.focus();
+            console.log('[Stage] Set ticker to', ticker);
+        }
+        if (typeSelect) {
+            typeSelect.value = 'short_put';
+            // Trigger change event to update any dependent UI
+            typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         if (strikeInput) strikeInput.value = strike;
         if (expiryInput) expiryInput.value = expiry;
         
-        // Scroll to form
-        tickerInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Scroll to form - find the positions panel first
+        const positionsPanel = document.getElementById('positions');
+        const formPanel = positionsPanel?.querySelector('.controls-panel');
         
-        // Highlight the form briefly
-        const formPanel = tickerInput?.closest('.controls-panel');
         if (formPanel) {
+            formPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Highlight the form briefly
             formPanel.style.boxShadow = '0 0 20px rgba(29, 161, 242, 0.6)';
+            formPanel.style.transition = 'box-shadow 0.3s';
             setTimeout(() => formPanel.style.boxShadow = '', 2000);
+            console.log('[Stage] Highlighted form panel');
+        } else {
+            console.error('[Stage] Could not find form panel!');
         }
         
         showNotification(`📋 Staged ${ticker} $${strike} put - verify premium and click Add Position!`, 'success');
-    }, 200);
+    }, 300);
 };
 
 /**
