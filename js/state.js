@@ -31,6 +31,7 @@ export const state = {
     optVol: 0.2,
     mcPaths: 10000,
     dte: 30,
+    currentTicker: null,  // Currently loaded ticker for Monte Carlo
     
     // Results
     optionResults: null,

@@ -13,6 +13,7 @@ const { execSync, spawn } = require('child_process');
 
 // Import settings routes
 const settingsRoutes = require('./src/routes/settingsRoutes');
+const schwabRoutes = require('./src/routes/schwabRoutes');
 
 const PORT = process.env.PORT || 8888;
 const app = express();
@@ -23,7 +24,7 @@ app.use(express.json());
 // CORS middleware
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     if (req.method === 'OPTIONS') {
         return res.sendStatus(204);
@@ -33,6 +34,9 @@ app.use((req, res, next) => {
 
 // Mount settings API routes
 app.use('/api/settings', settingsRoutes);
+
+// Mount Schwab API routes
+app.use('/api/schwab', schwabRoutes);
 
 // Get current version from package.json
 function getLocalVersion() {
@@ -52,6 +56,62 @@ function getChangelog() {
         return '';
     }
 }
+
+// GPU Detection - Query nvidia-smi for VRAM info
+function detectGPU() {
+    try {
+        // Query nvidia-smi for GPU name and memory
+        const output = execSync('nvidia-smi --query-gpu=name,memory.total,memory.free,memory.used --format=csv,noheader,nounits', {
+            encoding: 'utf8',
+            timeout: 5000
+        }).trim();
+        
+        // Parse output: "NVIDIA GeForce RTX 4090, 24564, 20000, 4564"
+        const lines = output.split('\n');
+        const gpus = lines.map(line => {
+            const parts = line.split(',').map(s => s.trim());
+            return {
+                name: parts[0],
+                totalMB: parseInt(parts[1]) || 0,
+                freeMB: parseInt(parts[2]) || 0,
+                usedMB: parseInt(parts[3]) || 0,
+                totalGB: ((parseInt(parts[1]) || 0) / 1024).toFixed(1),
+                freeGB: ((parseInt(parts[2]) || 0) / 1024).toFixed(1),
+                usedGB: ((parseInt(parts[3]) || 0) / 1024).toFixed(1)
+            };
+        });
+        
+        // Return primary GPU (first one)
+        return {
+            available: true,
+            ...gpus[0],
+            allGPUs: gpus
+        };
+    } catch (e) {
+        // No nvidia-smi = no NVIDIA GPU or not installed
+        return {
+            available: false,
+            name: 'No GPU detected',
+            totalMB: 0,
+            freeMB: 0,
+            usedMB: 0,
+            totalGB: '0',
+            freeGB: '0',
+            usedGB: '0',
+            error: e.message
+        };
+    }
+}
+
+// Model VRAM requirements (approximate, for loading)
+const MODEL_VRAM_REQUIREMENTS = {
+    'qwen2.5:7b': { minGB: 5, recGB: 8, description: '7B parameters - Fast, good quality' },
+    'qwen2.5:14b': { minGB: 10, recGB: 14, description: '14B parameters - Balanced' },
+    'qwen2.5:32b': { minGB: 20, recGB: 24, description: '32B parameters - Best quality, slow' },
+    'minicpm-v:latest': { minGB: 6, recGB: 8, description: 'Vision model - Image analysis' },
+    'llava:7b': { minGB: 5, recGB: 8, description: 'Vision model - Image analysis' },
+    'llava:13b': { minGB: 10, recGB: 14, description: 'Vision model - Better image analysis' }
+};
 
 // MIME types for static files
 const MIME_TYPES = {
@@ -616,10 +676,14 @@ const mainHandler = async (req, res, next) => {
     // Check if AI/Ollama is available and what's loaded
     if (url.pathname === '/api/ai/status') {
         try {
+            // Get GPU info
+            const gpu = detectGPU();
+            
             // Get available models
             const ollamaRes = await fetchJsonHttp('http://localhost:11434/api/tags');
             const models = ollamaRes.models || [];
             const hasQwen = models.some(m => m.name?.includes('qwen'));
+            const hasVision = models.some(m => m.name?.includes('minicpm-v') || m.name?.includes('llava'));
             
             // Get currently loaded models (in VRAM)
             let loadedModels = [];
@@ -634,21 +698,37 @@ const mainHandler = async (req, res, next) => {
                 // /api/ps might not exist in older Ollama versions
             }
             
+            // Add can-run info to each model
+            const freeGB = parseFloat(gpu.freeGB) || 0;
+            const totalGB = parseFloat(gpu.totalGB) || 0;
+            const modelsWithCapability = models.map(m => {
+                const req = MODEL_VRAM_REQUIREMENTS[m.name] || { minGB: 4, recGB: 8, description: 'Unknown model' };
+                const canRun = gpu.available && freeGB >= req.minGB;
+                const recommended = gpu.available && totalGB >= req.recGB;
+                return { 
+                    name: m.name, 
+                    size: m.size,
+                    sizeGB: (m.size / 1024 / 1024 / 1024).toFixed(1),
+                    requirements: req,
+                    canRun,
+                    recommended,
+                    warning: !canRun ? `Needs ${req.minGB}GB VRAM (${freeGB}GB free)` : null
+                };
+            });
+            
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ 
                 available: models.length > 0,
                 hasQwen,
-                models: models.map(m => ({ 
-                    name: m.name, 
-                    size: m.size,
-                    sizeGB: (m.size / 1024 / 1024 / 1024).toFixed(1)
-                })),
+                hasVision,
+                gpu,
+                models: modelsWithCapability,
                 loaded: loadedModels,
                 isWarm: loadedModels.length > 0
             }));
         } catch (e) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ available: false, error: 'Ollama not running' }));
+            res.end(JSON.stringify({ available: false, error: 'Ollama not running', gpu: detectGPU() }));
         }
         return;
     }
@@ -734,6 +814,118 @@ const mainHandler = async (req, res, next) => {
             }
             res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
             res.end();
+        }
+        return;
+    }
+    
+    // Parse image using vision model (minicpm-v or llava)
+    if (url.pathname === '/api/ai/parse-image' && req.method === 'POST') {
+        console.log('[AI-VISION] 📷 Image parse request received');
+        try {
+            const { image, model = 'minicpm-v:latest' } = req.body || {};
+            
+            if (!image) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'No image provided' }));
+                return;
+            }
+            
+            // Extract base64 data (handle data URL format)
+            let base64Data = image;
+            if (image.startsWith('data:image')) {
+                base64Data = image.split(',')[1];
+            }
+            
+            console.log(`[AI-VISION] Using model: ${model}, image size: ${(base64Data.length / 1024).toFixed(1)}KB`);
+            
+            const prompt = `You are extracting trade information from a broker confirmation screenshot.
+Look at this image and extract:
+1. Ticker symbol
+2. Action (Sold to Open, Bought to Open, Sold to Close, etc.)  
+3. Option type (Put or Call)
+4. Strike price
+5. Expiration date
+6. Premium/price per share
+7. Number of contracts
+8. Total premium received or paid
+
+Format your response as:
+TICKER: [symbol]
+ACTION: [action]
+TYPE: [put/call]
+STRIKE: [strike price]
+EXPIRY: [date]
+PREMIUM: [per share price]
+CONTRACTS: [number]
+TOTAL: [total amount]
+
+If any field is unclear, write "unclear" for that field.`;
+
+            const postData = JSON.stringify({
+                model: model,
+                prompt: prompt,
+                images: [base64Data],
+                stream: false,
+                options: { temperature: 0.1 }
+            });
+            
+            const response = await new Promise((resolve, reject) => {
+                const ollamaReq = http.request({
+                    hostname: 'localhost',
+                    port: 11434,
+                    path: '/api/generate',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(postData)
+                    }
+                }, (ollamaRes) => {
+                    let data = '';
+                    ollamaRes.on('data', chunk => data += chunk);
+                    ollamaRes.on('end', () => {
+                        try {
+                            const parsed = JSON.parse(data);
+                            resolve(parsed.response || parsed.message?.content || data);
+                        } catch {
+                            resolve(data);
+                        }
+                    });
+                });
+                
+                ollamaReq.on('error', reject);
+                ollamaReq.setTimeout(120000, () => {
+                    ollamaReq.destroy();
+                    reject(new Error('Timeout - vision model took too long'));
+                });
+                
+                ollamaReq.write(postData);
+                ollamaReq.end();
+            });
+            
+            console.log('[AI-VISION] ✅ Image parsed successfully');
+            
+            // Parse the structured response
+            const parsed = {};
+            const lines = response.split('\n');
+            for (const line of lines) {
+                const match = line.match(/^(TICKER|ACTION|TYPE|STRIKE|EXPIRY|PREMIUM|CONTRACTS|TOTAL):\s*(.+)/i);
+                if (match) {
+                    parsed[match[1].toLowerCase()] = match[2].trim();
+                }
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true,
+                raw: response,
+                parsed,
+                model
+            }));
+            
+        } catch (e) {
+            console.log('[AI-VISION] ❌ Error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
         }
         return;
     }

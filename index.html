@@ -17,64 +17,276 @@
         <p class="subtitle">Wheel Strategy Options Analyzer</p>
         
         <div class="tabs">
+            <button class="tab-btn" data-tab="ideas">🎯 Ideas</button>
+            <button class="tab-btn" data-tab="analyze">🔬 Analyze</button>
+            <button class="tab-btn" data-tab="pnl">💰 P&L</button>
             <button class="tab-btn active" data-tab="positions">📋 Positions</button>
             <button class="tab-btn" data-tab="portfolio">💼 Portfolio</button>
             <button class="tab-btn" data-tab="challenges">🏆 Challenges</button>
-            <button class="tab-btn" data-tab="options">📈 Options</button>
-            <button class="tab-btn" data-tab="pnl">💰 P&L</button>
-            <button class="tab-btn" data-tab="greeks">Δ Greeks</button>
-            <button class="tab-btn" data-tab="data">📊 Data</button>
-            <button class="tab-btn" data-tab="simulator">🔬 Simulator</button>
             <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
         </div>
 
-        <!-- SIMULATOR TAB -->
-        <div class="tab-content" id="simulator">
+        <!-- IDEAS TAB (NEW) -->
+        <div class="tab-content" id="ideas">
             <div class="main-grid">
                 <div class="canvas-section">
-                    <canvas id="mainCanvas" width="800" height="220"></canvas>
-                    <div class="legend">
-                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-green)"></div>Path</div>
-                        <div class="legend-item"><div class="legend-color" style="background:rgba(0,217,255,0.4)"></div>Previous</div>
-                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-red)"></div>Walls</div>
-                        <div class="legend-item"><div class="legend-color" style="background:var(--accent-orange)"></div>Start</div>
+                    <h3 style="color:var(--accent-cyan); margin-bottom:15px;">🎯 Trade Ideas & Analysis</h3>
+                    
+                    <!-- GPU Status Display -->
+                    <div id="gpuStatus" style="font-size:11px; color:#888; margin-bottom:15px; padding:8px 12px; background:#0d0d1a; border-radius:6px; border:1px solid #333;">
+                        🎮 Detecting GPU...
                     </div>
-                    <div class="stats-grid">
-                        <div class="stat-card"><div class="stat-value" id="simCount">0</div><div class="stat-label">Simulations</div></div>
-                        <div class="stat-card"><div class="stat-value" id="avgTau">—</div><div class="stat-label">Avg Exit (days)</div></div>
-                        <div class="stat-card" style="background:rgba(255,82,82,0.15)"><div class="stat-value" id="hitZero">0%</div><div class="stat-label">ITM at Expiry</div></div>
-                        <div class="stat-card" style="background:rgba(0,255,136,0.15)"><div class="stat-value" id="hitOne">0%</div><div class="stat-label">OTM at Expiry</div></div>
+                    
+                    <!-- Image Drop Zone for Broker Screenshots -->
+                    <div id="imageDropZone" style="background:rgba(0,217,255,0.05); border:2px dashed rgba(0,217,255,0.3); border-radius:8px; padding:20px; margin-bottom:20px; text-align:center; cursor:pointer; transition:all 0.2s;"
+                         ondragover="event.preventDefault(); this.style.borderColor='#00d9ff'; this.style.background='rgba(0,217,255,0.15)';"
+                         ondragleave="this.style.borderColor='rgba(0,217,255,0.3)'; this.style.background='rgba(0,217,255,0.05)';"
+                         ondrop="handleImageDrop(event)"
+                         onclick="document.getElementById('imageUploadInput').click()">
+                        <input type="file" id="imageUploadInput" accept="image/*" style="display:none;" onchange="handleImageUpload(event)">
+                        <div style="font-size:24px; margin-bottom:8px;">📷</div>
+                        <div style="color:#00d9ff; font-weight:bold; margin-bottom:4px;">Drop Broker Screenshot Here</div>
+                        <div style="color:#666; font-size:11px;">Or click to upload • Paste from clipboard with Ctrl+V</div>
+                        <div id="imagePreview" style="margin-top:10px; display:none;">
+                            <img id="previewImg" style="max-width:100%; max-height:150px; border-radius:6px; border:1px solid #333;">
+                            <button onclick="parseUploadedImage(event)" style="margin-top:8px; padding:8px 16px; background:linear-gradient(135deg, #00d9ff 0%, #0099cc 100%); border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer;">
+                                🔍 Extract Trade Details
+                            </button>
+                        </div>
                     </div>
-                    <canvas id="histogramCanvas" height="60" style="margin-top:8px"></canvas>
-                    <div id="batchStats" style="margin-top: 10px;"></div>
+                    
+                    <!-- Image Parse Result -->
+                    <div id="imageParseResult" style="display:none; background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3); border-radius:8px; padding:15px; margin-bottom:20px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <span style="color:#b9f; font-weight:bold;">📋 Extracted from Image</span>
+                            <button onclick="document.getElementById('imageParseResult').style.display='none'" style="background:none; border:none; color:#888; cursor:pointer;">✕</button>
+                        </div>
+                        <div id="imageParseContent" style="font-family:monospace; font-size:12px; color:#ddd;"></div>
+                        <button onclick="useExtractedTrade()" style="margin-top:10px; padding:8px 16px; background:#8b5cf6; border:none; border-radius:6px; color:#fff; cursor:pointer;">
+                            ➡️ Send to Analyzer
+                        </button>
+                    </div>
+                    
+                    <!-- Discord Trade Analyzer (moved from Positions) -->
+                    <div style="background:rgba(139,92,246,0.08); border:1px solid rgba(139,92,246,0.3); border-radius:8px; padding:15px; margin-bottom:20px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <span style="color:#b9f; font-weight:bold; font-size:14px;">📋 Paste Trade Callout</span>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <select id="discordModelSelect2" style="font-size:11px; padding:4px 8px; background:#1a1a2e; color:#ddd; border:1px solid #444; border-radius:4px;">
+                                    <option value="qwen2.5:7b">7B ⚡</option>
+                                    <option value="qwen2.5:14b">14B</option>
+                                    <option value="qwen2.5:32b" selected>32B 🧠</option>
+                                </select>
+                                <button onclick="window.analyzeDiscordTrade2()" class="btn-primary" style="padding:6px 14px;">🔍 Analyze Trade</button>
+                            </div>
+                        </div>
+                        <textarea id="pasteTradeInput2" placeholder="Paste a trade from Discord, Twitter, or any callout...
+
+Examples:
+• TSLA $400P Feb 27 for $3.75
+• Short put on PLTR $24 strike, March expiry
+• Bull put spread NVDA 120/110 for $2.50 credit" 
+                            style="width:100%; height:100px; background:#0d0d1a; border:1px solid #333; border-radius:6px; color:#ddd; font-size:12px; padding:10px; resize:vertical; font-family:monospace;"></textarea>
+                        <div style="font-size:10px; color:#666; margin-top:6px;">
+                            🤖 AI parses any format: single legs, spreads, earnings plays. Uses live CBOE pricing.
+                        </div>
+                    </div>
+                    
+                    <!-- Pending Staged Trades -->
+                    <div id="pendingTradesSection" style="margin-bottom:20px;">
+                        <h4 style="color:#ffaa00; margin-bottom:10px;">⏳ Staged Trades (Pending Execution)</h4>
+                        <div id="pendingTradesList"></div>
+                    </div>
+                    
+                    <!-- AI Generated Ideas Results -->
+                    <div id="ideaResultsLarge" style="display:none; background:#0d0d1a; border-radius:8px; padding:15px;">
+                        <h4 style="color:#8b5cf6; margin-bottom:10px;">💡 AI Trade Suggestions</h4>
+                        <div id="ideaContentLarge" style="color:#ddd; font-size:13px; line-height:1.6; white-space:pre-wrap;"></div>
+                    </div>
                 </div>
+                
                 <div class="controls-panel">
-                    <div class="control-group">
-                        <label>p (Starting Position) <input type="number" class="value-input" id="pInput" min="0.01" max="0.99" step="0.01" value="0.50"></label>
-                        <input type="range" id="pSlider" min="0.01" max="0.99" step="0.01" value="0.5">
-                    </div>
-                    <div class="control-group">
-                        <label>q (Drift) <input type="number" class="value-input" id="qInput" min="0" max="2" step="0.01" value="0.50"></label>
-                        <input type="range" id="qSlider" min="0" max="2" step="0.01" value="0.5">
-                    </div>
-                    <div class="control-group">
-                        <label>σ (Volatility) <input type="number" class="value-input" id="sigmaInput" min="0.01" max="0.5" step="0.01" value="0.10"></label>
-                        <input type="range" id="sigmaSlider" min="0.01" max="0.5" step="0.01" value="0.1">
-                    </div>
-                    <div class="control-group">
-                        <label>Paths per Batch <span class="value-display" id="pathsInput">1000</span></label>
-                        <input type="range" id="pathsSlider" min="100" max="10000" step="100" value="1000">
+                    <h3 style="color:#8b5cf6; margin-bottom:15px;">💡 AI Trade Ideas Generator</h3>
+                    
+                    <div class="input-group" style="margin-bottom:12px;">
+                        <label style="font-size:12px; color:#888;">Buying Power ($)</label>
+                        <input type="number" id="ideaBuyingPower2" value="25000" min="1000" step="1000" 
+                               style="width:100%; padding:10px; background:#1a1a2e; border:1px solid #333; color:#ddd; border-radius:6px; font-size:14px;">
                     </div>
                     
-                    <div style="display: flex; gap: 8px; margin-top: 15px;">
-                        <button class="btn-primary" id="runSingleBtn" style="flex: 1;">▶ Single</button>
-                        <button class="btn-primary" id="runBatchBtn" style="flex: 1;">⚡ Batch</button>
-                        <button class="btn-danger" id="resetBtn" style="flex: 1;">🗑 Reset</button>
+                    <div class="input-group" style="margin-bottom:12px;">
+                        <label style="font-size:12px; color:#888;">Target Annual ROC (%)</label>
+                        <input type="number" id="ideaTargetROC2" value="25" min="5" max="100" step="5"
+                               style="width:100%; padding:10px; background:#1a1a2e; border:1px solid #333; color:#ddd; border-radius:6px; font-size:14px;">
                     </div>
                     
-                    <div class="running" id="runningIndicator"><div class="spinner"></div>Running...</div>
-                    <div class="progress-bar" id="progressBar" style="display:none"><div class="progress-fill" id="progressFill"></div></div>
+                    <div class="input-group" style="margin-bottom:12px;">
+                        <label style="font-size:12px; color:#888;">Sectors to Avoid (optional)</label>
+                        <input type="text" id="ideaSectorsAvoid2" placeholder="e.g., Tech, Energy"
+                               style="width:100%; padding:10px; background:#1a1a2e; border:1px solid #333; color:#ddd; border-radius:6px; font-size:14px;">
+                    </div>
+                    
+                    <div class="input-group" style="margin-bottom:15px;">
+                        <label style="font-size:12px; color:#888;">AI Model</label>
+                        <select id="ideaModelSelect2" style="width:100%; padding:10px; background:#1a1a2e; border:1px solid #333; color:#ddd; border-radius:6px; font-size:14px;">
+                            <option value="qwen2.5:7b">Qwen 7B (Fast)</option>
+                            <option value="qwen2.5:14b">Qwen 14B (Better)</option>
+                            <option value="qwen2.5:32b" selected>Qwen 32B (Best) ⭐</option>
+                        </select>
+                    </div>
+                    
+                    <button id="ideaBtn2" class="btn-success" style="width:100%; padding:12px; font-size:14px; background:linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);" 
+                            onclick="window.getTradeIdeas2()">
+                        💡 Generate Trade Ideas
+                    </button>
+                    
+                    <div style="margin-top:20px; padding:15px; background:rgba(0,217,255,0.1); border-radius:8px; border:1px solid rgba(0,217,255,0.2);">
+                        <h4 style="color:#00d9ff; margin:0 0 8px; font-size:12px;">💡 How It Works</h4>
+                        <ul style="color:#888; font-size:11px; margin:0; padding-left:16px; line-height:1.6;">
+                            <li>AI scans wheel-friendly tickers</li>
+                            <li>Filters by your buying power</li>
+                            <li>Suggests strikes with good premium</li>
+                            <li>Click any idea to Deep Dive</li>
+                        </ul>
+                    </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- ANALYZE TAB (combines Simulator, Options, Greeks) -->
+        <div class="tab-content" id="analyze">
+            <div class="sub-tabs" style="display:flex; gap:4px; margin-bottom:15px; padding:4px; background:#0d0d1a; border-radius:8px; width:fit-content;">
+                <button class="sub-tab-btn active" data-subtab="analyze-pricing" onclick="switchSubTab('analyze', 'analyze-pricing')">📈 Pricing</button>
+                <button class="sub-tab-btn" data-subtab="analyze-simulator" onclick="switchSubTab('analyze', 'analyze-simulator')">🎲 Monte Carlo</button>
+                <button class="sub-tab-btn" data-subtab="analyze-greeks" onclick="switchSubTab('analyze', 'analyze-greeks')">Δ Greeks</button>
+            </div>
+            
+            <!-- Pricing Sub-tab (formerly Options tab) -->
+            <div class="sub-tab-content active" id="analyze-pricing">
+                <!-- Will be populated by moving options content here -->
+            </div>
+            
+            <!-- Monte Carlo Sub-tab (Risk Analysis) -->
+            <div class="sub-tab-content" id="analyze-simulator">
+                <div class="main-grid">
+                    <div class="canvas-section">
+                        <!-- Position Context for Monte Carlo -->
+                        <div id="mcPositionBanner" style="display:none; background:rgba(139,92,246,0.15); border:2px solid #8b5cf6; border-radius:6px; padding:10px 15px; margin-bottom:15px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <span style="color:#8b5cf6; font-weight:bold;">🎲 Analyzing: </span>
+                                    <span id="mcPositionTicker" style="color:#fff; font-weight:bold;">—</span>
+                                    <span id="mcPositionDetails" style="color:#888; margin-left:10px;">—</span>
+                                </div>
+                                <div style="display:flex; gap:8px; align-items:center;">
+                                    <span style="color:#888; font-size:11px;">Paths:</span>
+                                    <select id="mcPathCount" style="background:#1a1a2e; border:1px solid #333; color:#ddd; padding:4px 8px; border-radius:4px;">
+                                        <option value="1000">1,000</option>
+                                        <option value="5000">5,000</option>
+                                        <option value="10000" selected>10,000</option>
+                                        <option value="50000">50,000</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="mcNoPosition" style="text-align:center; padding:40px; color:#888;">
+                            <div style="font-size:48px; margin-bottom:15px;">🎲</div>
+                            <h3 style="color:#b9f; margin-bottom:10px;">Monte Carlo Risk Analysis</h3>
+                            <p>Load a position from the <b>Positions</b> tab by clicking a risk badge,<br>
+                            or set up a trade in <b>Pricing</b> first.</p>
+                        </div>
+                        
+                        <h3 id="mcTitle" style="color:#8b5cf6; margin-bottom:10px; display:none;">📊 Price Distribution at Expiry</h3>
+                        <canvas id="mcDistributionCanvas" width="800" height="200" style="display:none;"></canvas>
+                        
+                        <h3 id="mcConeTitle" style="color:#8b5cf6; margin:20px 0 10px; display:none;">📈 Probability Cone (Price Paths Over Time)</h3>
+                        <canvas id="mcConeCanvas" width="800" height="200" style="display:none;"></canvas>
+                        
+                        <!-- Key Stats Grid -->
+                        <div id="mcStatsGrid" class="stats-grid" style="display:none; margin-top:20px;">
+                            <div class="stat-card" style="background:rgba(0,255,136,0.15)">
+                                <div class="stat-value" id="mcOtmPct" style="color:#00ff88;">—</div>
+                                <div class="stat-label">Expires OTM (Win)</div>
+                            </div>
+                            <div class="stat-card" style="background:rgba(255,82,82,0.15)">
+                                <div class="stat-value" id="mcItmPct" style="color:#ff5252;">—</div>
+                                <div class="stat-label">Expires ITM (Risk)</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="mcMedianPrice">—</div>
+                                <div class="stat-label">Median Price</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="mcExpectedMove">—</div>
+                                <div class="stat-label">Expected Move</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Percentile Table -->
+                        <div id="mcPercentiles" style="display:none; margin-top:20px; background:#0d0d1a; border-radius:8px; padding:15px;">
+                            <h4 style="color:#8b5cf6; margin-bottom:10px;">📊 Price Percentiles at Expiry</h4>
+                            <table style="width:100%; font-size:12px; color:#ddd;">
+                                <tr style="color:#888;">
+                                    <th style="text-align:left; padding:5px;">Percentile</th>
+                                    <th>5%</th><th>10%</th><th>25%</th><th>50%</th><th>75%</th><th>90%</th><th>95%</th>
+                                </tr>
+                                <tr>
+                                    <td style="padding:5px; color:#888;">Price</td>
+                                    <td id="mcP5" style="text-align:center;">—</td>
+                                    <td id="mcP10" style="text-align:center;">—</td>
+                                    <td id="mcP25" style="text-align:center;">—</td>
+                                    <td id="mcP50" style="text-align:center; color:#00d9ff; font-weight:bold;">—</td>
+                                    <td id="mcP75" style="text-align:center;">—</td>
+                                    <td id="mcP90" style="text-align:center;">—</td>
+                                    <td id="mcP95" style="text-align:center;">—</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="controls-panel">
+                        <h3 style="color:#8b5cf6; margin-bottom:15px;">🎲 Simulation Parameters</h3>
+                        
+                        <!-- Loaded Position Info -->
+                        <div id="mcParamsBox" style="background:#0d0d1a; border-radius:8px; padding:12px; margin-bottom:15px; display:none;">
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:12px;">
+                                <div><span style="color:#888;">Spot:</span> <span id="mcSpot" style="color:#00d9ff;">$—</span></div>
+                                <div><span style="color:#888;">Strike:</span> <span id="mcStrike" style="color:#ffaa00;">$—</span></div>
+                                <div><span style="color:#888;">IV:</span> <span id="mcIV" style="color:#b9f;">—%</span></div>
+                                <div><span style="color:#888;">DTE:</span> <span id="mcDTE">— days</span></div>
+                            </div>
+                        </div>
+                        
+                        <button id="runMcBtn" class="btn-primary" style="width:100%; padding:12px; font-size:14px; background:linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);"
+                                onclick="window.runMonteCarloRisk()">
+                            🎲 Run Monte Carlo Simulation
+                        </button>
+                        
+                        <div class="running" id="mcRunning" style="display:none;"><div class="spinner"></div>Simulating 10,000 paths...</div>
+                        
+                        <!-- Scenario Analysis -->
+                        <div style="margin-top:20px; padding:15px; background:rgba(255,170,0,0.1); border-radius:8px; border:1px solid rgba(255,170,0,0.2);">
+                            <h4 style="color:#ffaa00; margin:0 0 10px;">⚠️ Risk Scenarios</h4>
+                            <div id="mcRiskScenarios" style="font-size:12px; color:#ddd; line-height:1.8;">
+                                <div>Run simulation to see risk scenarios...</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Profit Analysis -->
+                        <div style="margin-top:15px; padding:15px; background:rgba(0,255,136,0.1); border-radius:8px; border:1px solid rgba(0,255,136,0.2);">
+                            <h4 style="color:#00ff88; margin:0 0 10px;">💰 Profit Analysis</h4>
+                            <div id="mcProfitAnalysis" style="font-size:12px; color:#ddd; line-height:1.8;">
+                                <div>Run simulation to see profit analysis...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Greeks Sub-tab -->
+            <div class="sub-tab-content" id="analyze-greeks">
+                <!-- Will be populated by moving greeks content here -->
             </div>
         </div>
 
@@ -614,18 +826,45 @@ Entry: $3.75"
                         Fetching live prices...
                     </div>
                     
-                    <div id="portfolioTable"></div>
-                    
-                    <!-- Holdings: Share Ownership from Assignments & Buy/Writes -->
-                    <div id="holdingsSection" style="margin-top:20px; padding:15px; background:rgba(255,140,0,0.05); border-radius:8px; border:1px solid rgba(255,140,0,0.2); display:none;">
-                        <h4 style="color:#fa0; margin:0 0 10px;">📦 Share Holdings (Wheel in Progress)</h4>
-                        <div style="font-size:11px; color:#888; margin-bottom:10px;">Shares from Buy/Writes and Put Assignments</div>
-                        <div id="holdingsTable" style="color:#888; font-size:13px;">No shares from assignments.</div>
+                    <!-- Open Positions Section (Collapsible) -->
+                    <div class="collapsible-header" onclick="toggleSection('openPositions')" id="openPositionsHeader">
+                        <h4 style="color:var(--accent-cyan);">
+                            <span class="collapsible-arrow">▼</span>
+                            📊 Open Positions
+                        </h4>
+                        <div class="collapsible-summary" id="openPositionsSummary"></div>
+                    </div>
+                    <div class="collapsible-content" id="openPositionsContent">
+                        <div id="portfolioTable"></div>
                     </div>
                     
-                    <div style="margin-top:20px; padding:15px; background:rgba(0,0,0,0.3); border-radius:8px;">
-                        <h4 style="color:var(--accent-orange); margin:0 0 10px;">📜 Closed Positions</h4>
-                        <div id="closedPositionsTable" style="color:#888; font-size:13px;">No closed positions yet.</div>
+                    <!-- Holdings Section (Collapsible) -->
+                    <div id="holdingsSection" style="margin-top:20px; display:none;">
+                        <div class="collapsible-header" onclick="toggleSection('holdings')" id="holdingsHeader" style="background:rgba(255,140,0,0.1); border:1px solid rgba(255,140,0,0.2);">
+                            <h4 style="color:#fa0;">
+                                <span class="collapsible-arrow">▼</span>
+                                📦 Share Holdings
+                            </h4>
+                            <div class="collapsible-summary" id="holdingsSummary"></div>
+                        </div>
+                        <div class="collapsible-content" id="holdingsContent" style="padding:15px; background:rgba(255,140,0,0.05); border-radius:0 0 8px 8px; border:1px solid rgba(255,140,0,0.2); border-top:none;">
+                            <div style="font-size:11px; color:#888; margin-bottom:10px;">Shares from Buy/Writes and Put Assignments</div>
+                            <div id="holdingsTable" style="color:#888; font-size:13px;">No shares from assignments.</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Closed Positions Section (Collapsible) -->
+                    <div style="margin-top:20px;">
+                        <div class="collapsible-header" onclick="toggleSection('closedPositions')" id="closedPositionsHeader" style="background:rgba(0,0,0,0.3);">
+                            <h4 style="color:var(--accent-orange);">
+                                <span class="collapsible-arrow">▼</span>
+                                📜 Closed Positions
+                            </h4>
+                            <div class="collapsible-summary" id="closedPositionsSummary"></div>
+                        </div>
+                        <div class="collapsible-content" id="closedPositionsContent" style="padding:15px; background:rgba(0,0,0,0.3); border-radius:0 0 8px 8px;">
+                            <div id="closedPositionsTable" style="color:#888; font-size:13px;">No closed positions yet.</div>
+                        </div>
                     </div>
                 </div>
                 
@@ -811,7 +1050,19 @@ Entry: $3.75"
                         </div>
                     </div>
                     
-                    <div style="display:flex; gap:10px;">
+                    <div class="control-group" style="margin-bottom:15px;">
+                        <label style="display:block; font-size:11px; color:#888; margin-bottom:4px;">Account to Sync</label>
+                        <select id="schwabAccountSelect" 
+                                style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #444; border-radius:6px; color:#fff; font-family:monospace;">
+                            <option value="">-- Click "Load Accounts" after authenticating --</option>
+                        </select>
+                        <button onclick="loadSchwabAccounts()" 
+                                style="margin-top:8px; padding:6px 12px; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#a78bfa; border-radius:6px; cursor:pointer; font-size:11px;">
+                            📋 Load Accounts
+                        </button>
+                    </div>
+                    
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
                         <button onclick="testSchwabConnection()" 
                                 style="padding:8px 16px; background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#0f8; border-radius:6px; cursor:pointer;">
                             🔌 Test Connection
@@ -820,7 +1071,13 @@ Entry: $3.75"
                                 style="padding:8px 16px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); color:#0df; border-radius:6px; cursor:pointer;">
                             🔐 Authenticate with Schwab
                         </button>
+                        <button onclick="syncAccountFromSchwab()" 
+                                id="schwabSyncBtn"
+                                style="padding:8px 16px; background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#fa0; border-radius:6px; cursor:pointer;">
+                            🔄 Sync Account
+                        </button>
                     </div>
+                    <div id="schwabSyncStatus" style="margin-top:10px; font-size:12px; color:#888; display:none;"></div>
                 </div>
                 
                 <!-- OpenAI Section -->
@@ -898,6 +1155,9 @@ Entry: $3.75"
     
     <!-- Theme Settings (loads before modules) -->
     <script src="js/theme.js"></script>
+    
+    <!-- Schwab API Client -->
+    <script src="js/schwab.js"></script>
     
     <!-- Settings Management -->
     <script src="js/settings.js"></script>

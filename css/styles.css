@@ -115,6 +115,33 @@ h1 {
     font-weight: 700;
 }
 
+/* Sub-tabs (for Analyze tab) */
+.sub-tab-btn {
+    padding: 6px 14px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.8rem;
+    color: #888;
+    transition: all 0.2s ease;
+}
+
+.sub-tab-btn:hover {
+    background: rgba(0,217,255,0.15);
+    color: var(--accent-cyan);
+}
+
+.sub-tab-btn.active {
+    background: rgba(0,217,255,0.2);
+    color: var(--accent-cyan);
+    border-color: var(--accent-cyan);
+}
+
+.sub-tab-content { display: none; }
+.sub-tab-content.active { display: block; }
+
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
@@ -649,3 +676,102 @@ td button {
 /* Responsive */
 @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
 
+/* Collapsible Sections */
+.collapsible-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 15px;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s;
+    margin-bottom: 10px;
+}
+
+.collapsible-header:hover {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.collapsible-header h4 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.collapsible-arrow {
+    font-size: 12px;
+    transition: transform 0.3s ease;
+    color: #888;
+}
+
+.collapsible-header.collapsed .collapsible-arrow {
+    transform: rotate(-90deg);
+}
+
+.collapsible-content {
+    overflow: hidden;
+    transition: max-height 0.3s ease-out, opacity 0.2s ease;
+    max-height: 5000px;
+    opacity: 1;
+}
+
+.collapsible-content.collapsed {
+    max-height: 0;
+    opacity: 0;
+    margin-bottom: 0;
+}
+
+.collapsible-summary {
+    display: flex;
+    gap: 15px;
+    font-size: 12px;
+    color: #888;
+}
+
+.collapsible-summary .value {
+    font-weight: bold;
+}
+
+.collapsible-summary .positive { color: #00ff88; }
+.collapsible-summary .negative { color: #ff5252; }
+
+/* Ticker group row in closed positions */
+.ticker-group-header {
+    background: rgba(139, 92, 246, 0.15);
+    border-left: 3px solid #8b5cf6;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.ticker-group-header:hover {
+    background: rgba(139, 92, 246, 0.25);
+}
+
+.ticker-group-header td {
+    padding: 10px 8px !important;
+}
+
+.ticker-group-arrow {
+    display: inline-block;
+    transition: transform 0.2s;
+    margin-right: 6px;
+}
+
+.ticker-group-header.collapsed .ticker-group-arrow {
+    transform: rotate(-90deg);
+}
+
+.ticker-group-trades {
+    transition: all 0.2s ease;
+}
+
+.ticker-group-trades.collapsed {
+    display: none;
+}
+
+.ticker-group-trades tr {
+    background: rgba(0, 0, 0, 0.2);
+}

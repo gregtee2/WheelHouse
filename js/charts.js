@@ -10,6 +10,8 @@ import { getPositionType, bsPrice } from './pricing.js';
  */
 export function draw(currentPath = null) {
     const canvas = document.getElementById('mainCanvas');
+    if (!canvas) return;  // Canvas may not exist if simulator tab is removed
+    
     const ctx = canvas.getContext('2d');
     const W = canvas.width, H = canvas.height, M = 40;
     
@@ -87,6 +89,8 @@ function drawPath(ctx, path, color, width, W, H, M) {
  */
 export function drawHistogram() {
     const canvas = document.getElementById('histogramCanvas');
+    if (!canvas) return;  // Canvas may not exist if simulator tab is removed
+    
     const ctx = canvas.getContext('2d');
     const W = canvas.width, H = canvas.height;
     

@@ -3,7 +3,7 @@
 
 import { state, setPositionContext, clearPositionContext } from './state.js';
 import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal } from './utils.js';
-import { fetchPositionTickerPrice, fetchStockPrice } from './api.js';
+import { fetchPositionTickerPrice, fetchStockPrice, fetchStockPricesBatch } from './api.js';
 import { drawPayoffChart } from './charts.js';
 import { updateDteDisplay } from './ui.js';
 
@@ -1638,6 +1638,9 @@ export function loadPositionToAnalyze(id) {
         linkedHoldingId: pos.linkedHoldingId || null
     });
     
+    // Store ticker for Monte Carlo tab
+    state.currentTicker = pos.ticker;
+    
     // Update form fields
     document.getElementById('strikeInput').value = pos.strike;
     document.getElementById('strikeSlider').value = pos.strike;
@@ -1688,11 +1691,28 @@ export function loadPositionToAnalyze(id) {
     // Fetch current price (this will update spot and recalculate barriers)
     fetchPositionTickerPrice(pos.ticker);
     
-    // Switch to Options tab
+    // Switch to Analyze tab → Pricing sub-tab
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-    document.querySelector('[data-tab="options"]').classList.add('active');
-    document.getElementById('options').classList.add('active');
+    
+    // Try new Analyze tab first, fall back to old Options tab
+    const analyzeBtn = document.querySelector('[data-tab="analyze"]');
+    const analyzeTab = document.getElementById('analyze');
+    const optionsBtn = document.querySelector('[data-tab="options"]');
+    const optionsTab = document.getElementById('options');
+    
+    if (analyzeBtn && analyzeTab) {
+        analyzeBtn.classList.add('active');
+        analyzeTab.classList.add('active');
+        // Also activate the Pricing sub-tab
+        if (window.switchSubTab) {
+            window.switchSubTab('analyze', 'analyze-pricing');
+        }
+    } else if (optionsBtn && optionsTab) {
+        // Fallback to old structure
+        optionsBtn.classList.add('active');
+        optionsTab.classList.add('active');
+    }
     
     // Pre-populate Roll Calculator for this position
     const rollStrikeEl = document.getElementById('rollNewStrike');
@@ -1743,6 +1763,16 @@ export function renderPositions() {
     }
     
     const openPositions = state.positions.filter(p => p.status === 'open');
+    
+    // Update collapsible header summary
+    const summaryEl = document.getElementById('openPositionsSummary');
+    if (summaryEl) {
+        const totalPremium = openPositions.reduce((sum, p) => sum + ((p.premium || 0) * 100 * (p.contracts || 1)), 0);
+        summaryEl.innerHTML = `
+            <span>${openPositions.length} position${openPositions.length !== 1 ? 's' : ''}</span>
+            <span class="value positive">$${totalPremium.toFixed(0)} premium</span>
+        `;
+    }
     
     if (openPositions.length === 0) {
         container.innerHTML = `
@@ -1957,17 +1987,19 @@ function renderPositionsTable(container, openPositions) {
 
 /**
  * Fetch spot prices and update risk status for each position asynchronously
+ * Uses BATCH API to fetch all prices in one request!
  */
 async function updatePositionRiskStatuses(openPositions) {
     // Get unique tickers
     const tickers = [...new Set(openPositions.map(p => p.ticker))];
     
-    // Fetch all spot prices in parallel
-    const spotPrices = {};
-    await Promise.all(tickers.map(async (ticker) => {
-        const spot = await getCachedSpotPrice(ticker);
-        if (spot) spotPrices[ticker] = spot;
-    }));
+    // BATCH fetch all prices in ONE request (huge performance improvement!)
+    const spotPrices = await fetchStockPricesBatch(tickers);
+    
+    // Update cache with fresh prices
+    for (const [ticker, price] of Object.entries(spotPrices)) {
+        spotPriceCache.set(ticker, { price, timestamp: Date.now() });
+    }
     
     // Update each position's risk status in the DOM
     for (const pos of openPositions) {

@@ -3,7 +3,7 @@
 
 import { state } from './state.js';
 import { showNotification } from './utils.js';
-import { fetchStockPrice, fetchOptionsChain, findOption } from './api.js';
+import { fetchStockPrice, fetchStockPricesBatch, fetchOptionsChain, findOption } from './api.js';
 
 const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
@@ -767,13 +767,24 @@ export function cancelClose() {
 window.cancelClose = cancelClose;
 
 /**
- * Render closed positions history - grouped by chain for rolled positions
+ * Render closed positions history - grouped by TICKER with collapsible rows
  */
 function renderClosedPositions() {
     const el = document.getElementById('closedPositionsTable');
     if (!el) return;
     
     const allClosed = state.closedPositions || [];
+    
+    // Update summary in collapsible header
+    const summaryEl = document.getElementById('closedPositionsSummary');
+    if (summaryEl) {
+        const totalPnL = allClosed.reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
+        const pnlColor = totalPnL >= 0 ? 'positive' : 'negative';
+        summaryEl.innerHTML = `
+            <span>${allClosed.length} trades</span>
+            <span class="value ${pnlColor}">${totalPnL >= 0 ? '+' : ''}$${totalPnL.toFixed(0)}</span>
+        `;
+    }
     
     if (allClosed.length === 0) {
         el.innerHTML = '<div style="color:#888;">No closed positions yet.</div>';
@@ -783,27 +794,21 @@ function renderClosedPositions() {
     // Get available years from closed positions
     const years = [...new Set(allClosed.map(p => {
         const closeDate = p.closeDate || '';
-        // Extract 4-digit year from start of date string
         const match = closeDate.match(/^(\d{4})/);
         return match ? match[1] : null;
     }).filter(y => y))].sort().reverse();
     
-    // Current filter (stored in state)
-    // Default to current year if it has positions, otherwise 'all'
     const currentYear = new Date().getFullYear().toString();
     const hasCurrentYearPositions = allClosed.some(p => (p.closeDate || '').startsWith(currentYear));
     
     if (!state.closedYearFilter) {
-        // First load - default to current year if it has data, otherwise show all
         state.closedYearFilter = hasCurrentYearPositions ? currentYear : 'all';
     }
     
-    // Validate filter - if selected year doesn't exist in data, reset to 'all'
     if (state.closedYearFilter !== 'all' && !years.includes(state.closedYearFilter)) {
         state.closedYearFilter = 'all';
     }
     
-    // Filter positions by selected year (based on CLOSE date for tax purposes)
     const closed = state.closedYearFilter === 'all' 
         ? allClosed 
         : allClosed.filter(p => {
@@ -812,12 +817,10 @@ function renderClosedPositions() {
             return match && match[1] === state.closedYearFilter;
         });
     
-    // Calculate YTD P&L (current year only) - support both realizedPnL and closePnL
     const ytdPnL = allClosed
         .filter(p => (p.closeDate || '').startsWith(currentYear))
         .reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
     
-    // Build filter dropdown and export button
     let filterHtml = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
             <div style="display:flex; align-items:center; gap:10px;">
@@ -844,45 +847,35 @@ function renderClosedPositions() {
     
     if (closed.length === 0) {
         el.innerHTML = filterHtml + `<div style="color:#888; padding:20px; text-align:center;">No closed positions in ${state.closedYearFilter}.</div>`;
-        // Attach filter listener
         setTimeout(() => attachYearFilterListener(), 0);
         return;
     }
     
-    // Group positions by chainId (or use id if no chainId - legacy positions)
-    const chains = {};
+    // GROUP BY TICKER instead of chain
+    const tickerGroups = {};
     closed.forEach(pos => {
-        const chainKey = pos.chainId || pos.id;
-        if (!chains[chainKey]) {
-            chains[chainKey] = {
+        const ticker = pos.ticker || 'Unknown';
+        if (!tickerGroups[ticker]) {
+            tickerGroups[ticker] = {
                 positions: [],
                 totalPnL: 0,
-                ticker: pos.ticker,
-                firstOpen: pos.openDate,
-                lastClose: pos.closeDate,
-                totalDays: 0
+                totalPremium: 0,
+                tradeCount: 0
             };
         }
-        chains[chainKey].positions.push(pos);
-        // Support both realizedPnL (app-created) and closePnL (imported from broker)
-        chains[chainKey].totalPnL += (pos.realizedPnL ?? pos.closePnL ?? 0);
-        // Track date range
-        if (pos.openDate && (!chains[chainKey].firstOpen || pos.openDate < chains[chainKey].firstOpen)) {
-            chains[chainKey].firstOpen = pos.openDate;
-        }
-        if (pos.closeDate && (!chains[chainKey].lastClose || pos.closeDate > chains[chainKey].lastClose)) {
-            chains[chainKey].lastClose = pos.closeDate;
-        }
+        tickerGroups[ticker].positions.push(pos);
+        tickerGroups[ticker].totalPnL += (pos.realizedPnL ?? pos.closePnL ?? 0);
+        tickerGroups[ticker].totalPremium += (pos.premium || 0) * 100 * (pos.contracts || 1);
+        tickerGroups[ticker].tradeCount++;
     });
     
-    // Sort chains by last close date (newest first)
-    const sortedChains = Object.values(chains).sort((a, b) => {
-        const dateA = a.positions[a.positions.length - 1]?.closeDate || '';
-        const dateB = b.positions[b.positions.length - 1]?.closeDate || '';
-        return new Date(dateB) - new Date(dateA);
-    });
+    // Sort tickers by total P&L (biggest winners first)
+    const sortedTickers = Object.entries(tickerGroups)
+        .sort((a, b) => b[1].totalPnL - a[1].totalPnL);
     
-    // Build HTML
+    // Get collapsed state from localStorage
+    const collapsedTickers = JSON.parse(localStorage.getItem('wheelhouse_collapsed_tickers') || '{}');
+    
     let html = filterHtml + `
         <table style="width:100%; border-collapse:collapse; font-size:12px;">
             <thead>
@@ -891,177 +884,151 @@ function renderClosedPositions() {
                     <th style="padding:6px; text-align:left;">Type</th>
                     <th style="padding:6px; text-align:right;">Strike</th>
                     <th style="padding:6px; text-align:right;">Premium</th>
-                    <th style="padding:6px; text-align:center;">Opened</th>
                     <th style="padding:6px; text-align:center;">Closed</th>
-                    <th style="padding:6px; text-align:center;">Expiry</th>
-                    <th style="padding:6px; text-align:right;" title="Days position was held">Held</th>
-                    <th style="padding:6px; text-align:right;" title="Days left until expiry when closed (how early you exited)">Left</th>
+                    <th style="padding:6px; text-align:right;">Held</th>
                     <th style="padding:6px; text-align:right;">P&L</th>
-                    <th style="padding:6px; text-align:right;" title="Return on Capital at Risk">ROC%</th>
-                    <th style="padding:6px; text-align:right;" title="Annualized ROC = ROC% × (365 / days held)">Ann%</th>
-                    <th style="padding:6px; text-align:right;" title="Money left on table by closing early (max profit - actual). Assumes option would have expired OTM.">Left $</th>
-                    <th style="padding:6px; text-align:center;" title="Link to another position's chain">🔗</th>
-                    <th style="padding:6px; text-align:center;" title="Link to a challenge">🏆</th>
+                    <th style="padding:6px; text-align:right;">ROC%</th>
+                    <th style="padding:6px; text-align:center;">🔗</th>
                     <th style="padding:6px; text-align:center;">🗑️</th>
                 </tr>
             </thead>
             <tbody>
     `;
     
-    let chainCount = 0;
-    const maxChains = 100; // Show up to 100 position chains
-    for (const chain of sortedChains) {
-        if (chainCount >= maxChains) break;
-        chainCount++;
+    for (const [ticker, group] of sortedTickers) {
+        const pnlColor = group.totalPnL >= 0 ? '#00ff88' : '#ff5252';
+        const isCollapsed = collapsedTickers[ticker] || false;
+        const arrowClass = isCollapsed ? 'collapsed' : '';
         
-        const isMultiLeg = chain.positions.length > 1;
+        // Ticker group header row (clickable)
+        html += `
+            <tr class="ticker-group-header ${arrowClass}" data-ticker="${ticker}" onclick="window.toggleTickerGroup('${ticker}')">
+                <td style="font-weight:bold; color:#8b5cf6;">
+                    <span class="ticker-group-arrow">▼</span>
+                    ${ticker}
+                </td>
+                <td style="color:#888;">${group.tradeCount} trade${group.tradeCount > 1 ? 's' : ''}</td>
+                <td></td>
+                <td style="text-align:right; color:#00ff88;">$${group.totalPremium.toFixed(0)}</td>
+                <td></td>
+                <td></td>
+                <td style="text-align:right; font-weight:bold; color:${pnlColor}; font-size:13px;">
+                    ${group.totalPnL >= 0 ? '+' : ''}$${group.totalPnL.toFixed(0)}
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+        `;
         
-        // Sort positions within chain by close date (oldest first - chronological order)
-        chain.positions.sort((a, b) => new Date(a.closeDate) - new Date(b.closeDate));
+        // Individual trades (collapsible tbody)
+        const tradesClass = isCollapsed ? 'collapsed' : '';
+        html += `</tbody><tbody class="ticker-group-trades ${tradesClass}" data-ticker="${ticker}">`;
         
-        // If multi-leg chain, show a chain header
-        if (isMultiLeg) {
-            const pnlColor = chain.totalPnL >= 0 ? '#00ff88' : '#ff5252';
-            // Calculate chain ROC based on first position's capital at risk
-            const chainCapital = chain.positions.reduce((sum, p) => sum + (p.strike * 100 * (p.contracts || 1)), 0) / chain.positions.length;
-            const chainRoc = chainCapital > 0 ? (chain.totalPnL / chainCapital) * 100 : 0;
-            html += `
-                <tr style="background:rgba(0,217,255,0.08); border-top:2px solid rgba(0,217,255,0.3);">
-                    <td colspan="9" style="padding:8px; color:#00d9ff; font-weight:bold;">
-                        🔗 ${chain.ticker} Chain (${chain.positions.length} legs)
-                        <span style="color:#888; font-weight:normal; margin-left:10px;">
-                            ${chain.firstOpen || '?'} → ${chain.lastClose || '?'}
-                        </span>
-                    </td>
-                    <td style="padding:8px; text-align:right; font-weight:bold; color:${pnlColor}; font-size:13px;">
-                        Σ ${chain.totalPnL >= 0 ? '+' : ''}$${chain.totalPnL.toFixed(0)}
-                    </td>
-                    <td style="padding:8px; text-align:right; color:${pnlColor};">
-                        ${chainRoc >= 0 ? '+' : ''}${chainRoc.toFixed(1)}%
-                    </td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                </tr>
-            `;
+        // Group positions by chainId within this ticker
+        const chains = {};
+        group.positions.forEach(pos => {
+            const chainKey = pos.chainId || pos.id;
+            if (!chains[chainKey]) {
+                chains[chainKey] = {
+                    positions: [],
+                    totalPnL: 0,
+                    firstOpen: pos.openDate,
+                    lastClose: pos.closeDate
+                };
+            }
+            chains[chainKey].positions.push(pos);
+            chains[chainKey].totalPnL += (pos.realizedPnL ?? pos.closePnL ?? 0);
+            if (pos.openDate < chains[chainKey].firstOpen) chains[chainKey].firstOpen = pos.openDate;
+            if (pos.closeDate > chains[chainKey].lastClose) chains[chainKey].lastClose = pos.closeDate;
+        });
+        
+        // Sort chains by last close date (newest first)
+        const sortedChains = Object.values(chains).sort((a, b) => 
+            new Date(b.lastClose) - new Date(a.lastClose)
+        );
+        
+        // Render each chain
+        for (const chain of sortedChains) {
+            const isMultiLeg = chain.positions.length > 1;
+            
+            // Sort positions within chain chronologically (oldest first)
+            chain.positions.sort((a, b) => new Date(a.closeDate) - new Date(b.closeDate));
+            
+            // Show chain header for multi-leg (rolled) positions
+            if (isMultiLeg) {
+                const chainPnlColor = chain.totalPnL >= 0 ? '#00ff88' : '#ff5252';
+                html += `
+                    <tr style="background:rgba(0,217,255,0.08); border-left:3px solid #00d9ff;">
+                        <td colspan="6" style="padding:6px 6px 6px 20px; color:#00d9ff; font-size:11px;">
+                            🔗 Rolled ${chain.positions.length}× 
+                            <span style="color:#888;">(${chain.firstOpen} → ${chain.lastClose})</span>
+                        </td>
+                        <td style="padding:6px; text-align:right; font-weight:bold; color:${chainPnlColor}; font-size:12px;">
+                            Σ ${chain.totalPnL >= 0 ? '+' : ''}$${chain.totalPnL.toFixed(0)}
+                        </td>
+                        <td colspan="3"></td>
+                    </tr>
+                `;
+            }
+            
+            // Render each position in the chain
+            chain.positions.forEach((pos, idx) => {
+                const pnl = pos.realizedPnL ?? pos.closePnL ?? 0;
+                const capitalAtRisk = pos.strike * 100 * (pos.contracts || 1);
+                const roc = capitalAtRisk > 0 ? (pnl / capitalAtRisk) * 100 : 0;
+                const rocColor = roc >= 0 ? '#00ff88' : '#ff5252';
+                
+                let daysHeld = pos.daysHeld;
+                if (!daysHeld && pos.openDate && pos.closeDate) {
+                    const open = new Date(pos.openDate);
+                    const close = new Date(pos.closeDate);
+                    daysHeld = Math.max(0, Math.ceil((close - open) / (1000 * 60 * 60 * 24)));
+                }
+                
+                // Indent and style differently for chain members
+                const indent = isMultiLeg ? 'padding-left:35px;' : 'padding-left:25px;';
+                const legLabel = isMultiLeg ? `<span style="color:#00d9ff; font-size:9px; margin-right:4px;">L${idx+1}</span>` : '';
+                const rowBorder = isMultiLeg && idx < chain.positions.length - 1 
+                    ? 'border-bottom:1px dashed rgba(0,217,255,0.2);' 
+                    : 'border-bottom:1px solid rgba(255,255,255,0.05);';
+                
+                html += `
+                    <tr style="${rowBorder}">
+                        <td style="padding:6px; ${indent} color:#888; font-size:11px;">${legLabel}${pos.closeDate?.substring(5) || '—'}</td>
+                        <td style="padding:6px; color:#aaa;">${pos.type?.replace('_', ' ') || '—'}</td>
+                        <td style="padding:6px; text-align:right;">$${pos.strike?.toFixed(2) || '—'}</td>
+                        <td style="padding:6px; text-align:right;">
+                            <span style="color:#00ff88;">$${((pos.premium || 0) * 100 * (pos.contracts || 1)).toFixed(0)}</span>
+                            <span style="color:#666; font-size:10px;"> ×${pos.contracts || 1}</span>
+                        </td>
+                        <td style="padding:6px; text-align:center; color:#888; font-size:11px;">${pos.closeDate || '—'}</td>
+                        <td style="padding:6px; text-align:right; color:#888;">${daysHeld ?? '—'}d</td>
+                        <td style="padding:6px; text-align:right; font-weight:bold; color:${pnl >= 0 ? '#00ff88' : '#ff5252'};">
+                            ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}
+                        </td>
+                        <td style="padding:6px; text-align:right; color:${rocColor};">
+                            ${roc >= 0 ? '+' : ''}${roc.toFixed(1)}%
+                        </td>
+                        <td style="padding:6px; text-align:center;">
+                            <button onclick="event.stopPropagation(); window.showLinkToChainModal(${pos.id})" 
+                                    style="background:transparent; border:none; color:#6bf; cursor:pointer; font-size:11px;"
+                                    title="${isMultiLeg ? 'Part of roll chain' : 'Link to chain'}">
+                                ${isMultiLeg ? '🔗' : '🔗'}
+                            </button>
+                        </td>
+                        <td style="padding:6px; text-align:center;">
+                            <button onclick="event.stopPropagation(); window.deleteClosedPosition(${pos.id})" 
+                                    style="background:transparent; border:none; color:#ff5252; cursor:pointer; font-size:11px;">
+                                ✕
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
         }
         
-        // Render each position in the chain
-        chain.positions.forEach((pos, idx) => {
-            const indentStyle = isMultiLeg ? 'padding-left:20px;' : '';
-            const legLabel = isMultiLeg ? `<span style="color:#888; font-size:10px;">Leg ${idx + 1}</span> ` : '';
-            const rowBorder = isMultiLeg && idx < chain.positions.length - 1 
-                ? 'border-bottom:1px dashed rgba(255,255,255,0.1);' 
-                : 'border-bottom:1px solid rgba(255,255,255,0.05);';
-            
-            // Calculate ROC%: P&L / Capital at Risk
-            // Support both realizedPnL (app-created) and closePnL (imported from broker)
-            const pnl = pos.realizedPnL ?? pos.closePnL ?? 0;
-            const capitalAtRisk = pos.strike * 100 * (pos.contracts || 1);
-            const roc = capitalAtRisk > 0 ? (pnl / capitalAtRisk) * 100 : 0;
-            const rocColor = roc >= 0 ? '#00ff88' : '#ff5252';
-            
-            // Calculate "left on table" - what you could have made if expired worthless
-            // Max profit = full premium received (option expires worthless)
-            // Left on table = max profit - actual P&L
-            const contracts = pos.contracts || 1;
-            const maxProfit = pos.premium * 100 * contracts;  // Full premium if expired OTM
-            const leftOnTable = maxProfit - pnl;
-            // Color: red if significant, orange if moderate, gray if minimal
-            let leftColor = '#888';
-            if (leftOnTable > maxProfit * 0.5) leftColor = '#ff5252';  // Left more than 50%
-            else if (leftOnTable > maxProfit * 0.25) leftColor = '#ff9800';  // Left 25-50%
-            else if (leftOnTable > 0) leftColor = '#ffaa00';  // Left something
-            // Note: if leftOnTable is negative, they made MORE than max (shouldn't happen for short options)
-            
-            // Calculate days held if missing but dates available
-            let daysHeld = pos.daysHeld;
-            if (!daysHeld && pos.openDate && pos.closeDate) {
-                const open = new Date(pos.openDate);
-                const close = new Date(pos.closeDate);
-                daysHeld = Math.max(0, Math.ceil((close - open) / (1000 * 60 * 60 * 24)));
-            }
-            
-            // Check if position is linked to any challenges
-            const linkedChallenges = (pos.challengeIds || [])
-                .map(cid => (state.challenges || []).find(c => c.id === cid))
-                .filter(c => c);
-            const hasChallenges = linkedChallenges.length > 0;
-            const challengeNames = linkedChallenges.map(c => c.name).join(', ');
-            const challengeBadge = hasChallenges 
-                ? `<span title="Part of: ${challengeNames}" style="cursor:help; margin-left:4px;">🏆</span>` 
-                : '';
-            
-            // Calculate days left until expiry when closed (how early you exited)
-            let daysLeft = null;
-            let daysLeftColor = '#888';
-            if (pos.expiry && pos.closeDate) {
-                const close = new Date(pos.closeDate);
-                const expiry = new Date(pos.expiry);
-                daysLeft = Math.ceil((expiry - close) / (1000 * 60 * 60 * 24));
-                // Color code: green if closed well before expiry (good management), orange if close to expiry
-                if (daysLeft > 14) daysLeftColor = '#00ff88';  // Exited with plenty of time
-                else if (daysLeft > 7) daysLeftColor = '#ffaa00';  // Getting close
-                else if (daysLeft > 0) daysLeftColor = '#ff9800';  // Very close to expiry
-                else daysLeftColor = '#888';  // Held to or past expiry
-            }
-            
-            // Format expiry for display (shorter format)
-            const expiryDisplay = pos.expiry ? pos.expiry.substring(5) : '—'; // Show MM-DD only
-            
-            html += `
-                <tr style="${rowBorder}">
-                    <td style="padding:6px; ${indentStyle} color:#00d9ff;">${legLabel}${pos.ticker}${challengeBadge}</td>
-                    <td style="padding:6px;">${pos.type.replace('_', ' ')}</td>
-                    <td style="padding:6px; text-align:right;">$${pos.strike.toFixed(2)}</td>
-                    <td style="padding:6px; text-align:right;" title="$${pos.premium.toFixed(2)} × ${pos.contracts || 1} contracts × 100 shares">
-                        <span style="color:#00ff88; font-weight:bold;">$${(pos.premium * 100 * (pos.contracts || 1)).toFixed(0)}</span>
-                        <span style="color:#666; font-size:10px; margin-left:4px;">(${pos.premium.toFixed(2)}×${pos.contracts || 1})</span>
-                    </td>
-                    <td style="padding:6px; text-align:center; color:#888; font-size:11px;">${pos.openDate || '—'}</td>
-                    <td style="padding:6px; text-align:center; color:#888; font-size:11px;">${pos.closeDate}</td>
-                    <td style="padding:6px; text-align:center; color:#888; font-size:11px;" title="${pos.expiry || 'No expiry date'}">${expiryDisplay}</td>
-                    <td style="padding:6px; text-align:right;">${daysHeld ?? '—'}d</td>
-                    <td style="padding:6px; text-align:right; color:${daysLeftColor};" title="Days remaining until expiry when you closed">${daysLeft !== null ? daysLeft + 'd' : '—'}</td>
-                    <td style="padding:6px; text-align:right; font-weight:bold; color:${pnl >= 0 ? '#00ff88' : '#ff5252'};">
-                        ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}
-                    </td>
-                    <td style="padding:6px; text-align:right; color:${rocColor};">
-                        ${roc >= 0 ? '+' : ''}${roc.toFixed(1)}%
-                    </td>
-                    <td style="padding:6px; text-align:right; color:${daysHeld > 0 ? (roc * 365 / daysHeld >= 50 ? '#00ff88' : roc * 365 / daysHeld >= 25 ? '#ffaa00' : '#888') : '#888'};" 
-                        title="Annualized ROC = ${roc.toFixed(1)}% × (365 / ${daysHeld || '?'} days)">
-                        ${daysHeld > 0 ? (roc * 365 / daysHeld).toFixed(0) + '%' : '—'}
-                    </td>
-                    <td style="padding:6px; text-align:right; color:${leftColor}; font-size:11px;" 
-                        title="Max profit if expired worthless: $${maxProfit.toFixed(0)}. You captured ${((pnl/maxProfit)*100).toFixed(0)}% of max.">
-                        ${leftOnTable > 0 ? '-$' + leftOnTable.toFixed(0) : '—'}
-                    </td>
-                    <td style="padding:6px; text-align:center;">
-                        <button onclick="window.showLinkToChainModal(${pos.id})" 
-                                style="background:transparent; border:none; color:#6bf; cursor:pointer; font-size:11px;"
-                                title="Link to another position's roll chain">
-                            🔗
-                        </button>
-                    </td>
-                    <td style="padding:6px; text-align:center;">
-                        <button onclick="window.showLinkToChallengeModal(${pos.id})" 
-                                style="background:transparent; border:none; color:${hasChallenges ? '#ffd700' : '#888'}; cursor:pointer; font-size:11px;"
-                                title="${hasChallenges ? 'Linked to: ' + challengeNames + ' (click to manage)' : 'Link to a challenge'}">
-                            🏆
-                        </button>
-                    </td>
-                    <td style="padding:6px; text-align:center;">
-                        <button onclick="window.deleteClosedPosition(${pos.id})" 
-                                style="background:transparent; border:none; color:#ff5252; cursor:pointer; font-size:11px;"
-                                title="Delete this record">
-                            ✕
-                        </button>
-                    </td>
-                </tr>
-            `;
-        });
+        html += `</tbody><tbody>`;
     }
     
     html += `
@@ -1069,11 +1036,6 @@ function renderClosedPositions() {
         </table>
     `;
     
-    if (sortedChains.length > maxChains) {
-        html += `<div style="color:#888; font-size:11px; margin-top:8px;">Showing ${maxChains} of ${sortedChains.length} position chains</div>`;
-    }
-    
-    // Add totals summary for filtered data - support both realizedPnL and closePnL
     const grandTotal = closed.reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
     const totalColor = grandTotal >= 0 ? '#00ff88' : '#ff5252';
     const yearLabel = state.closedYearFilter === 'all' ? 'All Time' : state.closedYearFilter;
@@ -1083,13 +1045,11 @@ function renderClosedPositions() {
             <span style="font-size:16px; font-weight:bold; color:${totalColor}; margin-left:10px;">
                 ${grandTotal >= 0 ? '+' : ''}$${grandTotal.toFixed(0)}
             </span>
-            <span style="color:#888; margin-left:15px;">(${closed.length} trades)</span>
+            <span style="color:#888; margin-left:15px;">(${closed.length} trades across ${sortedTickers.length} tickers)</span>
         </div>
     `;
     
     el.innerHTML = html;
-    
-    // Attach year filter listener after DOM update
     setTimeout(() => attachYearFilterListener(), 0);
 }
 
@@ -1206,13 +1166,21 @@ export function analyzeFromPortfolio(id) {
     }
     
     // Load position into analyzer (uses the existing function from positions.js)
+    // This already handles tab switching to Analyze → Pricing
     if (window.loadPositionToAnalyze) {
         window.loadPositionToAnalyze(id);
     }
     
-    // Switch to Options tab
+    // Switch to Analyze tab → Pricing sub-tab (fallback if loadPositionToAnalyze didn't do it)
+    const analyzeTab = document.querySelector('[data-tab="analyze"]');
     const optionsTab = document.querySelector('[data-tab="options"]');
-    if (optionsTab) {
+    if (analyzeTab) {
+        analyzeTab.click();
+        // Activate Pricing sub-tab
+        if (window.switchSubTab) {
+            window.switchSubTab('analyze', 'analyze-pricing');
+        }
+    } else if (optionsTab) {
         optionsTab.click();
     }
     
@@ -1333,6 +1301,17 @@ export function renderHoldings() {
     if (!section || !table) return;
     
     const holdings = state.holdings || [];
+    
+    // Update collapsible header summary
+    const summaryEl = document.getElementById('holdingsSummary');
+    if (summaryEl) {
+        const totalShares = holdings.reduce((sum, h) => sum + (h.shares || 100), 0);
+        const totalValue = holdings.reduce((sum, h) => sum + ((h.shares || 100) * (h.costBasis || 0)), 0);
+        summaryEl.innerHTML = holdings.length > 0 
+            ? `<span>${holdings.length} holding${holdings.length !== 1 ? 's'  : ''} (${totalShares} shares)</span>
+               <span class="value" style="color:#ff8c00;">~$${totalValue.toFixed(0)}</span>`
+            : `<span style="color:#888;">No holdings</span>`;
+    }
     
     if (holdings.length === 0) {
         section.style.display = 'none';
@@ -1508,49 +1487,16 @@ window.renderHoldings = renderHoldings;
 /**
  * Fetch current prices for holdings and calculate all metrics
  * This is where the magic happens - we show traders what they need to know
- * Now uses CBOE first (reliable), falls back to Yahoo
+ * Now uses Schwab BATCH API (single request for all tickers!)
  */
 async function fetchHoldingPrices(holdingData) {
     if (!holdingData || holdingData.length === 0) return;
     
     const tickers = [...new Set(holdingData.map(h => h.ticker))];
-    const priceMap = {};
     
-    // Fetch all prices first - try CBOE then Yahoo as fallback
-    for (const ticker of tickers) {
-        try {
-            // Try CBOE first (includes stock price in options data)
-            const cboeRes = await fetch(`/api/cboe/${ticker}.json`);
-            if (cboeRes.ok) {
-                const cboeData = await cboeRes.json();
-                if (cboeData.data?.current_price) {
-                    priceMap[ticker] = cboeData.data.current_price;
-                    console.log(`Fetched ${ticker}: $${cboeData.data.current_price.toFixed(2)} (CBOE)`);
-                    continue;
-                }
-            }
-            
-            // Fallback to Yahoo
-            const res = await fetch(`/api/yahoo/${ticker}`);
-            if (!res.ok) {
-                console.warn(`Price fetch failed for ${ticker}: ${res.status}`);
-                continue;
-            }
-            const data = await res.json();
-            
-            // Yahoo returns nested format: chart.result[0].meta.regularMarketPrice
-            const price = data.chart?.result?.[0]?.meta?.regularMarketPrice 
-                       || data.regularMarketPrice 
-                       || data.price 
-                       || 0;
-            
-            priceMap[ticker] = price;
-            console.log(`Fetched ${ticker}: $${price.toFixed(2)} (Yahoo)`);
-        } catch (e) {
-            console.warn(`Failed to fetch price for ${ticker}:`, e);
-            priceMap[ticker] = 0;
-        }
-    }
+    // BATCH fetch all prices in ONE request!
+    const priceMap = await fetchStockPricesBatch(tickers);
+    console.log(`[HOLDINGS] Fetched ${Object.keys(priceMap).length} prices for holdings`);
     
     // Summary totals
     let sumCapital = 0;

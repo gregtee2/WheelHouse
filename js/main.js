@@ -22,6 +22,9 @@ export function init() {
     // Setup tabs
     setupTabs();
     
+    // Migrate old tab content into new Analyze sub-tabs
+    migrateTabContent();
+    
     // Setup sliders and controls
     setupSliders();
     setupDatePicker();
@@ -40,6 +43,9 @@ export function init() {
     loadPositions();
     loadClosedPositions();
     initChallenges();
+    
+    // Restore collapsed section states
+    setTimeout(() => window.restoreCollapsedStates?.(), 100);
     
     // Expose loadPositions to window for staged trade confirmation
     window.loadPositions = loadPositions;
@@ -67,6 +73,7 @@ async function checkAIAvailability() {
     const aiContent = document.getElementById('aiInsightContent');
     const modelSelect = document.getElementById('aiModelSelect');
     const modelStatus = document.getElementById('aiModelStatus');
+    const gpuStatusEl = document.getElementById('gpuStatus');
     
     if (!aiPanel) return;
     
@@ -82,32 +89,88 @@ async function checkAIAvailability() {
         
         const data = await res.json();
         
+        // Store for other functions to use
+        window.aiStatus = data;
+        
+        // Display GPU info
+        if (data.gpu) {
+            const gpu = data.gpu;
+            console.log(`🎮 GPU: ${gpu.name} (${gpu.totalGB}GB total, ${gpu.freeGB}GB free)`);
+            
+            // Update GPU status display if element exists
+            if (gpuStatusEl) {
+                if (gpu.available) {
+                    gpuStatusEl.innerHTML = `🎮 <b>${gpu.name}</b> | ${gpu.freeGB}GB free / ${gpu.totalGB}GB`;
+                    gpuStatusEl.style.color = '#00ff88';
+                } else {
+                    gpuStatusEl.innerHTML = `⚠️ No GPU detected - AI will run on CPU (slow)`;
+                    gpuStatusEl.style.color = '#ffaa00';
+                }
+            }
+        }
+        
         if (data.available) {
             // AI is ready - show which models are available
             const models = data.models || [];
             const modelNames = models.map(m => m.name);
             console.log('🧠 AI Trade Advisor: Ready. Available models:', modelNames.join(', '));
             
+            // Log model capabilities
+            models.forEach(m => {
+                const status = m.canRun ? (m.recommended ? '✅' : '⚠️') : '❌';
+                console.log(`   ${status} ${m.name}: ${m.sizeGB}GB (needs ${m.requirements?.minGB || '?'}GB)`);
+            });
+            
             aiPanel.style.display = 'block';
             aiPanel.style.opacity = '1';
             
-            // Update model dropdown to show installed status
+            // Update model dropdown to show installed + capability status
             if (modelSelect) {
                 Array.from(modelSelect.options).forEach(opt => {
-                    const isInstalled = modelNames.some(m => m.startsWith(opt.value.split(':')[0]));
-                    opt.textContent = opt.textContent.replace(' ✓', '').replace(' (not installed)', '');
-                    if (isInstalled) {
-                        opt.textContent += ' ✓';
-                        opt.disabled = false;
+                    const modelInfo = models.find(m => m.name === opt.value || m.name.startsWith(opt.value.split(':')[0]));
+                    opt.textContent = opt.textContent.replace(/\s*[✓⚠❌].*/g, '').trim();
+                    
+                    if (modelInfo) {
+                        if (!modelInfo.canRun) {
+                            opt.textContent += ` ❌ (need ${modelInfo.requirements?.minGB}GB)`;
+                            opt.disabled = true;
+                            opt.style.color = '#888';
+                        } else if (!modelInfo.recommended) {
+                            opt.textContent += ' ⚠️ (tight fit)';
+                            opt.disabled = false;
+                            opt.style.color = '#ffaa00';
+                        } else {
+                            opt.textContent += ' ✓';
+                            opt.disabled = false;
+                            opt.style.color = '#00ff88';
+                        }
                     } else {
                         opt.textContent += ' (not installed)';
                         opt.disabled = true;
+                        opt.style.color = '#888';
                     }
                 });
+                
+                // If saved model can't run, select first available
+                const currentOpt = modelSelect.querySelector(`option[value="${savedModel}"]`);
+                if (currentOpt?.disabled) {
+                    const firstEnabled = Array.from(modelSelect.options).find(o => !o.disabled);
+                    if (firstEnabled) {
+                        modelSelect.value = firstEnabled.value;
+                        localStorage.setItem('wheelhouse_ai_model', firstEnabled.value);
+                        showNotification(`Switched to ${firstEnabled.value} (${savedModel} needs more VRAM)`, 'info');
+                    }
+                }
             }
             
             if (aiContent) {
                 aiContent.innerHTML = `Click <b>Get Insight</b> after loading a position for AI-powered analysis.`;
+            }
+            
+            // Check for vision model availability
+            if (data.hasVision) {
+                console.log('👁️ Vision model available for image parsing');
+                window.hasVisionModel = true;
             }
         } else {
             // Ollama not running
@@ -130,6 +193,182 @@ async function checkAIAvailability() {
         if (aiPanel) aiPanel.style.display = 'none';
     }
 }
+
+// ==========================================
+// IMAGE PARSING FUNCTIONS (Broker Screenshots)
+// ==========================================
+
+/**
+ * Handle image drag & drop
+ */
+window.handleImageDrop = function(event) {
+    event.preventDefault();
+    const dropZone = document.getElementById('imageDropZone');
+    dropZone.style.borderColor = 'rgba(0,217,255,0.3)';
+    dropZone.style.background = 'rgba(0,217,255,0.05)';
+    
+    const file = event.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+        displayImagePreview(file);
+    } else {
+        showNotification('Please drop an image file', 'error');
+    }
+};
+
+/**
+ * Handle image upload from file input
+ */
+window.handleImageUpload = function(event) {
+    const file = event.target.files[0];
+    if (file && file.type.startsWith('image/')) {
+        displayImagePreview(file);
+    }
+};
+
+/**
+ * Display image preview
+ */
+function displayImagePreview(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const preview = document.getElementById('imagePreview');
+        const img = document.getElementById('previewImg');
+        img.src = e.target.result;
+        preview.style.display = 'block';
+        // Store base64 for later parsing
+        window.pendingImageData = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+/**
+ * Handle paste from clipboard (Ctrl+V)
+ */
+document.addEventListener('paste', async function(event) {
+    // Only handle if we're on the Ideas tab
+    const ideasTab = document.getElementById('ideas');
+    if (!ideasTab || ideasTab.style.display === 'none') return;
+    
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    
+    for (const item of items) {
+        if (item.type.startsWith('image/')) {
+            event.preventDefault();
+            const file = item.getAsFile();
+            if (file) {
+                displayImagePreview(file);
+                showNotification('Image pasted! Click "Extract Trade Details" to analyze', 'info');
+            }
+            break;
+        }
+    }
+});
+
+/**
+ * Parse the uploaded image using vision model
+ */
+window.parseUploadedImage = async function(event) {
+    if (event) event.stopPropagation();
+    
+    if (!window.pendingImageData) {
+        showNotification('No image to parse', 'error');
+        return;
+    }
+    
+    // Check if vision model is available
+    if (!window.hasVisionModel) {
+        showNotification('Vision model not installed. Run: ollama pull minicpm-v', 'error');
+        return;
+    }
+    
+    const resultDiv = document.getElementById('imageParseResult');
+    const contentDiv = document.getElementById('imageParseContent');
+    
+    resultDiv.style.display = 'block';
+    contentDiv.innerHTML = '<span style="color:#ffaa00;">⏳ Analyzing image with AI vision...</span>';
+    
+    try {
+        const response = await fetch('/api/ai/parse-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                image: window.pendingImageData,
+                model: 'minicpm-v:latest'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            contentDiv.innerHTML = `<span style="color:#ff5252;">❌ ${data.error}</span>`;
+            return;
+        }
+        
+        // Format the parsed result
+        const parsed = data.parsed || {};
+        let html = '<div style="display:grid; grid-template-columns:auto 1fr; gap:6px 12px;">';
+        
+        const fields = [
+            ['TICKER', parsed.ticker],
+            ['ACTION', parsed.action],
+            ['TYPE', parsed.type],
+            ['STRIKE', parsed.strike],
+            ['EXPIRY', parsed.expiry],
+            ['PREMIUM', parsed.premium],
+            ['CONTRACTS', parsed.contracts],
+            ['TOTAL', parsed.total]
+        ];
+        
+        for (const [label, value] of fields) {
+            if (value && value.toLowerCase() !== 'unclear') {
+                html += `<span style="color:#888;">${label}:</span><span style="color:#00ff88;">${value}</span>`;
+            } else {
+                html += `<span style="color:#888;">${label}:</span><span style="color:#666;">—</span>`;
+            }
+        }
+        html += '</div>';
+        
+        // Store for use in analyzer
+        window.extractedTradeData = parsed;
+        
+        contentDiv.innerHTML = html;
+        showNotification('Trade details extracted!', 'success');
+        
+    } catch (e) {
+        contentDiv.innerHTML = `<span style="color:#ff5252;">❌ Error: ${e.message}</span>`;
+    }
+};
+
+/**
+ * Use extracted trade data in the analyzer
+ */
+window.useExtractedTrade = function() {
+    const data = window.extractedTradeData;
+    if (!data) {
+        showNotification('No extracted data available', 'error');
+        return;
+    }
+    
+    // Build a trade string from parsed data
+    let tradeStr = '';
+    if (data.ticker) tradeStr += data.ticker + ' ';
+    if (data.strike) tradeStr += '$' + data.strike;
+    if (data.type) tradeStr += data.type.toUpperCase().charAt(0) + ' ';
+    if (data.expiry) tradeStr += data.expiry + ' ';
+    if (data.premium) tradeStr += 'for $' + data.premium;
+    
+    // Put it in the paste input
+    const input = document.getElementById('pasteTradeInput2');
+    if (input) {
+        input.value = tradeStr.trim() || `${data.ticker || ''} ${data.strike || ''} ${data.type || ''} ${data.expiry || ''}`.trim();
+        input.focus();
+        showNotification('Trade sent to analyzer. Click "Analyze Trade" to continue.', 'info');
+    }
+    
+    // Hide the image result
+    document.getElementById('imageParseResult').style.display = 'none';
+};
 
 /**
  * Save AI model preference to localStorage
@@ -1644,6 +1883,72 @@ window.applyUpdate = async function() {
 };
 
 /**
+ * Migrate content from old tabs (Options, Simulator, Greeks) into Analyze sub-tabs
+ * This runs once on init to avoid duplicating HTML
+ */
+function migrateTabContent() {
+    console.log('🔄 Starting tab content migration...');
+    
+    // Move Options tab content → analyze-pricing sub-tab
+    const optionsContent = document.getElementById('options');
+    const pricingSubTab = document.getElementById('analyze-pricing');
+    console.log('  Options tab:', optionsContent ? `found (${optionsContent.childNodes.length} children)` : 'NOT FOUND');
+    console.log('  Pricing sub-tab:', pricingSubTab ? `found (${pricingSubTab.childNodes.length} children)` : 'NOT FOUND');
+    
+    if (optionsContent && pricingSubTab) {
+        // Check if already has content (skip if migrated)
+        const hasTextContent = pricingSubTab.textContent.trim().length > 50;
+        if (!hasTextContent) {
+            while (optionsContent.firstChild) {
+                pricingSubTab.appendChild(optionsContent.firstChild);
+            }
+            optionsContent.style.display = 'none';
+            console.log('✅ Migrated Options → Analyze/Pricing');
+        } else {
+            console.log('⏭️ Pricing sub-tab already has content, skipping migration');
+        }
+    }
+    
+    // Monte Carlo sub-tab has built-in content directly in HTML
+    // No migration needed - just log for debugging
+    console.log('✅ Monte Carlo tab has built-in risk analysis UI');
+    
+    // Move Greeks tab content → analyze-greeks sub-tab
+    const greeksContent = document.getElementById('greeks');
+    const greeksSubTab = document.getElementById('analyze-greeks');
+    console.log('  Greeks tab:', greeksContent ? `found (${greeksContent.childNodes.length} children)` : 'NOT FOUND');
+    console.log('  Greeks sub-tab:', greeksSubTab ? `found (${greeksSubTab.childNodes.length} children)` : 'NOT FOUND');
+    
+    if (greeksContent && greeksSubTab) {
+        const hasTextContent = greeksSubTab.textContent.trim().length > 50;
+        if (!hasTextContent) {
+            while (greeksContent.firstChild) {
+                greeksSubTab.appendChild(greeksContent.firstChild);
+            }
+            greeksContent.style.display = 'none';
+            console.log('✅ Migrated Greeks → Analyze/Greeks');
+        } else {
+            console.log('⏭️ Greeks sub-tab already has content, skipping migration');
+        }
+    }
+    
+    // Remove old tab buttons from the header
+    const oldTabIds = ['options', 'simulator', 'greeks', 'data'];
+    oldTabIds.forEach(tabId => {
+        const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+        if (btn) btn.style.display = 'none';
+        // Also hide the tab content
+        const content = document.getElementById(tabId);
+        if (content && !['options', 'simulator', 'greeks'].includes(tabId)) {
+            // Don't hide options/simulator/greeks - they're migrated
+            content.style.display = 'none';
+        }
+    });
+    
+    console.log('🔄 Tab content migration complete');
+}
+
+/**
  * Setup tab switching
  */
 function setupTabs() {
@@ -1686,10 +1991,50 @@ function setupTabs() {
                 updatePortfolioSummary();
             } else if (targetId === 'challenges') {
                 renderChallenges();
+            } else if (targetId === 'analyze') {
+                // Initialize first sub-tab if needed
+                const activeSubTab = document.querySelector('#analyze .sub-tab-content.active');
+                if (!activeSubTab) {
+                    switchSubTab('analyze', 'analyze-pricing');
+                }
+            } else if (targetId === 'ideas') {
+                // Ideas tab - check AI status
+                checkAIStatus?.();
             }
         });
     });
 }
+
+/**
+ * Switch sub-tabs within a parent tab (e.g., Analyze)
+ * @param {string} parentId - Parent tab container ID
+ * @param {string} subTabId - Sub-tab content ID to activate
+ */
+function switchSubTab(parentId, subTabId) {
+    const parent = document.getElementById(parentId);
+    if (!parent) return;
+    
+    // Update button states
+    parent.querySelectorAll('.sub-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.subtab === subTabId);
+    });
+    
+    // Update content visibility
+    parent.querySelectorAll('.sub-tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === subTabId);
+    });
+    
+    // Sub-tab specific initialization
+    if (subTabId === 'analyze-greeks') {
+        drawGreeksPlots?.();
+    } else if (subTabId === 'analyze-simulator') {
+        // Initialize Monte Carlo tab with current position data
+        window.initMonteCarloTab?.();
+    }
+}
+
+// Make switchSubTab globally accessible for onclick handlers
+window.switchSubTab = switchSubTab;
 
 /**
  * Setup button event listeners
@@ -1894,6 +2239,620 @@ if (document.readyState === 'loading') {
 } else {
     init();
 }
+
+/**
+ * Ideas Tab: Discord Trade Analyzer (uses Ideas tab element IDs)
+ * Wrapper that calls the main analyzeDiscordTrade but swaps element sources
+ */
+window.analyzeDiscordTrade2 = async function() {
+    // Temporarily swap IDs so the main function works
+    const textarea = document.getElementById('pasteTradeInput2');
+    const modelSelect = document.getElementById('discordModelSelect2');
+    
+    if (!textarea || !textarea.value.trim()) {
+        showNotification('Paste a trade callout first', 'error');
+        return;
+    }
+    
+    // Temporarily set the main elements to our values (for modal display)
+    const mainTextarea = document.getElementById('pasteTradeInput');
+    if (mainTextarea) mainTextarea.value = textarea.value;
+    
+    const mainModel = document.getElementById('discordModelSelect');
+    if (mainModel) mainModel.value = modelSelect?.value || 'qwen2.5:32b';
+    
+    // Call the main function
+    window.analyzeDiscordTrade();
+};
+
+/**
+ * Ideas Tab: AI Trade Ideas Generator (uses Ideas tab element IDs)
+ */
+window.getTradeIdeas2 = async function() {
+    const ideaBtn = document.getElementById('ideaBtn2');
+    const ideaResults = document.getElementById('ideaResultsLarge');
+    const ideaContent = document.getElementById('ideaContentLarge');
+    
+    if (!ideaBtn || !ideaResults || !ideaContent) {
+        console.error('Ideas tab elements not found');
+        return;
+    }
+    
+    // Get inputs from Ideas tab
+    const buyingPower = parseFloat(document.getElementById('ideaBuyingPower2')?.value) || 25000;
+    const targetROC = parseFloat(document.getElementById('ideaTargetROC2')?.value) || 25;
+    const sectorsToAvoid = document.getElementById('ideaSectorsAvoid2')?.value || '';
+    const selectedModel = document.getElementById('ideaModelSelect2')?.value || 'qwen2.5:32b';
+    
+    // Gather current positions for context
+    const currentPositions = (window.state?.positions || []).map(p => ({
+        ticker: p.ticker,
+        type: p.type,
+        strike: p.strike,
+        sector: p.sector || 'Unknown'
+    }));
+    
+    // Show loading
+    ideaBtn.disabled = true;
+    ideaBtn.textContent = '⏳ Generating...';
+    ideaResults.style.display = 'block';
+    ideaContent.innerHTML = '<span style="color:#888;">🔄 AI is researching trade ideas... (15-30 seconds)</span>';
+    
+    try {
+        const response = await fetch('/api/ai/ideas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                buyingPower,
+                targetAnnualROC: targetROC,
+                sectorsToAvoid,
+                currentPositions,
+                model: selectedModel
+            })
+        });
+        
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'API error');
+        }
+        
+        const result = await response.json();
+        
+        // Store candidates for deep dive
+        window._lastTradeIdeas = result.candidates || [];
+        
+        // Format with deep dive buttons
+        let formatted = result.ideas.replace(/^(\d+\.)\s*\*{0,2}([A-Z]{2,5})\s*@\s*\$[\d.]+\s*-\s*Sell\s*\$[\d.]+\s*put[^*]*\*{0,2}/gm, 
+            (match, num, ticker) => {
+                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;" title="Comprehensive scenario analysis">🔍 Deep Dive</button>`;
+            });
+        
+        // Apply styling
+        formatted = formatted
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#00d9ff;">$1</strong>')
+            .replace(/(Entry:|Why:|Risk:|Capital:)/gi, '<span style="color:#888;">$1</span>')
+            .replace(/✅|📊|💡|🎯|⚠️/g, match => `<span style="font-size:1.1em;">${match}</span>`);
+        
+        ideaContent.innerHTML = formatted;
+        
+    } catch (error) {
+        ideaContent.innerHTML = `<span style="color:#ff5252;">❌ ${error.message}</span>`;
+    } finally {
+        ideaBtn.disabled = false;
+        ideaBtn.textContent = '💡 Generate Trade Ideas';
+    }
+};
+
+/**
+ * Monte Carlo Risk Analysis - Uses loaded position data to run real GBM simulation
+ * Shows probability distributions, price cones, and risk scenarios
+ */
+window.runMonteCarloRisk = function() {
+    const numPaths = parseInt(document.getElementById('mcPathCount')?.value) || 10000;
+    
+    // Get position parameters from state (set by Pricing tab or loadPositionToAnalyze)
+    const spot = state.spot || 100;
+    const strike = state.strike || 95;
+    const dte = state.dte || 30;
+    const iv = state.optVol || 0.3;
+    const rate = state.rate || 0.045;
+    
+    // Check if we have a valid position loaded
+    if (!state.spot || state.spot <= 0) {
+        showNotification('No position loaded - go to Pricing tab first', 'error');
+        return;
+    }
+    
+    // Show running indicator
+    const runBtn = document.getElementById('runMcBtn');
+    const runningEl = document.getElementById('mcRunning');
+    if (runBtn) runBtn.disabled = true;
+    if (runningEl) {
+        runningEl.textContent = `Simulating ${numPaths.toLocaleString()} paths...`;
+        runningEl.style.display = 'block';
+    }
+    
+    // Run simulation async (use setTimeout to allow UI update)
+    setTimeout(() => {
+        const results = runGBMSimulation(spot, strike, dte, iv, rate, numPaths);
+        displayMonteCarloResults(results, spot, strike, dte, iv);
+        
+        if (runBtn) runBtn.disabled = false;
+        if (runningEl) runningEl.style.display = 'none';
+    }, 50);
+};
+
+/**
+ * Run Geometric Brownian Motion simulation
+ */
+function runGBMSimulation(spot, strike, dte, vol, rate, numPaths) {
+    const T = dte / 365;
+    const dt = 1 / 365;  // Daily steps
+    const steps = Math.ceil(dte);
+    
+    const finalPrices = [];
+    const paths = [];  // Store subset for visualization
+    const pathsToStore = Math.min(100, numPaths);  // Only store 100 paths for drawing
+    
+    // Run simulations
+    for (let i = 0; i < numPaths; i++) {
+        let S = spot;
+        const path = [S];
+        
+        for (let t = 0; t < steps; t++) {
+            // Standard GBM: dS = μSdt + σSdW
+            const dW = Math.sqrt(dt) * gaussianRandom();
+            S *= Math.exp((rate - 0.5 * vol * vol) * dt + vol * dW);
+            
+            if (i < pathsToStore) path.push(S);
+        }
+        
+        finalPrices.push(S);
+        if (i < pathsToStore) paths.push(path);
+    }
+    
+    // Calculate statistics
+    finalPrices.sort((a, b) => a - b);
+    
+    const belowStrike = finalPrices.filter(p => p < strike).length;
+    const otmPercent = ((numPaths - belowStrike) / numPaths * 100).toFixed(1);
+    const itmPercent = (belowStrike / numPaths * 100).toFixed(1);
+    
+    const median = finalPrices[Math.floor(numPaths / 2)];
+    const mean = finalPrices.reduce((a, b) => a + b, 0) / numPaths;
+    
+    // Calculate percentiles
+    const percentile = (arr, p) => arr[Math.floor(arr.length * p / 100)];
+    const percentiles = {
+        p5: percentile(finalPrices, 5),
+        p10: percentile(finalPrices, 10),
+        p25: percentile(finalPrices, 25),
+        p50: percentile(finalPrices, 50),
+        p75: percentile(finalPrices, 75),
+        p90: percentile(finalPrices, 90),
+        p95: percentile(finalPrices, 95)
+    };
+    
+    // Expected move (1 std dev)
+    const stdDev = Math.sqrt(finalPrices.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / numPaths);
+    const expectedMove = spot * vol * Math.sqrt(T);
+    
+    return {
+        finalPrices,
+        paths,
+        otmPercent: parseFloat(otmPercent),
+        itmPercent: parseFloat(itmPercent),
+        median,
+        mean,
+        stdDev,
+        expectedMove,
+        percentiles,
+        numPaths,
+        spot,
+        strike,
+        dte
+    };
+}
+
+/**
+ * Standard normal random using Box-Muller
+ */
+function gaussianRandom() {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+/**
+ * Display Monte Carlo results in the UI
+ */
+function displayMonteCarloResults(results, spot, strike, dte, iv) {
+    // Show all hidden elements
+    document.getElementById('mcTitle').style.display = 'block';
+    document.getElementById('mcConeTitle').style.display = 'block';
+    document.getElementById('mcDistributionCanvas').style.display = 'block';
+    document.getElementById('mcConeCanvas').style.display = 'block';
+    document.getElementById('mcStatsGrid').style.display = 'grid';
+    document.getElementById('mcPercentiles').style.display = 'block';
+    
+    // Update stats
+    document.getElementById('mcOtmPct').textContent = results.otmPercent.toFixed(1) + '%';
+    document.getElementById('mcItmPct').textContent = results.itmPercent.toFixed(1) + '%';
+    document.getElementById('mcMedianPrice').textContent = '$' + results.median.toFixed(2);
+    document.getElementById('mcExpectedMove').textContent = '±$' + results.expectedMove.toFixed(2);
+    
+    // Update percentiles
+    document.getElementById('mcP5').textContent = '$' + results.percentiles.p5.toFixed(2);
+    document.getElementById('mcP10').textContent = '$' + results.percentiles.p10.toFixed(2);
+    document.getElementById('mcP25').textContent = '$' + results.percentiles.p25.toFixed(2);
+    document.getElementById('mcP50').textContent = '$' + results.percentiles.p50.toFixed(2);
+    document.getElementById('mcP75').textContent = '$' + results.percentiles.p75.toFixed(2);
+    document.getElementById('mcP90').textContent = '$' + results.percentiles.p90.toFixed(2);
+    document.getElementById('mcP95').textContent = '$' + results.percentiles.p95.toFixed(2);
+    
+    // Color percentiles based on strike
+    ['mcP5', 'mcP10', 'mcP25', 'mcP50', 'mcP75', 'mcP90', 'mcP95'].forEach(id => {
+        const el = document.getElementById(id);
+        const val = parseFloat(el.textContent.replace('$', ''));
+        if (val < strike) {
+            el.style.color = '#ff5252';  // ITM = red
+        } else {
+            el.style.color = '#00ff88';  // OTM = green
+        }
+    });
+    
+    // Draw distribution histogram
+    drawDistributionHistogram(results, strike);
+    
+    // Draw probability cone
+    drawProbabilityConeChart(results, spot, strike);
+    
+    // Update risk scenarios
+    updateRiskScenarios(results, spot, strike);
+    
+    // Update profit analysis
+    updateProfitAnalysis(results, spot, strike, dte);
+}
+
+/**
+ * Draw price distribution histogram
+ */
+function drawDistributionHistogram(results, strike) {
+    const canvas = document.getElementById('mcDistributionCanvas');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    
+    ctx.fillStyle = '#0d0d1a';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Create bins
+    const prices = results.finalPrices;
+    const minPrice = Math.min(...prices) * 0.95;
+    const maxPrice = Math.max(...prices) * 1.05;
+    const numBins = 50;
+    const binWidth = (maxPrice - minPrice) / numBins;
+    
+    const bins = new Array(numBins).fill(0);
+    prices.forEach(p => {
+        const binIdx = Math.min(numBins - 1, Math.floor((p - minPrice) / binWidth));
+        bins[binIdx]++;
+    });
+    
+    const maxCount = Math.max(...bins);
+    const barWidth = (W - 60) / numBins;
+    
+    // Draw bars
+    bins.forEach((count, i) => {
+        const x = 40 + i * barWidth;
+        const barHeight = (count / maxCount) * (H - 40);
+        const priceAtBin = minPrice + (i + 0.5) * binWidth;
+        
+        // Color based on strike
+        if (priceAtBin < strike) {
+            ctx.fillStyle = 'rgba(255,82,82,0.6)';  // ITM = red
+        } else {
+            ctx.fillStyle = 'rgba(0,255,136,0.6)';  // OTM = green
+        }
+        
+        ctx.fillRect(x, H - 20 - barHeight, barWidth - 1, barHeight);
+    });
+    
+    // Draw strike line
+    const strikeX = 40 + ((strike - minPrice) / (maxPrice - minPrice)) * (W - 60);
+    ctx.strokeStyle = '#ffaa00';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    ctx.moveTo(strikeX, 10);
+    ctx.lineTo(strikeX, H - 20);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Label strike
+    ctx.fillStyle = '#ffaa00';
+    ctx.font = '11px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Strike $' + strike.toFixed(0), strikeX, H - 5);
+    
+    // Axis labels
+    ctx.fillStyle = '#888';
+    ctx.textAlign = 'left';
+    ctx.fillText('$' + minPrice.toFixed(0), 40, H - 5);
+    ctx.textAlign = 'right';
+    ctx.fillText('$' + maxPrice.toFixed(0), W - 20, H - 5);
+    
+    // Median line
+    const medianX = 40 + ((results.median - minPrice) / (maxPrice - minPrice)) * (W - 60);
+    ctx.strokeStyle = '#00d9ff';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(medianX, 10);
+    ctx.lineTo(medianX, H - 20);
+    ctx.stroke();
+    ctx.setLineDash([]);
+}
+
+/**
+ * Draw probability cone showing percentile bands over time
+ */
+function drawProbabilityConeChart(results, spot, strike) {
+    const canvas = document.getElementById('mcConeCanvas');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const padding = { left: 50, right: 20, top: 20, bottom: 25 };
+    
+    ctx.fillStyle = '#0d0d1a';
+    ctx.fillRect(0, 0, W, H);
+    
+    const paths = results.paths;
+    if (paths.length === 0) return;
+    
+    const steps = paths[0].length;
+    const chartW = W - padding.left - padding.right;
+    const chartH = H - padding.top - padding.bottom;
+    
+    // Calculate percentile bands at each time step
+    const bands = { p5: [], p25: [], p50: [], p75: [], p95: [] };
+    
+    for (let t = 0; t < steps; t++) {
+        const pricesAtT = paths.map(p => p[t]).sort((a, b) => a - b);
+        const n = pricesAtT.length;
+        bands.p5.push(pricesAtT[Math.floor(n * 0.05)]);
+        bands.p25.push(pricesAtT[Math.floor(n * 0.25)]);
+        bands.p50.push(pricesAtT[Math.floor(n * 0.50)]);
+        bands.p75.push(pricesAtT[Math.floor(n * 0.75)]);
+        bands.p95.push(pricesAtT[Math.floor(n * 0.95)]);
+    }
+    
+    // Find price range
+    const allPrices = [...bands.p5, ...bands.p95];
+    const minP = Math.min(...allPrices) * 0.95;
+    const maxP = Math.max(...allPrices) * 1.05;
+    
+    const toX = (t) => padding.left + (t / (steps - 1)) * chartW;
+    const toY = (p) => padding.top + (1 - (p - minP) / (maxP - minP)) * chartH;
+    
+    // Draw 5-95 band (light fill)
+    ctx.fillStyle = 'rgba(139,92,246,0.15)';
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(bands.p5[0]));
+    for (let t = 1; t < steps; t++) ctx.lineTo(toX(t), toY(bands.p5[t]));
+    for (let t = steps - 1; t >= 0; t--) ctx.lineTo(toX(t), toY(bands.p95[t]));
+    ctx.closePath();
+    ctx.fill();
+    
+    // Draw 25-75 band (darker fill)
+    ctx.fillStyle = 'rgba(139,92,246,0.3)';
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(bands.p25[0]));
+    for (let t = 1; t < steps; t++) ctx.lineTo(toX(t), toY(bands.p25[t]));
+    for (let t = steps - 1; t >= 0; t--) ctx.lineTo(toX(t), toY(bands.p75[t]));
+    ctx.closePath();
+    ctx.fill();
+    
+    // Draw median line
+    ctx.strokeStyle = '#00d9ff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(bands.p50[0]));
+    for (let t = 1; t < steps; t++) ctx.lineTo(toX(t), toY(bands.p50[t]));
+    ctx.stroke();
+    
+    // Draw strike line
+    if (strike >= minP && strike <= maxP) {
+        ctx.strokeStyle = '#ffaa00';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, toY(strike));
+        ctx.lineTo(W - padding.right, toY(strike));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Label
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'right';
+        ctx.fillText('Strike $' + strike.toFixed(0), W - padding.right, toY(strike) - 3);
+    }
+    
+    // Draw current spot line
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, toY(spot));
+    ctx.lineTo(padding.left + 20, toY(spot));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Axes
+    ctx.fillStyle = '#888';
+    ctx.font = '10px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText('$' + maxP.toFixed(0), 5, padding.top + 10);
+    ctx.fillText('$' + minP.toFixed(0), 5, H - padding.bottom);
+    
+    ctx.textAlign = 'center';
+    ctx.fillText('Today', padding.left, H - 5);
+    ctx.fillText('Expiry', W - padding.right, H - 5);
+    
+    // Legend
+    ctx.fillStyle = '#8b5cf6';
+    ctx.fillText('50% of outcomes in dark band, 90% in light band', W / 2, 12);
+}
+
+/**
+ * Update risk scenarios panel
+ */
+function updateRiskScenarios(results, spot, strike) {
+    const el = document.getElementById('mcRiskScenarios');
+    if (!el) return;
+    
+    const { percentiles, itmPercent } = results;
+    
+    // Worst case (5th percentile)
+    const worstDrop = ((spot - percentiles.p5) / spot * 100).toFixed(1);
+    const worstLoss = Math.max(0, (strike - percentiles.p5) * 100).toFixed(0);
+    
+    // 10th percentile drop
+    const drop10 = ((spot - percentiles.p10) / spot * 100).toFixed(1);
+    
+    el.innerHTML = `
+        <div style="margin-bottom:6px;">
+            <span style="color:#ff5252;">🔻 5% worst case:</span> Stock at $${percentiles.p5.toFixed(2)} (−${worstDrop}%)
+            ${percentiles.p5 < strike ? `<br>&nbsp;&nbsp;&nbsp;→ Assignment loss: ~$${worstLoss}/contract` : ''}
+        </div>
+        <div style="margin-bottom:6px;">
+            <span style="color:#ffaa00;">⚠️ 10% bad case:</span> Stock at $${percentiles.p10.toFixed(2)} (−${drop10}%)
+        </div>
+        <div>
+            <span style="color:#888;">📊 ITM probability:</span> ${itmPercent.toFixed(1)}% chance of assignment
+        </div>
+    `;
+}
+
+/**
+ * Update profit analysis panel
+ */
+function updateProfitAnalysis(results, spot, strike, dte) {
+    const el = document.getElementById('mcProfitAnalysis');
+    if (!el) return;
+    
+    const { otmPercent, percentiles, median } = results;
+    
+    // Expected outcome
+    const medianReturn = ((median - spot) / spot * 100).toFixed(1);
+    const gainScenario = ((percentiles.p75 - spot) / spot * 100).toFixed(1);
+    
+    el.innerHTML = `
+        <div style="margin-bottom:6px;">
+            <span style="color:#00ff88;">✅ OTM probability:</span> ${otmPercent.toFixed(1)}% chance to keep full premium
+        </div>
+        <div style="margin-bottom:6px;">
+            <span style="color:#00d9ff;">📊 Median outcome:</span> Stock at $${median.toFixed(2)} (${medianReturn >= 0 ? '+' : ''}${medianReturn}%)
+        </div>
+        <div>
+            <span style="color:#00ff88;">🎯 75% best case:</span> Stock at $${percentiles.p75.toFixed(2)} or higher
+        </div>
+    `;
+}
+
+/**
+ * Initialize Monte Carlo tab when activated
+ */
+window.initMonteCarloTab = function() {
+    // Update UI with current state values
+    const mcBanner = document.getElementById('mcPositionBanner');
+    const mcNoPos = document.getElementById('mcNoPosition');
+    const mcParams = document.getElementById('mcParamsBox');
+    
+    if (!state.spot || state.spot <= 0) {
+        // No position loaded
+        if (mcBanner) mcBanner.style.display = 'none';
+        if (mcNoPos) mcNoPos.style.display = 'block';
+        if (mcParams) mcParams.style.display = 'none';
+        return;
+    }
+    
+    // Position is loaded - show it
+    if (mcBanner) mcBanner.style.display = 'block';
+    if (mcNoPos) mcNoPos.style.display = 'none';
+    if (mcParams) mcParams.style.display = 'block';
+    
+    // Update ticker info
+    const ticker = state.currentTicker || 'Unknown';
+    document.getElementById('mcPositionTicker').textContent = ticker;
+    document.getElementById('mcPositionDetails').textContent = 
+        `$${state.strike?.toFixed(2) || '—'} put, ${state.dte || '—'} DTE`;
+    
+    // Update params
+    document.getElementById('mcSpot').textContent = '$' + (state.spot?.toFixed(2) || '—');
+    document.getElementById('mcStrike').textContent = '$' + (state.strike?.toFixed(2) || '—');
+    document.getElementById('mcIV').textContent = ((state.optVol || 0) * 100).toFixed(0) + '%';
+    document.getElementById('mcDTE').textContent = (state.dte || '—') + ' days';
+};
+
+/**
+ * Toggle collapsible sections in Portfolio tab
+ * Saves state to localStorage for persistence
+ */
+window.toggleSection = function(sectionId) {
+    const header = document.getElementById(sectionId + 'Header');
+    const content = document.getElementById(sectionId + 'Content');
+    
+    if (!header || !content) return;
+    
+    const isCollapsed = header.classList.toggle('collapsed');
+    content.classList.toggle('collapsed', isCollapsed);
+    
+    // Save state to localStorage
+    const collapsedSections = JSON.parse(localStorage.getItem('wheelhouse_collapsed_sections') || '{}');
+    collapsedSections[sectionId] = isCollapsed;
+    localStorage.setItem('wheelhouse_collapsed_sections', JSON.stringify(collapsedSections));
+};
+
+/**
+ * Toggle ticker group in closed positions
+ */
+window.toggleTickerGroup = function(ticker) {
+    const header = document.querySelector(`.ticker-group-header[data-ticker="${ticker}"]`);
+    const trades = document.querySelector(`.ticker-group-trades[data-ticker="${ticker}"]`);
+    
+    if (!header || !trades) return;
+    
+    header.classList.toggle('collapsed');
+    trades.classList.toggle('collapsed');
+    
+    // Save state
+    const collapsedTickers = JSON.parse(localStorage.getItem('wheelhouse_collapsed_tickers') || '{}');
+    collapsedTickers[ticker] = header.classList.contains('collapsed');
+    localStorage.setItem('wheelhouse_collapsed_tickers', JSON.stringify(collapsedTickers));
+};
+
+/**
+ * Restore collapsed section states on page load
+ */
+window.restoreCollapsedStates = function() {
+    const collapsedSections = JSON.parse(localStorage.getItem('wheelhouse_collapsed_sections') || '{}');
+    
+    Object.entries(collapsedSections).forEach(([sectionId, isCollapsed]) => {
+        if (isCollapsed) {
+            const header = document.getElementById(sectionId + 'Header');
+            const content = document.getElementById(sectionId + 'Content');
+            if (header && content) {
+                header.classList.add('collapsed');
+                content.classList.add('collapsed');
+            }
+        }
+    });
+};
 
 // Export for potential external use
 export { setupTabs, setupButtons };

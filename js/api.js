@@ -20,6 +20,87 @@ const PROXIES = [
 ];
 
 /**
+ * BATCH fetch stock prices for multiple tickers at once
+ * Uses Schwab batch API (1 request for all tickers!) with CBOE/Yahoo fallback
+ * @param {string[]} tickers - Array of ticker symbols
+ * @returns {Object} - Map of ticker -> price
+ */
+export async function fetchStockPricesBatch(tickers) {
+    if (!tickers || tickers.length === 0) return {};
+    
+    const uniqueTickers = [...new Set(tickers.map(t => t.toUpperCase()))];
+    const prices = {};
+    const missingTickers = [];
+    
+    // Try Schwab batch API first (single request for ALL tickers!)
+    try {
+        if (window.SchwabAPI) {
+            const status = await window.SchwabAPI.getStatus();
+            if (status.hasRefreshToken) {
+                console.log(`[BATCH] Fetching ${uniqueTickers.length} quotes from Schwab...`);
+                const startTime = Date.now();
+                const quotes = await window.SchwabAPI.getQuotes(uniqueTickers);
+                const elapsed = Date.now() - startTime;
+                
+                for (const ticker of uniqueTickers) {
+                    if (quotes[ticker]?.price > 0) {
+                        prices[ticker] = quotes[ticker].price;
+                    } else {
+                        missingTickers.push(ticker);
+                    }
+                }
+                
+                console.log(`[BATCH] Got ${Object.keys(prices).length}/${uniqueTickers.length} prices from Schwab in ${elapsed}ms`);
+            }
+        }
+    } catch (e) {
+        console.warn('[BATCH] Schwab batch failed:', e.message);
+        missingTickers.push(...uniqueTickers.filter(t => !prices[t]));
+    }
+    
+    // Fallback: fetch missing tickers individually from CBOE/Yahoo
+    if (missingTickers.length > 0) {
+        console.log(`[BATCH] Fetching ${missingTickers.length} missing tickers from CBOE/Yahoo...`);
+        await Promise.all(missingTickers.map(async (ticker) => {
+            try {
+                const price = await fetchStockPriceFallback(ticker);
+                if (price) prices[ticker] = price;
+            } catch (e) {
+                console.warn(`[BATCH] Failed to get ${ticker}: ${e.message}`);
+            }
+        }));
+    }
+    
+    return prices;
+}
+
+/**
+ * Fetch stock price from CBOE/Yahoo (used as fallback for batch)
+ */
+async function fetchStockPriceFallback(ticker) {
+    const tickerUpper = ticker.toUpperCase();
+    
+    // Try CBOE
+    try {
+        const cboeRes = await fetch(`/api/cboe/${tickerUpper}.json`);
+        if (cboeRes.ok) {
+            const cboeData = await cboeRes.json();
+            if (cboeData.data?.current_price) {
+                return cboeData.data.current_price;
+            }
+        }
+    } catch (e) { /* continue */ }
+    
+    // Try Yahoo
+    try {
+        const result = await fetchFromYahoo(tickerUpper);
+        return result.meta?.regularMarketPrice || null;
+    } catch (e) { /* continue */ }
+    
+    return null;
+}
+
+/**
  * Fetch stock price from Yahoo Finance
  * Tries multiple CORS proxies until one works
  */
@@ -66,7 +147,7 @@ export async function fetchFromYahoo(ticker) {
 }
 
 /**
- * Fetch stock price - tries CBOE first (reliable), falls back to Yahoo
+ * Fetch stock price - tries Schwab first (real-time), then CBOE, then Yahoo
  * This is the preferred way to get current stock prices
  * @param {string} ticker - Stock ticker symbol
  * @returns {number|null} - Current stock price or null
@@ -74,13 +155,29 @@ export async function fetchFromYahoo(ticker) {
 export async function fetchStockPrice(ticker) {
     const tickerUpper = ticker.toUpperCase();
     
-    // Try CBOE first (includes stock price in options data)
+    // Try Schwab first if authenticated (real-time quotes!)
+    try {
+        if (window.SchwabAPI) {
+            const status = await window.SchwabAPI.getStatus();
+            if (status.hasRefreshToken) {
+                const quote = await window.SchwabAPI.getQuote(tickerUpper);
+                if (quote && quote.price > 0) {
+                    console.log(`[PRICE] ${tickerUpper}: $${quote.price.toFixed(2)} (Schwab real-time)`);
+                    return quote.price;
+                }
+            }
+        }
+    } catch (e) {
+        console.log(`[PRICE] Schwab failed for ${tickerUpper}, trying CBOE...`);
+    }
+    
+    // Try CBOE second (includes stock price in options data, 15-min delay)
     try {
         const cboeRes = await fetch(`/api/cboe/${tickerUpper}.json`);
         if (cboeRes.ok) {
             const cboeData = await cboeRes.json();
             if (cboeData.data?.current_price) {
-                console.log(`[PRICE] ${tickerUpper}: $${cboeData.data.current_price.toFixed(2)} (CBOE)`);
+                console.log(`[PRICE] ${tickerUpper}: $${cboeData.data.current_price.toFixed(2)} (CBOE delayed)`);
                 return cboeData.data.current_price;
             }
         }
@@ -137,13 +234,133 @@ export async function fetchCalendarData(ticker) {
 window.fetchCalendarData = fetchCalendarData;
 
 /**
- * Fetch options chain from CBOE (free delayed quotes)
+ * Fetch options chain - tries Schwab first (real-time), then CBOE (delayed)
  * @param {string} ticker - Stock ticker symbol (e.g., "AAPL")
-
  * @returns {object} - { calls: [], puts: [], expirations: [], timestamp: string }
  */
 export async function fetchOptionsChain(ticker) {
     const tickerUpper = ticker.toUpperCase();
+    
+    // Try Schwab first if authenticated (real-time options!)
+    try {
+        if (window.SchwabAPI) {
+            const status = await window.SchwabAPI.getStatus();
+            if (status.hasRefreshToken) {
+                console.log(`[OPTIONS] Trying Schwab real-time for ${tickerUpper}...`);
+                const schwabChain = await window.SchwabAPI.getOptionsChain(tickerUpper);
+                
+                if (schwabChain && (schwabChain.callExpDateMap || schwabChain.putExpDateMap)) {
+                    // Parse Schwab format into our standard format
+                    const parsed = parseSchwabOptionsChain(schwabChain, tickerUpper);
+                    console.log(`  ✅ Schwab: ${parsed.calls.length} calls, ${parsed.puts.length} puts (real-time)`);
+                    return parsed;
+                }
+            }
+        }
+    } catch (e) {
+        console.log(`[OPTIONS] Schwab failed for ${tickerUpper}, trying CBOE: ${e.message}`);
+    }
+    
+    // Fall back to CBOE (delayed quotes)
+    return fetchOptionsChainFromCBOE(tickerUpper);
+}
+
+/**
+ * Parse Schwab options chain format to WheelHouse format
+ */
+function parseSchwabOptionsChain(chain, ticker) {
+    const calls = [];
+    const puts = [];
+    const expirationSet = new Set();
+    
+    // Parse calls
+    if (chain.callExpDateMap) {
+        for (const [expKey, strikes] of Object.entries(chain.callExpDateMap)) {
+            // expKey is like "2026-02-21:45"
+            const expiration = expKey.split(':')[0];
+            expirationSet.add(expiration);
+            
+            for (const [strike, options] of Object.entries(strikes)) {
+                const opt = options[0]; // First option at this strike
+                if (opt) {
+                    // Schwab returns volatility as percentage (e.g., 89.18 = 89.18%)
+                    // Normalize to decimal format (e.g., 0.8918) like CBOE uses
+                    const rawVol = opt.volatility || 0;
+                    const normalizedVol = rawVol > 5 ? rawVol / 100 : rawVol; // If > 5, it's percentage
+                    
+                    calls.push({
+                        symbol: opt.symbol || '',
+                        expiration: expiration,
+                        strike: parseFloat(strike),
+                        bid: opt.bid || 0,
+                        ask: opt.ask || 0,
+                        lastPrice: opt.last || 0,
+                        mark: opt.mark || 0,
+                        impliedVolatility: normalizedVol,
+                        volume: opt.totalVolume || 0,
+                        openInterest: opt.openInterest || 0,
+                        delta: opt.delta || 0,
+                        gamma: opt.gamma || 0,
+                        theta: opt.theta || 0,
+                        vega: opt.vega || 0,
+                        inTheMoney: opt.inTheMoney || false
+                    });
+                }
+            }
+        }
+    }
+    
+    // Parse puts
+    if (chain.putExpDateMap) {
+        for (const [expKey, strikes] of Object.entries(chain.putExpDateMap)) {
+            const expiration = expKey.split(':')[0];
+            expirationSet.add(expiration);
+            
+            for (const [strike, options] of Object.entries(strikes)) {
+                const opt = options[0];
+                if (opt) {
+                    // Schwab returns volatility as percentage (e.g., 89.18 = 89.18%)
+                    // Normalize to decimal format (e.g., 0.8918) like CBOE uses
+                    const rawVol = opt.volatility || 0;
+                    const normalizedVol = rawVol > 5 ? rawVol / 100 : rawVol; // If > 5, it's percentage
+                    
+                    puts.push({
+                        symbol: opt.symbol || '',
+                        expiration: expiration,
+                        strike: parseFloat(strike),
+                        bid: opt.bid || 0,
+                        ask: opt.ask || 0,
+                        lastPrice: opt.last || 0,
+                        mark: opt.mark || 0,
+                        impliedVolatility: normalizedVol,
+                        volume: opt.totalVolume || 0,
+                        openInterest: opt.openInterest || 0,
+                        delta: opt.delta || 0,
+                        gamma: opt.gamma || 0,
+                        theta: opt.theta || 0,
+                        vega: opt.vega || 0,
+                        inTheMoney: opt.inTheMoney || false
+                    });
+                }
+            }
+        }
+    }
+    
+    return {
+        ticker: ticker,
+        timestamp: new Date().toISOString(),
+        source: 'schwab',
+        currentPrice: chain.underlyingPrice || null,
+        calls: calls,
+        puts: puts,
+        expirations: [...expirationSet].sort()
+    };
+}
+
+/**
+ * Fetch options chain from CBOE (free delayed quotes) - fallback source
+ */
+async function fetchOptionsChainFromCBOE(tickerUpper) {
     const cboeUrl = `${CBOE_OPTIONS_BASE}${tickerUpper}.json`;
     
     let data = null;
@@ -162,19 +379,6 @@ export async function fetchOptionsChain(ticker) {
                 if (data.timestamp) {
                     console.log(`  📅 CBOE timestamp: ${data.timestamp}`);
                 }
-                // Debug: Find and log the specific TSLL $17 put raw data
-                if (tickerUpper === 'TSLL') {
-                    const tsll17put = data.data.options.find(o => 
-                        o.option.includes('P00017000') && o.option.includes('260130')
-                    );
-                    if (tsll17put) {
-                        console.log(`  🔍 RAW TSLL 260130 $17 PUT:`, {
-                            bid: tsll17put.bid,
-                            ask: tsll17put.ask,
-                            last: tsll17put.last_trade_price
-                        });
-                    }
-                }
             }
         }
     } catch (e) {
@@ -187,7 +391,6 @@ export async function fetchOptionsChain(ticker) {
             try {
                 const proxyUrl = getProxyUrl(cboeUrl);
                 console.log(`Trying CBOE via proxy: ${proxyUrl.substring(0, 60)}...`);
-                // Don't use custom headers - they cause CORS preflight failures
                 const response = await fetch(proxyUrl);
                 if (!response.ok) {
                     console.log(`  Proxy returned ${response.status}`);
@@ -207,17 +410,15 @@ export async function fetchOptionsChain(ticker) {
     }
     
     if (!data?.data?.options) {
-        throw lastError || new Error('No options data for ' + ticker);
+        throw lastError || new Error('No options data for ' + tickerUpper);
     }
     
     // Parse CBOE format - option symbol format: AAPL260117C00250000
-    // Format: TICKER + YYMMDD + C/P + 00000000 (strike * 1000, 8 digits)
     const calls = [];
     const puts = [];
     const expirationSet = new Set();
     
     for (const opt of data.data.options) {
-        // Parse the option symbol
         const symbol = opt.option;
         const match = symbol.match(/([A-Z]+)(\d{6})([CP])(\d{8})/);
         if (!match) continue;
@@ -252,9 +453,9 @@ export async function fetchOptionsChain(ticker) {
     }
     
     return {
-        ticker: ticker.toUpperCase(),
+        ticker: tickerUpper,
         timestamp: data.timestamp,
-        // Include stock price from CBOE (no Yahoo needed!)
+        source: 'cboe',
         currentPrice: data.data?.current_price || null,
         bid: data.data?.bid || null,
         ask: data.data?.ask || null,
