@@ -1740,21 +1740,36 @@ window.aiHoldingSuggestion = async function(holdingId) {
         const quoteRes = await fetch(`/api/schwab/quote/${holding.ticker}`);
         if (quoteRes.ok) {
             const quoteData = await quoteRes.json();
-            currentPrice = quoteData.lastPrice || quoteData.price || 0;
+            currentPrice = quoteData.lastPrice || quoteData.price || quoteData.regularMarketLastPrice || 0;
         }
     } catch (e) {
         console.warn('Failed to fetch Schwab quote, trying Yahoo');
     }
     
+    // Try Yahoo Finance (different endpoint format)
     if (!currentPrice) {
         try {
-            const yahooRes = await fetch(`/api/yahoo/quote/${holding.ticker}`);
+            const yahooRes = await fetch(`/api/yahoo/${holding.ticker}`);
             if (yahooRes.ok) {
                 const yahooData = await yahooRes.json();
-                currentPrice = yahooData.price || yahooData.regularMarketPrice || 0;
+                // Yahoo returns nested structure
+                currentPrice = yahooData.chart?.result?.[0]?.meta?.regularMarketPrice || 0;
             }
         } catch (e) {
             console.warn('Failed to fetch Yahoo quote');
+        }
+    }
+    
+    // Try CBOE as last resort (the same endpoint used for options)
+    if (!currentPrice) {
+        try {
+            const cboeRes = await fetch(`/api/cboe/quote/${holding.ticker}`);
+            if (cboeRes.ok) {
+                const cboeData = await cboeRes.json();
+                currentPrice = cboeData.currentPrice || cboeData.underlyingPrice || cboeData.data?.underlying_price || 0;
+            }
+        } catch (e) {
+            console.warn('Failed to fetch CBOE quote');
         }
     }
     
@@ -1766,6 +1781,7 @@ window.aiHoldingSuggestion = async function(holdingId) {
                     style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
             </div>
             <p style="color:#888;">Could not fetch current price for ${holding.ticker}.</p>
+            <p style="color:#666;font-size:11px;">Check your Schwab connection or try again.</p>
         `;
         return;
     }
