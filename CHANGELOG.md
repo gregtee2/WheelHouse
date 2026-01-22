@@ -2,6 +2,39 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **🤖 AI Holding Suggestions** - Get AI advice for your covered call holdings
+  - Click 🤖 AI button on any holding card in Portfolio tab
+  - Fetches live stock price (Schwab → Yahoo → CBOE fallback)
+  - Shows position snapshot: Stock P&L, Premium, On Table/Cushion, If Called
+  - AI recommends: HOLD / ROLL UP / ROLL OUT / LET CALL / BUY BACK
+  - "Roll This Call" button opens Roll Panel directly
+
+- **🔗→ Mark as Rolled** - Link broker-imported positions retroactively
+  - For when you roll at broker, then re-import transactions
+  - Smart modal shows OLD → NEW comparison side-by-side
+  - Auto-fills buyback cost from: broker import → marked price → CBOE → $0 if expired
+  - Live net credit/debit calculation as you adjust
+  - Updates holdings to point to new position automatically
+
+- **Auto-Link Holdings** - Holdings find their current covered call
+  - If linked position was rolled, AI auto-finds the open position for that ticker
+  - Updates holding link automatically for future use
+
+- **X Sentiment Persistence** - Survives tab switches
+  - Cached to localStorage with 4-hour expiry
+  - Trend history: Compare current vs previous runs
+  - Shows "Still Trending", "Newly Trending", "Dropped Off" categories
+
+### Fixed
+- **Staged trades from X Sentiment** - Now show proper DTE, Credit, Ann% in Pending panel
+- **Roll linking across types** - buy_write → covered_call rolls now link correctly
+- **Holdings update on roll** - Holdings now point to new position after roll link
+
+---
+
 ## [1.8.0] - 2026-01-21
 
 ### Added
