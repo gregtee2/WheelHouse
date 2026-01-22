@@ -1428,7 +1428,8 @@ async function fetchOptionPremiumSchwab(ticker, strike, expiry) {
             mid: ((matchingOption.bid || 0) + (matchingOption.ask || 0)) / 2,
             volume: matchingOption.totalVolume || 0,
             openInterest: matchingOption.openInterest || 0,
-            iv: matchingOption.volatility ? (matchingOption.volatility * 100).toFixed(1) : null,
+            // Schwab returns volatility as percentage (e.g., 65.11 = 65.11%), no need to multiply
+            iv: matchingOption.volatility ? matchingOption.volatility.toFixed(1) : null,
             delta: matchingOption.delta || null,
             theta: matchingOption.theta || null,
             gamma: matchingOption.gamma || null,
