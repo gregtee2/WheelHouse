@@ -637,17 +637,17 @@ function updateXSentimentButton() {
     xBtn.style.display = isGrok ? 'block' : 'none';
 }
 
-// Listen for model changes
-document.addEventListener('DOMContentLoaded', () => {
+// Listen for model changes - run immediately since DOM is likely ready
+(function setupXSentimentToggle() {
     const modelSelect = document.getElementById('ideaModelSelect');
     if (modelSelect) {
         modelSelect.addEventListener('change', updateXSentimentButton);
-        // Also check on page load if Grok is configured
-        if (localStorage.getItem('wheelhouse_grok_configured') === 'true') {
-            updateXSentimentButton();
-        }
+        updateXSentimentButton(); // Check immediately
+    } else {
+        // DOM not ready, wait a bit
+        setTimeout(setupXSentimentToggle, 500);
     }
-});
+})();
 
 /**
  * Get X/Twitter sentiment via Grok (Grok-only feature)
