@@ -1553,10 +1553,32 @@ window.showMarkAsRolledModal = function(oldPositionId) {
         return;
     }
     
-    // Smart defaults:
-    // - If old position has 1 DTE or less, assume expired worthless (close @ $0)
-    // - Otherwise, estimate from premium difference
-    const defaultClosePrice = (oldPos.dte <= 1) ? 0 : 0;
+    // Smart defaults - look for matching closed position from broker import
+    // The broker import creates a closed position when it sees "Buy to Close"
+    const closedPositions = state.closedPositions || [];
+    const matchingClosed = closedPositions.find(cp => 
+        cp.ticker === oldPos.ticker && 
+        cp.strike === oldPos.strike &&
+        cp.closePrice !== undefined &&
+        // Match by close date being recent (within last 7 days)
+        cp.closeDate && (new Date() - new Date(cp.closeDate)) < 7 * 24 * 60 * 60 * 1000
+    );
+    
+    // Use matched close price, or 0 if expired, or estimate from broker
+    let defaultClosePrice = 0;
+    let closePriceSource = '';
+    
+    if (matchingClosed?.closePrice !== undefined) {
+        defaultClosePrice = matchingClosed.closePrice;
+        closePriceSource = `<span style="color:#00ff88;">(from broker import)</span>`;
+    } else if (oldPos.dte <= 1) {
+        defaultClosePrice = 0;
+        closePriceSource = `<span style="color:#00ff88;">(Expired - $0)</span>`;
+    } else if (oldPos.lastOptionPrice !== undefined) {
+        defaultClosePrice = oldPos.lastOptionPrice;
+        closePriceSource = `<span style="color:#ffaa00;">(last known price)</span>`;
+    }
+    
     const defaultTarget = candidates[0]; // Most recent
     
     // Calculate what the net credit/debit would be
@@ -1613,7 +1635,7 @@ window.showMarkAsRolledModal = function(oldPositionId) {
             
             <div style="margin-bottom:16px;">
                 <label style="color:#888;display:block;margin-bottom:4px;font-size:11px;">
-                    Buyback cost for old position: ${oldPos.dte <= 1 ? '<span style="color:#00ff88;">(Expired - $0)</span>' : ''}
+                    Buyback cost for old position: ${closePriceSource}
                 </label>
                 <input type="number" id="rollClosePrice" step="0.01" value="${defaultClosePrice}" 
                     onchange="window.updateRollPreview(${oldPositionId})"
