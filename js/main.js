@@ -208,7 +208,25 @@ async function checkAIAvailability() {
             
             // Update model dropdown to show installed + capability status
             if (modelSelect) {
+                // Check if Grok API is configured (check localStorage for saved key)
+                const grokConfigured = localStorage.getItem('wheelhouse_grok_configured') === 'true';
+                
                 Array.from(modelSelect.options).forEach(opt => {
+                    // Handle Grok models separately (cloud-based)
+                    if (opt.value.startsWith('grok')) {
+                        opt.textContent = opt.textContent.replace(/\s*[✓⚠❌].*/g, '').replace(/\s*\(not installed\)/g, '').trim();
+                        if (grokConfigured) {
+                            opt.textContent += ' ✓';
+                            opt.disabled = false;
+                            opt.style.color = '#ff6b35'; // Grok orange
+                        } else {
+                            opt.textContent += ' (configure in Settings)';
+                            opt.disabled = true;
+                            opt.style.color = '#888';
+                        }
+                        return;
+                    }
+                    
                     const modelInfo = models.find(m => m.name === opt.value || m.name.startsWith(opt.value.split(':')[0]));
                     opt.textContent = opt.textContent.replace(/\s*[✓⚠❌].*/g, '').trim();
                     

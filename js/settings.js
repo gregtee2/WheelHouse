@@ -41,6 +41,7 @@ async function loadSettings() {
         if (settings.GROK_API_KEY) {
             document.getElementById('settingGrokKey').value = settings.GROK_API_KEY;
             updateStatus('grokStatus', true, 'Configured');
+            localStorage.setItem('wheelhouse_grok_configured', 'true');
         }
         
         if (settings.TELEGRAM_BOT_TOKEN) {
@@ -101,6 +102,7 @@ async function saveAllSettings() {
             }
             if (settings.GROK_API_KEY && settings.GROK_API_KEY !== '••••••••') {
                 updateStatus('grokStatus', true, 'Configured');
+                localStorage.setItem('wheelhouse_grok_configured', 'true');
             }
             if (settings.TELEGRAM_BOT_TOKEN && settings.TELEGRAM_BOT_TOKEN !== '••••••••') {
                 updateStatus('telegramStatus', true, 'Configured');
@@ -434,6 +436,11 @@ async function testGrokConnection() {
         
         const result = await response.json();
         updateStatus('grokStatus', result.success, result.message);
+        
+        // Set flag so model dropdowns know Grok is available
+        if (result.success) {
+            localStorage.setItem('wheelhouse_grok_configured', 'true');
+        }
     } catch (error) {
         updateStatus('grokStatus', false, 'Connection failed');
     }
