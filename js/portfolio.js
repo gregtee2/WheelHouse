@@ -1424,9 +1424,11 @@ export function renderHoldings() {
                 <!-- Stats Grid -->
                 <div style="display:grid; grid-template-columns:repeat(6, 1fr); gap:8px; text-align:center;">
                     <!-- Cost Basis -->
-                    <div style="background:rgba(255,255,255,0.05); padding:8px; border-radius:6px;">
-                        <div style="font-size:9px; color:#666; margin-bottom:2px;">COST BASIS</div>
-                        <div style="font-size:14px; font-weight:bold; color:#ccc;">$${costBasis.toFixed(2)}</div>
+                    <div style="background:rgba(255,255,255,0.05); padding:8px; border-radius:6px; cursor:pointer;" 
+                         onclick="window.editHoldingCostBasis(${h.id})"
+                         title="Click to edit cost basis">
+                        <div style="font-size:9px; color:#666; margin-bottom:2px;">COST BASIS ✏️</div>
+                        <div id="hcb-${h.id}" style="font-size:14px; font-weight:bold; color:#ccc;">$${costBasis.toFixed(2)}</div>
                         <div style="font-size:10px; color:#888;">per share</div>
                     </div>
                     
@@ -1505,6 +1507,40 @@ export function renderHoldings() {
     fetchHoldingPrices(holdingData);
 }
 window.renderHoldings = renderHoldings;
+
+/**
+ * Edit the cost basis for a holding
+ */
+window.editHoldingCostBasis = function(holdingId) {
+    const holding = state.holdings?.find(h => h.id === holdingId);
+    if (!holding) return;
+    
+    const currentBasis = holding.costBasis || 0;
+    const newBasisStr = prompt(`Enter new cost basis for ${holding.ticker} (current: $${currentBasis.toFixed(2)}):`, currentBasis.toFixed(2));
+    
+    if (newBasisStr === null) return; // Cancelled
+    
+    const newBasis = parseFloat(newBasisStr);
+    if (isNaN(newBasis) || newBasis < 0) {
+        alert('Invalid cost basis. Please enter a positive number.');
+        return;
+    }
+    
+    // Update the holding
+    holding.costBasis = newBasis;
+    holding.totalCost = newBasis * (holding.shares || 100);
+    
+    // Recalculate net cost basis if we have premium
+    if (holding.premiumCredit) {
+        holding.netCostBasis = newBasis - (holding.premiumCredit / (holding.shares || 100));
+    }
+    
+    // Save and re-render
+    saveHoldingsToStorage();
+    renderHoldings();
+    
+    showNotification(`Updated ${holding.ticker} cost basis to $${newBasis.toFixed(2)}`, 'success');
+};
 
 /**
  * Fetch current prices for holdings and calculate all metrics
