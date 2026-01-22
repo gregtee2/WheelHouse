@@ -2258,6 +2258,37 @@ window.toggleHiddenHoldings = function() {
 };
 
 /**
+ * Update holding strategy from checkup (when recommendation changes)
+ */
+window.updateHoldingStrategy = function(holdingId, newRecommendation, newAnalysis) {
+    const holding = state.holdings?.find(h => h.id === holdingId);
+    if (!holding || !holding.savedStrategy) {
+        showNotification('Holding or strategy not found', 'error');
+        return;
+    }
+    
+    const oldRec = holding.savedStrategy.recommendation;
+    
+    // Update the strategy
+    holding.savedStrategy.recommendation = newRecommendation;
+    holding.savedStrategy.fullAnalysis = newAnalysis;
+    holding.savedStrategy.savedAt = new Date().toISOString();
+    holding.savedStrategy.model = 'grok';  // Checkups use Grok
+    
+    saveHoldingsToStorage();
+    
+    showNotification(`✅ Strategy updated: ${oldRec} → ${newRecommendation}`, 'success');
+    
+    // Close the modal and refresh displays
+    const modal = document.getElementById('aiHoldingModal');
+    if (modal) modal.remove();
+    
+    // Re-render to update risk indicators
+    renderHoldings();
+    if (window.renderPositions) window.renderPositions();
+};
+
+/**
  * Get list of hidden tickers
  */
 window.getHiddenTickers = function() {
@@ -2354,7 +2385,13 @@ Based on how conditions have changed, should the trader:
 1. STICK WITH the original plan (${strategy.recommendation})?
 2. ADJUST the strategy? If so, what new action?
 
-Be concise. Focus on what changed and whether it matters.`;
+Be concise. Focus on what changed and whether it matters.
+End your response with one of these exact phrases:
+- "VERDICT: STICK WITH ${strategy.recommendation}"
+- "VERDICT: CHANGE TO ROLL"
+- "VERDICT: CHANGE TO HOLD"
+- "VERDICT: CHANGE TO LET CALL"
+- "VERDICT: CHANGE TO BUY BACK"`;
 
     // Show modal with loading
     let modal = document.getElementById('aiHoldingModal');
@@ -2392,9 +2429,56 @@ Be concise. Focus on what changed and whether it matters.`;
         const result = await response.json();
         const checkupAnalysis = result.insight || 'No checkup returned';
         
+        // Parse the verdict from the response
+        let newRecommendation = null;
+        let recommendationChanged = false;
+        
+        const verdictMatch = checkupAnalysis.match(/VERDICT:\s*(STICK WITH|CHANGE TO)\s*(\w+(?:\s+\w+)?)/i);
+        if (verdictMatch) {
+            if (verdictMatch[1].toUpperCase() === 'STICK WITH') {
+                newRecommendation = strategy.recommendation;
+            } else {
+                // Parse the new recommendation
+                const newRec = verdictMatch[2].toUpperCase().trim();
+                if (newRec.includes('ROLL')) newRecommendation = 'ROLL';
+                else if (newRec.includes('HOLD')) newRecommendation = 'HOLD';
+                else if (newRec.includes('LET') || newRec.includes('CALL')) newRecommendation = 'LET CALL';
+                else if (newRec.includes('BUY')) newRecommendation = 'BUY BACK';
+                else newRecommendation = newRec;
+                
+                recommendationChanged = newRecommendation !== strategy.recommendation;
+            }
+        }
+        
         const formatted = checkupAnalysis
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#ffaa00;">$1</strong>')
+            .replace(/VERDICT:\s*(STICK WITH|CHANGE TO)\s*(\w+(?:\s+\w+)?)/gi, 
+                '<div style="margin-top:12px;padding:8px;background:rgba(0,217,255,0.1);border-radius:6px;font-weight:bold;color:#00d9ff;">$&</div>')
             .replace(/\n/g, '<br>');
+        
+        // Build the recommendation change banner if needed
+        const changeBanner = recommendationChanged ? `
+            <div style="background:rgba(255,140,0,0.2);border:1px solid #ff8800;border-radius:8px;padding:12px;margin-bottom:16px;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                    <span style="font-size:20px;">⚠️</span>
+                    <span style="color:#ff8800;font-weight:bold;">RECOMMENDATION CHANGED</span>
+                </div>
+                <div style="display:flex;gap:20px;font-size:13px;margin-bottom:12px;">
+                    <div>
+                        <span style="color:#888;">Saved:</span> 
+                        <span style="color:#888;text-decoration:line-through;">${strategy.recommendation}</span>
+                    </div>
+                    <div>
+                        <span style="color:#888;">New:</span> 
+                        <span style="color:#00ff88;font-weight:bold;">${newRecommendation}</span>
+                    </div>
+                </div>
+                <button onclick="window.updateHoldingStrategy(${holdingId}, '${newRecommendation}', \`${checkupAnalysis.replace(/`/g, "'").replace(/\\/g, '\\\\')}\`)" 
+                    style="padding:8px 16px;background:#ff8800;border:none;border-radius:6px;color:#000;font-weight:bold;cursor:pointer;">
+                    💾 Update Strategy to ${newRecommendation}
+                </button>
+            </div>
+        ` : '';
         
         modal.querySelector('div > div').innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
@@ -2402,6 +2486,8 @@ Be concise. Focus on what changed and whether it matters.`;
                 <button onclick="this.closest('#aiHoldingModal').remove()" 
                     style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
             </div>
+            
+            ${changeBanner}
             
             <!-- Original vs Current comparison -->
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
