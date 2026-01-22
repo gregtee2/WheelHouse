@@ -1543,16 +1543,27 @@ window.showMarkAsRolledModal = function(oldPositionId) {
     if (!oldPos) return;
     
     // Find other open positions with same ticker that could be the "new" position
-    // Allow different types (e.g., buy_write → covered_call)
-    const candidates = state.positions.filter(p => 
-        p.id !== oldPositionId && 
-        p.ticker === oldPos.ticker
-    );
+    // Sort by most recent (highest ID = most recently added)
+    const candidates = state.positions
+        .filter(p => p.id !== oldPositionId && p.ticker === oldPos.ticker)
+        .sort((a, b) => b.id - a.id);
     
     if (candidates.length === 0) {
         showNotification(`No other ${oldPos.ticker} positions found to link as roll target`, 'warning');
         return;
     }
+    
+    // Smart defaults:
+    // - If old position has 1 DTE or less, assume expired worthless (close @ $0)
+    // - Otherwise, estimate from premium difference
+    const defaultClosePrice = (oldPos.dte <= 1) ? 0 : 0;
+    const defaultTarget = candidates[0]; // Most recent
+    
+    // Calculate what the net credit/debit would be
+    const netCredit = defaultTarget.premium - defaultClosePrice;
+    const netStr = netCredit >= 0 
+        ? `<span style="color:#00ff88;">+$${netCredit.toFixed(2)} net credit</span>` 
+        : `<span style="color:#ff5252;">-$${Math.abs(netCredit).toFixed(2)} net debit</span>`;
     
     const modal = document.createElement('div');
     modal.id = 'markAsRolledModal';
@@ -1560,30 +1571,61 @@ window.showMarkAsRolledModal = function(oldPositionId) {
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
     modal.innerHTML = `
-        <div style="background:#1a1a2e;border:1px solid #ce93d8;border-radius:12px;padding:24px;max-width:500px;width:90%;">
-            <h3 style="margin:0 0 16px 0;color:#ce93d8;">🔄 Mark as Rolled</h3>
-            <p style="color:#888;margin-bottom:16px;">
-                This will close the old position and link it to the new one (from broker import).
-            </p>
+        <div style="background:#1a1a2e;border:1px solid #ce93d8;border-radius:12px;padding:24px;max-width:550px;width:90%;">
+            <h3 style="margin:0 0 16px 0;color:#ce93d8;">🔄 Link Roll: ${oldPos.ticker}</h3>
             
-            <div style="background:#252540;padding:12px;border-radius:8px;margin-bottom:16px;">
-                <strong style="color:#ff5252;">OLD Position (will be closed):</strong><br>
-                <span style="color:#fff;">${oldPos.ticker} $${oldPos.strike} ${oldPos.type.replace('_',' ')} - ${oldPos.dte}d DTE</span>
+            <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:20px;">
+                <!-- OLD Position -->
+                <div style="background:rgba(255,82,82,0.15);border:1px solid rgba(255,82,82,0.4);padding:12px;border-radius:8px;text-align:center;">
+                    <div style="color:#ff5252;font-size:11px;margin-bottom:4px;">CLOSED (Old)</div>
+                    <div style="color:#fff;font-weight:bold;font-size:18px;">$${oldPos.strike}</div>
+                    <div style="color:#888;font-size:11px;">${oldPos.type.replace(/_/g,' ')}</div>
+                    <div style="color:#ffaa00;font-size:12px;margin-top:4px;">Prem: $${oldPos.premium}</div>
+                    <div style="color:#666;font-size:10px;">${oldPos.dte}d DTE</div>
+                </div>
+                
+                <!-- Arrow -->
+                <div style="font-size:24px;color:#ce93d8;">→</div>
+                
+                <!-- NEW Position -->
+                <div style="background:rgba(0,255,136,0.15);border:1px solid rgba(0,255,136,0.4);padding:12px;border-radius:8px;text-align:center;">
+                    <div style="color:#00ff88;font-size:11px;margin-bottom:4px;">OPEN (New)</div>
+                    <div style="color:#fff;font-weight:bold;font-size:18px;">$${defaultTarget.strike}</div>
+                    <div style="color:#888;font-size:11px;">${defaultTarget.type.replace(/_/g,' ')}</div>
+                    <div style="color:#ffaa00;font-size:12px;margin-top:4px;">Prem: $${defaultTarget.premium}</div>
+                    <div style="color:#666;font-size:10px;">${defaultTarget.dte || '?'}d DTE</div>
+                </div>
             </div>
             
+            ${candidates.length > 1 ? `
             <div style="margin-bottom:16px;">
-                <label style="color:#888;display:block;margin-bottom:4px;">Closing Price (what you paid to buy back):</label>
-                <input type="number" id="rollClosePrice" step="0.01" value="0" 
+                <label style="color:#888;display:block;margin-bottom:4px;font-size:11px;">Different target?</label>
+                <select id="rollTargetSelect" onchange="window.updateRollPreview(${oldPositionId})" 
+                    style="width:100%;padding:8px;background:#333;border:1px solid #555;border-radius:4px;color:#fff;font-size:12px;">
+                    ${candidates.map(p => `
+                        <option value="${p.id}" ${p.id === defaultTarget.id ? 'selected' : ''}>
+                            $${p.strike} ${p.type.replace(/_/g,' ')} - ${p.dte || '?'}d DTE (Prem: $${p.premium})
+                        </option>
+                    `).join('')}
+                </select>
+            </div>
+            ` : `<input type="hidden" id="rollTargetSelect" value="${defaultTarget.id}">`}
+            
+            <div style="margin-bottom:16px;">
+                <label style="color:#888;display:block;margin-bottom:4px;font-size:11px;">
+                    Buyback cost for old position: ${oldPos.dte <= 1 ? '<span style="color:#00ff88;">(Expired - $0)</span>' : ''}
+                </label>
+                <input type="number" id="rollClosePrice" step="0.01" value="${defaultClosePrice}" 
+                    onchange="window.updateRollPreview(${oldPositionId})"
                     style="width:100%;padding:8px;background:#333;border:1px solid #555;border-radius:4px;color:#fff;">
             </div>
             
-            <div style="margin-bottom:16px;">
-                <label style="color:#888;display:block;margin-bottom:4px;">Rolled TO (select new position):</label>
-                <select id="rollTargetSelect" style="width:100%;padding:8px;background:#333;border:1px solid #555;border-radius:4px;color:#fff;">
-                    ${candidates.map(p => `
-                        <option value="${p.id}">$${p.strike} ${p.type.replace('_',' ')} - ${p.dte || '?'}d DTE (Premium: $${p.premium})</option>
-                    `).join('')}
-                </select>
+            <div id="rollNetSummary" style="background:#252540;padding:12px;border-radius:8px;margin-bottom:16px;text-align:center;">
+                <div style="color:#888;font-size:11px;">Net on Roll</div>
+                <div style="font-size:18px;font-weight:bold;">${netStr}</div>
+                <div style="color:#666;font-size:10px;margin-top:4px;">
+                    Old premium: $${oldPos.premium} | Close cost: $${defaultClosePrice} | New premium: $${defaultTarget.premium}
+                </div>
             </div>
             
             <div style="display:flex;gap:10px;justify-content:flex-end;">
@@ -1592,14 +1634,39 @@ window.showMarkAsRolledModal = function(oldPositionId) {
                     Cancel
                 </button>
                 <button onclick="window.executeMarkAsRolled(${oldPositionId})" 
-                    style="padding:10px 20px;background:#ce93d8;border:none;border-radius:6px;color:#000;font-weight:bold;cursor:pointer;">
-                    ✓ Link & Close Old
+                    style="padding:10px 20px;background:#00ff88;border:none;border-radius:6px;color:#000;font-weight:bold;cursor:pointer;">
+                    ✓ Confirm Roll Link
                 </button>
             </div>
         </div>
     `;
     
     document.body.appendChild(modal);
+};
+
+/**
+ * Update the roll preview when target or close price changes
+ */
+window.updateRollPreview = function(oldPositionId) {
+    const oldPos = state.positions.find(p => p.id === oldPositionId);
+    const targetId = parseInt(document.getElementById('rollTargetSelect').value);
+    const closePrice = parseFloat(document.getElementById('rollClosePrice').value) || 0;
+    const newPos = state.positions.find(p => p.id === targetId);
+    
+    if (!oldPos || !newPos) return;
+    
+    const netCredit = newPos.premium - closePrice;
+    const netStr = netCredit >= 0 
+        ? `<span style="color:#00ff88;">+$${netCredit.toFixed(2)} net credit</span>` 
+        : `<span style="color:#ff5252;">-$${Math.abs(netCredit).toFixed(2)} net debit</span>`;
+    
+    document.getElementById('rollNetSummary').innerHTML = `
+        <div style="color:#888;font-size:11px;">Net on Roll</div>
+        <div style="font-size:18px;font-weight:bold;">${netStr}</div>
+        <div style="color:#666;font-size:10px;margin-top:4px;">
+            Old premium: $${oldPos.premium} | Close cost: $${closePrice} | New premium: $${newPos.premium}
+        </div>
+    `;
 };
 
 /**
