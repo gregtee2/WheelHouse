@@ -1407,6 +1407,13 @@ export function renderHoldings() {
                                 title="AI suggestions for this holding">
                             🤖 AI
                         </button>
+                        ${h.savedStrategy ? `
+                        <button onclick="window.holdingCheckup(${h.id})" 
+                                style="background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); color:#00d9ff; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
+                                title="Compare to saved strategy (${h.savedStrategy.recommendation})">
+                            🔄 Checkup
+                        </button>
+                        ` : ''}
                         <button onclick="window.analyzeHolding(${h.id})" 
                                 style="background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
                                 title="Analyze in P&L tab">
@@ -1982,6 +1989,11 @@ async function runHoldingAnalysis(modelType) {
         result = await response.json();
         analysis = result.insight || result.analysis || 'No analysis returned';
         
+        // Store the raw analysis for saving
+        window._aiHoldingContext.lastAnalysis = analysis;
+        window._aiHoldingContext.lastModel = modelType;
+        window._aiHoldingContext.lastAnalyzedAt = new Date().toISOString();
+        
         // Better formatting for section headers
         const formatted = analysis
             // Bold text
@@ -2069,6 +2081,10 @@ async function runHoldingAnalysis(modelType) {
             </div>
             
             <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;">
+                <button onclick="window.saveHoldingStrategy(${holding.id})" 
+                    style="padding:10px 16px;background:rgba(0,217,255,0.2);border:1px solid #00d9ff;border-radius:6px;color:#00d9ff;font-weight:bold;cursor:pointer;">
+                    💾 Save Strategy
+                </button>
                 ${position ? `
                 <button onclick="window.rollPosition(${position.id});this.closest('#aiHoldingModal').remove();" 
                     style="padding:10px 16px;background:#ce93d8;border:none;border-radius:6px;color:#000;font-weight:bold;cursor:pointer;">
@@ -2108,6 +2124,269 @@ async function runHoldingAnalysis(modelType) {
     }
 }
 window.runHoldingAnalysis = runHoldingAnalysis;
+
+/**
+ * Save the current AI strategy to the holding for future reference
+ */
+window.saveHoldingStrategy = function(holdingId) {
+    const ctx = window._aiHoldingContext;
+    if (!ctx || !ctx.lastAnalysis) {
+        showNotification('No analysis to save', 'warning');
+        return;
+    }
+    
+    const holding = state.holdings?.find(h => h.id === holdingId);
+    if (!holding) {
+        showNotification('Holding not found', 'error');
+        return;
+    }
+    
+    // Extract key data from the analysis
+    // Try to find recommendation, price triggers, etc.
+    const analysis = ctx.lastAnalysis;
+    let recommendation = 'HOLD';
+    
+    // Parse recommendation from analysis text
+    if (analysis.match(/LET IT (GET )?CALLED/i)) recommendation = 'LET CALL';
+    else if (analysis.match(/ROLL UP/i)) recommendation = 'ROLL UP';
+    else if (analysis.match(/ROLL OUT/i)) recommendation = 'ROLL OUT';
+    else if (analysis.match(/ROLL UP.*OUT|ROLL OUT.*UP/i)) recommendation = 'ROLL UP & OUT';
+    else if (analysis.match(/BUY BACK/i)) recommendation = 'BUY BACK';
+    else if (analysis.match(/HOLD/i)) recommendation = 'HOLD';
+    
+    // Store the strategy on the holding
+    holding.savedStrategy = {
+        savedAt: ctx.lastAnalyzedAt || new Date().toISOString(),
+        model: ctx.lastModel,
+        recommendation,
+        fullAnalysis: analysis,
+        snapshot: {
+            stockPrice: ctx.currentPrice,
+            strike: ctx.strike,
+            costBasis: ctx.costBasis,
+            dte: ctx.dte,
+            premium: ctx.premium,
+            stockPnL: ctx.stockGainLoss,
+            ifCalled: ctx.ifCalled,
+            isITM: ctx.isITM
+        }
+    };
+    
+    saveHoldingsToStorage();
+    
+    showNotification(`✅ Strategy saved for ${holding.ticker}: ${recommendation}`, 'success');
+    
+    // Update the button to show saved state
+    const modal = document.getElementById('aiHoldingModal');
+    if (modal) {
+        const saveBtn = modal.querySelector('button[onclick*="saveHoldingStrategy"]');
+        if (saveBtn) {
+            saveBtn.innerHTML = '✅ Saved';
+            saveBtn.style.background = 'rgba(0,255,136,0.2)';
+            saveBtn.style.borderColor = '#00ff88';
+            saveBtn.style.color = '#00ff88';
+            saveBtn.disabled = true;
+        }
+    }
+};
+
+/**
+ * Get saved strategy for a holding
+ */
+window.getHoldingStrategy = function(holdingId) {
+    const holding = state.holdings?.find(h => h.id === holdingId);
+    return holding?.savedStrategy || null;
+};
+
+/**
+ * Run a checkup on a holding - compares current conditions to saved strategy
+ */
+window.holdingCheckup = async function(holdingId) {
+    const holding = state.holdings?.find(h => h.id === holdingId);
+    if (!holding) {
+        showNotification('Holding not found', 'error');
+        return;
+    }
+    
+    const strategy = holding.savedStrategy;
+    if (!strategy) {
+        showNotification('No saved strategy to compare. Run AI suggestion first and save it.', 'warning');
+        return;
+    }
+    
+    // Find linked position for current strike/expiry
+    let position = state.positions.find(p => p.id === holding.linkedPositionId);
+    if (!position) {
+        const openPositions = state.positions.filter(p => 
+            p.ticker === holding.ticker && 
+            p.status !== 'closed' && 
+            (p.type === 'covered_call' || p.type === 'buy_write')
+        );
+        position = openPositions[0];
+    }
+    
+    if (!position) {
+        showNotification('No linked position found', 'warning');
+        return;
+    }
+    
+    // Fetch current price
+    let currentPrice = 0;
+    try {
+        const resp = await fetch(`/api/schwab/quote/${holding.ticker}`);
+        if (resp.ok) {
+            const data = await resp.json();
+            currentPrice = data.lastPrice || data.mark || data.last || 0;
+        }
+    } catch (e) {
+        console.error('Price fetch failed:', e);
+    }
+    
+    if (!currentPrice) {
+        try {
+            const resp = await fetch(`/api/yahoo/${holding.ticker}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                currentPrice = data.quotes?.[holding.ticker]?.price || data.price || 0;
+            }
+        } catch (e) { /* ignore */ }
+    }
+    
+    const strike = position.strike || holding.strike || 0;
+    const costBasis = holding.costBasis || 0;
+    const shares = holding.shares || 100;
+    const premium = (position.premium || 0) * 100 * (position.contracts || 1);
+    const dte = position.expiry ? Math.ceil((new Date(position.expiry) - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+    const isITM = currentPrice > strike;
+    const stockGainLoss = (currentPrice - costBasis) * shares;
+    const ifCalled = ((strike - costBasis) * shares) + premium;
+    
+    // Build comparison prompt
+    const prompt = `You previously analyzed this covered call position. Compare current conditions to your original recommendation.
+
+ORIGINAL ANALYSIS (from ${new Date(strategy.savedAt).toLocaleDateString()}):
+- Stock was: $${strategy.snapshot.stockPrice.toFixed(2)}
+- Recommendation: ${strategy.recommendation}
+- DTE was: ${strategy.snapshot.dte} days
+- Was ITM: ${strategy.snapshot.isITM ? 'Yes' : 'No'}
+
+CURRENT CONDITIONS:
+- Ticker: ${holding.ticker}
+- Stock NOW: $${currentPrice.toFixed(2)} (was $${strategy.snapshot.stockPrice.toFixed(2)}, change: ${((currentPrice - strategy.snapshot.stockPrice) / strategy.snapshot.stockPrice * 100).toFixed(1)}%)
+- Strike: $${strike.toFixed(2)}
+- Cost Basis: $${costBasis.toFixed(2)}
+- DTE NOW: ${dte} days (was ${strategy.snapshot.dte})
+- Currently ITM: ${isITM ? 'Yes' : 'No'}
+- Stock P&L: $${stockGainLoss.toFixed(0)}
+- Premium: $${premium.toFixed(0)}
+- If Called Profit: $${ifCalled.toFixed(0)}
+
+ORIGINAL FULL ANALYSIS:
+${strategy.fullAnalysis.substring(0, 1500)}
+
+Based on how conditions have changed, should the trader:
+1. STICK WITH the original plan (${strategy.recommendation})?
+2. ADJUST the strategy? If so, what new action?
+
+Be concise. Focus on what changed and whether it matters.`;
+
+    // Show modal with loading
+    let modal = document.getElementById('aiHoldingModal');
+    if (modal) modal.remove();
+    
+    modal = document.createElement('div');
+    modal.id = 'aiHoldingModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:10000;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e;border-radius:12px;padding:24px;max-width:700px;max-height:80vh;overflow-y:auto;border:1px solid #333;width:90%;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="margin:0;color:#00d9ff;">🔄 Strategy Checkup: ${holding.ticker}</h3>
+                <button onclick="this.closest('#aiHoldingModal').remove()" 
+                    style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
+            </div>
+            <div style="text-align:center;padding:40px;color:#888;">
+                <div style="font-size:24px;margin-bottom:10px;">🔄</div>
+                <div>Comparing current conditions to saved strategy...</div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    try {
+        const response = await fetch('/api/ai/grok', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, maxTokens: 600 })
+        });
+        
+        if (!response.ok) throw new Error('Checkup failed');
+        
+        const result = await response.json();
+        const checkupAnalysis = result.insight || 'No checkup returned';
+        
+        const formatted = checkupAnalysis
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#ffaa00;">$1</strong>')
+            .replace(/\n/g, '<br>');
+        
+        modal.querySelector('div > div').innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="margin:0;color:#00d9ff;">🔄 Strategy Checkup: ${holding.ticker}</h3>
+                <button onclick="this.closest('#aiHoldingModal').remove()" 
+                    style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
+            </div>
+            
+            <!-- Original vs Current comparison -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+                <div style="background:rgba(255,170,0,0.1);padding:12px;border-radius:8px;border:1px solid rgba(255,170,0,0.3);">
+                    <div style="color:#ffaa00;font-weight:bold;font-size:11px;margin-bottom:8px;">📋 ORIGINAL (${new Date(strategy.savedAt).toLocaleDateString()})</div>
+                    <div style="font-size:12px;color:#ccc;">
+                        <div>Stock: $${strategy.snapshot.stockPrice.toFixed(2)}</div>
+                        <div>DTE: ${strategy.snapshot.dte} days</div>
+                        <div>ITM: ${strategy.snapshot.isITM ? 'Yes' : 'No'}</div>
+                        <div style="margin-top:8px;color:#00ff88;font-weight:bold;">→ ${strategy.recommendation}</div>
+                    </div>
+                </div>
+                <div style="background:rgba(0,217,255,0.1);padding:12px;border-radius:8px;border:1px solid rgba(0,217,255,0.3);">
+                    <div style="color:#00d9ff;font-weight:bold;font-size:11px;margin-bottom:8px;">📊 CURRENT</div>
+                    <div style="font-size:12px;color:#ccc;">
+                        <div>Stock: $${currentPrice.toFixed(2)} <span style="color:${currentPrice > strategy.snapshot.stockPrice ? '#00ff88' : '#ff5252'};">(${currentPrice > strategy.snapshot.stockPrice ? '+' : ''}${((currentPrice - strategy.snapshot.stockPrice) / strategy.snapshot.stockPrice * 100).toFixed(1)}%)</span></div>
+                        <div>DTE: ${dte} days</div>
+                        <div>ITM: ${isITM ? 'Yes' : 'No'}</div>
+                        <div style="margin-top:8px;">If Called: +$${ifCalled.toFixed(0)}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Checkup Analysis -->
+            <div style="line-height:1.7;font-size:13px;background:#252540;padding:16px;border-radius:8px;">
+                ${formatted}
+            </div>
+            
+            <div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end;">
+                <button onclick="window.aiHoldingSuggestion(${holdingId})" 
+                    style="padding:10px 16px;background:rgba(255,170,0,0.2);border:1px solid #ffaa00;border-radius:6px;color:#ffaa00;cursor:pointer;">
+                    🤖 New Full Analysis
+                </button>
+                <button onclick="this.closest('#aiHoldingModal').remove()" 
+                    style="padding:10px 16px;background:#333;border:none;border-radius:6px;color:#fff;cursor:pointer;">
+                    Close
+                </button>
+            </div>
+        `;
+    } catch (e) {
+        console.error('Checkup error:', e);
+        modal.querySelector('div > div').innerHTML = `
+            <h3 style="color:#ff5252;">❌ Checkup Failed</h3>
+            <p style="color:#888;">${e.message}</p>
+            <button onclick="this.closest('#aiHoldingModal').remove()" 
+                style="padding:10px 16px;background:#333;border:none;border-radius:6px;color:#fff;cursor:pointer;margin-top:16px;">
+                Close
+            </button>
+        `;
+    }
+};
 
 /**
  * Analyze a Buy/Write holding - loads linked position into P&L tab
