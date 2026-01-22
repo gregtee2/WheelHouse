@@ -1883,6 +1883,21 @@ export function loadPositionToAnalyze(id) {
     const pos = state.positions.find(p => p.id === id);
     if (!pos) return;
     
+    // For covered calls, get cost basis from the linked holding
+    let costBasis = pos.costBasis || null;
+    let holdingCostBasis = null;
+    
+    if (pos.type === 'covered_call' || pos.type?.includes('call')) {
+        const holding = (state.holdings || []).find(h => h.ticker === pos.ticker);
+        if (holding) {
+            holdingCostBasis = holding.costBasis || holding.avgCost || null;
+            // Use holding's cost basis if position doesn't have one
+            if (!costBasis && holdingCostBasis) {
+                costBasis = holdingCostBasis;
+            }
+        }
+    }
+    
     // Set position context for analysis
     setPositionContext({
         id: pos.id,
@@ -1895,7 +1910,8 @@ export function loadPositionToAnalyze(id) {
         dte: pos.dte,
         // Buy/Write specific fields
         stockPrice: pos.stockPrice || null,
-        costBasis: pos.costBasis || null,
+        costBasis: costBasis,
+        holdingCostBasis: holdingCostBasis,  // Explicit holding cost basis
         linkedHoldingId: pos.linkedHoldingId || null
     });
     
@@ -2867,3 +2883,4 @@ export function getAnalysisHistory(positionId) {
 window.saveAnalysisToPosition = saveAnalysisToPosition;
 window.getLatestAnalysis = getLatestAnalysis;
 window.getAnalysisHistory = getAnalysisHistory;
+window.savePositionsToStorage = savePositionsToStorage;

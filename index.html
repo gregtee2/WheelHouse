@@ -412,6 +412,17 @@ Examples:
                     
                     <div class="results-box" id="worthItBox" style="display:none;">
                         <h3 style="font-size:12px;">🎯 Trade Metrics</h3>
+                        <!-- Cost Basis Box (shown for covered calls with cost basis) -->
+                        <div id="costBasisBox" style="display:none; margin-bottom:10px; padding:8px 10px; background:rgba(0,255,136,0.15); border:1px solid rgba(0,255,136,0.4); border-radius:6px; font-size:11px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="color:#aaa;">📊 Stock Cost Basis:</span>
+                                <span id="costBasisValue" style="color:#0f8; font-weight:bold; font-size:13px;">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                                <span style="color:#aaa;">💰 If Called, Gain:</span>
+                                <span id="gainIfCalledValue" style="font-weight:bold; font-size:13px;">—</span>
+                            </div>
+                        </div>
                         <div class="metrics-grid">
                             <div class="result-row"><span class="result-label">ROC:</span><span class="result-value" id="rocDisplay">—</span></div>
                             <div class="result-row"><span class="result-label">Annualized ROC:</span><span class="result-value" id="annRocDisplay">—</span></div>

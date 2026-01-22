@@ -186,6 +186,35 @@ function calculateIsItWorthIt(expectedValue, isPut, premium, contracts) {
     const worthItBox = document.getElementById('worthItBox');
     if (worthItBox) worthItBox.style.display = 'block';
     
+    // Show cost basis box for covered calls
+    const costBasisBox = document.getElementById('costBasisBox');
+    const costBasisValue = document.getElementById('costBasisValue');
+    const gainIfCalledValue = document.getElementById('gainIfCalledValue');
+    
+    const costBasis = state.currentPositionContext?.costBasis || state.currentPositionContext?.holdingCostBasis;
+    const posType = getPositionType();
+    
+    // Show for any CALL position (not put) that has a cost basis
+    if (costBasisBox && costBasis && !isPut) {
+        costBasisBox.style.display = 'block';
+        costBasisValue.textContent = '$' + costBasis.toFixed(2);
+        
+        // Calculate gain if called: (Strike - Cost Basis + Premium) × 100 × contracts
+        const gainIfCalled = (state.strike - costBasis + premium) * 100 * contracts;
+        const gainPerShare = state.strike - costBasis + premium;
+        const gainPct = ((gainPerShare / costBasis) * 100).toFixed(1);
+        
+        if (gainIfCalled >= 0) {
+            gainIfCalledValue.textContent = `+$${gainIfCalled.toFixed(0)} (${gainPct}%)`;
+            gainIfCalledValue.style.color = '#00ff88';
+        } else {
+            gainIfCalledValue.textContent = `-$${Math.abs(gainIfCalled).toFixed(0)} (${gainPct}%)`;
+            gainIfCalledValue.style.color = '#ff5252';
+        }
+    } else if (costBasisBox) {
+        costBasisBox.style.display = 'none';
+    }
+    
     const winPct = isPut ? 
         (state.optionResults.aboveStrikeCount / state.optionResults.finalPrices.length * 100) :
         (state.optionResults.belowStrikeCount / state.optionResults.finalPrices.length * 100);
@@ -1923,12 +1952,34 @@ async function getAIInsight() {
             window._lastMoeOpinions = result.moe.opinions;
         }
         
-        // Display the AI insight
+        // Store the latest insight for "Save as Thesis"
+        window._lastAIInsight = {
+            insight: result.insight,
+            model: selectedModel,
+            spot: state.spot,
+            strike: state.strike,
+            dte: state.dte,
+            iv: state.optVol * 100,
+            riskPercent: riskPct,
+            winProbability: winPct,
+            positionId: positionId
+        };
+        
+        // Check if this position already has a thesis
+        const pos = positionId ? state.positions.find(p => p.id === positionId) : null;
+        const hasThesis = pos?.openingThesis;
+        
+        // Display the AI insight with Save button
         contentEl.innerHTML = `
             <div style="color:#ddd; line-height:1.6; white-space:pre-wrap; font-size:11px;">${formattedInsight}</div>
             <div style="font-size:9px; color:#555; margin-top:8px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px;">
                 <span>${moeIndicator}${selectedModel} • ${result.took || 'N/A'}</span>
-                <div style="display:flex; gap:4px;">
+                <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                    ${positionId ? `
+                        <button onclick="window.saveAsThesis()" style="background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#0f8; padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px;" title="Save this analysis as the opening thesis for ${ticker}">
+                            💾 ${hasThesis ? 'Update' : 'Save'} Thesis
+                        </button>
+                    ` : `<span style="color:#666;" title="Load a position first to save thesis">💾 No position</span>`}
                     ${isMoE ? `<button onclick="window.showMoeOpinions()" style="background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#a78bfa; padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px;">👁️ View Opinions</button>` : ''}
                     ${hasHistory ? `<button onclick="window.showAnalysisHistory(${positionId})" style="background:none; border:1px solid #555; color:#888; padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px;">📜 History (${analysisHistory.length})</button>` : ''}
                 </div>
@@ -2251,9 +2302,137 @@ function showMoeOpinions() {
     document.body.appendChild(modal);
 }
 
+/**
+ * Extract recommendation type from AI text
+ */
+function extractRecommendationFromText(text) {
+    const upper = text.toUpperCase();
+    if (upper.includes('HOLD') || upper.includes('LET POSITION EXPIRE')) return 'HOLD';
+    if (upper.includes('ROLL TO') || upper.includes('ROLL -')) return 'ROLL';
+    if (upper.includes('CLOSE') || upper.includes('CUT LOSS') || upper.includes('EXIT')) return 'CLOSE';
+    return 'REVIEW';
+}
+
+/**
+ * Save the last AI insight as the opening thesis for the current position
+ */
+function saveAsThesis() {
+    const data = window._lastAIInsight;
+    if (!data || !data.positionId) {
+        showNotification('❌ No position loaded - click 📊 Analyze on a position first', 'error');
+        return;
+    }
+    
+    // Find the position
+    const pos = state.positions.find(p => p.id === data.positionId);
+    if (!pos) {
+        showNotification('❌ Position not found', 'error');
+        return;
+    }
+    
+    // Extract recommendation from insight
+    const recommendation = extractRecommendationFromText(data.insight);
+    
+    // Map to standard recommendation types
+    let standardRec = recommendation;
+    const upper = data.insight.toUpperCase();
+    if (upper.includes('ROLL TO') || upper.includes('ROLL -') || upper.includes('$') && upper.includes('CREDIT')) {
+        standardRec = 'ROLL';
+    } else if (upper.includes('LET') && (upper.includes('CALL') || upper.includes('ASSIGN') || upper.includes('EXPIRE'))) {
+        standardRec = 'LET CALL';
+    } else if (upper.includes('BUY BACK') || upper.includes('CLOSE')) {
+        standardRec = 'BUY BACK';
+    }
+    
+    // Create the openingThesis structure
+    pos.openingThesis = {
+        analyzedAt: new Date().toISOString(),
+        priceAtAnalysis: data.spot,
+        iv: data.iv,
+        modelUsed: data.model,
+        recommendation: standardRec,  // Store the standard recommendation
+        aiSummary: {
+            fullAnalysis: data.insight,
+            bottomLine: recommendation || 'See full analysis',
+            probability: data.winProbability
+        },
+        snapshot: {
+            spot: data.spot,
+            strike: data.strike,
+            dte: data.dte,
+            iv: data.iv,
+            riskPercent: data.riskPercent,
+            winProbability: data.winProbability
+        }
+    };
+    
+    // ═══ SYNC TO HOLDING (for covered calls) ═══
+    // If this is a covered call and we have a linked holding, update its savedStrategy too
+    if (pos.type === 'covered_call' || pos.type?.includes('call')) {
+        const holding = (state.holdings || []).find(h => h.ticker === pos.ticker);
+        if (holding) {
+            const oldStrategy = holding.savedStrategy?.recommendation;
+            
+            // Update the holding's savedStrategy to match
+            holding.savedStrategy = {
+                recommendation: standardRec,
+                fullAnalysis: data.insight,
+                savedAt: new Date().toISOString(),
+                model: data.model,
+                snapshot: {
+                    spot: data.spot,
+                    strike: data.strike,
+                    dte: data.dte,
+                    iv: data.iv
+                }
+            };
+            
+            // Save holdings
+            localStorage.setItem('wheelhouse_holdings', JSON.stringify(state.holdings));
+            
+            // Notify if strategy changed
+            if (oldStrategy && oldStrategy !== standardRec) {
+                showNotification(`⚠️ Strategy changed: ${oldStrategy} → ${standardRec}`, 'info');
+            }
+            
+            console.log(`[Thesis] Synced to ${pos.ticker} holding: ${standardRec}`);
+        }
+    }
+    
+    // Save to localStorage
+    if (window.savePositionsToStorage) {
+        window.savePositionsToStorage();
+    } else {
+        // Fallback: save directly
+        localStorage.setItem('wheelhouse_positions', JSON.stringify(state.positions));
+    }
+    
+    showNotification(`✅ Thesis saved to ${pos.ticker} $${pos.strike} - 🩺 Checkup now available!`, 'success');
+    
+    // Update the button to show "Update" instead of "Save"
+    const contentEl = document.getElementById('aiInsightContent');
+    if (contentEl) {
+        const saveBtn = contentEl.querySelector('button[onclick="window.saveAsThesis()"]');
+        if (saveBtn) {
+            saveBtn.innerHTML = '✅ Saved!';
+            saveBtn.style.background = 'rgba(0,255,136,0.4)';
+            setTimeout(() => {
+                saveBtn.innerHTML = '💾 Update Thesis';
+                saveBtn.style.background = 'rgba(0,255,136,0.2)';
+            }, 2000);
+        }
+    }
+    
+    // Refresh positions table to show the 📋 indicator
+    if (window.renderPositions) {
+        window.renderPositions();
+    }
+}
+
 // Make available globally
 window.showAnalysisHistory = showAnalysisHistory;
 window.showMoeOpinions = showMoeOpinions;
+window.saveAsThesis = saveAsThesis;
 
 // Make globally accessible
 window.getAIInsight = getAIInsight;
