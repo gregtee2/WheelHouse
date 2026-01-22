@@ -14,6 +14,88 @@ import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePi
 import { showNotification } from './utils.js';
 
 /**
+ * Get the next 3rd Friday of the month (standard options expiry)
+ * @param {number} monthsAhead - 0 = this month, 1 = next month, etc.
+ * @returns {Date} The 3rd Friday date
+ */
+function getThirdFriday(monthsAhead = 1) {
+    const today = new Date();
+    let targetMonth = today.getMonth() + monthsAhead;
+    let targetYear = today.getFullYear() + Math.floor(targetMonth / 12);
+    targetMonth = targetMonth % 12;
+    
+    // Find 3rd Friday: first day of month, find first Friday, add 14 days
+    const firstDay = new Date(targetYear, targetMonth, 1);
+    const dayOfWeek = firstDay.getDay();
+    const firstFriday = dayOfWeek <= 5 ? (5 - dayOfWeek + 1) : (12 - dayOfWeek + 1);
+    const thirdFriday = new Date(targetYear, targetMonth, firstFriday + 14);
+    
+    // If this month's 3rd Friday already passed, go to next month
+    if (thirdFriday <= today && monthsAhead === 0) {
+        return getThirdFriday(1);
+    }
+    
+    return thirdFriday;
+}
+
+/**
+ * Format a date as "Mon DD" (e.g., "Feb 20")
+ * @param {Date} date
+ * @returns {string}
+ */
+function formatExpiryShort(date) {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Snap any date string to the nearest valid Friday expiry
+ * Options expire on Fridays, never weekends
+ * @param {string} dateStr - e.g., "Feb 21" or "Mar 20"
+ * @returns {string} Corrected date string, e.g., "Feb 20"
+ */
+function snapToFriday(dateStr) {
+    if (!dateStr) return formatExpiryShort(getThirdFriday(1));
+    
+    // Parse the date string
+    const months = { 'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5, 
+                     'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11 };
+    const match = dateStr.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*(\d+)/i);
+    if (!match) return dateStr;
+    
+    const month = months[match[1].toLowerCase()];
+    const day = parseInt(match[2]);
+    const year = new Date().getFullYear() + (month < new Date().getMonth() ? 1 : 0);
+    
+    const date = new Date(year, month, day);
+    const dayOfWeek = date.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+    
+    if (dayOfWeek === 5) {
+        return dateStr; // Already Friday
+    } else if (dayOfWeek === 6) {
+        // Saturday -> go back to Friday
+        date.setDate(date.getDate() - 1);
+    } else if (dayOfWeek === 0) {
+        // Sunday -> go back to Friday
+        date.setDate(date.getDate() - 2);
+    } else {
+        // Weekday -> find nearest Friday (usually go forward)
+        const daysToFriday = (5 - dayOfWeek + 7) % 7;
+        if (daysToFriday <= 3) {
+            date.setDate(date.getDate() + daysToFriday);
+        } else {
+            date.setDate(date.getDate() - (7 - daysToFriday));
+        }
+    }
+    
+    return formatExpiryShort(date);
+}
+
+// Expose for use in other places
+window.snapToFriday = snapToFriday;
+window.getThirdFriday = getThirdFriday;
+window.formatExpiryShort = formatExpiryShort;
+
+/**
  * Main initialization
  */
 export function init() {
@@ -631,7 +713,9 @@ window.deepDive = async function(ticker) {
     const expiryMatch = ideaText.match(new RegExp(`${ticker}[^]*?put,?\\s*([A-Z][a-z]+\\s+\\d+)`, 'i'));
     
     const strike = strikeMatch ? strikeMatch[1] : Math.floor(parseFloat(candidate.price) * 0.9);
-    const expiry = expiryMatch ? expiryMatch[1] : 'Feb 21';
+    // Snap expiry to valid Friday (options never expire on weekends)
+    const rawExpiry = expiryMatch ? expiryMatch[1] : null;
+    const expiry = snapToFriday(rawExpiry);
     
     const selectedModel = document.getElementById('ideaModelSelect')?.value || 'qwen2.5:32b';
     

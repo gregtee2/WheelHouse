@@ -2417,8 +2417,12 @@ ${priceData}
 - Range 100%: AT MONTHLY HIGH - worst possible put entry
 - Large positive month gain (>10%): chasing momentum
 
+═══ EXPIRY DATES (use EXACTLY these - they are Fridays) ═══
+Near-term: ${expiryDates[0]?.date || 'Feb 20'} (${expiryDates[0]?.dte || 30} DTE)
+Mid-term: ${expiryDates[1]?.date || 'Mar 20'} (${expiryDates[1]?.dte || 60} DTE)
+
 ═══ FORMAT (exactly like this) ═══
-1. [TICKER] @ $XX.XX - Sell $XX put, ${expiryDates[0]?.date || 'Feb 21'}
+1. [TICKER] @ $XX.XX - Sell $XX put, ${expiryDates[0]?.date || 'Feb 20'}
    Entry: [Why NOW is good timing - use the data: range position, month change, support level]
    Risk: [Specific risk - earnings date, sector issue, or technical concern]
    Capital: $X,XXX (COPY from data above - it's strike × 100)
@@ -2426,7 +2430,8 @@ ${priceData}
 2. ... (continue through 10)
 
 Give me 10 different ideas from DIFFERENT sectors. USE THE DATA. Copy the Capital value from the candidate data.
-SKIP any stock above 70% of range - those are extended and risky!`;
+SKIP any stock above 70% of range - those are extended and risky!
+USE ONLY the expiry dates listed above - they are valid Friday expirations.`;
 }
 
 // Call Ollama API
