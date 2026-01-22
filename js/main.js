@@ -2311,25 +2311,27 @@ window.restoreSavedIdeas = function() {
         
         // Show candidate pool
         const allCandidates = data.candidates || [];
-        const poolNote = `<div style="margin-top:15px; padding:12px; background:#1a1a2e; border-radius:5px; font-size:11px;">
-            <div style="color:#888; margin-bottom:8px;">
-                📊 <strong style="color:#00d9ff;">Candidate Pool:</strong> ${data.candidatesChecked || 0} stocks scanned
-                ${data.discoveredCount > 0 ? \`(including <span style="color:#ffaa00;">\${data.discoveredCount} market movers</span>)\` : ''}
-                <span style="margin-left:10px; color:#666;">Saved ${Math.round(age / 60000)} min ago</span>
-            </div>
-            <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                ${allCandidates.map(t => {
-                    const isDiscovered = t.sector === 'Active Today' || t.sector === 'Trending';
-                    const bg = isDiscovered ? '#4a3500' : '#333';
-                    const border = isDiscovered ? '1px solid #ffaa00' : 'none';
-                    return \`<span style="background:\${bg}; border:\${border}; padding:2px 6px; border-radius:3px; color:#ccc;">\${t.ticker}</span>\`;
-                }).join('')}
-            </div>
-        </div>`;
+        const discoveredNote = data.discoveredCount > 0 
+            ? '(including <span style="color:#ffaa00;">' + data.discoveredCount + ' market movers</span>)'
+            : '';
+        
+        let poolHtml = '<div style="margin-top:15px; padding:12px; background:#1a1a2e; border-radius:5px; font-size:11px;">';
+        poolHtml += '<div style="color:#888; margin-bottom:8px;">';
+        poolHtml += '📊 <strong style="color:#00d9ff;">Candidate Pool:</strong> ' + (data.candidatesChecked || 0) + ' stocks scanned ';
+        poolHtml += discoveredNote;
+        poolHtml += ' <span style="margin-left:10px; color:#666;">Saved ' + Math.round(age / 60000) + ' min ago</span>';
+        poolHtml += '</div>';
+        poolHtml += '<div style="display:flex; flex-wrap:wrap; gap:4px;">';
+        allCandidates.forEach(t => {
+            const isDiscovered = t.sector === 'Active Today' || t.sector === 'Trending';
+            const bg = isDiscovered ? '#4a3500' : '#333';
+            const border = isDiscovered ? '1px solid #ffaa00' : 'none';
+            poolHtml += '<span style="background:' + bg + '; border:' + border + '; padding:2px 6px; border-radius:3px; color:#ccc;">' + t.ticker + '</span>';
+        });
+        poolHtml += '</div></div>';
         
         // Add buttons
-        formatted += `
-            ${poolNote}
+        formatted += poolHtml;
             <div style="margin-top:15px; padding-top:15px; border-top:1px solid #333; text-align:center;">
                 <button onclick="window.getTradeIdeas2()" style="padding:8px 16px; background:#8b5cf6; border:none; border-radius:5px; color:#fff; cursor:pointer; font-size:13px;">
                     🔄 Generate Fresh Ideas
