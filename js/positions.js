@@ -1564,19 +1564,26 @@ window.showMarkAsRolledModal = function(oldPositionId) {
         cp.closeDate && (new Date() - new Date(cp.closeDate)) < 7 * 24 * 60 * 60 * 1000
     );
     
-    // Use matched close price, or 0 if expired, or estimate from broker
+    // Use matched close price, or current market price, or 0 if expired
     let defaultClosePrice = 0;
     let closePriceSource = '';
     
     if (matchingClosed?.closePrice !== undefined) {
         defaultClosePrice = matchingClosed.closePrice;
         closePriceSource = `<span style="color:#00ff88;">(from broker import)</span>`;
+    } else if (oldPos.markedPrice !== undefined && oldPos.markedPrice > 0) {
+        // User marked price (most reliable for recent close)
+        defaultClosePrice = oldPos.markedPrice;
+        closePriceSource = `<span style="color:#00ff88;">(your marked price)</span>`;
+    } else if (oldPos.lastOptionPrice !== undefined && oldPos.lastOptionPrice > 0) {
+        // CBOE current price
+        defaultClosePrice = oldPos.lastOptionPrice;
+        closePriceSource = `<span style="color:#ffaa00;">(current market price)</span>`;
     } else if (oldPos.dte <= 1) {
         defaultClosePrice = 0;
         closePriceSource = `<span style="color:#00ff88;">(Expired - $0)</span>`;
-    } else if (oldPos.lastOptionPrice !== undefined) {
-        defaultClosePrice = oldPos.lastOptionPrice;
-        closePriceSource = `<span style="color:#ffaa00;">(last known price)</span>`;
+    } else {
+        closePriceSource = `<span style="color:#888;">(enter from order confirmation)</span>`;
     }
     
     const defaultTarget = candidates[0]; // Most recent
