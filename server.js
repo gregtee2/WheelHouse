@@ -2266,6 +2266,7 @@ Avoid:
 
 Give me 5 different ideas from DIFFERENT sectors. USE THE DATA. Copy the Capital value from the candidate data - it's already calculated for you.
 If you see stocks marked "Active Today" or "Trending", prioritize those - they're today's opportunity!`;
+}
 
 // Call Ollama API
 function callOllama(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
