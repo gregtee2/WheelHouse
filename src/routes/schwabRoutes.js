@@ -384,10 +384,13 @@ router.get('/accounts/:accountHash/orders', async (req, res) => {
         if (maxResults) url += `&maxResults=${maxResults}`;
         
         const data = await schwabApiCall(url);
-        res.json(data);
+        
+        // Schwab returns an array of orders directly, or empty array
+        const orders = Array.isArray(data) ? data : [];
+        res.json({ success: true, orders });
     } catch (e) {
         console.error('[SCHWAB] Orders error:', e);
-        res.status(e.status || 500).json({ error: e.error || e.message });
+        res.status(e.status || 500).json({ success: false, error: e.error || e.message });
     }
 });
 
@@ -441,7 +444,7 @@ router.delete('/accounts/:accountHash/orders/:orderId', async (req, res) => {
         res.json({ success: true, message: 'Order cancelled' });
     } catch (e) {
         console.error('[SCHWAB] Cancel order error:', e);
-        res.status(e.status || 500).json({ error: e.error || e.message });
+        res.status(e.status || 500).json({ success: false, error: e.error || e.message });
     }
 });
 

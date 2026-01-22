@@ -578,6 +578,248 @@ async function completeSchwabOAuth() {
 window.completeSchwabOAuth = completeSchwabOAuth;
 
 // ============================================================================
+// SCHWAB ORDERS - VIEW PENDING AND RECENT ORDERS
+// ============================================================================
+
+/**
+ * Toggle visibility of the orders panel
+ */
+async function viewSchwabOrders() {
+    const panel = document.getElementById('schwabOrdersPanel');
+    if (!panel) return;
+    
+    // Toggle visibility
+    if (panel.style.display === 'none' || !panel.style.display) {
+        panel.style.display = 'block';
+        await refreshSchwabOrders();
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+/**
+ * Fetch and display orders from Schwab
+ */
+async function refreshSchwabOrders() {
+    const listEl = document.getElementById('schwabOrdersList');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '<div style="text-align:center;padding:20px;color:#888">⏳ Loading orders...</div>';
+    
+    try {
+        // Get selected account hash
+        const accountSelect = document.getElementById('schwabAccountSelect');
+        if (!accountSelect || !accountSelect.value) {
+            listEl.innerHTML = '<div style="text-align:center;padding:20px;color:#ffaa00">⚠️ Please select an account first</div>';
+            return;
+        }
+        
+        const accountHash = accountSelect.value;
+        
+        // Fetch orders from last 7 days
+        const toDate = new Date().toISOString().split('T')[0];
+        const fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        
+        const response = await fetch(`/api/schwab/accounts/${accountHash}/orders?fromEnteredTime=${fromDate}&toEnteredTime=${toDate}`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            listEl.innerHTML = `<div style="text-align:center;padding:20px;color:#ff5252">❌ ${data.error || 'Failed to load orders'}</div>`;
+            return;
+        }
+        
+        const orders = data.orders || [];
+        
+        if (orders.length === 0) {
+            listEl.innerHTML = '<div style="text-align:center;padding:20px;color:#888">No orders in the last 7 days</div>';
+            return;
+        }
+        
+        // Sort by entered time (newest first)
+        orders.sort((a, b) => new Date(b.enteredTime) - new Date(a.enteredTime));
+        
+        // Build HTML for orders
+        let html = '';
+        for (const order of orders) {
+            html += renderOrderRow(order);
+        }
+        
+        listEl.innerHTML = html;
+        
+    } catch (error) {
+        console.error('[ORDERS] Error:', error);
+        listEl.innerHTML = `<div style="text-align:center;padding:20px;color:#ff5252">❌ Error: ${error.message}</div>`;
+    }
+}
+
+/**
+ * Render a single order row
+ */
+function renderOrderRow(order) {
+    const status = order.status || 'UNKNOWN';
+    const orderType = order.orderType || '';
+    const instruction = order.orderLegCollection?.[0]?.instruction || '';
+    const quantity = order.quantity || order.orderLegCollection?.[0]?.quantity || 0;
+    const filledQty = order.filledQuantity || 0;
+    const price = order.price || order.stopPrice || 0;
+    
+    // Parse the instrument
+    const leg = order.orderLegCollection?.[0] || {};
+    const instrument = leg.instrument || {};
+    const symbol = instrument.symbol || '';
+    const assetType = instrument.assetType || 'EQUITY';
+    
+    // Parse option symbol if it's an option
+    let displaySymbol = symbol;
+    let optionDetails = '';
+    if (assetType === 'OPTION' && symbol.length > 10) {
+        const parsed = parseOptionSymbol(symbol);
+        if (parsed) {
+            displaySymbol = parsed.ticker;
+            optionDetails = `${parsed.expiry} $${parsed.strike} ${parsed.type}`;
+        }
+    }
+    
+    // Status colors
+    const statusColors = {
+        'FILLED': '#00ff88',
+        'WORKING': '#00d9ff',
+        'PENDING_ACTIVATION': '#ffaa00',
+        'QUEUED': '#ffaa00',
+        'ACCEPTED': '#00d9ff',
+        'CANCELED': '#888',
+        'REJECTED': '#ff5252',
+        'EXPIRED': '#888'
+    };
+    const statusColor = statusColors[status] || '#888';
+    
+    // Instruction colors
+    const instructionColors = {
+        'SELL_TO_OPEN': '#00ff88',
+        'BUY_TO_CLOSE': '#ff5252',
+        'BUY_TO_OPEN': '#00d9ff',
+        'SELL_TO_CLOSE': '#ffaa00'
+    };
+    const instrColor = instructionColors[instruction] || '#ccc';
+    
+    // Format time
+    const enteredTime = order.enteredTime ? new Date(order.enteredTime).toLocaleString() : '';
+    
+    // Can cancel if working/pending
+    const canCancel = ['WORKING', 'PENDING_ACTIVATION', 'QUEUED', 'ACCEPTED'].includes(status);
+    
+    return `
+        <div style="display:flex; align-items:center; gap:12px; padding:10px 12px; background:#1a1a2e; border-radius:6px; margin-bottom:8px;">
+            <!-- Status Badge -->
+            <div style="min-width:80px;">
+                <span style="background:${statusColor}22; color:${statusColor}; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600;">
+                    ${status}
+                </span>
+            </div>
+            
+            <!-- Symbol & Details -->
+            <div style="flex:1;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="color:${instrColor}; font-weight:600;">${instruction.replace(/_/g, ' ')}</span>
+                    <span style="color:#fff; font-weight:600;">${displaySymbol}</span>
+                    ${optionDetails ? `<span style="color:#888; font-size:12px;">${optionDetails}</span>` : ''}
+                </div>
+                <div style="color:#666; font-size:11px; margin-top:2px;">${enteredTime}</div>
+            </div>
+            
+            <!-- Quantity -->
+            <div style="text-align:center; min-width:60px;">
+                <div style="color:#fff; font-weight:600;">${filledQty}/${quantity}</div>
+                <div style="color:#666; font-size:10px;">FILLED</div>
+            </div>
+            
+            <!-- Price -->
+            <div style="text-align:right; min-width:70px;">
+                <div style="color:#00d9ff; font-weight:600;">$${price.toFixed(2)}</div>
+                <div style="color:#666; font-size:10px;">${orderType}</div>
+            </div>
+            
+            <!-- Cancel Button -->
+            ${canCancel ? `
+                <button onclick="cancelSchwabOrder('${order.orderId}')" 
+                        style="background:#ff525233; color:#ff5252; border:1px solid #ff5252; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
+                        title="Cancel Order">
+                    ✕ Cancel
+                </button>
+            ` : '<div style="width:70px;"></div>'}
+        </div>
+    `;
+}
+
+/**
+ * Parse Schwab option symbol format
+ * Example: "SLV   260123C00085500" → { ticker: "SLV", expiry: "01/23/26", strike: 85.5, type: "Call" }
+ */
+function parseOptionSymbol(symbol) {
+    try {
+        // Symbol format: TICKER + YYMMDD + C/P + 8-digit strike
+        const match = symbol.match(/^([A-Z]+)\s*(\d{6})([CP])(\d{8})$/);
+        if (!match) return null;
+        
+        const [, ticker, dateStr, cpFlag, strikeStr] = match;
+        
+        // Parse date YYMMDD
+        const yy = dateStr.substring(0, 2);
+        const mm = dateStr.substring(2, 4);
+        const dd = dateStr.substring(4, 6);
+        const expiry = `${mm}/${dd}/${yy}`;
+        
+        // Parse strike (8 digits, last 3 are decimals)
+        const strike = parseInt(strikeStr) / 1000;
+        
+        const type = cpFlag === 'C' ? 'Call' : 'Put';
+        
+        return { ticker, expiry, strike, type };
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Cancel a pending order
+ */
+async function cancelSchwabOrder(orderId) {
+    if (!confirm('Are you sure you want to cancel this order?')) return;
+    
+    try {
+        const accountSelect = document.getElementById('schwabAccountSelect');
+        if (!accountSelect || !accountSelect.value) {
+            alert('No account selected');
+            return;
+        }
+        
+        const accountHash = accountSelect.value;
+        
+        const response = await fetch(`/api/schwab/accounts/${accountHash}/orders/${orderId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            if (window.showNotification) window.showNotification('Order canceled successfully', 'success');
+            // Refresh the orders list
+            await refreshSchwabOrders();
+        } else {
+            if (window.showNotification) window.showNotification(data.error || 'Failed to cancel order', 'error');
+        }
+    } catch (error) {
+        console.error('[ORDERS] Cancel error:', error);
+        if (window.showNotification) window.showNotification('Error canceling order: ' + error.message, 'error');
+    }
+}
+
+// Expose order functions globally
+window.viewSchwabOrders = viewSchwabOrders;
+window.refreshSchwabOrders = refreshSchwabOrders;
+window.cancelSchwabOrder = cancelSchwabOrder;
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 
