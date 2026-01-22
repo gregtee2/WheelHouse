@@ -386,7 +386,7 @@ const mainHandler = async (req, res, next) => {
                 const realPrices = await fetchWheelCandidatePrices(buyingPower, excludeTickers);
                 
                 const prompt = buildIdeaPrompt(data, realPrices);
-                const response = await callOllama(prompt, selectedModel, 900); // More tokens for 5 ideas
+                const response = await callOllama(prompt, selectedModel, 1500); // More tokens for 10 ideas
                 
                 // Count discovery sources
                 const discoveredCount = realPrices.filter(p => p.sector === 'Active Today' || p.sector === 'Trending').length;
@@ -2227,9 +2227,9 @@ function buildIdeaPrompt(data, realPrices = []) {
         }).join('\n');
     }
     
-    return `You are a WHEEL STRATEGY advisor. Analyze the data below and pick 5 SHORT PUT trades.
-PRIORITIZE variety - pick from DIFFERENT sectors. Don't pick 3 tech stocks.
-If you see "Active Today" or "Trending" stocks, INCLUDE at least one - these are today's movers!
+    return `You are a WHEEL STRATEGY advisor. Analyze the data below and pick 10 SHORT PUT trades.
+PRIORITIZE variety - pick from DIFFERENT sectors. Spread across all available sectors.
+If you see "Active Today" or "Trending" stocks, INCLUDE at least 2-3 of them - these are today's movers!
 
 ═══ ACCOUNT ═══
 Buying Power: $${buyingPower?.toLocaleString() || '25,000'}
@@ -2259,12 +2259,9 @@ Avoid:
    Risk: [Specific risk - earnings date, sector issue, or technical concern]
    Capital: $X,XXX (COPY from data above - it's strike × 100)
 
-2. ...
-3. ...
-4. ...
-5. ...
+2. ... (continue through 10)
 
-Give me 5 different ideas from DIFFERENT sectors. USE THE DATA. Copy the Capital value from the candidate data - it's already calculated for you.
+Give me 10 different ideas from DIFFERENT sectors. USE THE DATA. Copy the Capital value from the candidate data.
 If you see stocks marked "Active Today" or "Trending", prioritize those - they're today's opportunity!`;
 }
 

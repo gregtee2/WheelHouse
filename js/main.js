@@ -1998,8 +1998,13 @@ function setupTabs() {
                     switchSubTab('analyze', 'analyze-pricing');
                 }
             } else if (targetId === 'ideas') {
-                // Ideas tab - check AI status
+                // Ideas tab - check AI status and restore saved ideas
                 checkAIStatus?.();
+                // Try to restore previously saved ideas if no new ones shown
+                const ideaContent = document.getElementById('ideaContentLarge');
+                if (ideaContent && !ideaContent.innerHTML.includes('Entry:')) {
+                    window.restoreSavedIdeas?.();
+                }
             }
         });
     });
@@ -2266,6 +2271,92 @@ window.analyzeDiscordTrade2 = async function() {
 };
 
 /**
+ * Restore previously saved trade ideas from localStorage
+ */
+window.restoreSavedIdeas = function() {
+    const ideaResults = document.getElementById('ideaResultsLarge');
+    const ideaContent = document.getElementById('ideaContentLarge');
+    
+    if (!ideaResults || !ideaContent) return false;
+    
+    try {
+        const saved = localStorage.getItem('wheelhouse_trade_ideas');
+        if (!saved) return false;
+        
+        const data = JSON.parse(saved);
+        if (!data.ideas) return false;
+        
+        // Check if less than 24 hours old
+        const age = Date.now() - (data.timestamp || 0);
+        if (age > 24 * 60 * 60 * 1000) {
+            localStorage.removeItem('wheelhouse_trade_ideas');
+            return false;
+        }
+        
+        // Restore the data
+        window._lastTradeIdeas = data.candidates || [];
+        window._lastSuggestedTickers = extractSuggestedTickers(data.ideas);
+        
+        // Format with deep dive buttons
+        let formatted = data.ideas.replace(/^(\d+)\.\s*([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
+            (match, num, ticker) => {
+                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔍 Deep Dive</button>`;
+            });
+        
+        // Apply styling
+        formatted = formatted
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#00d9ff;">$1</strong>')
+            .replace(/(Entry:|Why:|Risk:|Capital:)/gi, '<span style="color:#888;">$1</span>')
+            .replace(/✅|📊|💡|🎯|⚠️/g, match => `<span style="font-size:1.1em;">${match}</span>`);
+        
+        // Show candidate pool
+        const allCandidates = data.candidates || [];
+        const poolNote = `<div style="margin-top:15px; padding:12px; background:#1a1a2e; border-radius:5px; font-size:11px;">
+            <div style="color:#888; margin-bottom:8px;">
+                📊 <strong style="color:#00d9ff;">Candidate Pool:</strong> ${data.candidatesChecked || 0} stocks scanned
+                ${data.discoveredCount > 0 ? \`(including <span style="color:#ffaa00;">\${data.discoveredCount} market movers</span>)\` : ''}
+                <span style="margin-left:10px; color:#666;">Saved ${Math.round(age / 60000)} min ago</span>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                ${allCandidates.map(t => {
+                    const isDiscovered = t.sector === 'Active Today' || t.sector === 'Trending';
+                    const bg = isDiscovered ? '#4a3500' : '#333';
+                    const border = isDiscovered ? '1px solid #ffaa00' : 'none';
+                    return \`<span style="background:\${bg}; border:\${border}; padding:2px 6px; border-radius:3px; color:#ccc;">\${t.ticker}</span>\`;
+                }).join('')}
+            </div>
+        </div>`;
+        
+        // Add buttons
+        formatted += `
+            ${poolNote}
+            <div style="margin-top:15px; padding-top:15px; border-top:1px solid #333; text-align:center;">
+                <button onclick="window.getTradeIdeas2()" style="padding:8px 16px; background:#8b5cf6; border:none; border-radius:5px; color:#fff; cursor:pointer; font-size:13px;">
+                    🔄 Generate Fresh Ideas
+                </button>
+                <button onclick="window.getTradeIdeasDifferent()" style="padding:8px 16px; margin-left:10px; background:#444; border:none; border-radius:5px; color:#00d9ff; cursor:pointer; font-size:13px;">
+                    🔀 Show Different Stocks
+                </button>
+            </div>`;
+        
+        ideaResults.style.display = 'block';
+        ideaContent.innerHTML = formatted;
+        console.log('[Ideas] Restored saved ideas from', Math.round(age / 60000), 'minutes ago');
+        return true;
+        
+    } catch (e) {
+        console.error('[Ideas] Failed to restore saved ideas:', e);
+        return false;
+    }
+};
+
+// Helper for template literal in restoreSavedIdeas
+function extractSuggestedTickers(text) {
+    const matches = text.match(/^\d+\.\s*([A-Z]{1,5})\s*@/gm) || [];
+    return matches.map(m => m.match(/([A-Z]{1,5})/)?.[1]).filter(Boolean);
+}
+
+/**
  * Ideas Tab: AI Trade Ideas Generator (uses Ideas tab element IDs)
  */
 window.getTradeIdeas2 = async function() {
@@ -2322,8 +2413,17 @@ window.getTradeIdeas2 = async function() {
         window._lastTradeIdeas = result.candidates || [];
         window._lastSuggestedTickers = extractSuggestedTickers(result.ideas);
         
-        // Format with deep dive buttons
-        let formatted = result.ideas.replace(/^(\d+\.)\s*\*{0,2}([A-Z]{2,5})\s*@\s*\$[\d.]+\s*-\s*Sell\s*\$[\d.]+\s*put[^*]*\*{0,2}/gm, 
+        // Save to localStorage for persistence across tab switches
+        localStorage.setItem('wheelhouse_trade_ideas', JSON.stringify({
+            ideas: result.ideas,
+            candidates: result.candidates,
+            candidatesChecked: result.candidatesChecked,
+            discoveredCount: result.discoveredCount,
+            timestamp: Date.now()
+        }));
+        
+        // Format with deep dive buttons - match "1. TICKER @ $XX.XX - Sell $XX put"
+        let formatted = result.ideas.replace(/^(\d+)\.\s*([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
                 return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;" title="Comprehensive scenario analysis">🔍 Deep Dive</button>`;
             });
@@ -2373,14 +2473,6 @@ window.getTradeIdeas2 = async function() {
         ideaBtn.textContent = '💡 Generate Trade Ideas';
     }
 };
-
-/**
- * Extract ticker symbols from AI response text
- */
-function extractSuggestedTickers(text) {
-    const matches = text.match(/\*\*([A-Z]{2,5})\*\*/g) || [];
-    return [...new Set(matches.map(m => m.replace(/\*/g, '')))];
-}
 
 /**
  * "Show Different Stocks" - Re-run ideas excluding previously suggested tickers
@@ -2440,8 +2532,17 @@ window.getTradeIdeasDifferent = async function() {
         window._lastSuggestedTickers = [...new Set([...excludeTickers, ...newTickers])];
         window._lastTradeIdeas = result.candidates || [];
         
-        // Format with deep dive buttons
-        let formatted = result.ideas.replace(/^(\d+\.)\s*\*{0,2}([A-Z]{2,5})\s*@\s*\$[\d.]+\s*-\s*Sell\s*\$[\d.]+\s*put[^*]*\*{0,2}/gm, 
+        // Save to localStorage for persistence
+        localStorage.setItem('wheelhouse_trade_ideas', JSON.stringify({
+            ideas: result.ideas,
+            candidates: result.candidates,
+            candidatesChecked: result.candidatesChecked,
+            discoveredCount: result.discoveredCount,
+            timestamp: Date.now()
+        }));
+        
+        // Format with deep dive buttons - match "1. TICKER @ $XX.XX"
+        let formatted = result.ideas.replace(/^(\d+)\.\s*([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
                 return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔍 Deep Dive</button>`;
             });
