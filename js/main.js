@@ -2334,9 +2334,20 @@ window.getTradeIdeas2 = async function() {
             .replace(/(Entry:|Why:|Risk:|Capital:)/gi, '<span style="color:#888;">$1</span>')
             .replace(/✅|📊|💡|🎯|⚠️/g, match => `<span style="font-size:1.1em;">${match}</span>`);
         
+        // Show discovery source badges for suggested tickers
+        const discoveredTickers = (result.candidates || []).filter(c => c.sector === 'Active Today' || c.sector === 'Trending');
+        const discoveryNote = discoveredTickers.length > 0 
+            ? `<div style="margin-top:15px; padding:10px; background:#1a1a2e; border-radius:5px; font-size:11px; color:#888;">
+                 🔍 <strong style="color:#00d9ff;">Discovery Mode:</strong> Scanned ${result.candidatesChecked || 0} stocks 
+                 (54 curated + today's most active + trending). 
+                 ${discoveredTickers.map(t => `<span style="background:#333; padding:2px 6px; border-radius:3px; margin-left:4px;">${t.ticker} <span style="color:#ffaa00;">${t.sector}</span></span>`).join('')}
+               </div>`
+            : '';
+        
         // Add "Show Different Stocks" button at the end
         formatted += `
-            <div style="margin-top:20px; padding-top:15px; border-top:1px solid #333; text-align:center;">
+            ${discoveryNote}
+            <div style="margin-top:15px; padding-top:15px; border-top:1px solid #333; text-align:center;">
                 <button onclick="window.getTradeIdeasDifferent()" style="padding:8px 16px; background:#444; border:none; border-radius:5px; color:#00d9ff; cursor:pointer; font-size:13px;" title="Get fresh suggestions from different stocks">
                     🔄 Show Different Stocks
                 </button>
@@ -2391,7 +2402,7 @@ window.getTradeIdeasDifferent = async function() {
     
     // Show loading
     ideaBtn.disabled = true;
-    ideaContent.innerHTML = '<span style="color:#888;">🔄 Finding different stocks... (15-30 seconds)</span>';
+    ideaContent.innerHTML = '<span style="color:#888;">� Scanning fresh stocks from curated + active + trending... (20-40 seconds)</span>';
     
     try {
         const response = await fetch('/api/ai/ideas', {
@@ -2431,16 +2442,26 @@ window.getTradeIdeasDifferent = async function() {
             .replace(/(Entry:|Why:|Risk:|Capital:)/gi, '<span style="color:#888;">$1</span>')
             .replace(/✅|📊|💡|🎯|⚠️/g, match => `<span style="font-size:1.1em;">${match}</span>`);
         
+        // Show discovery source badges
+        const discoveredTickers = (result.candidates || []).filter(c => c.sector === 'Active Today' || c.sector === 'Trending');
+        const discoveryNote = discoveredTickers.length > 0 
+            ? `<div style="margin-top:15px; padding:10px; background:#1a1a2e; border-radius:5px; font-size:11px; color:#888;">
+                 🔍 <strong style="color:#00d9ff;">Discovery Mode:</strong> Found opportunities from today's market movers.
+                 ${discoveredTickers.map(t => `<span style="background:#333; padding:2px 6px; border-radius:3px; margin-left:4px;">${t.ticker} <span style="color:#ffaa00;">${t.sector}</span></span>`).join('')}
+               </div>`
+            : '';
+        
         // Add "Show Different" button + "Reset" option
         formatted += `
-            <div style="margin-top:20px; padding-top:15px; border-top:1px solid #333; text-align:center;">
+            ${discoveryNote}
+            <div style="margin-top:15px; padding-top:15px; border-top:1px solid #333; text-align:center;">
                 <button onclick="window.getTradeIdeasDifferent()" style="padding:8px 16px; background:#444; border:none; border-radius:5px; color:#00d9ff; cursor:pointer; font-size:13px;">
                     🔄 Show More Different Stocks
                 </button>
                 <button onclick="window._lastSuggestedTickers=[]; window.getTradeIdeas2();" style="padding:8px 16px; margin-left:10px; background:#333; border:none; border-radius:5px; color:#888; cursor:pointer; font-size:13px;" title="Reset exclusions and start fresh">
                     ↩️ Reset
                 </button>
-                <span style="margin-left:10px; color:#666; font-size:11px;">${window._lastSuggestedTickers.length} stocks excluded</span>
+                <span style="margin-left:10px; color:#666; font-size:11px;">${window._lastSuggestedTickers.length} excluded • ${result.candidatesChecked || 0} scanned</span>
             </div>`;
         
         ideaContent.innerHTML = formatted;

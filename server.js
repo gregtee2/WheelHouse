@@ -1004,10 +1004,51 @@ function fetchJson(url) {
     });
 }
 
+// Fetch Yahoo's Most Active stocks (high volume today)
+async function fetchMostActiveStocks() {
+    try {
+        const url = 'https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=most_actives&count=50';
+        const data = await fetchJson(url);
+        const quotes = data.finance?.result?.[0]?.quotes || [];
+        
+        // Filter to optionable stocks (skip ADRs, penny stocks, etc.)
+        const tickers = quotes
+            .filter(q => q.symbol && !q.symbol.includes('.') && q.regularMarketPrice > 5)
+            .map(q => ({ ticker: q.symbol, sector: 'Active Today' }))
+            .slice(0, 30);
+        
+        console.log(`[Discovery] Found ${tickers.length} most active stocks`);
+        return tickers;
+    } catch (e) {
+        console.log('[Discovery] Most active fetch failed:', e.message);
+        return [];
+    }
+}
+
+// Fetch Yahoo's Trending stocks (unusual activity/news)
+async function fetchTrendingStocks() {
+    try {
+        const url = 'https://query1.finance.yahoo.com/v1/finance/trending/US';
+        const data = await fetchJson(url);
+        const quotes = data.finance?.result?.[0]?.quotes || [];
+        
+        const tickers = quotes
+            .filter(q => q.symbol && !q.symbol.includes('.'))
+            .map(q => ({ ticker: q.symbol, sector: 'Trending' }))
+            .slice(0, 20);
+        
+        console.log(`[Discovery] Found ${tickers.length} trending stocks`);
+        return tickers;
+    } catch (e) {
+        console.log('[Discovery] Trending fetch failed:', e.message);
+        return [];
+    }
+}
+
 // Fetch current prices for a list of tickers (for AI trade ideas)
 async function fetchWheelCandidatePrices(buyingPower, excludeTickers = []) {
-    // Expanded wheel-friendly stock universe (~50 candidates)
-    const allCandidates = [
+    // Core curated wheel-friendly stocks (reliable favorites)
+    const curatedCandidates = [
         // Tech - Large Cap
         { ticker: 'AAPL', sector: 'Tech' },
         { ticker: 'MSFT', sector: 'Tech' },
@@ -1072,16 +1113,33 @@ async function fetchWheelCandidatePrices(buyingPower, excludeTickers = []) {
         { ticker: 'AMC', sector: 'High IV' }
     ];
     
+    // Fetch dynamic discovery lists (most active + trending today)
+    console.log('[Discovery] Fetching most active and trending stocks...');
+    const [mostActive, trending] = await Promise.all([
+        fetchMostActiveStocks(),
+        fetchTrendingStocks()
+    ]);
+    
+    // Merge all sources, removing duplicates (curated takes priority for sector)
+    const curatedTickers = new Set(curatedCandidates.map(c => c.ticker));
+    const allCandidates = [
+        ...curatedCandidates,
+        ...mostActive.filter(c => !curatedTickers.has(c.ticker)),
+        ...trending.filter(c => !curatedTickers.has(c.ticker) && !mostActive.find(m => m.ticker === c.ticker))
+    ];
+    
+    console.log(`[Discovery] Combined pool: ${curatedCandidates.length} curated + ${mostActive.length} active + ${trending.length} trending = ${allCandidates.length} unique`);
+    
     // Filter out excluded tickers (for "Show Different" feature)
     let candidates = allCandidates.filter(c => !excludeTickers.includes(c.ticker));
     
-    // Shuffle and pick a random subset (15-18 tickers for variety)
-    candidates = shuffleArray(candidates).slice(0, 18);
+    // Shuffle and pick a random subset (20 tickers for variety from larger pool)
+    candidates = shuffleArray(candidates).slice(0, 20);
     
     const results = [];
     const maxStrike = buyingPower / 100; // Max strike we can afford
     
-    console.log(`[AI] Fetching prices for ${candidates.length} wheel candidates (max strike: $${maxStrike.toFixed(0)})...`);
+    console.log(`[AI] Fetching prices for ${candidates.length} candidates (max strike: $${maxStrike.toFixed(0)})...`);
     
     // Fetch prices in parallel (batch of 5 to avoid rate limits)
     for (let i = 0; i < candidates.length; i += 5) {
