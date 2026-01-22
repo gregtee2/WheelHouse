@@ -629,19 +629,30 @@ setInterval(checkAIStatus, 30000); // Refresh every 30 seconds
  * Show/hide X Sentiment button based on model selection
  */
 function updateXSentimentButton() {
-    const modelSelect = document.getElementById('ideaModelSelect');
-    const xBtn = document.getElementById('xSentimentBtn');
-    if (!modelSelect || !xBtn) return;
+    // Handle both Ideas panels (Ideas tab and Positions tab)
+    const modelSelect1 = document.getElementById('ideaModelSelect');
+    const modelSelect2 = document.getElementById('ideaModelSelect2');
+    const xBtn1 = document.getElementById('xSentimentBtn');
+    const xBtn2 = document.getElementById('xSentimentBtn2');
     
-    const isGrok = modelSelect.value?.startsWith('grok');
-    xBtn.style.display = isGrok ? 'block' : 'none';
+    if (modelSelect1 && xBtn1) {
+        const isGrok = modelSelect1.value?.startsWith('grok');
+        xBtn1.style.display = isGrok ? 'block' : 'none';
+    }
+    if (modelSelect2 && xBtn2) {
+        const isGrok = modelSelect2.value?.startsWith('grok');
+        xBtn2.style.display = isGrok ? 'block' : 'none';
+    }
 }
 
 // Listen for model changes - run immediately since DOM is likely ready
 (function setupXSentimentToggle() {
-    const modelSelect = document.getElementById('ideaModelSelect');
-    if (modelSelect) {
-        modelSelect.addEventListener('change', updateXSentimentButton);
+    const modelSelect1 = document.getElementById('ideaModelSelect');
+    const modelSelect2 = document.getElementById('ideaModelSelect2');
+    
+    if (modelSelect1 || modelSelect2) {
+        if (modelSelect1) modelSelect1.addEventListener('change', updateXSentimentButton);
+        if (modelSelect2) modelSelect2.addEventListener('change', updateXSentimentButton);
         updateXSentimentButton(); // Check immediately
     } else {
         // DOM not ready, wait a bit
