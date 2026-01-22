@@ -150,6 +150,12 @@ function calculatePositionRisk(pos, spotPrice) {
     // Calculate ITM probability
     const itmPct = quickMonteCarloRisk(spotPrice, pos.strike, pos.dte, vol, isPut);
     
+    // Check if there's a holding with a saved strategy for this ticker
+    // If strategy is "LET CALL", assignment is DESIRED, not a problem!
+    const holding = (state.holdings || []).find(h => h.ticker === pos.ticker && h.savedStrategy);
+    const strategy = holding?.savedStrategy?.recommendation;
+    const wantsAssignment = strategy === 'LET CALL';
+    
     // Thresholds match analysis.js recommendation panel:
     // < 30% = HOLD (safe)
     // 30-40% = WATCH (moderate)
@@ -158,7 +164,18 @@ function calculatePositionRisk(pos, spotPrice) {
     // > 60% = DANGER (close immediately)
     
     if (itmPct >= 50) {
-        // HIGH RISK or DANGER - needs immediate attention
+        if (wantsAssignment) {
+            // Strategy says LET CALL - high assignment prob is GOOD!
+            return { 
+                icon: '🎯', 
+                text: `${itmPct.toFixed(0)}%`, 
+                color: '#00d9ff',  // Cyan - on track
+                needsAttention: false, 
+                itmPct,
+                wantsAssignment: true
+            };
+        }
+        // No strategy or different strategy - high risk warning
         return { 
             icon: '🔴', 
             text: `${itmPct.toFixed(0)}%`, 
@@ -167,6 +184,17 @@ function calculatePositionRisk(pos, spotPrice) {
             itmPct 
         };
     } else if (itmPct >= 40) {
+        if (wantsAssignment) {
+            // Wants assignment but not there yet
+            return { 
+                icon: '🎯', 
+                text: `${itmPct.toFixed(0)}%`, 
+                color: colors.orange,  // Getting there
+                needsAttention: false, 
+                itmPct,
+                wantsAssignment: true
+            };
+        }
         // CAUTION - consider rolling
         return { 
             icon: '🟠', 
@@ -2260,9 +2288,15 @@ async function updatePositionRiskStatuses(openPositions) {
                 </button>
             `;
         } else {
-            // Static indicator for healthy positions
+            // Static indicator - different tooltips for strategy-aware vs normal
+            const tooltipText = risk.wantsAssignment 
+                ? `${risk.itmPct?.toFixed(1)}% assignment probability - Strategy: LET CALL ✓`
+                : risk.itmPct 
+                    ? `${risk.itmPct.toFixed(1)}% ITM probability - Looking good!` 
+                    : 'Healthy position';
+            
             cell.innerHTML = `
-                <span style="color: ${risk.color}; font-size: 11px;" title="${risk.itmPct ? `${risk.itmPct.toFixed(1)}% ITM probability - Looking good!` : 'Healthy position'}">
+                <span style="color: ${risk.color}; font-size: 11px;" title="${tooltipText}">
                     ${risk.icon} ${risk.text}
                 </span>
             `;
