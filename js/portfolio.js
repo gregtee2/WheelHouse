@@ -1320,22 +1320,11 @@ export function renderHoldings() {
     
     section.style.display = 'block';
     
-    // Build comprehensive holdings display for covered call traders
+    // Build comprehensive holdings display - card-based layout for clarity
     let html = `
-        <table style="width:100%; border-collapse:collapse; font-size:12px;">
-            <thead>
-                <tr style="color:#888; background:rgba(0,0,0,0.3);">
-                    <th style="padding:8px; text-align:left;">Position</th>
-                    <th style="padding:8px; text-align:right;">Shares</th>
-                    <th style="padding:8px; text-align:right;" title="Your cost → Current value (unrealized P&L)">Stock Value</th>
-                    <th style="padding:8px; text-align:right;" title="Premium collected from selling the call">Premium</th>
-                    <th style="padding:8px; text-align:right;" title="Stock P&L + Premium = Total return so far">Total Return</th>
-                    <th style="padding:8px; text-align:right;" title="What you get if shares are called away at strike">If Called</th>
-                    <th style="padding:8px; text-align:center;" title="Upside you're missing if stock > strike">On Table</th>
-                    <th style="padding:8px; text-align:center;">Action</th>
-                </tr>
-            </thead>
-            <tbody>
+        <div style="font-size:10px; color:#666; margin-bottom:10px; padding:0 8px;">
+            Shares from Buy/Writes and Put Assignments
+        </div>
     `;
     
     // Store holding data for summary calculation after price fetch
@@ -1400,75 +1389,96 @@ export function renderHoldings() {
         
         const strikeDisplay = strike ? `$${strike.toFixed(2)}` : '—';
         
+        // Card-based layout - cleaner and more scannable
         html += `
-            <tr id="${rowId}" style="border-bottom:1px solid rgba(255,255,255,0.1);">
-                <td style="padding:8px;">
-                    <div style="font-weight:bold; color:${sourceColor};">${h.ticker}</div>
-                    <div style="font-size:10px; color:#888;">${sourceLabel} · Call @ ${strikeDisplay}</div>
-                </td>
-                <td style="padding:8px; text-align:right; font-weight:bold;">${shares}</td>
-                <td style="padding:8px; text-align:right;">
-                    <div style="color:#888;">$${totalCost.toFixed(0)} →</div>
-                    <div id="${priceId}" style="font-weight:bold;">Loading...</div>
-                    <div id="${stockPnLId}" style="font-size:10px;"></div>
-                </td>
-                <td style="padding:8px; text-align:right;">
-                    <div style="color:#00ff88; font-weight:bold;">+$${premiumTotal.toFixed(0)}</div>
-                    <div style="font-size:10px; color:#888;">($${(premiumTotal/shares).toFixed(2)}/sh)</div>
-                </td>
-                <td id="${totalReturnId}" style="padding:8px; text-align:right; font-weight:bold;">
-                    <span style="color:#888;">—</span>
-                </td>
-                <td style="padding:8px; text-align:right;">
-                    <div style="color:#00d9ff; font-weight:bold;">${maxProfit > 0 ? `+$${maxProfit.toFixed(0)}` : '—'}</div>
-                    ${strike ? `<div style="font-size:10px; color:#888;">@ $${strike}</div>` : ''}
-                </td>
-                <td id="${onTableId}" style="padding:8px; text-align:center;">
-                    <span style="color:#888;">—</span>
-                </td>
-                <td id="${actionId}" style="padding:8px; text-align:center; white-space:nowrap;">
-                    ${isBuyWrite && h.linkedPositionId ? `
-                    <button onclick="window.analyzeHolding(${h.id})" 
-                            style="background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; margin-right:4px;"
-                            title="Analyze in P&L tab">
-                        🔬
-                    </button>
-                    ` : ''}
-                    <button onclick="window.sellShares(${h.id})" 
-                            style="background:rgba(255,82,82,0.2); border:1px solid rgba(255,82,82,0.4); color:#f55; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px;"
-                            title="Sell shares">
-                        💰 Sell
-                    </button>
-                </td>
-            </tr>
+            <div id="${rowId}" style="background:#1a1a2e; border-radius:8px; padding:12px; margin-bottom:8px; border:1px solid #333;">
+                <!-- Header Row: Ticker + Buttons -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="font-size:18px; font-weight:bold; color:${sourceColor};">${h.ticker}</span>
+                        <span style="font-size:11px; color:#888; background:rgba(0,0,0,0.3); padding:2px 8px; border-radius:4px;">
+                            ${sourceLabel} · ${shares} shares · Call @ ${strikeDisplay}
+                        </span>
+                    </div>
+                    <div style="display:flex; gap:6px;">
+                        ${isBuyWrite && h.linkedPositionId ? `
+                        <button onclick="window.analyzeHolding(${h.id})" 
+                                style="background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
+                                title="Analyze in P&L tab">
+                            🔬
+                        </button>
+                        ` : ''}
+                        <button onclick="window.sellShares(${h.id})" 
+                                style="background:rgba(255,82,82,0.2); border:1px solid rgba(255,82,82,0.4); color:#f55; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
+                                title="Sell shares">
+                            💰 Sell
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Stats Grid -->
+                <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; text-align:center;">
+                    <!-- Stock Value -->
+                    <div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:6px;">
+                        <div style="font-size:9px; color:#666; margin-bottom:2px;">STOCK VALUE</div>
+                        <div id="${priceId}" style="font-size:14px; font-weight:bold; color:#fff;">Loading...</div>
+                        <div id="${stockPnLId}" style="font-size:10px; color:#888;"></div>
+                    </div>
+                    
+                    <!-- Premium Collected -->
+                    <div style="background:rgba(0,255,136,0.08); padding:8px; border-radius:6px;">
+                        <div style="font-size:9px; color:#666; margin-bottom:2px;">PREMIUM</div>
+                        <div style="font-size:14px; font-weight:bold; color:#00ff88;">+$${premiumTotal.toFixed(0)}</div>
+                        <div style="font-size:10px; color:#888;">$${(premiumTotal/shares).toFixed(2)}/sh</div>
+                    </div>
+                    
+                    <!-- Total Return -->
+                    <div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:6px;">
+                        <div style="font-size:9px; color:#666; margin-bottom:2px;">TOTAL RETURN</div>
+                        <div id="${totalReturnId}" style="font-size:14px; font-weight:bold;">—</div>
+                    </div>
+                    
+                    <!-- If Called -->
+                    <div style="background:rgba(0,217,255,0.08); padding:8px; border-radius:6px;">
+                        <div style="font-size:9px; color:#666; margin-bottom:2px;">IF CALLED</div>
+                        <div style="font-size:14px; font-weight:bold; color:#00d9ff;">${maxProfit > 0 ? `+$${maxProfit.toFixed(0)}` : '—'}</div>
+                        ${strike ? `<div style="font-size:10px; color:#888;">@ $${strike}</div>` : ''}
+                    </div>
+                    
+                    <!-- Cushion/On Table -->
+                    <div id="${onTableId}" style="background:rgba(0,0,0,0.2); padding:8px; border-radius:6px;">
+                        <div style="font-size:9px; color:#666; margin-bottom:2px;">CUSHION</div>
+                        <div style="font-size:14px; font-weight:bold; color:#888;">—</div>
+                    </div>
+                </div>
+            </div>
         `;
     });
     
-    html += '</tbody></table>';
-    
     // Summary section - will be updated after price fetch
     html += `
-        <div id="holdingsSummary" style="margin-top:10px; padding:10px; background:rgba(255,140,0,0.1); border-radius:6px;">
-            <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; font-size:12px;">
+        <div id="holdingsSummary" style="margin-top:12px; padding:12px; background:rgba(255,140,0,0.1); border-radius:8px; border:1px solid rgba(255,140,0,0.3);">
+            <div style="font-size:10px; color:#fa0; margin-bottom:8px; font-weight:bold;">📊 PORTFOLIO TOTALS</div>
+            <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; text-align:center;">
                 <div>
                     <div style="color:#888; font-size:10px;">Capital Invested</div>
-                    <div id="sumCapital" style="color:#fa0; font-weight:bold;">—</div>
+                    <div id="sumCapital" style="color:#fa0; font-weight:bold; font-size:14px;">—</div>
                 </div>
                 <div>
                     <div style="color:#888; font-size:10px;">Current Value</div>
-                    <div id="sumValue" style="color:#fff; font-weight:bold;">—</div>
+                    <div id="sumValue" style="color:#fff; font-weight:bold; font-size:14px;">—</div>
                 </div>
                 <div>
                     <div style="color:#888; font-size:10px;">Stock P&L</div>
-                    <div id="sumStockPnL" style="font-weight:bold;">—</div>
+                    <div id="sumStockPnL" style="font-weight:bold; font-size:14px;">—</div>
                 </div>
                 <div>
                     <div style="color:#888; font-size:10px;">Premium Banked</div>
-                    <div id="sumPremium" style="color:#00ff88; font-weight:bold;">—</div>
+                    <div id="sumPremium" style="color:#00ff88; font-weight:bold; font-size:14px;">—</div>
                 </div>
                 <div>
                     <div style="color:#888; font-size:10px;">Total Return</div>
-                    <div id="sumTotalReturn" style="font-weight:bold;">—</div>
+                    <div id="sumTotalReturn" style="font-weight:bold; font-size:14px;">—</div>
                 </div>
             </div>
         </div>
@@ -1567,51 +1577,44 @@ function updateHoldingRow(h, currentPrice, currentValue, stockPnL, totalReturn, 
         const trSign = totalReturn >= 0 ? '+' : '';
         const trPct = h.totalCost > 0 ? ((totalReturn / h.totalCost) * 100).toFixed(1) : 0;
         totalReturnEl.innerHTML = `
-            <div style="color:${trColor}; font-size:14px;">${trSign}$${totalReturn.toFixed(0)}</div>
+            <div style="font-size:14px; font-weight:bold; color:${trColor};">${trSign}$${totalReturn.toFixed(0)}</div>
             <div style="font-size:10px; color:${trColor};">${trSign}${trPct}%</div>
         `;
     }
     
-    // Money On Table column
+    // Money On Table / Cushion column
     const onTableEl = document.getElementById(`hot-${h.id}`);
     if (onTableEl) {
         if (moneyOnTable > 0) {
             onTableEl.innerHTML = `
-                <div style="color:#ff9800; font-weight:bold; font-size:13px;">$${moneyOnTable.toFixed(0)}</div>
+                <div style="font-size:9px; color:#666; margin-bottom:2px;">ON TABLE</div>
+                <div style="font-size:14px; font-weight:bold; color:#ff9800;">$${moneyOnTable.toFixed(0)}</div>
                 <div style="font-size:10px; color:#ff5252;">⚠️ Roll UP!</div>
             `;
+            onTableEl.style.background = 'rgba(255,152,0,0.15)';
         } else if (h.strike > 0) {
             const distToStrike = h.strike - currentPrice;
             const distPct = ((distToStrike / currentPrice) * 100).toFixed(1);
             if (distToStrike > 0) {
                 onTableEl.innerHTML = `
-                    <div style="color:#888;">—</div>
-                    <div style="font-size:10px; color:#00ff88;">${distPct}% cushion</div>
+                    <div style="font-size:9px; color:#666; margin-bottom:2px;">CUSHION</div>
+                    <div style="font-size:14px; font-weight:bold; color:#00ff88;">${distPct}%</div>
+                    <div style="font-size:10px; color:#888;">Safe zone</div>
                 `;
+                onTableEl.style.background = 'rgba(0,255,136,0.08)';
             } else {
-                onTableEl.innerHTML = `<span style="color:#00ff88;">ITM</span>`;
+                onTableEl.innerHTML = `
+                    <div style="font-size:9px; color:#666; margin-bottom:2px;">STATUS</div>
+                    <div style="font-size:14px; font-weight:bold; color:#00d9ff;">ITM</div>
+                    <div style="font-size:10px; color:#888;">Will be called</div>
+                `;
+                onTableEl.style.background = 'rgba(0,217,255,0.1)';
             }
         } else {
-            onTableEl.innerHTML = `<span style="color:#888;">—</span>`;
-        }
-    }
-    
-    // Action column - add contextual suggestion
-    const actionEl = document.getElementById(`hact-${h.id}`);
-    if (actionEl && h.strike > 0) {
-        const pctFromStrike = ((currentPrice - h.strike) / h.strike) * 100;
-        let suggestionHtml = '';
-        
-        if (pctFromStrike > 3) {
-            suggestionHtml = `<div style="font-size:10px; color:#ff5252; margin-top:4px;">📈 Roll up!</div>`;
-        } else if (pctFromStrike > 0) {
-            suggestionHtml = `<div style="font-size:10px; color:#ffaa00; margin-top:4px;">📞 May be called</div>`;
-        } else if (pctFromStrike > -5) {
-            suggestionHtml = `<div style="font-size:10px; color:#888; margin-top:4px;">⏳ Watch closely</div>`;
-        }
-        
-        if (suggestionHtml && !actionEl.innerHTML.includes('Roll up')) {
-            actionEl.innerHTML += suggestionHtml;
+            onTableEl.innerHTML = `
+                <div style="font-size:9px; color:#666; margin-bottom:2px;">CUSHION</div>
+                <div style="font-size:14px; font-weight:bold; color:#888;">—</div>
+            `;
         }
     }
 }
@@ -1626,16 +1629,19 @@ function showHoldingError(h) {
     const onTableEl = document.getElementById(`hot-${h.id}`);
     
     if (priceEl) {
-        priceEl.innerHTML = `<span style="color:#ff5252;">⚠️ No price</span>`;
+        priceEl.innerHTML = `<span style="color:#ff5252; font-size:12px;">⚠️ No price</span>`;
     }
     if (stockPnLEl) {
         stockPnLEl.innerHTML = '';
     }
     if (totalReturnEl) {
-        totalReturnEl.innerHTML = `<span style="color:#888;">—</span>`;
+        totalReturnEl.innerHTML = `<div style="font-size:14px; color:#888;">—</div>`;
     }
     if (onTableEl) {
-        onTableEl.innerHTML = `<span style="color:#888;">—</span>`;
+        onTableEl.innerHTML = `
+            <div style="font-size:9px; color:#666; margin-bottom:2px;">CUSHION</div>
+            <div style="font-size:14px; font-weight:bold; color:#888;">—</div>
+        `;
     }
 }
 
