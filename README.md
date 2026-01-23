@@ -5,12 +5,49 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.8.0-blue)
+![Version](https://img.shields.io/badge/version-1.9.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
-## 🆕 What's New in v1.8.0
+## 🆕 What's New in v1.9.0
+
+### 📊 Per-Position Greeks
+- **Delta (Δ) and Theta (Θ/day)** columns in Positions table
+- Individual position Greeks calculated from Black-Scholes
+- Neutral styling (pro trader aesthetic)
+
+### 🤖 AI Portfolio Audit
+- **Comprehensive AI analysis** of your entire portfolio
+- Analyzes concentration risk, problem positions, Greeks balance
+- Provides specific optimization suggestions (rolls, closes, adjustments)
+- Saves context for use in future AI trade analysis
+
+### 🧠 Portfolio-Aware AI Analysis
+- **AI now considers your existing positions** when analyzing new trades
+- Trade analysis warns about sector concentration
+- Ideas feature suggests trades that balance your portfolio
+- Context valid for 24 hours after audit
+
+### 📅 Year Filter for Advanced Analytics
+- Advanced Analytics now filters by selected year (matches Closed Positions filter)
+- See "(2026)" or "(All Time)" label in header
+- Compare current year vs historical performance
+
+### 📥 Stage Roll Suggestions to Ideas
+- **"Stage to Ideas" button** on each roll suggestion
+- Purple **"ROLL" badge** in Pending Trades
+- Call/Put indicator (C/P) with color coding
+- Track roll candidates before executing with broker
+
+### 📈 Conservative Kelly Calculator
+- Now uses **Account Value + 25% of margin** (not full buying power)
+- Much safer position sizing recommendations
+- Tooltip explains the calculation
+
+---
+
+## 📦 Previous: v1.8.0
 
 ### 💹 Schwab API Integration (Real-Time Pricing!)
 - **Schwab-first option pricing** - Real-time bid/ask/Greeks from your Schwab account
