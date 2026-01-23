@@ -13,6 +13,9 @@ const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
 // ACCOUNT BALANCES
 // ============================================================
 
+// Store preferred account hash in localStorage
+const PREFERRED_ACCOUNT_KEY = 'wheelhouse_preferred_account';
+
 /**
  * Fetch and display Schwab account balances
  */
@@ -30,15 +33,53 @@ export async function fetchAccountBalances() {
         
         const accounts = await res.json();
         
-        // Find the main trading account (MARGIN type preferred, or first with balances)
-        const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
-        const account = marginAccount || accounts.find(a => a.securitiesAccount?.currentBalances);
+        // Debug: log all accounts
+        console.log('[BALANCES] All accounts:', accounts.map(a => ({
+            type: a.securitiesAccount?.type,
+            accountNumber: a.securitiesAccount?.accountNumber?.slice(-4), // Last 4 digits
+            hasBalances: !!a.securitiesAccount?.currentBalances,
+            equity: a.securitiesAccount?.currentBalances?.equity || a.securitiesAccount?.currentBalances?.liquidationValue
+        })));
+        
+        // Try to find the right account in order of preference:
+        // 1. User's saved preferred account
+        // 2. MARGIN type account
+        // 3. Account with highest equity (most likely the main trading account)
+        const preferredHash = localStorage.getItem(PREFERRED_ACCOUNT_KEY);
+        let account = null;
+        
+        if (preferredHash) {
+            account = accounts.find(a => a.securitiesAccount?.accountNumber === preferredHash);
+            if (account) console.log('[BALANCES] Using preferred account:', preferredHash.slice(-4));
+        }
+        
+        if (!account) {
+            // Try MARGIN type first
+            account = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
+            if (account) console.log('[BALANCES] Found MARGIN account');
+        }
+        
+        if (!account) {
+            // Fall back to account with highest equity
+            account = accounts
+                .filter(a => a.securitiesAccount?.currentBalances)
+                .sort((a, b) => {
+                    const eqA = a.securitiesAccount?.currentBalances?.equity || a.securitiesAccount?.currentBalances?.liquidationValue || 0;
+                    const eqB = b.securitiesAccount?.currentBalances?.equity || b.securitiesAccount?.currentBalances?.liquidationValue || 0;
+                    return eqB - eqA; // Descending
+                })[0];
+            if (account) console.log('[BALANCES] Using account with highest equity');
+        }
         
         if (!account?.securitiesAccount?.currentBalances) {
             console.log('[BALANCES] No balance data found');
             banner.style.display = 'none';
             return;
         }
+        
+        // Store the account number for display
+        const accountNumber = account.securitiesAccount?.accountNumber;
+        const accountType = account.securitiesAccount?.type || 'Unknown';
         
         const bal = account.securitiesAccount.currentBalances;
         const fmt = (v) => {
@@ -53,14 +94,23 @@ export async function fetchAccountBalances() {
         document.getElementById('balMarginUsed').textContent = fmt(bal.marginBalance || 0);
         document.getElementById('balDayTradeBP').textContent = fmt(bal.dayTradingBuyingPower);
         
-        // Timestamp
+        // Timestamp with account info
         const now = new Date();
-        document.getElementById('balanceLastUpdated').textContent = `Updated ${now.toLocaleTimeString()}`;
+        const lastDigits = accountNumber ? `...${accountNumber.slice(-4)}` : '';
+        document.getElementById('balanceLastUpdated').innerHTML = `
+            <span style="color:#00d9ff;">${accountType}</span> ${lastDigits} · Updated ${now.toLocaleTimeString()}
+            ${accounts.length > 1 ? `<button onclick="window.showAccountSwitcher()" style="margin-left:8px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); color:#00d9ff; padding:2px 6px; border-radius:4px; cursor:pointer; font-size:10px;">Switch</button>` : ''}
+        `;
+        
+        // Store accounts for switcher
+        window._schwabAccounts = accounts;
         
         // Show the banner
         banner.style.display = 'block';
         
         console.log('[BALANCES] Displayed:', {
+            account: accountNumber?.slice(-4),
+            type: accountType,
             cash: bal.cashAvailableForTrading,
             buyingPower: bal.buyingPower,
             equity: bal.liquidationValue
@@ -71,6 +121,68 @@ export async function fetchAccountBalances() {
         banner.style.display = 'none';
     }
 }
+
+/**
+ * Show account switcher modal
+ */
+window.showAccountSwitcher = function() {
+    const accounts = window._schwabAccounts || [];
+    if (accounts.length < 2) return;
+    
+    const preferredHash = localStorage.getItem(PREFERRED_ACCOUNT_KEY);
+    
+    const fmt = (v) => {
+        if (v === undefined || v === null) return '—';
+        return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+    
+    const rows = accounts.map(a => {
+        const sec = a.securitiesAccount;
+        const bal = sec?.currentBalances || {};
+        const accNum = sec?.accountNumber || '';
+        const type = sec?.type || 'Unknown';
+        const equity = bal.equity || bal.liquidationValue || 0;
+        const isSelected = accNum === preferredHash;
+        
+        return `
+            <div style="padding:12px; margin:8px 0; background:${isSelected ? 'rgba(0,217,255,0.15)' : 'rgba(255,255,255,0.05)'}; border:1px solid ${isSelected ? '#00d9ff' : '#333'}; border-radius:8px; cursor:pointer;" 
+                 onclick="window.selectAccount('${accNum}')">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <span style="font-weight:bold; color:${type === 'MARGIN' ? '#00d9ff' : '#ffaa00'};">${type}</span>
+                        <span style="color:#888; margin-left:8px;">...${accNum.slice(-4)}</span>
+                        ${isSelected ? '<span style="color:#00ff88; margin-left:8px;">✓ Selected</span>' : ''}
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="color:#fff; font-weight:bold;">${fmt(equity)}</div>
+                        <div style="color:#888; font-size:11px;">Account Value</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    const modal = createModal('accountSwitcher', `
+        ${modalHeader('🔄 Switch Account', 'Choose which Schwab account to display')}
+        <div style="padding:15px;">
+            ${rows}
+            <div style="margin-top:15px; padding:10px; background:rgba(255,170,0,0.1); border-radius:6px; font-size:12px; color:#ffaa00;">
+                💡 Your selection will be remembered for future sessions.
+            </div>
+        </div>
+    `);
+    document.body.appendChild(modal);
+};
+
+/**
+ * Select a Schwab account as preferred
+ */
+window.selectAccount = function(accountNumber) {
+    localStorage.setItem(PREFERRED_ACCOUNT_KEY, accountNumber);
+    document.getElementById('accountSwitcher')?.remove();
+    fetchAccountBalances();
+    showNotification(`Switched to account ...${accountNumber.slice(-4)}`, 'success');
+};
 
 // Initialize balance refresh button
 document.addEventListener('DOMContentLoaded', () => {
