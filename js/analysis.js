@@ -47,10 +47,14 @@ export function generateRecommendation(belowStrikePct, aboveStrikePct, dteValue)
         winPct = isPut ? aboveStrikePct : belowStrikePct;
     }
     
-    const safeThreshold = 30;
-    const watchThreshold = 40;
-    const cautionThreshold = 50;
-    const dangerThreshold = 60;
+    // For LONG options, thresholds should be different:
+    // - Long options have capped downside (premium) and uncapped upside
+    // - 50% ITM probability with good reward:risk is actually reasonable
+    // - We should consider reward:risk ratio, not just probability
+    const safeThreshold = isLong ? 40 : 30;      // Long: 40% OTM risk is safe, Short: 30%
+    const watchThreshold = isLong ? 55 : 40;     // Long: 55%, Short: 40%
+    const cautionThreshold = isLong ? 70 : 50;   // Long: 70%, Short: 50%
+    const dangerThreshold = isLong ? 80 : 60;    // Long: 80%, Short: 60%
     
     // For long options, use different language (expiring worthless vs assignment)
     const riskLabel = isLong ? 'expire worthless' : 'assignment';
@@ -146,6 +150,7 @@ export function calculateExpectedValue() {
     const contracts = state.currentPositionContext?.contracts || 1;
     const posType = getPositionType();
     const isPut = posType.isPut;
+    const isLong = posType.isLong;
     
     // Use position premium if analyzing a position, otherwise use calculated price
     let premium;
@@ -161,10 +166,26 @@ export function calculateExpectedValue() {
     let totalPnL = 0;
     state.optionResults.finalPrices.forEach(price => {
         let pnl;
-        if (isPut) {
-            pnl = (price >= state.strike) ? premium * 100 : (premium - (state.strike - price)) * 100;
+        if (isLong) {
+            // LONG options - you PAID premium, profit from price movement
+            if (isPut) {
+                // Long put: profit when price < strike
+                const intrinsic = Math.max(0, state.strike - price);
+                pnl = (intrinsic - premium) * 100;
+            } else {
+                // Long call: profit when price > strike
+                const intrinsic = Math.max(0, price - state.strike);
+                pnl = (intrinsic - premium) * 100;
+            }
         } else {
-            pnl = (price <= state.strike) ? premium * 100 : (premium - (price - state.strike)) * 100;
+            // SHORT options - you RECEIVED premium, risk from price movement
+            if (isPut) {
+                // Short put: profit when price >= strike, loss when price < strike
+                pnl = (price >= state.strike) ? premium * 100 : (premium - (state.strike - price)) * 100;
+            } else {
+                // Short call: profit when price <= strike, loss when price > strike
+                pnl = (price <= state.strike) ? premium * 100 : (premium - (price - state.strike)) * 100;
+            }
         }
         totalPnL += pnl * contracts;
     });
@@ -177,13 +198,14 @@ export function calculateExpectedValue() {
         expectedValueEl.style.color = expectedValue >= 0 ? '#00ff88' : '#ff5252';
     }
     
-    calculateIsItWorthIt(expectedValue, isPut, premium, contracts);
+    calculateIsItWorthIt(expectedValue, isPut, premium, contracts, isLong);
 }
 
 /**
  * Calculate "Is It Worth It?" metrics
+ * Now supports both SHORT and LONG options with different calculations
  */
-function calculateIsItWorthIt(expectedValue, isPut, premium, contracts) {
+function calculateIsItWorthIt(expectedValue, isPut, premium, contracts, isLong = false) {
     const worthItBox = document.getElementById('worthItBox');
     if (worthItBox) worthItBox.style.display = 'block';
     
@@ -195,8 +217,8 @@ function calculateIsItWorthIt(expectedValue, isPut, premium, contracts) {
     const costBasis = state.currentPositionContext?.costBasis || state.currentPositionContext?.holdingCostBasis;
     const posType = getPositionType();
     
-    // Show for any CALL position (not put) that has a cost basis
-    if (costBasisBox && costBasis && !isPut) {
+    // Show for any CALL position (not put) that has a cost basis (covered calls)
+    if (costBasisBox && costBasis && !isPut && !isLong) {
         costBasisBox.style.display = 'block';
         costBasisValue.textContent = '$' + costBasis.toFixed(2);
         
@@ -216,73 +238,6 @@ function calculateIsItWorthIt(expectedValue, isPut, premium, contracts) {
         costBasisBox.style.display = 'none';
     }
     
-    const winPct = isPut ? 
-        (state.optionResults.aboveStrikeCount / state.optionResults.finalPrices.length * 100) :
-        (state.optionResults.belowStrikeCount / state.optionResults.finalPrices.length * 100);
-    
-    const maxProfit = premium * 100 * contracts;
-    const capitalRequired = state.strike * 100 * contracts;
-    const roc = (maxProfit / capitalRequired) * 100;
-    const annualizedRoc = roc * (365 / state.dte);
-    
-    // Calculate average price if assigned
-    let avgPriceIfAssigned = 0;
-    let assignedCount = 0;
-    
-    if (isPut) {
-        state.optionResults.finalPrices.forEach(price => {
-            if (price < state.strike) {
-                avgPriceIfAssigned += price;
-                assignedCount++;
-            }
-        });
-    } else {
-        state.optionResults.finalPrices.forEach(price => {
-            if (price > state.strike) {
-                avgPriceIfAssigned += price;
-                assignedCount++;
-            }
-        });
-    }
-    
-    let expectedLossIfAssigned, realisticRiskReward;
-    
-    if (assignedCount > 0) {
-        avgPriceIfAssigned = avgPriceIfAssigned / assignedCount;
-        
-        if (isPut) {
-            expectedLossIfAssigned = ((state.strike - avgPriceIfAssigned) - premium) * 100 * contracts;
-        } else {
-            expectedLossIfAssigned = ((avgPriceIfAssigned - state.strike) - premium) * 100 * contracts;
-        }
-        expectedLossIfAssigned = Math.max(0, expectedLossIfAssigned);
-        realisticRiskReward = expectedLossIfAssigned > 0 ? 
-            (expectedLossIfAssigned / maxProfit).toFixed(1) + ':1' : '0:1';
-    } else {
-        avgPriceIfAssigned = 0;
-        expectedLossIfAssigned = isPut ? (state.strike - premium) * 100 * contracts : Infinity;
-        realisticRiskReward = expectedLossIfAssigned === Infinity ? '∞:1' : (expectedLossIfAssigned / maxProfit).toFixed(1) + ':1';
-    }
-    
-    // Required win rate
-    let requiredWinRate;
-    if (isPut && expectedLossIfAssigned > 0 && expectedLossIfAssigned !== Infinity) {
-        requiredWinRate = (expectedLossIfAssigned / (maxProfit + expectedLossIfAssigned)) * 100;
-    } else if (isPut) {
-        requiredWinRate = ((state.strike - premium) / state.strike * 100);
-    } else {
-        requiredWinRate = 100;
-    }
-    
-    const yourEdge = winPct - requiredWinRate;
-    
-    // Kelly Criterion
-    const b = expectedLossIfAssigned > 0 ? maxProfit / expectedLossIfAssigned : 0;
-    const p = winPct / 100;
-    const q = 1 - p;
-    let kellyPct = b > 0 ? ((b * p - q) / b) * 100 : 0;
-    kellyPct = Math.max(0, Math.min(kellyPct, 100));
-    
     // Update display - helper function
     function setEl(id, text, colorFn) {
         const el = document.getElementById(id);
@@ -292,22 +247,276 @@ function calculateIsItWorthIt(expectedValue, isPut, premium, contracts) {
         }
     }
     
-    setEl('rocDisplay', roc.toFixed(2) + '%', () => roc >= 2 ? '#00ff88' : roc >= 1 ? '#00d9ff' : '#ffaa00');
-    setEl('annRocDisplay', annualizedRoc.toFixed(0) + '%', () => annualizedRoc >= 30 ? '#00ff88' : annualizedRoc >= 15 ? '#00d9ff' : '#ffaa00');
+    if (isLong) {
+        // ===================== LONG OPTION METRICS =====================
+        // For LONG options, you PAY premium upfront
+        // Risk = Premium paid (max loss if expires worthless)
+        // Reward = Unlimited (call) or Strike - Premium (put)
+        
+        const maxRisk = premium * 100 * contracts;
+        const capitalInvested = maxRisk; // Premium is the capital at risk
+        
+        // Win = expires in the money with profit
+        // For long call: win = price > strike + premium (breakeven)
+        // For long put: win = price < strike - premium (breakeven)
+        const breakeven = isPut ? state.strike - premium : state.strike + premium;
+        
+        // Calculate win rate for LONG options (needs to exceed breakeven to profit)
+        let winCount = 0;
+        let totalProfit = 0;
+        let lossCount = 0;
+        let totalLoss = 0;
+        
+        state.optionResults.finalPrices.forEach(price => {
+            if (isPut) {
+                const intrinsic = Math.max(0, state.strike - price);
+                const pnl = intrinsic - premium;
+                if (pnl > 0) {
+                    winCount++;
+                    totalProfit += pnl * 100;
+                } else {
+                    lossCount++;
+                    totalLoss += Math.abs(pnl) * 100;
+                }
+            } else {
+                const intrinsic = Math.max(0, price - state.strike);
+                const pnl = intrinsic - premium;
+                if (pnl > 0) {
+                    winCount++;
+                    totalProfit += pnl * 100;
+                } else {
+                    lossCount++;
+                    totalLoss += Math.abs(pnl) * 100;
+                }
+            }
+        });
+        
+        const totalPaths = state.optionResults.finalPrices.length;
+        const winPct = (winCount / totalPaths) * 100;
+        const avgWin = winCount > 0 ? (totalProfit / winCount) * contracts : 0;
+        const avgLoss = lossCount > 0 ? (totalLoss / lossCount) * contracts : maxRisk;
+        
+        // Expected profit if winning
+        const expectedProfit = avgWin;
+        // ROC for long options = Expected Profit / Premium Paid (if you win)
+        const rocIfWin = capitalInvested > 0 ? (avgWin / capitalInvested) * 100 : 0;
+        // Annualized ROC
+        const annualizedRoc = rocIfWin * (365 / state.dte);
+        
+        // Risk:Reward for LONG options = Max Risk : Expected Profit
+        // Displayed as Reward:Risk (how much you can make per $ risked)
+        const rewardRiskRatio = avgWin > 0 ? (avgWin / maxRisk).toFixed(1) + ':1' : '0:1';
+        
+        // For long options, required win rate is based on risk/reward
+        // If you risk $100 to make $300 (3:1 reward), you need to win >25% to break even
+        const requiredWinRate = avgWin > 0 ? (maxRisk / (avgWin + maxRisk)) * 100 : 50;
+        
+        const yourEdge = winPct - requiredWinRate;
+        
+        // Kelly Criterion for long options
+        const b = avgWin / maxRisk; // odds ratio
+        const p = winPct / 100;
+        const q = 1 - p;
+        let kellyPct = b > 0 ? ((b * p - q) / b) * 100 : 0;
+        kellyPct = Math.max(0, Math.min(kellyPct, 100));
+        
+        // Update labels for long options context
+        setEl('rocDisplay', rocIfWin.toFixed(1) + '%', () => rocIfWin >= 100 ? '#00ff88' : rocIfWin >= 50 ? '#00d9ff' : '#ffaa00');
+        setEl('annRocDisplay', annualizedRoc.toFixed(0) + '%', () => annualizedRoc >= 100 ? '#00ff88' : annualizedRoc >= 50 ? '#00d9ff' : '#ffaa00');
+        
+        setEl('riskRewardRatio', rewardRiskRatio, () => {
+            const ratio = parseFloat(rewardRiskRatio);
+            return ratio >= 2 ? '#00ff88' : ratio >= 1 ? '#00d9ff' : '#ffaa00';
+        });
+        
+        setEl('winProbability', winPct.toFixed(1) + '%', () => winPct > 50 ? '#00ff88' : winPct > 30 ? '#ffaa00' : '#ff5252');
+        setEl('requiredWinRate', requiredWinRate.toFixed(1) + '%');
+        setEl('yourEdge', (yourEdge > 0 ? '+' : '') + yourEdge.toFixed(1) + '%', () => yourEdge > 0 ? '#00ff88' : '#ff5252');
+        setEl('kellyPct', kellyPct.toFixed(1) + '%', () => kellyPct > 0 ? '#00ff88' : '#ff5252');
+        
+        // For long options, show breakeven and max risk instead of assignment metrics
+        setEl('avgIfAssigned', `$${breakeven.toFixed(2)}`, () => '#00d9ff');
+        setEl('expectedLoss', `-$${maxRisk.toFixed(0)}`, () => '#ff5252');
+        
+        // Update labels to be more accurate for long options
+        // Labels are <span class="result-label"> before the value spans
+        const avgValueEl = document.getElementById('avgIfAssigned');
+        const lossValueEl = document.getElementById('expectedLoss');
+        if (avgValueEl?.previousElementSibling) avgValueEl.previousElementSibling.textContent = 'Breakeven:';
+        if (lossValueEl?.previousElementSibling) lossValueEl.previousElementSibling.textContent = 'Max Risk:';
+        
+        // Calculate "margin" for long options - just the debit paid
+        calculateMarginImpactLong(premium, contracts, isPut);
+        
+    } else {
+        // ===================== SHORT OPTION METRICS =====================
+        // Original logic for short puts, covered calls, etc.
+        
+        const winPct = isPut ? 
+            (state.optionResults.aboveStrikeCount / state.optionResults.finalPrices.length * 100) :
+            (state.optionResults.belowStrikeCount / state.optionResults.finalPrices.length * 100);
+        
+        const maxProfit = premium * 100 * contracts;
+        const capitalRequired = state.strike * 100 * contracts;
+        const roc = (maxProfit / capitalRequired) * 100;
+        const annualizedRoc = roc * (365 / state.dte);
+        
+        // Calculate average price if assigned
+        let avgPriceIfAssigned = 0;
+        let assignedCount = 0;
+        
+        if (isPut) {
+            state.optionResults.finalPrices.forEach(price => {
+                if (price < state.strike) {
+                    avgPriceIfAssigned += price;
+                    assignedCount++;
+                }
+            });
+        } else {
+            state.optionResults.finalPrices.forEach(price => {
+                if (price > state.strike) {
+                    avgPriceIfAssigned += price;
+                    assignedCount++;
+                }
+            });
+        }
+        
+        let expectedLossIfAssigned, realisticRiskReward;
+        
+        if (assignedCount > 0) {
+            avgPriceIfAssigned = avgPriceIfAssigned / assignedCount;
+            
+            if (isPut) {
+                expectedLossIfAssigned = ((state.strike - avgPriceIfAssigned) - premium) * 100 * contracts;
+            } else {
+                expectedLossIfAssigned = ((avgPriceIfAssigned - state.strike) - premium) * 100 * contracts;
+            }
+            expectedLossIfAssigned = Math.max(0, expectedLossIfAssigned);
+            realisticRiskReward = expectedLossIfAssigned > 0 ? 
+                (expectedLossIfAssigned / maxProfit).toFixed(1) + ':1' : '0:1';
+        } else {
+            avgPriceIfAssigned = 0;
+            expectedLossIfAssigned = isPut ? (state.strike - premium) * 100 * contracts : Infinity;
+            realisticRiskReward = expectedLossIfAssigned === Infinity ? '∞:1' : (expectedLossIfAssigned / maxProfit).toFixed(1) + ':1';
+        }
+        
+        // Required win rate
+        let requiredWinRate;
+        if (isPut && expectedLossIfAssigned > 0 && expectedLossIfAssigned !== Infinity) {
+            requiredWinRate = (expectedLossIfAssigned / (maxProfit + expectedLossIfAssigned)) * 100;
+        } else if (isPut) {
+            requiredWinRate = ((state.strike - premium) / state.strike * 100);
+        } else {
+            requiredWinRate = 100;
+        }
+        
+        const yourEdge = winPct - requiredWinRate;
+        
+        // Kelly Criterion
+        const b = expectedLossIfAssigned > 0 ? maxProfit / expectedLossIfAssigned : 0;
+        const p = winPct / 100;
+        const q = 1 - p;
+        let kellyPct = b > 0 ? ((b * p - q) / b) * 100 : 0;
+        kellyPct = Math.max(0, Math.min(kellyPct, 100));
+        
+        // Restore labels for short options
+        const avgValueEl = document.getElementById('avgIfAssigned');
+        const lossValueEl = document.getElementById('expectedLoss');
+        if (avgValueEl?.previousElementSibling) avgValueEl.previousElementSibling.textContent = 'Avg if Assigned:';
+        if (lossValueEl?.previousElementSibling) lossValueEl.previousElementSibling.textContent = 'Expected Loss:';
+        
+        setEl('rocDisplay', roc.toFixed(2) + '%', () => roc >= 2 ? '#00ff88' : roc >= 1 ? '#00d9ff' : '#ffaa00');
+        setEl('annRocDisplay', annualizedRoc.toFixed(0) + '%', () => annualizedRoc >= 30 ? '#00ff88' : annualizedRoc >= 15 ? '#00d9ff' : '#ffaa00');
+        
+        const rrValue = parseFloat(realisticRiskReward.split(':')[0]);
+        setEl('riskRewardRatio', realisticRiskReward, () => 
+            rrValue === Infinity ? '#ff5252' : (rrValue < 5 ? '#00ff88' : rrValue < 20 ? '#ffaa00' : '#ff5252'));
+        
+        setEl('winProbability', winPct.toFixed(1) + '%', () => winPct > 70 ? '#00ff88' : winPct > 50 ? '#ffaa00' : '#ff5252');
+        setEl('requiredWinRate', requiredWinRate.toFixed(1) + '%');
+        setEl('yourEdge', (yourEdge > 0 ? '+' : '') + yourEdge.toFixed(1) + '%', () => yourEdge > 0 ? '#00ff88' : '#ff5252');
+        setEl('kellyPct', kellyPct.toFixed(1) + '%', () => kellyPct > 0 ? '#00ff88' : '#ff5252');
+        setEl('avgIfAssigned', assignedCount > 0 ? `$${avgPriceIfAssigned.toFixed(2)}` : 'N/A');
+        setEl('expectedLoss', expectedLossIfAssigned > 0 ? `-$${expectedLossIfAssigned.toFixed(0)}` : '$0');
+        
+        // Calculate margin impact for short options (puts and naked calls)
+        calculateMarginImpact(state.spot, state.strike, premium, contracts, isPut);
+    }
+}
+
+/**
+ * Calculate "margin" display for long options (just shows debit cost)
+ */
+async function calculateMarginImpactLong(premium, contracts, isPut) {
+    const marginBox = document.getElementById('marginImpactBox');
+    if (!marginBox) return;
     
-    const rrValue = parseFloat(realisticRiskReward.split(':')[0]);
-    setEl('riskRewardRatio', realisticRiskReward, () => 
-        rrValue === Infinity ? '#ff5252' : (rrValue < 5 ? '#00ff88' : rrValue < 20 ? '#ffaa00' : '#ff5252'));
+    const debitPaid = premium * 100 * contracts;
+    const marginType = isPut ? 'Long Put' : 'Long Call';
     
-    setEl('winProbability', winPct.toFixed(1) + '%', () => winPct > 70 ? '#00ff88' : winPct > 50 ? '#ffaa00' : '#ff5252');
-    setEl('requiredWinRate', requiredWinRate.toFixed(1) + '%');
-    setEl('yourEdge', (yourEdge > 0 ? '+' : '') + yourEdge.toFixed(1) + '%', () => yourEdge > 0 ? '#00ff88' : '#ff5252');
-    setEl('kellyPct', kellyPct.toFixed(1) + '%', () => kellyPct > 0 ? '#00ff88' : '#ff5252');
-    setEl('avgIfAssigned', assignedCount > 0 ? `$${avgPriceIfAssigned.toFixed(2)}` : 'N/A');
-    setEl('expectedLoss', expectedLossIfAssigned > 0 ? `-$${expectedLossIfAssigned.toFixed(0)}` : '$0');
+    // Update the option type label
+    const typeLabel = document.getElementById('marginOptionType');
+    if (typeLabel) typeLabel.textContent = `(${marginType})`;
     
-    // Calculate margin impact for short options (puts and naked calls)
-    calculateMarginImpact(state.spot, state.strike, premium, contracts, isPut);
+    // Hide covered call note for long options
+    const coveredNote = document.getElementById('marginCoveredNote');
+    if (coveredNote) coveredNote.style.display = 'none';
+    
+    // Fetch current buying power from Schwab
+    let buyingPower = null;
+    try {
+        const res = await fetch('/api/schwab/accounts');
+        if (res.ok) {
+            const accounts = await res.json();
+            const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
+            buyingPower = marginAccount?.securitiesAccount?.currentBalances?.buyingPower;
+        }
+    } catch (e) {
+        console.log('[MARGIN] Could not fetch buying power:', e.message);
+    }
+    
+    // Format helper
+    const fmt = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    
+    // Update display - for long options, show "Cost" instead of "Margin Required"
+    document.getElementById('marginRequired').textContent = fmt(debitPaid);
+    
+    // Update the label to say "Debit Cost" instead of "Margin Required"
+    const marginLabel = document.querySelector('label[for="marginRequired"]');
+    if (marginLabel) marginLabel.textContent = 'Debit Cost:';
+    
+    if (buyingPower !== null) {
+        const afterTrade = buyingPower - debitPaid;
+        const utilization = (debitPaid / buyingPower) * 100;
+        
+        document.getElementById('marginBuyingPower').textContent = fmt(buyingPower);
+        document.getElementById('marginBuyingPower').style.color = '#00d9ff';
+        
+        document.getElementById('marginAfterTrade').textContent = fmt(afterTrade);
+        document.getElementById('marginAfterTrade').style.color = afterTrade > 0 ? '#00ff88' : '#ff5252';
+        
+        document.getElementById('marginUtilization').textContent = utilization.toFixed(1) + '%';
+        document.getElementById('marginUtilization').style.color = utilization < 25 ? '#00ff88' : utilization < 50 ? '#ffaa00' : '#ff5252';
+        
+        // Verdict for long options
+        const verdictEl = document.getElementById('marginVerdict');
+        if (afterTrade < 0) {
+            verdictEl.innerHTML = `⚠️ <b>INSUFFICIENT FUNDS</b> - Need $${fmt(Math.abs(afterTrade))} more`;
+            verdictEl.className = 'margin-verdict high-risk';
+        } else if (utilization > 50) {
+            verdictEl.innerHTML = `⚠️ <b>HIGH ALLOCATION</b> - This uses ${utilization.toFixed(0)}% of your buying power`;
+            verdictEl.className = 'margin-verdict high-risk';
+        } else {
+            verdictEl.innerHTML = `✅ Affordable - ${utilization.toFixed(0)}% of buying power`;
+            verdictEl.className = 'margin-verdict';
+            verdictEl.style.display = 'none'; // Hide if no issues
+        }
+        verdictEl.style.display = afterTrade < 0 || utilization > 50 ? 'block' : 'none';
+    } else {
+        document.getElementById('marginBuyingPower').textContent = 'N/A';
+        document.getElementById('marginAfterTrade').textContent = 'N/A';
+        document.getElementById('marginUtilization').textContent = 'N/A';
+    }
 }
 
 /**

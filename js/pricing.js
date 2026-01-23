@@ -202,8 +202,8 @@ export function getPositionType() {
         // Covered Call = Short call against existing shares
         const isBuyWrite = type === 'buy_write';
         const isCoveredCall = type === 'covered_call' || isBuyWrite;
-        const isLongCall = type === 'long_call';
-        const isLongPut = type === 'long_put';
+        const isLongCall = type === 'long_call' || type === 'long_call_leaps';
+        const isLongPut = type === 'long_put' || type === 'long_put_leaps';
         const isLong = isLongCall || isLongPut;
         
         return {
