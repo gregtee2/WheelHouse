@@ -919,6 +919,13 @@ window.getXSentiment = async function() {
     const buyingPower = parseFloat(document.getElementById('ideaBuyingPower2')?.value) || 
                         parseFloat(document.getElementById('ideaBuyingPower')?.value) || 25000;
     
+    // Get holdings for impact check
+    const holdings = (state.holdings || []).map(h => ({
+        ticker: h.ticker,
+        shares: h.shares || h.quantity || 100,
+        costBasis: h.costBasis || h.avgCost
+    }));
+    
     // Show loading
     if (ideaBtn) {
         ideaBtn.disabled = true;
@@ -931,7 +938,7 @@ window.getXSentiment = async function() {
         const response = await fetch('/api/ai/x-sentiment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ buyingPower })
+            body: JSON.stringify({ buyingPower, holdings })
         });
         
         if (!response.ok) {
@@ -942,16 +949,36 @@ window.getXSentiment = async function() {
         const result = await response.json();
         
         // Extract tickers from the response for Deep Dive and Trade Ideas integration
-        const tickerPattern = /\b([A-Z]{2,5})\b(?:\s*-\s*[A-Za-z]|\s+is\s|\s+has\s|\s+could|\s+looks|\s+breaking)/g;
+        // Multiple patterns to catch different formats:
+        // 1. **TICKER** @ $XX.XX (bold with price)
+        // 2. **TICKER** (just bold)
+        // 3. - TICKER @ $XX (list item with price)
+        // 4. TICKER followed by context words
         const foundTickers = new Set();
+        
+        // Pattern 1: Bold tickers like **AMD** or **ORCL**
+        const boldPattern = /\*\*([A-Z]{2,5})\*\*/g;
         let match;
-        while ((match = tickerPattern.exec(result.sentiment)) !== null) {
-            const ticker = match[1];
-            // Filter out common words that look like tickers
-            if (!['AI', 'IV', 'OTM', 'ATM', 'ITM', 'ETF', 'EV', 'CEO', 'CFO', 'IPO', 'PE', 'EPS', 'GDP', 'CPI', 'FED', 'SEC', 'USD', 'EUR'].includes(ticker)) {
-                foundTickers.add(ticker);
-            }
+        while ((match = boldPattern.exec(result.sentiment)) !== null) {
+            foundTickers.add(match[1]);
         }
+        
+        // Pattern 2: Ticker @ $price like "AMD @ $96.50" or "- CSCO @ $56.00"
+        const pricePattern = /\b([A-Z]{2,5})\s*@\s*\$/g;
+        while ((match = pricePattern.exec(result.sentiment)) !== null) {
+            foundTickers.add(match[1]);
+        }
+        
+        // Pattern 3: Context patterns (original, as backup)
+        const contextPattern = /\b([A-Z]{2,5})\b(?:\s*-\s*[A-Za-z]|\s+is\s|\s+has\s|\s+could|\s+looks|\s+breaking)/g;
+        while ((match = contextPattern.exec(result.sentiment)) !== null) {
+            foundTickers.add(match[1]);
+        }
+        
+        // Filter out common words that look like tickers
+        const excludeWords = ['AI', 'IV', 'OTM', 'ATM', 'ITM', 'ETF', 'EV', 'CEO', 'CFO', 'IPO', 'PE', 'EPS', 'GDP', 'CPI', 'FED', 'SEC', 'USD', 'EUR', 'NOW', 'ANY', 'ALL', 'PUT', 'CALL', 'BUY', 'SELL'];
+        excludeWords.forEach(word => foundTickers.delete(word));
+        
         // Store for Trade Ideas integration
         window._xTrendingTickers = Array.from(foundTickers);
         console.log('[X Sentiment] Extracted tickers:', window._xTrendingTickers);

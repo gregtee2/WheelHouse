@@ -490,7 +490,7 @@ const mainHandler = async (req, res, next) => {
     if (url.pathname === '/api/ai/x-sentiment' && req.method === 'POST') {
         try {
             const data = req.body;
-            const { buyingPower } = data;
+            const { buyingPower, holdings } = data;
             
             // This ONLY works with Grok (has X access)
             if (!process.env.GROK_API_KEY) {
@@ -501,13 +501,30 @@ const mainHandler = async (req, res, next) => {
             
             console.log('[AI] 🔥 Fetching X/Twitter sentiment via Grok...');
             
-            const prompt = `You have real-time access to X (Twitter). I'm a wheel strategy options trader with $${buyingPower || 25000} buying power.
+            // Get current date for prompt
+            const today = new Date();
+            const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            
+            // Build holdings context if provided
+            let holdingsContext = '';
+            if (holdings && holdings.length > 0) {
+                const holdingsList = holdings.map(h => `${h.ticker} (${h.shares || h.quantity || 100} shares @ $${h.costBasis || h.avgCost || '?'})`).join(', ');
+                holdingsContext = `
 
+**IMPORTANT - CHECK MY HOLDINGS FIRST:**
+I currently hold these stocks: ${holdingsList}
+
+BEFORE the main analysis, check if there's ANY news, sentiment, or buzz on X about my holdings. Put this in a section called "⚡ YOUR HOLDINGS ALERT" at the very top. If nothing notable, just say "No significant X chatter about your holdings today."
+`;
+            }
+            
+            const prompt = `Today is ${dateStr}. You have real-time access to X (Twitter). I'm a wheel strategy options trader with $${buyingPower || 25000} buying power.
+${holdingsContext}
 Scan X/Twitter RIGHT NOW and find me:
 
 1. **🔥 TRENDING TICKERS** - What stocks are traders actively discussing today? Look for unusual volume mentions, breakout alerts, or momentum plays.
 
-2. **📢 EARNINGS PLAYS** - Any upcoming earnings that FinTwit is buzzing about? Stocks where people expect big moves?
+2. **📢 EARNINGS PLAYS** - Any upcoming earnings that FinTwit is buzzing about? Stocks where people expect big moves? Include the ACTUAL earnings date if mentioned.
 
 3. **⚠️ CAUTION FLAGS** - Any stocks where sentiment has turned negative? Shorts piling in? Bad news circulating?
 
@@ -519,7 +536,7 @@ FORMAT each ticker mention like: **TICKER** @ $XX.XX (if you know the price)
 
 Be specific about WHAT you're seeing on X - quote tweets if relevant, mention influencers if they're driving discussion. I want the "street feel" that only live X access can provide.
 
-Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage).`;
+Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage). Use current ${today.getFullYear()} dates for any earnings or events.`;
 
             const response = await callGrok(prompt, 'grok-3', 1500);
             

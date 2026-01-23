@@ -333,8 +333,24 @@ window.showRollHistory = function(chainId) {
         return;
     }
     
-    // Calculate total premium collected across the chain
-    const totalPremium = chainPositions.reduce((sum, p) => sum + (p.premium * 100 * p.contracts), 0);
+    // Calculate NET total: premium received MINUS cost to close (for rolled positions)
+    // For open positions: just the premium
+    // For closed positions: premium - closePrice (if rolled/closed early)
+    let totalNetPremium = 0;
+    let totalReceived = 0;
+    let totalClosingCosts = 0;
+    
+    chainPositions.forEach(p => {
+        const premiumReceived = (p.premium || 0) * 100 * (p.contracts || 1);
+        totalReceived += premiumReceived;
+        
+        if (p.status === 'closed' && p.closePrice !== undefined && p.closePrice > 0) {
+            const closingCost = p.closePrice * 100 * (p.contracts || 1);
+            totalClosingCosts += closingCost;
+        }
+    });
+    
+    totalNetPremium = totalReceived - totalClosingCosts;
     const ticker = chainPositions[0]?.ticker || 'Unknown';
     
     const modal = document.createElement('div');
@@ -359,6 +375,10 @@ window.showRollHistory = function(chainId) {
         const isDebit = isDebitPosition(pos.type);
         const premiumColor = isDebit ? colors.red : colors.green;
         const premiumSign = isDebit ? '-' : '+';
+        
+        // Calculate closing cost if this was rolled/closed
+        const closingCost = (pos.closePrice || 0) * 100 * (pos.contracts || 1);
+        const showClosingCost = pos.status === 'closed' && pos.closePrice && pos.closePrice > 0;
         
         // Strike display
         let strikeDisplay = '';
@@ -395,8 +415,9 @@ window.showRollHistory = function(chainId) {
                         &nbsp;•&nbsp; Strike: <span style="color:${colors.text};">${strikeDisplay}</span>
                         &nbsp;•&nbsp; Exp: <span style="color:${colors.text};">${pos.expiry || 'N/A'}</span>
                     </div>
-                    <div style="margin-top:6px; display:flex; gap:20px; font-size:12px;">
+                    <div style="margin-top:6px; display:flex; gap:20px; font-size:12px; flex-wrap:wrap;">
                         <span>Premium: <span style="color:${premiumColor}; font-weight:bold;">${premiumSign}$${premium.toFixed(0)}</span></span>
+                        ${showClosingCost ? `<span>Buyback: <span style="color:${colors.red}; font-weight:bold;">-$${closingCost.toFixed(0)}</span></span>` : ''}
                         ${pos.openDate ? `<span style="color:#666;">Opened: ${pos.openDate}</span>` : ''}
                         ${pos.closeDate ? `<span style="color:#666;">Closed: ${pos.closeDate}</span>` : ''}
                     </div>
@@ -424,8 +445,15 @@ window.showRollHistory = function(chainId) {
             
             <div style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); 
                         border-radius:10px; padding:15px; margin-bottom:20px; text-align:center;">
-                <div style="color:${colors.muted}; font-size:11px; margin-bottom:4px;">TOTAL PREMIUM COLLECTED</div>
-                <div style="color:${colors.green}; font-size:24px; font-weight:bold;">$${totalPremium.toFixed(0)}</div>
+                <div style="color:${colors.muted}; font-size:11px; margin-bottom:4px;">NET PREMIUM COLLECTED</div>
+                <div style="color:${totalNetPremium >= 0 ? colors.green : colors.red}; font-size:24px; font-weight:bold;">
+                    ${totalNetPremium >= 0 ? '+' : ''}$${totalNetPremium.toFixed(0)}
+                </div>
+                ${totalClosingCosts > 0 ? `
+                <div style="color:${colors.muted}; font-size:10px; margin-top:8px;">
+                    Premiums: +$${totalReceived.toFixed(0)} | Buybacks: -$${totalClosingCosts.toFixed(0)}
+                </div>
+                ` : ''}
             </div>
             
             <div id="critiqueContent" style="display:none; background:${colors.bgSecondary}; border-radius:10px; padding:15px; margin-bottom:20px;">
@@ -2884,3 +2912,387 @@ window.saveAnalysisToPosition = saveAnalysisToPosition;
 window.getLatestAnalysis = getLatestAnalysis;
 window.getAnalysisHistory = getAnalysisHistory;
 window.savePositionsToStorage = savePositionsToStorage;
+
+// ============================================================
+// RECONCILIATION WITH BROKERAGE
+// ============================================================
+
+/**
+ * Show the reconciliation modal - compares WheelHouse data with Schwab transactions
+ */
+window.showReconcileModal = async function() {
+    const modal = document.createElement('div');
+    modal.id = 'reconcileModal';
+    modal.style.cssText = `
+        position:fixed; top:0; left:0; right:0; bottom:0; 
+        background:rgba(0,0,0,0.9); display:flex; align-items:center; 
+        justify-content:center; z-index:10000; padding:20px;
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border-radius:12px; max-width:900px; width:100%; max-height:90vh; overflow-y:auto; padding:24px; border:1px solid #333;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2 style="margin:0; color:#00d9ff;">🔄 Reconcile with Schwab</h2>
+                <button onclick="document.getElementById('reconcileModal').remove()" style="background:none; border:none; color:#888; font-size:24px; cursor:pointer;">✕</button>
+            </div>
+            
+            <div style="margin-bottom:20px; padding:15px; background:rgba(0,217,255,0.1); border-radius:8px;">
+                <div style="display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
+                    <div>
+                        <label style="color:#888; font-size:11px;">Date Range:</label><br>
+                        <select id="reconcileDays" style="padding:8px; background:#0d0d1a; color:#fff; border:1px solid #333; border-radius:4px;">
+                            <option value="7">Last 7 days</option>
+                            <option value="30" selected>Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                            <option value="180">Last 6 months</option>
+                            <option value="365">Last year</option>
+                        </select>
+                    </div>
+                    <button id="runReconcileBtn" onclick="window.runReconciliation()" 
+                            style="padding:10px 20px; background:linear-gradient(135deg, #00d9ff 0%, #00ff88 100%); 
+                                   border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer;">
+                        ⚡ Fetch & Compare
+                    </button>
+                </div>
+            </div>
+            
+            <div id="reconcileResults" style="color:#ddd;">
+                <div style="text-align:center; padding:40px; color:#666;">
+                    Click "Fetch & Compare" to pull transactions from Schwab and compare with your WheelHouse data.
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
+ * Run the reconciliation - fetch Schwab transactions and compare
+ */
+window.runReconciliation = async function() {
+    const resultsDiv = document.getElementById('reconcileResults');
+    const runBtn = document.getElementById('runReconcileBtn');
+    const days = parseInt(document.getElementById('reconcileDays').value) || 30;
+    
+    runBtn.disabled = true;
+    runBtn.textContent = '⏳ Fetching...';
+    resultsDiv.innerHTML = '<div style="text-align:center; padding:40px; color:#00d9ff;">🔄 Fetching transactions from Schwab...</div>';
+    
+    try {
+        // Calculate date range
+        const endDate = new Date();
+        const startDate = new Date(endDate - days * 24 * 60 * 60 * 1000);
+        
+        // Fetch transactions from Schwab
+        const accountHash = localStorage.getItem('wheelhouse_schwab_account_hash');
+        if (!accountHash) {
+            throw new Error('No Schwab account linked. Go to Settings → Schwab to connect.');
+        }
+        
+        const response = await fetch(`/api/schwab/accounts/${accountHash}/transactions?types=TRADE&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`);
+        
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || `Schwab API error: ${response.status}`);
+        }
+        
+        const transactions = await response.json();
+        console.log('[Reconcile] Raw transactions:', transactions);
+        
+        // Filter to option trades only
+        const optionTrades = (transactions || []).filter(t => {
+            const inst = t.transactionItem?.instrument;
+            return inst?.assetType === 'OPTION';
+        });
+        
+        console.log('[Reconcile] Option trades:', optionTrades.length);
+        
+        // Group transactions by underlying symbol
+        const bySymbol = {};
+        optionTrades.forEach(t => {
+            const inst = t.transactionItem?.instrument;
+            const underlying = inst?.underlyingSymbol || 'UNKNOWN';
+            if (!bySymbol[underlying]) bySymbol[underlying] = [];
+            bySymbol[underlying].push(t);
+        });
+        
+        // Get WheelHouse positions and closed positions for comparison
+        const whPositions = [...(state.positions || []), ...(state.closedPositions || [])];
+        
+        // Build comparison results
+        const results = {
+            matched: [],
+            schwabOnly: [],
+            wheelHouseOnly: [],
+            discrepancies: []
+        };
+        
+        // Check each Schwab transaction
+        optionTrades.forEach(t => {
+            const inst = t.transactionItem?.instrument;
+            const underlying = inst?.underlyingSymbol;
+            const strike = parseFloat(inst?.optionStrikePrice || 0);
+            const putCall = inst?.putCall; // PUT or CALL
+            const expiry = inst?.optionExpirationDate?.split('T')[0]; // YYYY-MM-DD
+            const netAmount = t.netAmount || 0; // Positive = credit, Negative = debit
+            const qty = Math.abs(t.transactionItem?.amount || 0);
+            const price = Math.abs(t.transactionItem?.price || 0);
+            const tradeDate = t.tradeDate?.split('T')[0];
+            const description = t.description || '';
+            const isOpen = description.includes('SELL TO OPEN') || description.includes('BUY TO OPEN');
+            const isClose = description.includes('SELL TO CLOSE') || description.includes('BUY TO CLOSE');
+            
+            // Try to find matching WheelHouse position
+            const matchingPos = whPositions.find(p => {
+                const tickerMatch = p.ticker === underlying;
+                const strikeMatch = Math.abs((p.strike || 0) - strike) < 0.01;
+                const expiryMatch = p.expiry === expiry;
+                const typeMatch = putCall === 'PUT' ? 
+                    (p.type?.includes('put') || p.type === 'short_put') :
+                    (p.type?.includes('call') || p.type === 'covered_call' || p.type === 'buy_write');
+                return tickerMatch && strikeMatch && expiryMatch && typeMatch;
+            });
+            
+            if (matchingPos) {
+                // Check for discrepancies
+                const whPremium = matchingPos.premium * 100 * matchingPos.contracts;
+                const schwabPremium = Math.abs(netAmount);
+                const premiumDiff = Math.abs(whPremium - schwabPremium);
+                
+                if (premiumDiff > 1) { // More than $1 difference
+                    results.discrepancies.push({
+                        ticker: underlying,
+                        strike,
+                        expiry,
+                        type: putCall,
+                        tradeDate,
+                        schwabPremium,
+                        whPremium,
+                        diff: schwabPremium - whPremium,
+                        position: matchingPos,
+                        transaction: t
+                    });
+                } else {
+                    results.matched.push({
+                        ticker: underlying,
+                        strike,
+                        expiry,
+                        type: putCall,
+                        schwabPremium,
+                        position: matchingPos
+                    });
+                }
+            } else {
+                // Schwab has it, WheelHouse doesn't
+                results.schwabOnly.push({
+                    ticker: underlying,
+                    strike,
+                    expiry,
+                    type: putCall,
+                    tradeDate,
+                    netAmount,
+                    qty,
+                    price,
+                    description,
+                    transaction: t
+                });
+            }
+        });
+        
+        // Check for WheelHouse positions not in Schwab (within date range)
+        whPositions.forEach(p => {
+            const openDate = new Date(p.openDate);
+            if (openDate >= startDate && openDate <= endDate) {
+                const inSchwab = optionTrades.some(t => {
+                    const inst = t.transactionItem?.instrument;
+                    return inst?.underlyingSymbol === p.ticker &&
+                           Math.abs((inst?.optionStrikePrice || 0) - p.strike) < 0.01;
+                });
+                if (!inSchwab && p.broker !== 'manual') {
+                    results.wheelHouseOnly.push(p);
+                }
+            }
+        });
+        
+        // Render results
+        renderReconcileResults(results, optionTrades.length, days);
+        
+    } catch (e) {
+        console.error('[Reconcile] Error:', e);
+        resultsDiv.innerHTML = `
+            <div style="text-align:center; padding:40px;">
+                <div style="color:#ff5252; font-size:18px; margin-bottom:10px;">❌ Error</div>
+                <div style="color:#888;">${e.message}</div>
+            </div>
+        `;
+    } finally {
+        runBtn.disabled = false;
+        runBtn.textContent = '⚡ Fetch & Compare';
+    }
+};
+
+/**
+ * Render reconciliation results
+ */
+function renderReconcileResults(results, totalTrades, days) {
+    const resultsDiv = document.getElementById('reconcileResults');
+    
+    const matchCount = results.matched.length;
+    const discrepCount = results.discrepancies.length;
+    const schwabOnlyCount = results.schwabOnly.length;
+    const whOnlyCount = results.wheelHouseOnly.length;
+    
+    const isClean = discrepCount === 0 && schwabOnlyCount === 0 && whOnlyCount === 0;
+    
+    let html = `
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:15px; margin-bottom:20px;">
+            <div style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); border-radius:8px; padding:15px; text-align:center;">
+                <div style="font-size:28px; font-weight:bold; color:#00ff88;">${matchCount}</div>
+                <div style="font-size:11px; color:#888;">✅ Matched</div>
+            </div>
+            <div style="background:rgba(255,82,82,0.1); border:1px solid rgba(255,82,82,0.3); border-radius:8px; padding:15px; text-align:center;">
+                <div style="font-size:28px; font-weight:bold; color:#ff5252;">${discrepCount}</div>
+                <div style="font-size:11px; color:#888;">⚠️ Discrepancies</div>
+            </div>
+            <div style="background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.3); border-radius:8px; padding:15px; text-align:center;">
+                <div style="font-size:28px; font-weight:bold; color:#ffaa00;">${schwabOnlyCount}</div>
+                <div style="font-size:11px; color:#888;">📊 In Schwab Only</div>
+            </div>
+            <div style="background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3); border-radius:8px; padding:15px; text-align:center;">
+                <div style="font-size:28px; font-weight:bold; color:#8b5cf6;">${whOnlyCount}</div>
+                <div style="font-size:11px; color:#888;">📋 In WH Only</div>
+            </div>
+        </div>
+    `;
+    
+    if (isClean) {
+        html += `
+            <div style="text-align:center; padding:30px; background:rgba(0,255,136,0.1); border-radius:8px; margin-bottom:20px;">
+                <div style="font-size:36px; margin-bottom:10px;">✅</div>
+                <div style="font-size:18px; color:#00ff88; font-weight:bold;">All Clear!</div>
+                <div style="color:#888; margin-top:5px;">Your WheelHouse data matches Schwab for the last ${days} days.</div>
+            </div>
+        `;
+    }
+    
+    // Show discrepancies
+    if (discrepCount > 0) {
+        html += `<h3 style="color:#ff5252; margin:20px 0 10px;">⚠️ Premium Discrepancies</h3>`;
+        html += `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12px;">
+            <tr style="background:#1a1a2e;">
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Ticker</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Strike</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Expiry</th>
+                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Schwab $</th>
+                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">WheelHouse $</th>
+                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Diff</th>
+            </tr>`;
+        results.discrepancies.forEach(d => {
+            const diffColor = d.diff > 0 ? '#00ff88' : '#ff5252';
+            html += `
+                <tr style="border-bottom:1px solid #222;">
+                    <td style="padding:8px; color:#00d9ff; font-weight:bold;">${d.ticker}</td>
+                    <td style="padding:8px;">$${d.strike}</td>
+                    <td style="padding:8px;">${d.expiry}</td>
+                    <td style="padding:8px; text-align:right;">$${d.schwabPremium.toFixed(2)}</td>
+                    <td style="padding:8px; text-align:right;">$${d.whPremium.toFixed(2)}</td>
+                    <td style="padding:8px; text-align:right; color:${diffColor};">${d.diff > 0 ? '+' : ''}$${d.diff.toFixed(2)}</td>
+                </tr>
+            `;
+        });
+        html += `</table></div>`;
+    }
+    
+    // Show Schwab-only trades
+    if (schwabOnlyCount > 0) {
+        html += `<h3 style="color:#ffaa00; margin:20px 0 10px;">📊 In Schwab Only (not in WheelHouse)</h3>`;
+        html += `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12px;">
+            <tr style="background:#1a1a2e;">
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Date</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Ticker</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Type</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Strike</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Expiry</th>
+                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Net $</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Action</th>
+            </tr>`;
+        results.schwabOnly.forEach(s => {
+            const netColor = s.netAmount >= 0 ? '#00ff88' : '#ff5252';
+            html += `
+                <tr style="border-bottom:1px solid #222;">
+                    <td style="padding:8px; color:#888;">${s.tradeDate}</td>
+                    <td style="padding:8px; color:#00d9ff; font-weight:bold;">${s.ticker}</td>
+                    <td style="padding:8px;">${s.type}</td>
+                    <td style="padding:8px;">$${s.strike}</td>
+                    <td style="padding:8px;">${s.expiry}</td>
+                    <td style="padding:8px; text-align:right; color:${netColor};">${s.netAmount >= 0 ? '+' : ''}$${s.netAmount.toFixed(2)}</td>
+                    <td style="padding:8px;">
+                        <button onclick="window.importSchwabTrade(${JSON.stringify(s).replace(/"/g, '&quot;')})" 
+                                style="padding:4px 8px; background:#ffaa00; border:none; border-radius:4px; color:#000; cursor:pointer; font-size:10px;">
+                            ➕ Import
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        html += `</table></div>`;
+    }
+    
+    // Show WheelHouse-only
+    if (whOnlyCount > 0) {
+        html += `<h3 style="color:#8b5cf6; margin:20px 0 10px;">📋 In WheelHouse Only (not in Schwab)</h3>`;
+        html += `<div style="font-size:11px; color:#888; margin-bottom:10px;">These positions were opened in the last ${days} days but no matching Schwab trade was found. They may have been added manually or imported from another source.</div>`;
+        html += `<ul style="color:#ccc; font-size:12px;">`;
+        results.wheelHouseOnly.forEach(p => {
+            html += `<li>${p.ticker} $${p.strike} ${p.type} exp ${p.expiry}</li>`;
+        });
+        html += `</ul>`;
+    }
+    
+    // Summary footer
+    html += `
+        <div style="margin-top:20px; padding:15px; background:#0d0d1a; border-radius:8px; font-size:11px; color:#666;">
+            📊 Analyzed ${totalTrades} option trades from Schwab over the last ${days} days.<br>
+            Last reconciled: ${new Date().toLocaleString()}
+        </div>
+    `;
+    
+    resultsDiv.innerHTML = html;
+}
+
+/**
+ * Import a single Schwab trade into WheelHouse
+ */
+window.importSchwabTrade = function(tradeData) {
+    // Determine position type from the trade
+    let posType = 'short_put';
+    if (tradeData.type === 'CALL') {
+        posType = tradeData.netAmount >= 0 ? 'covered_call' : 'long_call';
+    } else {
+        posType = tradeData.netAmount >= 0 ? 'short_put' : 'long_put';
+    }
+    
+    const newPosition = {
+        id: Date.now(),
+        chainId: Date.now(),
+        ticker: tradeData.ticker,
+        type: posType,
+        strike: tradeData.strike,
+        premium: Math.abs(tradeData.price || tradeData.netAmount / 100 / tradeData.qty),
+        contracts: tradeData.qty || 1,
+        expiry: tradeData.expiry,
+        openDate: tradeData.tradeDate,
+        status: 'open',
+        broker: 'Schwab',
+        importedFromReconcile: true
+    };
+    
+    state.positions.push(newPosition);
+    savePositionsToStorage();
+    showNotification(`Imported ${tradeData.ticker} ${tradeData.type} from Schwab`, 'success');
+    
+    // Re-run reconciliation to update the view
+    window.runReconciliation();
+};
