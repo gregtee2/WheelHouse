@@ -2549,7 +2549,8 @@ function buildTradePrompt(data, isLargeModel = false) {
         ticker, positionType, strike, premium, dte, contracts,
         spot, costBasis, breakeven, maxProfit, maxLoss,
         iv, riskPercent, winProbability, costToClose,
-        rollOptions, expertRecommendation, previousAnalysis
+        rollOptions, expertRecommendation, previousAnalysis,
+        portfolioContext  // NEW: Portfolio context from audit
     } = data;
     
     // Determine position characteristics
@@ -2639,7 +2640,9 @@ ${creditRollsText}
 ═══ SYSTEM ANALYSIS ═══
 ${expertRecommendation || 'No system recommendation'}
 
-${previousAnalysis ? `═══ PREVIOUS ANALYSIS ═══
+${portfolioContext ? `═══ PORTFOLIO CONTEXT ═══
+${portfolioContext}
+` : ''}${previousAnalysis ? `═══ PREVIOUS ANALYSIS ═══
 On ${new Date(previousAnalysis.timestamp).toLocaleDateString()}, you recommended: ${previousAnalysis.recommendation}
 
 At that time:
@@ -2751,7 +2754,7 @@ Be honest but constructive. Focus on the PROCESS, not just the outcome. A losing
 
 // Build a prompt for generating trade ideas (with real prices!)
 function buildIdeaPrompt(data, realPrices = [], xTrendingTickers = []) {
-    const { buyingPower, targetAnnualROC, currentPositions, sectorsToAvoid } = data;
+    const { buyingPower, targetAnnualROC, currentPositions, sectorsToAvoid, portfolioContext } = data;
     
     // Calculate upcoming monthly expiry dates (3rd Friday of month)
     const getThirdFriday = (year, month) => {
@@ -2818,6 +2821,10 @@ Today: ${today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', yea
 Expiries: ${expiryStr}
 ${currentTickers.length > 0 ? `Already have positions in: ${currentTickers.join(', ')}` : ''}
 ${sectorsToAvoid ? `Avoid sectors: ${sectorsToAvoid}` : ''}
+${portfolioContext ? `
+═══ PORTFOLIO CONTEXT (from recent audit) ═══
+${portfolioContext}
+⚠️ PRIORITIZE trades that BALANCE the portfolio - reduce concentration, balance delta!` : ''}
 
 ═══ CANDIDATE DATA (real-time) ═══
 ${priceData}

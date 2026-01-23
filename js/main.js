@@ -8,7 +8,7 @@ import { priceOptions, calcGreeks } from './pricing.js';
 import { calculateRoll, generateRecommendation, suggestOptimalRoll } from './analysis.js';
 import { fetchTickerPrice, fetchHeatMapPrice, fetchPositionTickerPrice } from './api.js';
 import { loadPositions, addPosition, editPosition, cancelEdit, renderPositions, updatePortfolioSummary } from './positions.js';
-import { loadClosedPositions, renderPortfolio, renderHoldings } from './portfolio.js';
+import { loadClosedPositions, renderPortfolio, renderHoldings, formatPortfolioContextForAI } from './portfolio.js';
 import { initChallenges, renderChallenges } from './challenges.js';
 import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from './ui.js';
 import { showNotification } from './utils.js';
@@ -1344,7 +1344,8 @@ window.getTradeIdeas = async function() {
                 sectorsToAvoid,
                 currentPositions,
                 model: selectedModel,
-                xTrendingTickers  // Pass X tickers to backend
+                xTrendingTickers,  // Pass X tickers to backend
+                portfolioContext: formatPortfolioContextForAI()  // Include portfolio context from audit
             })
         });
         
@@ -3465,7 +3466,8 @@ window.getTradeIdeas2 = async function() {
                 sectorsToAvoid,
                 currentPositions,
                 model: selectedModel,
-                xTrendingTickers  // Pass X tickers to backend
+                xTrendingTickers,  // Pass X tickers to backend
+                portfolioContext: formatPortfolioContextForAI()  // Include portfolio context from audit
             })
         });
         
@@ -3583,7 +3585,8 @@ window.getTradeIdeasDifferent = async function() {
                 sectorsToAvoid,
                 currentPositions,
                 model: selectedModel,
-                excludeTickers  // Pass exclusion list
+                excludeTickers,  // Pass exclusion list
+                portfolioContext: formatPortfolioContextForAI()  // Include portfolio context from audit
             })
         });
         

@@ -4,6 +4,7 @@
 import { state } from './state.js';
 import { getPositionType } from './pricing.js';
 import { randomNormal, showNotification } from './utils.js';
+import { formatPortfolioContextForAI } from './portfolio.js';
 
 /**
  * Generate AI recommendation based on probabilities
@@ -1887,7 +1888,8 @@ async function getAIInsight() {
             rollOptions: rollOptions,  // Pass all roll options!
             expertRecommendation: expertRec,
             model: selectedModel,  // Include selected model
-            previousAnalysis: previousAnalysis  // Include previous analysis for comparison
+            previousAnalysis: previousAnalysis,  // Include previous analysis for comparison
+            portfolioContext: formatPortfolioContextForAI()  // Include portfolio context from audit
         };
         
         // Call our server endpoint

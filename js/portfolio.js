@@ -3344,6 +3344,41 @@ window.runPortfolioAudit = async function() {
         
         const result = await res.json();
         
+        // ============================================================
+        // SAVE PORTFOLIO CONTEXT for future trade analysis
+        // ============================================================
+        const tickerCounts = {};
+        positions.forEach(p => {
+            tickerCounts[p.ticker] = (tickerCounts[p.ticker] || 0) + 1;
+        });
+        
+        const portfolioContext = {
+            timestamp: new Date().toISOString(),
+            positionCount: positions.length,
+            greeks: {
+                netDelta: greeks?.delta || 0,
+                dailyTheta: greeks?.theta || 0,
+                vega: greeks?.vega || 0,
+                avgIV: greeks?.avgIV || 0,
+                avgIVRank: greeks?.avgIVRank || 0
+            },
+            concentration: tickerCounts,
+            concentrationWarnings: Object.entries(tickerCounts)
+                .filter(([_, count]) => count >= 2)
+                .map(([ticker, count]) => `${ticker} (${count} positions)`),
+            stats: {
+                winRate,
+                profitFactor,
+                avgWin,
+                avgLoss
+            },
+            // Extract key issues from audit
+            auditSummary: extractAuditSummary(result.audit)
+        };
+        
+        localStorage.setItem('wheelhouse_portfolio_context', JSON.stringify(portfolioContext));
+        console.log('[PORTFOLIO] Saved portfolio context for trade analysis:', portfolioContext);
+        
         // Show audit results in modal
         showAuditModal(result.audit, result.model);
         
@@ -3393,4 +3428,87 @@ function showAuditModal(audit, model) {
         </div>
     `;
     document.body.appendChild(modal);
+}
+
+/**
+ * Extract key points from audit for storage
+ */
+function extractAuditSummary(auditText) {
+    // Extract key issues mentioned
+    const issues = [];
+    const recommendations = [];
+    
+    // Look for tickers mentioned with problems
+    const problemMatch = auditText.match(/PROBLEM.*?(?=⚠️|📊|💡|✅|$)/s);
+    if (problemMatch) {
+        const tickersInProblems = problemMatch[0].match(/[A-Z]{2,5}/g) || [];
+        issues.push(...tickersInProblems.filter(t => t !== 'ITM' && t !== 'DTE' && t !== 'OTM'));
+    }
+    
+    // Look for concentration warnings
+    const concMatch = auditText.match(/CONCENTRATION.*?(?=📊|💡|✅|$)/s);
+    if (concMatch && concMatch[0].toLowerCase().includes('risk')) {
+        const tickersInConc = concMatch[0].match(/[A-Z]{2,5}/g) || [];
+        recommendations.push(`Concentration risk in: ${tickersInConc.filter(t => t !== 'CONCENTRATION' && t !== 'RISKS').join(', ')}`);
+    }
+    
+    // Delta direction
+    const deltaDirection = auditText.toLowerCase().includes('bearish') ? 'bearish' : 
+                          auditText.toLowerCase().includes('bullish') ? 'bullish' : 'neutral';
+    
+    return {
+        problemTickers: [...new Set(issues)],
+        recommendations: recommendations.slice(0, 3),
+        deltaDirection,
+        hasHighIV: auditText.toLowerCase().includes('high') && auditText.toLowerCase().includes('iv')
+    };
+}
+
+/**
+ * Get stored portfolio context for trade analysis
+ * Called by other modules when evaluating new trades
+ */
+export function getPortfolioContext() {
+    try {
+        const stored = localStorage.getItem('wheelhouse_portfolio_context');
+        if (stored) {
+            const context = JSON.parse(stored);
+            // Check if context is recent (within 24 hours)
+            const age = Date.now() - new Date(context.timestamp).getTime();
+            if (age < 24 * 60 * 60 * 1000) {
+                return context;
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load portfolio context:', e);
+    }
+    return null;
+}
+
+/**
+ * Format portfolio context for AI prompts
+ */
+export function formatPortfolioContextForAI() {
+    const ctx = getPortfolioContext();
+    if (!ctx) return '';
+    
+    const lines = [
+        `\n## CURRENT PORTFOLIO CONTEXT (from last audit ${new Date(ctx.timestamp).toLocaleDateString()})`,
+        `- ${ctx.positionCount} open positions`,
+        `- Net Delta: ${ctx.greeks.netDelta.toFixed(0)} (${ctx.auditSummary?.deltaDirection || 'unknown'} bias)`,
+        `- Daily Theta: $${ctx.greeks.dailyTheta.toFixed(2)}`,
+        `- Avg IV Rank: ${ctx.greeks.avgIVRank?.toFixed(0) || '?'}%`
+    ];
+    
+    if (ctx.concentrationWarnings?.length > 0) {
+        lines.push(`- ⚠️ CONCENTRATION: ${ctx.concentrationWarnings.join(', ')}`);
+    }
+    
+    if (ctx.auditSummary?.problemTickers?.length > 0) {
+        lines.push(`- ⚠️ PROBLEM TICKERS: ${ctx.auditSummary.problemTickers.join(', ')}`);
+    }
+    
+    lines.push('', '**Consider how this new trade affects portfolio balance.**');
+    
+    return lines.join('\n');
 }
