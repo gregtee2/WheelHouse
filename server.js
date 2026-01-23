@@ -19,6 +19,25 @@ const { schwabApiCall } = schwabRoutes; // For internal option chain calls
 const PORT = process.env.PORT || 8888;
 const app = express();
 
+// ============================================================================
+// DATA CACHE - Ensures consistent pricing across AI features
+// ============================================================================
+const tickerDataCache = new Map();  // ticker → { data, timestamp }
+const optionPremiumCache = new Map();  // "TICKER|STRIKE|EXPIRY|TYPE" → { data, timestamp }
+const CACHE_TTL = 60000;  // 60 seconds - short enough to stay fresh, long enough for consistency
+
+function getCacheKey(ticker, strike, expiry, optionType) {
+    return `${ticker}|${strike}|${expiry}|${optionType}`;
+}
+
+function logCache(action, key, ageMs = null) {
+    if (ageMs !== null) {
+        console.log(`[CACHE] ${action}: ${key} (${Math.round(ageMs/1000)}s old)`);
+    } else {
+        console.log(`[CACHE] ${action}: ${key}`);
+    }
+}
+
 // Parse JSON request bodies
 app.use(express.json());
 
@@ -1845,18 +1864,34 @@ function estimateIVRank(ticker, currentIV) {
     return ivRank;
 }
 
-// Fetch option premium - Schwab first, CBOE fallback
+// Fetch option premium - Schwab first, CBOE fallback (with caching)
 // optionType: 'PUT' or 'CALL' - derived from strategy
 async function fetchOptionPremium(ticker, strike, expiry, optionType = 'PUT') {
+    // Check cache first
+    const cacheKey = getCacheKey(ticker, strike, expiry, optionType);
+    const cached = optionPremiumCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        logCache('HIT option premium', `${ticker} $${strike} ${optionType}`, Date.now() - cached.timestamp);
+        return cached.data;
+    }
+    
     // Try Schwab first (real-time data)
     const schwabResult = await fetchOptionPremiumSchwab(ticker, strike, expiry, optionType);
     if (schwabResult) {
+        // Cache and return
+        optionPremiumCache.set(cacheKey, { data: schwabResult, timestamp: Date.now() });
+        logCache('STORE option premium', `${ticker} $${strike} ${optionType}`);
         return schwabResult;
     }
     
     // Fallback to CBOE (delayed but always available)
     console.log(`[OPTION] Schwab unavailable, falling back to CBOE for ${ticker}`);
-    return await fetchOptionPremiumCBOE(ticker, strike, expiry, optionType);
+    const cboeResult = await fetchOptionPremiumCBOE(ticker, strike, expiry, optionType);
+    if (cboeResult) {
+        optionPremiumCache.set(cacheKey, { data: cboeResult, timestamp: Date.now() });
+        logCache('STORE option premium', `${ticker} $${strike} ${optionType}`);
+    }
+    return cboeResult;
 }
 
 // Fetch option premium from Schwab
@@ -2073,8 +2108,15 @@ async function fetchOptionPremiumCBOE(ticker, strike, expiry, optionType = 'PUT'
     }
 }
 
-// Fetch extended data for deep dive analysis
+// Fetch extended data for deep dive analysis (with caching)
 async function fetchDeepDiveData(ticker) {
+    // Check cache first
+    const cached = tickerDataCache.get(ticker);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        logCache('HIT ticker data', ticker, Date.now() - cached.timestamp);
+        return cached.data;
+    }
+    
     const result = {
         ticker,
         price: null,
@@ -2150,6 +2192,10 @@ async function fetchDeepDiveData(ticker) {
     } catch (e) {
         console.log(`[AI] Deep dive data fetch error for ${ticker}:`, e.message);
     }
+    
+    // Cache the result
+    tickerDataCache.set(ticker, { data: result, timestamp: Date.now() });
+    logCache('STORE ticker data', ticker);
     
     return result;
 }
