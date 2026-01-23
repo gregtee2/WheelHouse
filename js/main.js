@@ -294,9 +294,11 @@ async function checkAIAvailability() {
     }
 }
 
-// ==========================================
-// IMAGE PARSING FUNCTIONS (Broker Screenshots)
-// ==========================================
+// ============================================================
+// SECTION: IMAGE PARSING (Broker Screenshots)
+// Functions: handleImageDrop, handleImageUpload, parseUploadedImage, useExtractedTrade
+// Lines: ~297-470
+// ============================================================
 
 /**
  * Handle image drag & drop
@@ -469,6 +471,14 @@ window.useExtractedTrade = function() {
     // Hide the image result
     document.getElementById('imageParseResult').style.display = 'none';
 };
+
+// ============================================================
+// SECTION: AI FUNCTIONS (Ollama Integration)
+// Functions: saveAIModelPreference, checkAIStatus, warmupAIModel,
+//            getXSentiment, xDeepDive, getTradeIdeas, deepDive,
+//            analyzeDiscordTrade, stageDiscordTrade, stageTradeWithThesis
+// Lines: ~473-2000
+// ============================================================
 
 /**
  * Save AI model preference to localStorage
@@ -2001,6 +2011,14 @@ function extractThesisSummary(analysis) {
     };
 }
 
+// ============================================================
+// SECTION: TRADE STAGING (Pending Trades Queue)
+// Functions: stageTrade, renderPendingTrades, showTickerChart,
+//            confirmStagedTrade, finalizeConfirmedTrade, removeStagedTrade,
+//            checkMarginForTrade
+// Lines: ~2003-2485
+// ============================================================
+
 /**
  * Legacy stage function (without thesis)
  */
@@ -2485,6 +2503,12 @@ window.checkMarginForTrade = async function(ticker, strike, premium) {
     
     document.body.appendChild(modal);
 };
+
+// ============================================================
+// SECTION: POSITION CHECKUP & UPDATES
+// Functions: runPositionCheckup, restartServer, applyUpdate
+// Lines: ~2488-3600
+// ============================================================
 
 /**
  * Run a checkup on a position - compares opening thesis to current market conditions
@@ -3604,6 +3628,12 @@ window.getTradeIdeasDifferent = async function() {
     }
 };
 
+// ============================================================
+// SECTION: MONTE CARLO SIMULATION
+// Functions: runMonteCarloRisk, initMonteCarloTab
+// Lines: ~3603-4050
+// ============================================================
+
 /**
  * Monte Carlo Risk Analysis - Uses loaded position data to run real GBM simulation
  * Shows probability distributions, price cones, and risk scenarios
@@ -4059,6 +4089,12 @@ window.initMonteCarloTab = function() {
     document.getElementById('mcIV').textContent = ((state.optVol || 0) * 100).toFixed(0) + '%';
     document.getElementById('mcDTE').textContent = (state.dte || '—') + ' days';
 };
+
+// ============================================================
+// SECTION: UI UTILITIES (Collapsible Sections, State Persistence)
+// Functions: toggleSection, toggleTickerGroup, restoreCollapsedStates
+// Lines: ~4093-4150
+// ============================================================
 
 /**
  * Toggle collapsible sections in Portfolio tab
