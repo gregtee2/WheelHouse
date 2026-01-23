@@ -582,16 +582,21 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
     if (url.pathname === '/api/ai/deep-dive' && req.method === 'POST') {
         try {
             const data = req.body;
-                const { ticker, strike, expiry, currentPrice, model } = data;
+                const { ticker, strike, expiry, currentPrice, model, positionType } = data;
                 const selectedModel = model || 'qwen2.5:32b'; // Use best model for deep analysis
                 
-                console.log(`[AI] Deep dive on ${ticker} $${strike} put, expiry ${expiry}`);
+                // Determine option type from position type
+                const callTypes = ['long_call', 'long_call_leaps', 'covered_call', 'leap', 'leaps', 'call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
+                const typeLower = (positionType || '').toLowerCase().replace(/\s+/g, '_');
+                const optionType = callTypes.some(s => typeLower.includes(s)) ? 'CALL' : 'PUT';
+                
+                console.log(`[AI] Deep dive on ${ticker} $${strike} ${optionType.toLowerCase()}, expiry ${expiry}`);
                 
                 // Fetch extended data for this ticker
                 const tickerData = await fetchDeepDiveData(ticker);
                 
                 // Fetch actual option premium from CBOE
-                const premium = await fetchOptionPremium(ticker, parseFloat(strike), expiry);
+                const premium = await fetchOptionPremium(ticker, parseFloat(strike), expiry, optionType);
                 if (premium) {
                     tickerData.premium = premium;
                     console.log(`[CBOE] Found premium: bid=$${premium.bid} ask=$${premium.ask} IV=${premium.iv}%`);
@@ -624,11 +629,16 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
                 const { ticker, strike, expiry, openingThesis, positionType, model } = data;
                 const selectedModel = model || 'qwen2.5:7b';
                 
-                console.log(`[AI] Position checkup for ${ticker} $${strike} ${positionType || 'position'}`);
+                // Determine option type from position type
+                const callTypes = ['long_call', 'long_call_leaps', 'covered_call', 'leap', 'leaps', 'call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
+                const typeLower = (positionType || '').toLowerCase().replace(/\s+/g, '_');
+                const optionType = callTypes.some(s => typeLower.includes(s)) ? 'CALL' : 'PUT';
+                
+                console.log(`[AI] Position checkup for ${ticker} $${strike} ${optionType.toLowerCase()}`);
                 
                 // Fetch current data for comparison
                 const currentData = await fetchDeepDiveData(ticker);
-                const currentPremium = await fetchOptionPremium(ticker, parseFloat(strike), formatExpiryForCBOE(expiry));
+                const currentPremium = await fetchOptionPremium(ticker, parseFloat(strike), formatExpiryForCBOE(expiry), optionType);
                 
                 // Build comparison prompt
                 const prompt = buildCheckupPrompt(data, openingThesis, currentData, currentPremium);
@@ -773,7 +783,14 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
                 let premium = null;
                 if (parsed.strike && parsed.expiry) {
                     const strikeNum = parseFloat(String(parsed.strike).replace(/[^0-9.]/g, ''));
-                    premium = await fetchOptionPremium(parsed.ticker, strikeNum, formatExpiryForCBOE(parsed.expiry));
+                    
+                    // Determine option type from strategy
+                    const callStrategies = ['long_call', 'long_call_leaps', 'covered_call', 'leap', 'leaps', 'call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
+                    const strategyLower = (parsed.strategy || '').toLowerCase().replace(/\s+/g, '_');
+                    const optionType = callStrategies.some(s => strategyLower.includes(s)) ? 'CALL' : 'PUT';
+                    console.log(`[CBOE] Strategy "${parsed.strategy}" → optionType: ${optionType}`);
+                    
+                    premium = await fetchOptionPremium(parsed.ticker, strikeNum, formatExpiryForCBOE(parsed.expiry), optionType);
                 }
                 
                 // Step 4: Build analysis prompt and get AI recommendation
@@ -1552,35 +1569,63 @@ function shuffleArray(array) {
     return shuffled;
 }
 
-// Convert any expiry format to "Mon DD" format for CBOE lookup
-// Handles: "2026-02-20" (ISO), "Feb 20" (short), "Feb 20, 2026" (long), "February 20" (full month)
+// Convert any expiry format to "Mon DD" or "Mon DD, YYYY" format for CBOE lookup
+// For LEAPS (1+ year out), we preserve the year so CBOE can find the correct chain
 function formatExpiryForCBOE(expiry) {
     if (!expiry) return null;
     
-    // Already in "Mon DD" format?
-    const shortMatch = expiry.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d+$/i);
-    if (shortMatch) return expiry;
+    const currentYear = new Date().getFullYear();
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     
-    // ISO format: 2026-02-20
+    // ISO format: 2026-02-20 or 2028-01-21
     const isoMatch = expiry.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (isoMatch) {
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const year = parseInt(isoMatch[1]);
         const month = months[parseInt(isoMatch[2]) - 1];
         const day = parseInt(isoMatch[3]);
+        // If it's a LEAPS (more than 1 year out), include the year
+        if (year > currentYear) {
+            return `${month} ${day}, ${year}`;
+        }
         return `${month} ${day}`;
     }
     
-    // "Mon DD, YYYY" format
-    const longMatch = expiry.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d+),?\s*\d*/i);
+    // US format: 1/21/28 or 1/21/2028
+    const usMatch = expiry.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (usMatch) {
+        const month = months[parseInt(usMatch[1]) - 1];
+        const day = parseInt(usMatch[2]);
+        let year = parseInt(usMatch[3]);
+        if (year < 100) year += 2000; // 28 -> 2028
+        if (year > currentYear) {
+            return `${month} ${day}, ${year}`;
+        }
+        return `${month} ${day}`;
+    }
+    
+    // Already in "Mon DD" format? Check if there's a year
+    const shortMatch = expiry.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d+)$/i);
+    if (shortMatch) return expiry;
+    
+    // "Mon DD, YYYY" format - preserve year if future
+    const longMatch = expiry.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d+),?\s*(\d{4})?/i);
     if (longMatch) {
+        const year = longMatch[3] ? parseInt(longMatch[3]) : currentYear;
+        if (year > currentYear) {
+            return `${longMatch[1]} ${parseInt(longMatch[2])}, ${year}`;
+        }
         return `${longMatch[1]} ${parseInt(longMatch[2])}`;
     }
     
-    // Full month name: "February 20"
-    const fullMonthMatch = expiry.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d+)/i);
+    // Full month name: "February 20, 2028" or "February 20"
+    const fullMonthMatch = expiry.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d+),?\s*(\d{4})?/i);
     if (fullMonthMatch) {
         const shortMonths = { January: 'Jan', February: 'Feb', March: 'Mar', April: 'Apr', May: 'May', June: 'Jun',
                              July: 'Jul', August: 'Aug', September: 'Sep', October: 'Oct', November: 'Nov', December: 'Dec' };
+        const year = fullMonthMatch[3] ? parseInt(fullMonthMatch[3]) : currentYear;
+        if (year > currentYear) {
+            return `${shortMonths[fullMonthMatch[1]]} ${parseInt(fullMonthMatch[2])}, ${year}`;
+        }
         return `${shortMonths[fullMonthMatch[1]]} ${parseInt(fullMonthMatch[2])}`;
     }
     
@@ -1801,66 +1846,81 @@ function estimateIVRank(ticker, currentIV) {
 }
 
 // Fetch option premium - Schwab first, CBOE fallback
-async function fetchOptionPremium(ticker, strike, expiry) {
+// optionType: 'PUT' or 'CALL' - derived from strategy
+async function fetchOptionPremium(ticker, strike, expiry, optionType = 'PUT') {
     // Try Schwab first (real-time data)
-    const schwabResult = await fetchOptionPremiumSchwab(ticker, strike, expiry);
+    const schwabResult = await fetchOptionPremiumSchwab(ticker, strike, expiry, optionType);
     if (schwabResult) {
         return schwabResult;
     }
     
     // Fallback to CBOE (delayed but always available)
     console.log(`[OPTION] Schwab unavailable, falling back to CBOE for ${ticker}`);
-    return await fetchOptionPremiumCBOE(ticker, strike, expiry);
+    return await fetchOptionPremiumCBOE(ticker, strike, expiry, optionType);
 }
 
 // Fetch option premium from Schwab
-async function fetchOptionPremiumSchwab(ticker, strike, expiry) {
+async function fetchOptionPremiumSchwab(ticker, strike, expiry, optionType = 'PUT') {
     try {
-        // Parse expiry "Feb 20" or "Feb 21" to YYYY-MM-DD format
-        const expiryParts = expiry.match(/(\w+)\s+(\d+)/);
-        if (!expiryParts) {
-            console.log(`[SCHWAB] Could not parse expiry: ${expiry}`);
-            return null;
+        // Parse expiry - supports "Feb 20", "Feb 20, 2028", "2028-01-21"
+        const currentYear = new Date().getFullYear();
+        let month, day, expiryYear;
+        
+        // Try "Mon DD, YYYY" format first (for LEAPS)
+        const longMatch = expiry.match(/(\w+)\s+(\d+),?\s*(\d{4})/);
+        if (longMatch) {
+            const monthMap = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+                              Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
+            month = monthMap[longMatch[1]];
+            day = longMatch[2].padStart(2, '0');
+            expiryYear = parseInt(longMatch[3]);
+        } else {
+            // Try "Mon DD" format (assumes current/next year)
+            const shortMatch = expiry.match(/(\w+)\s+(\d+)/);
+            if (!shortMatch) {
+                console.log(`[SCHWAB] Could not parse expiry: ${expiry}`);
+                return null;
+            }
+            const monthMap = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+                              Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
+            month = monthMap[shortMatch[1]];
+            day = shortMatch[2].padStart(2, '0');
+            const currentMonth = new Date().getMonth() + 1;
+            expiryYear = parseInt(month) < currentMonth ? currentYear + 1 : currentYear;
         }
         
-        const monthMap = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
-                          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
-        const month = monthMap[expiryParts[1]];
-        const day = expiryParts[2].padStart(2, '0');
-        const year = new Date().getFullYear();
-        const currentMonth = new Date().getMonth() + 1;
-        const expiryYear = parseInt(month) < currentMonth ? year + 1 : year;
         const expiryDate = `${expiryYear}-${month}-${day}`;
         
-        console.log(`[SCHWAB] Fetching ALL puts for ${ticker} near expiry ${expiryDate}`);
+        console.log(`[SCHWAB] Fetching ${optionType}s for ${ticker} expiry ${expiryDate} strike=$${strike}`);
         
-        // Fetch ALL puts for this expiry (don't filter by strike - we'll find closest)
-        // Use a date range to catch nearby expirations (weekly vs monthly)
+        // Fetch options for this expiry (use wider date range for LEAPS)
+        const isLeaps = expiryYear > currentYear;
+        const dateRangeDays = isLeaps ? 14 : 7; // LEAPS may have different exact dates
         const fromDate = expiryDate;
-        const toDate = new Date(new Date(expiryDate).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // +7 days
+        const toDate = new Date(new Date(expiryDate).getTime() + dateRangeDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         
-        const chainData = await schwabApiCall(`/marketdata/v1/chains?symbol=${ticker}&contractType=PUT&fromDate=${fromDate}&toDate=${toDate}&strikeCount=50`);
+        const chainData = await schwabApiCall(`/marketdata/v1/chains?symbol=${ticker}&contractType=${optionType}&fromDate=${fromDate}&toDate=${toDate}&strikeCount=50`);
         
         if (!chainData || chainData.status === 'FAILED') {
             console.log(`[SCHWAB] No option chain data for ${ticker}`);
             return null;
         }
         
-        const putExpDateMap = chainData.putExpDateMap;
-        if (!putExpDateMap || Object.keys(putExpDateMap).length === 0) {
-            console.log(`[SCHWAB] No put options in chain for ${ticker}`);
+        const expDateMap = optionType === 'PUT' ? chainData.putExpDateMap : chainData.callExpDateMap;
+        if (!expDateMap || Object.keys(expDateMap).length === 0) {
+            console.log(`[SCHWAB] No ${optionType} options in chain for ${ticker}`);
             return null;
         }
         
-        // Collect ALL available puts with their strikes
-        const allPuts = [];
-        for (const dateKey of Object.keys(putExpDateMap)) {
-            const strikeMap = putExpDateMap[dateKey];
+        // Collect ALL available options with their strikes
+        const allOptions = [];
+        for (const dateKey of Object.keys(expDateMap)) {
+            const strikeMap = expDateMap[dateKey];
             for (const strikeKey of Object.keys(strikeMap)) {
                 const options = strikeMap[strikeKey];
                 if (options && options.length > 0) {
                     const opt = options[0];
-                    allPuts.push({
+                    allOptions.push({
                         strike: parseFloat(strikeKey),
                         expiry: dateKey.split(':')[0], // "2026-02-21:30" -> "2026-02-21"
                         option: opt
@@ -1869,16 +1929,16 @@ async function fetchOptionPremiumSchwab(ticker, strike, expiry) {
             }
         }
         
-        if (allPuts.length === 0) {
-            console.log(`[SCHWAB] No puts found for ${ticker}`);
+        if (allOptions.length === 0) {
+            console.log(`[SCHWAB] No ${optionType}s found for ${ticker}`);
             return null;
         }
         
-        console.log(`[SCHWAB] Found ${allPuts.length} puts. Available strikes: $${allPuts.map(p => p.strike).sort((a,b) => a-b).join(', $')}`);
+        console.log(`[SCHWAB] Found ${allOptions.length} ${optionType.toLowerCase()}s. Available strikes: $${allOptions.map(p => p.strike).sort((a,b) => a-b).join(', $')}`);
         
         // Find closest strike to requested
-        allPuts.sort((a, b) => Math.abs(a.strike - strike) - Math.abs(b.strike - strike));
-        const closest = allPuts[0];
+        allOptions.sort((a, b) => Math.abs(a.strike - strike) - Math.abs(b.strike - strike));
+        const closest = allOptions[0];
         const matchingOption = closest.option;
         
         // Warn if we had to adjust
@@ -1911,7 +1971,7 @@ async function fetchOptionPremiumSchwab(ticker, strike, expiry) {
 }
 
 // Fetch option premium from CBOE (fallback)
-async function fetchOptionPremiumCBOE(ticker, strike, expiry) {
+async function fetchOptionPremiumCBOE(ticker, strike, expiry, optionType = 'PUT') {
     try {
         const cacheBuster = Date.now();
         const cboeUrl = `https://cdn.cboe.com/api/global/delayed_quotes/options/${ticker}.json?_=${cacheBuster}`;
@@ -1922,54 +1982,71 @@ async function fetchOptionPremiumCBOE(ticker, strike, expiry) {
             return null;
         }
         
-        // Parse expiry "Feb 20" to YYMMDD format for matching CBOE option symbols
+        // Parse expiry - can be "Feb 20", "Feb 20, 2028", "2028-01-21", etc.
         // CBOE format: HOOD260220P00095000 = HOOD + 26 (year) + 02 (month) + 20 (day) + P (put) + strike
-        const expiryParts = expiry.match(/(\w+)\s+(\d+)/); // "Feb 20" -> ["Feb 20", "Feb", "20"]
-        if (!expiryParts) {
-            console.log(`[CBOE] Could not parse expiry: ${expiry}`);
-            return null;
+        const currentYear = new Date().getFullYear();
+        let month, day, year;
+        
+        // Try "Mon DD, YYYY" format first (for LEAPS)
+        const longMatch = expiry.match(/(\w+)\s+(\d+),?\s*(\d{4})/);
+        if (longMatch) {
+            const monthMap = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+                              Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
+            month = monthMap[longMatch[1]];
+            day = longMatch[2].padStart(2, '0');
+            year = longMatch[3].slice(-2); // "2028" -> "28"
+        } else {
+            // Try "Mon DD" format (assumes current/next year)
+            const shortMatch = expiry.match(/(\w+)\s+(\d+)/);
+            if (!shortMatch) {
+                console.log(`[CBOE] Could not parse expiry: ${expiry}`);
+                return null;
+            }
+            const monthMap = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+                              Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
+            month = monthMap[shortMatch[1]];
+            day = shortMatch[2].padStart(2, '0');
+            year = String(currentYear).slice(-2); // Default to current year
         }
         
-        const monthMap = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
-                          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
-        const month = monthMap[expiryParts[1]];
-        const day = expiryParts[2].padStart(2, '0');
-        const year = '26'; // Just last 2 digits for 2026
+        // Determine option type symbol (C for call, P for put)
+        const optSymbol = optionType === 'CALL' ? 'C' : 'P';
+        console.log(`[CBOE] Looking for ${ticker} ${optionType} expiry: 20${year}-${month}-${day} strike=$${strike}`);
         
-        // Get ALL puts for this ticker
+        // Get ALL options of the requested type
         const options = data.data.options;
-        const allPuts = options.filter(opt => opt.option?.includes('P'));
+        const filteredOptions = options.filter(opt => opt.option?.includes(optSymbol));
         
         // Build date prefix to filter by expiry (or nearby expirations)
         const datePrefix = `${ticker}${year}${month}`;
         
-        // Filter to puts near our target expiry (within a week)
+        // Filter to options near our target expiry (within a week)
         const targetDay = parseInt(day);
-        const nearbyPuts = allPuts.filter(opt => {
+        const nearbyOptions = filteredOptions.filter(opt => {
             if (!opt.option?.startsWith(datePrefix)) return false;
             // Extract day from symbol
             const symDay = parseInt(opt.option.substring(ticker.length + 4, ticker.length + 6));
             return Math.abs(symDay - targetDay) <= 7;
         });
         
-        if (nearbyPuts.length === 0) {
-            console.log(`[CBOE] No puts found for ${ticker} near ${month}/${day}`);
+        if (nearbyOptions.length === 0) {
+            console.log(`[CBOE] No ${optionType.toLowerCase()}s found for ${ticker} near 20${year}-${month}-${day}`);
             return null;
         }
         
         // Extract strikes and find available options
-        const putsWithStrikes = nearbyPuts.map(opt => ({
+        const optionsWithStrikes = nearbyOptions.map(opt => ({
             option: opt,
             strike: parseFloat(opt.option.slice(-8)) / 1000,
             expiry: `${opt.option.substring(ticker.length, ticker.length + 6)}` // YYMMDD
         }));
         
-        const availableStrikes = [...new Set(putsWithStrikes.map(p => p.strike))].sort((a, b) => a - b);
-        console.log(`[CBOE] Found ${nearbyPuts.length} puts. Available strikes: $${availableStrikes.slice(0, 15).join(', $')}${availableStrikes.length > 15 ? '...' : ''}`);
+        const availableStrikes = [...new Set(optionsWithStrikes.map(p => p.strike))].sort((a, b) => a - b);
+        console.log(`[CBOE] Found ${nearbyOptions.length} ${optionType.toLowerCase()}s. Available strikes: $${availableStrikes.slice(0, 15).join(', $')}${availableStrikes.length > 15 ? '...' : ''}`);
         
         // Find closest strike to requested
-        putsWithStrikes.sort((a, b) => Math.abs(a.strike - strike) - Math.abs(b.strike - strike));
-        const closest = putsWithStrikes[0];
+        optionsWithStrikes.sort((a, b) => Math.abs(a.strike - strike) - Math.abs(b.strike - strike));
+        const closest = optionsWithStrikes[0];
         
         // Warn if we adjusted
         if (Math.abs(closest.strike - strike) > 0.01) {
@@ -2336,8 +2413,11 @@ INSTRUCTIONS:
 2. For spreads, use "buyStrike" and "sellStrike" - KEEP THEM EXACTLY AS STATED
    - If callout says "Buy 400 / Sell 410", then buyStrike=400, sellStrike=410
    - Do NOT swap or reorder the strikes
-3. Normalize strategy to: "short_put", "short_call", "covered_call", "bull_put_spread", "bear_call_spread", "call_debit_spread", "put_debit_spread"
-4. Format expiry as "Mon DD" (e.g., "Feb 21" or "Jan 23")
+3. Normalize strategy to: "short_put", "short_call", "covered_call", "bull_put_spread", "bear_call_spread", "call_debit_spread", "put_debit_spread", "long_call", "long_put", "long_call_leaps", "long_put_leaps"
+   - LEAPS are options with expiry 1+ year out - use "long_call_leaps" or "long_put_leaps" if mentioned
+4. Format expiry as "YYYY-MM-DD" (e.g., "2026-02-21" or "2028-01-21")
+   - ALWAYS include the full year, especially for LEAPS (1+ year out)
+   - If year is "26" or "28", interpret as 2026 or 2028
 5. Premium should be the OPTION premium (what you pay/receive for the option), NOT the stock price
    - If callout says "PLTR @ $167 - Sell $150 put" → $167 is STOCK PRICE, not premium. Premium is unknown.
    - If callout says "Sell $150 put for $4.85" → Premium is 4.85
@@ -2349,7 +2429,7 @@ RESPOND WITH ONLY JSON, no explanation:
 {
     "ticker": "SYMBOL",
     "strategy": "strategy_type",
-    "expiry": "Mon DD",
+    "expiry": "2026-02-21",
     "strike": 100,
     "buyStrike": null,
     "sellStrike": null,
