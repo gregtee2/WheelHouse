@@ -25,6 +25,151 @@ export function erf(x) {
 }
 
 /**
+ * Standard normal CDF
+ */
+export function normCDF(x) {
+    return 0.5 * (1 + erf(x / Math.sqrt(2)));
+}
+
+/**
+ * Standard normal PDF
+ */
+export function normPDF(x) {
+    return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+/**
+ * Calculate Black-Scholes Greeks for a single option
+ * @param {number} S - Current stock price
+ * @param {number} K - Strike price
+ * @param {number} T - Time to expiry in years
+ * @param {number} r - Risk-free rate (default 0.05)
+ * @param {number} sigma - Implied volatility (decimal, e.g. 0.30 for 30%)
+ * @param {boolean} isPut - True for put, false for call
+ * @param {number} contracts - Number of contracts (default 1)
+ * @returns {Object} { delta, gamma, theta, vega, rho }
+ */
+export function calculateGreeks(S, K, T, r = 0.05, sigma, isPut = true, contracts = 1) {
+    // Handle edge cases
+    if (T <= 0.001 || sigma <= 0 || S <= 0 || K <= 0) {
+        // At expiration - return intrinsic delta
+        const intrinsicDelta = isPut ? (S < K ? -1 : 0) : (S > K ? 1 : 0);
+        return {
+            delta: intrinsicDelta * contracts * 100,
+            gamma: 0,
+            theta: 0,
+            vega: 0,
+            rho: 0
+        };
+    }
+    
+    const sqrtT = Math.sqrt(T);
+    const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT);
+    const d2 = d1 - sigma * sqrtT;
+    
+    const Nd1 = normCDF(d1);
+    const Nd2 = normCDF(d2);
+    const nd1 = normPDF(d1);
+    
+    // Greeks per share
+    let delta, theta;
+    
+    if (isPut) {
+        delta = Nd1 - 1;  // Put delta is negative
+        theta = (-S * nd1 * sigma / (2 * sqrtT)) + (r * K * Math.exp(-r * T) * (1 - Nd2));
+    } else {
+        delta = Nd1;  // Call delta is positive
+        theta = (-S * nd1 * sigma / (2 * sqrtT)) - (r * K * Math.exp(-r * T) * Nd2);
+    }
+    
+    // Gamma and Vega are same for calls and puts
+    const gamma = nd1 / (S * sigma * sqrtT);
+    const vega = S * nd1 * sqrtT / 100;  // Per 1% change in IV
+    
+    // Rho (per 1% change in rate)
+    const rho = isPut ? 
+        -K * T * Math.exp(-r * T) * (1 - Nd2) / 100 :
+        K * T * Math.exp(-r * T) * Nd2 / 100;
+    
+    // Scale by contracts (100 shares per contract)
+    const multiplier = contracts * 100;
+    
+    // Theta is typically shown as daily decay (divide annual by 365)
+    return {
+        delta: delta * multiplier,
+        gamma: gamma * multiplier,
+        theta: (theta / 365) * multiplier,  // Daily theta in $
+        vega: vega * multiplier,             // $ change per 1% IV move
+        rho: rho * multiplier
+    };
+}
+
+/**
+ * Calculate portfolio-level Greeks by summing across all positions
+ * @param {Array} positions - Array of position objects
+ * @param {Object} spotPrices - Map of ticker -> current price
+ * @param {Object} ivData - Map of ticker -> IV (decimal)
+ * @returns {Object} { delta, gamma, theta, vega, positionGreeks }
+ */
+export function calculatePortfolioGreeks(positions, spotPrices = {}, ivData = {}) {
+    let totalDelta = 0, totalGamma = 0, totalTheta = 0, totalVega = 0;
+    const positionGreeks = [];
+    
+    for (const pos of positions) {
+        if (pos.status === 'closed') continue;
+        
+        const spot = spotPrices[pos.ticker] || pos.currentSpot || pos.stockPrice || 100;
+        const iv = ivData[pos.ticker] || pos.iv || 0.30;  // Default 30% IV
+        const strike = pos.strike || 0;
+        const contracts = pos.contracts || 1;
+        const isPut = pos.type?.includes('put');
+        const isShort = pos.type?.includes('short') || pos.type === 'covered_call';
+        
+        // Days to expiry
+        const expiry = new Date(pos.expiry);
+        const now = new Date();
+        const dte = Math.max(0, (expiry - now) / (1000 * 60 * 60 * 24));
+        const T = dte / 365;
+        
+        const greeks = calculateGreeks(spot, strike, T, 0.05, iv, isPut, contracts);
+        
+        // If short, Greeks are inverted
+        const sign = isShort ? -1 : 1;
+        
+        const posGreeks = {
+            id: pos.id,
+            ticker: pos.ticker,
+            strike: strike,
+            expiry: pos.expiry,
+            type: pos.type,
+            contracts: contracts,
+            dte: Math.round(dte),
+            spot: spot,
+            iv: iv,
+            delta: greeks.delta * sign,
+            gamma: greeks.gamma * sign,
+            theta: greeks.theta * sign,  // Short positions have positive theta (collect premium)
+            vega: greeks.vega * sign
+        };
+        
+        positionGreeks.push(posGreeks);
+        
+        totalDelta += posGreeks.delta;
+        totalGamma += posGreeks.gamma;
+        totalTheta += posGreeks.theta;
+        totalVega += posGreeks.vega;
+    }
+    
+    return {
+        delta: totalDelta,
+        gamma: totalGamma,
+        theta: totalTheta,
+        vega: totalVega,
+        positionGreeks
+    };
+}
+
+/**
  * Download helper for exporting data
  */
 export function download(filename, content, type) {

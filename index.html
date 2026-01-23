@@ -953,6 +953,48 @@ Entry: $3.75"
                         <div class="result-row"><span class="result-label">Worst Trade:</span><span class="result-value" id="portWorstTrade" style="cursor:pointer;">—</span></div>
                     </div>
                     
+                    <!-- Portfolio Greeks Dashboard -->
+                    <div class="results-box" style="margin-top:15px; background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3);">
+                        <h3 style="color:#8b5cf6;">📐 Portfolio Greeks</h3>
+                        <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px;">
+                            <div style="text-align:center; padding:10px; background:rgba(0,0,0,0.2); border-radius:6px;">
+                                <div style="font-size:24px; font-weight:bold;" id="portDelta">—</div>
+                                <div style="font-size:11px; color:#888;">Δ Delta</div>
+                                <div style="font-size:9px; color:#666;">Shares equivalent</div>
+                            </div>
+                            <div style="text-align:center; padding:10px; background:rgba(0,0,0,0.2); border-radius:6px;">
+                                <div style="font-size:24px; font-weight:bold; color:#00ff88;" id="portTheta">—</div>
+                                <div style="font-size:11px; color:#888;">Θ Theta</div>
+                                <div style="font-size:9px; color:#666;">$/day time decay</div>
+                            </div>
+                            <div style="text-align:center; padding:10px; background:rgba(0,0,0,0.2); border-radius:6px;">
+                                <div style="font-size:24px; font-weight:bold;" id="portGamma">—</div>
+                                <div style="font-size:11px; color:#888;">Γ Gamma</div>
+                                <div style="font-size:9px; color:#666;">Delta change rate</div>
+                            </div>
+                            <div style="text-align:center; padding:10px; background:rgba(0,0,0,0.2); border-radius:6px;">
+                                <div style="font-size:24px; font-weight:bold;" id="portVega">—</div>
+                                <div style="font-size:11px; color:#888;">ν Vega</div>
+                                <div style="font-size:9px; color:#666;">$/1% IV move</div>
+                            </div>
+                        </div>
+                        <button id="refreshGreeksBtn" class="btn-primary" style="width:100%; margin-top:10px; padding:8px;">🔄 Update Greeks</button>
+                    </div>
+                    
+                    <!-- Advanced Analytics -->
+                    <div class="results-box" style="margin-top:15px; background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.3);">
+                        <h3 style="color:#ffaa00;">📊 Advanced Analytics</h3>
+                        <div class="result-row"><span class="result-label">Profit Factor:</span><span class="result-value" id="portProfitFactor">—</span></div>
+                        <div class="result-row"><span class="result-label">Avg Win:</span><span class="result-value" id="portAvgWin" style="color:#00ff88;">—</span></div>
+                        <div class="result-row"><span class="result-label">Avg Loss:</span><span class="result-value" id="portAvgLoss" style="color:#ff5252;">—</span></div>
+                        <div class="result-row"><span class="result-label">Expectancy:</span><span class="result-value" id="portExpectancy">—</span></div>
+                        <div class="result-row"><span class="result-label">Max Drawdown:</span><span class="result-value" id="portMaxDrawdown" style="color:#ff5252;">—</span></div>
+                        <div style="border-top:1px solid rgba(255,255,255,0.1); margin:10px 0; padding-top:10px;">
+                            <div class="result-row"><span class="result-label">Kelly % (Suggested):</span><span class="result-value" id="portKelly" style="color:#00d9ff;">—</span></div>
+                            <div class="result-row"><span class="result-label">Half Kelly Size:</span><span class="result-value" id="portHalfKelly">—</span></div>
+                        </div>
+                    </div>
+                    
                     <div style="margin-top:15px; padding:12px; background:rgba(0,217,255,0.1); border-radius:6px; font-size:12px;">
                         <div style="color:var(--accent-cyan); font-weight:600; margin-bottom:5px;">💡 How to Use</div>
                         <div style="color:#aaa;">

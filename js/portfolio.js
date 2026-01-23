@@ -2,7 +2,7 @@
 // Tracks actual P&L across all positions
 
 import { state } from './state.js';
-import { showNotification, isDebitPosition, calculateRealizedPnL, colors, createModal, modalHeader } from './utils.js';
+import { showNotification, isDebitPosition, calculateRealizedPnL, colors, createModal, modalHeader, calculatePortfolioGreeks } from './utils.js';
 import { fetchStockPrice, fetchStockPricesBatch, fetchOptionsChain, findOption } from './api.js';
 import { saveHoldingsToStorage } from './positions.js';
 
@@ -568,6 +568,9 @@ function updatePortfolioSummary(positionData) {
         setEl('portBestTrade', '—');
         setEl('portWorstTrade', '—');
     }
+    
+    // Update advanced analytics
+    updateAdvancedAnalytics();
 }
 
 /**
@@ -3038,3 +3041,190 @@ window.togglePositionChallenge = function(positionId, challengeId, isCurrentlyLi
     // Refresh the table in background
     renderClosedPositions();
 };
+
+// ============================================================
+// PORTFOLIO GREEKS DASHBOARD
+// ============================================================
+
+/**
+ * Update portfolio Greeks display
+ */
+export async function updatePortfolioGreeks() {
+    const positions = state.positions || [];
+    if (positions.length === 0) {
+        setGreeksDisplay({ delta: 0, gamma: 0, theta: 0, vega: 0 });
+        return;
+    }
+    
+    // Get current spot prices for all tickers
+    const tickers = [...new Set(positions.map(p => p.ticker))];
+    const spotPrices = {};
+    const ivData = {};
+    
+    try {
+        // Fetch batch prices
+        const prices = await fetchStockPricesBatch(tickers);
+        tickers.forEach((ticker, i) => {
+            spotPrices[ticker] = prices[i] || 100;
+        });
+        
+        // For IV, we use stored IV or estimate from position data
+        positions.forEach(p => {
+            if (!ivData[p.ticker]) {
+                ivData[p.ticker] = p.iv || 0.30;  // Default 30% if not stored
+            }
+        });
+    } catch (err) {
+        console.warn('Failed to fetch spot prices for Greeks:', err);
+    }
+    
+    const greeks = calculatePortfolioGreeks(positions, spotPrices, ivData);
+    setGreeksDisplay(greeks);
+    
+    return greeks;
+}
+
+function setGreeksDisplay(greeks) {
+    const setEl = (id, val, color) => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.textContent = val;
+            if (color) el.style.color = color;
+        }
+    };
+    
+    // Delta: positive = bullish, negative = bearish
+    const deltaColor = greeks.delta > 0 ? '#00ff88' : greeks.delta < 0 ? '#ff5252' : '#888';
+    setEl('portDelta', greeks.delta.toFixed(0), deltaColor);
+    
+    // Theta: positive = collecting premium (good for sellers)
+    const thetaColor = greeks.theta > 0 ? '#00ff88' : '#ff5252';
+    setEl('portTheta', (greeks.theta >= 0 ? '+$' : '-$') + Math.abs(greeks.theta).toFixed(0), thetaColor);
+    
+    // Gamma: shows acceleration of delta
+    setEl('portGamma', greeks.gamma.toFixed(2), '#888');
+    
+    // Vega: exposure to IV changes
+    const vegaColor = greeks.vega > 0 ? '#ff5252' : '#00ff88';  // Short vega is good for sellers
+    setEl('portVega', (greeks.vega >= 0 ? '+$' : '-$') + Math.abs(greeks.vega).toFixed(0), vegaColor);
+}
+
+// ============================================================
+// ADVANCED ANALYTICS (Profit Factor, Kelly, etc.)
+// ============================================================
+
+/**
+ * Calculate and display advanced analytics
+ */
+export function updateAdvancedAnalytics() {
+    const closed = state.closedPositions || [];
+    if (closed.length < 3) {
+        setAnalyticsDefaults();
+        return;
+    }
+    
+    const getPnL = (p) => p.realizedPnL ?? p.closePnL ?? 0;
+    
+    const wins = closed.filter(p => getPnL(p) > 0);
+    const losses = closed.filter(p => getPnL(p) < 0);
+    
+    // Win rate
+    const winRate = closed.length > 0 ? (wins.length / closed.length) : 0;
+    
+    // Average win / loss
+    const totalWins = wins.reduce((sum, p) => sum + getPnL(p), 0);
+    const totalLosses = Math.abs(losses.reduce((sum, p) => sum + getPnL(p), 0));
+    const avgWin = wins.length > 0 ? totalWins / wins.length : 0;
+    const avgLoss = losses.length > 0 ? totalLosses / losses.length : 0;
+    
+    // Profit Factor = Gross Profit / Gross Loss
+    const profitFactor = totalLosses > 0 ? totalWins / totalLosses : (totalWins > 0 ? Infinity : 0);
+    
+    // Expectancy = (Win% × Avg Win) - (Loss% × Avg Loss)
+    const expectancy = (winRate * avgWin) - ((1 - winRate) * avgLoss);
+    
+    // Max Drawdown (peak-to-trough)
+    let peak = 0, maxDrawdown = 0, cumPnL = 0;
+    // Sort by close date
+    const sorted = [...closed].sort((a, b) => new Date(a.closeDate) - new Date(b.closeDate));
+    for (const p of sorted) {
+        cumPnL += getPnL(p);
+        if (cumPnL > peak) peak = cumPnL;
+        const drawdown = peak - cumPnL;
+        if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+    }
+    
+    // Kelly Criterion = W - [(1-W) / R]
+    // W = win probability, R = win/loss ratio
+    const R = avgLoss > 0 ? avgWin / avgLoss : 1;
+    const kellyPercent = avgLoss > 0 ? (winRate - ((1 - winRate) / R)) * 100 : 0;
+    const halfKelly = kellyPercent / 2;
+    
+    // Display
+    const setEl = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    };
+    
+    setEl('portProfitFactor', profitFactor === Infinity ? '∞' : profitFactor.toFixed(2));
+    setEl('portAvgWin', '+$' + avgWin.toFixed(0));
+    setEl('portAvgLoss', '-$' + avgLoss.toFixed(0));
+    setEl('portExpectancy', (expectancy >= 0 ? '+$' : '-$') + Math.abs(expectancy).toFixed(0) + '/trade');
+    setEl('portMaxDrawdown', '-$' + maxDrawdown.toFixed(0));
+    
+    // Kelly
+    const kellyEl = document.getElementById('portKelly');
+    if (kellyEl) {
+        kellyEl.textContent = kellyPercent.toFixed(1) + '%';
+        kellyEl.style.color = kellyPercent > 0 ? '#00d9ff' : '#ff5252';
+    }
+    
+    // Half Kelly with buying power context
+    const halfKellyEl = document.getElementById('portHalfKelly');
+    if (halfKellyEl) {
+        const buyingPower = parseFloat(document.getElementById('balBuyingPower')?.textContent?.replace(/[^0-9.]/g, '')) || 0;
+        if (buyingPower > 0 && halfKelly > 0) {
+            const suggestedSize = (buyingPower * halfKelly / 100).toFixed(0);
+            halfKellyEl.textContent = `${halfKelly.toFixed(1)}% = $${suggestedSize}`;
+        } else {
+            halfKellyEl.textContent = halfKelly.toFixed(1) + '% of BP';
+        }
+    }
+}
+
+function setAnalyticsDefaults() {
+    const setEl = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    };
+    
+    setEl('portProfitFactor', '—');
+    setEl('portAvgWin', '—');
+    setEl('portAvgLoss', '—');
+    setEl('portExpectancy', '—');
+    setEl('portMaxDrawdown', '—');
+    setEl('portKelly', '—');
+    setEl('portHalfKelly', 'Need 3+ trades');
+}
+
+// Hook up refresh button
+document.addEventListener('DOMContentLoaded', () => {
+    const refreshGreeksBtn = document.getElementById('refreshGreeksBtn');
+    if (refreshGreeksBtn) {
+        refreshGreeksBtn.onclick = async () => {
+            refreshGreeksBtn.textContent = '⏳ Calculating...';
+            refreshGreeksBtn.disabled = true;
+            try {
+                await updatePortfolioGreeks();
+                updateAdvancedAnalytics();
+                showNotification('✅ Greeks updated', 'success', 2000);
+            } catch (err) {
+                console.error('Failed to update Greeks:', err);
+                showNotification('Failed to update Greeks', 'error');
+            } finally {
+                refreshGreeksBtn.textContent = '🔄 Update Greeks';
+                refreshGreeksBtn.disabled = false;
+            }
+        };
+    }
+});
