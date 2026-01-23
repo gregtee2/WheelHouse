@@ -2,7 +2,7 @@
 // Tracks actual P&L across all positions
 
 import { state } from './state.js';
-import { showNotification, isDebitPosition, colors, createModal, modalHeader } from './utils.js';
+import { showNotification, isDebitPosition, calculateRealizedPnL, colors, createModal, modalHeader } from './utils.js';
 import { fetchStockPrice, fetchStockPricesBatch, fetchOptionsChain, findOption } from './api.js';
 import { saveHoldingsToStorage } from './positions.js';
 
@@ -649,9 +649,7 @@ function updateClosePnLPreview() {
     if (!pos) return;
     
     const closingPrice = parseFloat(document.getElementById('closeClosingPrice')?.value) || 0;
-    const premiumReceived = pos.premium * 100 * pos.contracts;
-    const closingCost = closingPrice * 100 * pos.contracts;
-    const pnl = premiumReceived - closingCost;
+    const pnl = calculateRealizedPnL(pos, closingPrice);
     
     const pnlEl = document.getElementById('closePnLValue');
     if (pnlEl) {
@@ -684,10 +682,8 @@ export function executeClose() {
         return;
     }
     
-    // Calculate realized P&L
-    const premiumReceived = pos.premium * 100 * pos.contracts;
-    const closingCost = closingPrice * 100 * pos.contracts;
-    const realizedPnL = premiumReceived - closingCost;
+    // Calculate realized P&L (handles both credit and debit positions)
+    const realizedPnL = calculateRealizedPnL(pos, closingPrice);
     
     // Calculate days held
     const today = new Date().toISOString().split('T')[0];
@@ -1222,10 +1218,9 @@ export function addHistoricalClosedPosition() {
         return;
     }
     
-    // Calculate P&L
-    const premiumReceived = premium * 100 * contracts;
-    const closingCost = closingPrice * 100 * contracts;
-    const realizedPnL = premiumReceived - closingCost;
+    // Create a position-like object to calculate P&L correctly
+    const posLike = { type: type.toLowerCase(), premium, contracts };
+    const realizedPnL = calculateRealizedPnL(posLike, closingPrice);
     
     // Calculate days held
     const open = new Date(openDate);

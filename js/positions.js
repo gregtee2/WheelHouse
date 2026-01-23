@@ -2,7 +2,7 @@
 // localStorage-based position management
 
 import { state, setPositionContext, clearPositionContext } from './state.js';
-import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal, isDebitPosition, calculatePositionCredit, getChainNetCredit as utilsGetChainNetCredit, hasRollHistory as utilsHasRollHistory, createModal, modalHeader } from './utils.js';
+import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal, isDebitPosition, calculatePositionCredit, calculateRealizedPnL, getChainNetCredit as utilsGetChainNetCredit, hasRollHistory as utilsHasRollHistory, createModal, modalHeader } from './utils.js';
 import { fetchPositionTickerPrice, fetchStockPrice, fetchStockPricesBatch } from './api.js';
 import { drawPayoffChart } from './charts.js';
 import { updateDteDisplay } from './ui.js';
@@ -1527,9 +1527,7 @@ export function executeRoll() {
     
     // Calculate P&L on old position
     const today = new Date().toISOString().split('T')[0];
-    const premiumReceived = pos.premium * 100 * pos.contracts;
-    const closingCost = closingPrice * 100 * pos.contracts;
-    const realizedPnL = premiumReceived - closingCost;
+    const realizedPnL = calculateRealizedPnL(pos, closingPrice);
     
     const openDate = new Date(pos.openDate || today);
     const closeDate = new Date(today);
@@ -1784,9 +1782,7 @@ window.executeMarkAsRolled = function(oldPositionId) {
     const chainId = oldPos.chainId || oldPos.id;
     
     // Calculate P&L on old position
-    const premiumReceived = oldPos.premium * 100 * oldPos.contracts;
-    const closingCost = closePrice * 100 * oldPos.contracts;
-    const realizedPnL = premiumReceived - closingCost;
+    const realizedPnL = calculateRealizedPnL(oldPos, closePrice);
     
     // Close old position and add to closedPositions
     if (!state.closedPositions) state.closedPositions = [];
@@ -1905,7 +1901,7 @@ export function closePosition(id, closePrice) {
     pos.status = 'closed';
     pos.closePrice = closePrice;
     pos.closeDate = new Date().toISOString().split('T')[0];
-    pos.realizedPnL = (pos.premium - closePrice) * 100 * pos.contracts;
+    pos.realizedPnL = calculateRealizedPnL(pos, closePrice);
     
     savePositionsToStorage();
     renderPositions();

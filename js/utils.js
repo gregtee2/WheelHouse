@@ -191,6 +191,34 @@ export function calculatePositionCredit(pos) {
 }
 
 /**
+ * Calculate realized P&L when closing a position
+ * Handles both credit positions (short options) and debit positions (long options)
+ * 
+ * Credit positions: premium received - close price paid = profit if positive
+ * Debit positions: close price received - premium paid = profit if positive
+ * 
+ * @param {object} pos - Position object with type, premium, contracts
+ * @param {number} closePrice - Price per share to close the position
+ * @returns {number} - Realized P&L (positive = profit, negative = loss)
+ */
+export function calculateRealizedPnL(pos, closePrice) {
+    if (!pos) return 0;
+    const premium = (pos.premium || 0);
+    const contracts = (pos.contracts || 1);
+    const multiplier = 100 * contracts;
+    
+    if (isDebitPosition(pos.type)) {
+        // Debit position: you paid premium, now selling at closePrice
+        // Profit = (what you got - what you paid) × multiplier
+        return (closePrice - premium) * multiplier;
+    } else {
+        // Credit position: you received premium, now buying back at closePrice
+        // Profit = (what you got - what you paid) × multiplier
+        return (premium - closePrice) * multiplier;
+    }
+}
+
+/**
  * Calculate chain net credit (for rolled positions)
  * @param {object} pos - Any position in the chain
  * @param {array} allPositions - All positions (open + closed)
