@@ -867,6 +867,86 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
         return;
     }
     
+    // AI Portfolio Audit - analyzes entire portfolio for problems and recommendations
+    if (url.pathname === '/api/ai/portfolio-audit' && req.method === 'POST') {
+        try {
+            const data = req.body;
+            const selectedModel = data.model || 'qwen2.5:14b';
+            console.log('[AI] Portfolio audit with model:', selectedModel, '- Positions:', data.positions?.length);
+            
+            const positions = data.positions || [];
+            const greeks = data.greeks || {};
+            const closedStats = data.closedStats || {};
+            
+            // Build position summary for AI
+            const positionSummary = positions.map(p => {
+                const riskPct = p.riskPercent || 0;
+                const itmFlag = riskPct > 50 ? '⚠️ HIGH RISK' : riskPct > 30 ? '⚠️ ELEVATED' : '✓ OK';
+                return `${p.ticker}: ${p.type} $${p.strike} (${p.dte}d DTE) - ${riskPct.toFixed(0)}% ITM prob ${itmFlag}, Δ${p.delta?.toFixed(0) || '?'}, Θ$${p.theta?.toFixed(2) || '?'}/day`;
+            }).join('\n');
+            
+            // Concentration analysis
+            const tickerCounts = {};
+            positions.forEach(p => {
+                tickerCounts[p.ticker] = (tickerCounts[p.ticker] || 0) + 1;
+            });
+            const concentrations = Object.entries(tickerCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([t, c]) => `${t}: ${c} position${c > 1 ? 's' : ''}`);
+            
+            const prompt = `You are a professional options portfolio manager auditing a wheel strategy portfolio.
+
+## CURRENT POSITIONS (${positions.length} total)
+${positionSummary || 'No open positions'}
+
+## PORTFOLIO GREEKS
+- Net Delta: ${greeks.delta?.toFixed(0) || 0} (${greeks.delta > 0 ? 'bullish' : greeks.delta < 0 ? 'bearish' : 'neutral'} exposure)
+- Daily Theta: $${greeks.theta?.toFixed(2) || 0} (premium decay/day)
+- Vega: $${greeks.vega?.toFixed(0) || 0} per 1% IV change
+- Average IV: ${greeks.avgIV?.toFixed(1) || '?'}%
+- Average IV Rank: ${greeks.avgIVRank || '?'}%
+
+## CONCENTRATION
+${concentrations.join('\n') || 'None'}
+
+## HISTORICAL PERFORMANCE
+- Win Rate: ${closedStats.winRate?.toFixed(1) || '?'}%
+- Profit Factor: ${closedStats.profitFactor?.toFixed(2) || '?'}
+- Avg Win: $${closedStats.avgWin?.toFixed(0) || '?'}
+- Avg Loss: $${closedStats.avgLoss?.toFixed(0) || '?'}
+
+## YOUR AUDIT TASK
+Analyze this portfolio and provide:
+
+1. **🚨 PROBLEM POSITIONS** - List any positions that need immediate attention (high ITM risk, poor theta/risk ratio, about to expire worthless for long positions)
+
+2. **⚠️ CONCENTRATION RISKS** - Flag if too much exposure to one ticker or sector
+
+3. **📊 GREEKS ASSESSMENT** - Is the portfolio balanced? Too much delta risk? Good theta generation?
+
+4. **💡 OPTIMIZATION IDEAS** - Specific actionable suggestions (rolls, closes, adjustments)
+
+5. **✅ WHAT'S WORKING** - Highlight well-positioned trades
+
+Be specific. Reference actual ticker symbols and strikes. Keep it actionable.`;
+
+            const response = await callAI(prompt, selectedModel, 1200);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true, 
+                audit: response,
+                model: selectedModel
+            }));
+            console.log('[AI] ✅ Portfolio audit complete');
+        } catch (e) {
+            console.log('[AI] ❌ Portfolio audit error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+    
     // Check if AI/Ollama is available and what's loaded
     if (url.pathname === '/api/ai/status') {
         try {

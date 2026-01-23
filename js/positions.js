@@ -2407,9 +2407,8 @@ async function updatePositionGreeksDisplay(positions, spotPrices) {
         const delta = greeks.delta * sign;
         const theta = greeks.theta * sign;  // Short positions collect theta (positive)
         
-        // Delta: color by direction (green = bullish, red = bearish)
-        const deltaColor = delta > 5 ? '#00ff88' : delta < -5 ? '#ff5252' : '#888';
-        deltaCell.innerHTML = `<span style="color:${deltaColor};font-size:10px;" title="If ${pos.ticker} moves $1, your P&L changes by $${Math.abs(delta).toFixed(0)}">${delta >= 0 ? '+' : ''}${delta.toFixed(0)}</span>`;
+        // Delta: neutral color (pro style) - just show the number
+        deltaCell.innerHTML = `<span style="color:#ccc;font-size:10px;" title="If ${pos.ticker} moves $1, your P&L changes by $${Math.abs(delta).toFixed(0)}">${delta >= 0 ? '+' : ''}${delta.toFixed(0)}</span>`;
         
         // Theta: always show positive for short sellers (they collect)
         const thetaColor = theta > 0 ? '#00ff88' : '#ff5252';

@@ -3263,3 +3263,134 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 });
+
+// ============================================================
+// AI PORTFOLIO AUDIT
+// ============================================================
+
+/**
+ * Run AI portfolio audit - analyzes all positions for problems and recommendations
+ */
+window.runPortfolioAudit = async function() {
+    const btn = document.getElementById('aiPortfolioAuditBtn');
+    if (btn) {
+        btn.textContent = '⏳ Analyzing...';
+        btn.disabled = true;
+    }
+    
+    try {
+        // First refresh Greeks to get latest data
+        const greeks = await updatePortfolioGreeks();
+        
+        // Get advanced analytics stats
+        const closed = state.closedPositions || [];
+        const getPnL = (p) => p.realizedPnL ?? p.closePnL ?? 0;
+        const wins = closed.filter(p => getPnL(p) > 0);
+        const losses = closed.filter(p => getPnL(p) < 0);
+        const totalWins = wins.reduce((sum, p) => sum + getPnL(p), 0);
+        const totalLosses = Math.abs(losses.reduce((sum, p) => sum + getPnL(p), 0));
+        const winRate = closed.length > 0 ? (wins.length / closed.length) * 100 : 0;
+        const avgWin = wins.length > 0 ? totalWins / wins.length : 0;
+        const avgLoss = losses.length > 0 ? totalLosses / losses.length : 0;
+        const profitFactor = totalLosses > 0 ? totalWins / totalLosses : 0;
+        
+        // Build position data with risk and Greeks
+        const positions = (state.positions || []).filter(p => p.status === 'open').map(p => ({
+            ticker: p.ticker,
+            type: p.type,
+            strike: p.strike,
+            expiry: p.expiry,
+            dte: p.dte,
+            contracts: p.contracts,
+            premium: p.premium,
+            delta: p._delta || 0,
+            theta: p._theta || 0,
+            riskPercent: parseFloat(document.getElementById(`risk-cell-${p.id}`)?.textContent?.match(/\\d+/)?.[0] || 0)
+        }));
+        
+        // Get selected AI model
+        const modelSelect = document.getElementById('aiModelSelect');
+        const selectedModel = modelSelect?.value || 'qwen2.5:14b';
+        
+        // Call AI audit endpoint
+        const res = await fetch('/api/ai/portfolio-audit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: selectedModel,
+                positions,
+                greeks: {
+                    delta: greeks?.delta || 0,
+                    theta: greeks?.theta || 0,
+                    gamma: greeks?.gamma || 0,
+                    vega: greeks?.vega || 0,
+                    avgIV: greeks?.avgIV || 0,
+                    avgIVRank: greeks?.avgIVRank || 0
+                },
+                closedStats: {
+                    winRate,
+                    profitFactor,
+                    avgWin,
+                    avgLoss,
+                    totalTrades: closed.length
+                }
+            })
+        });
+        
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'AI audit failed');
+        }
+        
+        const result = await res.json();
+        
+        // Show audit results in modal
+        showAuditModal(result.audit, result.model);
+        
+    } catch (err) {
+        console.error('Portfolio audit failed:', err);
+        showNotification('AI audit failed: ' + err.message, 'error');
+    } finally {
+        if (btn) {
+            btn.textContent = '🤖 AI Portfolio Audit';
+            btn.disabled = false;
+        }
+    }
+};
+
+/**
+ * Display audit results in a modal
+ */
+function showAuditModal(audit, model) {
+    // Parse markdown-style formatting
+    const formatAudit = (text) => {
+        return text
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#00d9ff;">$1</strong>')
+            .replace(/^### (.*?)$/gm, '<h3 style="color:#8b5cf6;margin:15px 0 8px 0;">$1</h3>')
+            .replace(/^## (.*?)$/gm, '<h2 style="color:#ffaa00;margin:18px 0 10px 0;">$1</h2>')
+            .replace(/^# (.*?)$/gm, '<h1 style="color:#fff;margin:20px 0 12px 0;">$1</h1>')
+            .replace(/^- (.*?)$/gm, '<div style="margin-left:15px;margin-bottom:4px;">• $1</div>')
+            .replace(/^(\d+)\. (.*?)$/gm, '<div style="margin-left:15px;margin-bottom:4px;">$1. $2</div>')
+            .replace(/\n\n/g, '<br><br>')
+            .replace(/\n/g, '<br>');
+    };
+    
+    const modal = createModal('portfolioAuditModal');
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border:1px solid rgba(139,92,246,0.5); border-radius:10px; max-width:700px; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">
+            ${modalHeader('🤖 AI Portfolio Audit', 'portfolioAuditModal')}
+            <div style="padding:20px; overflow-y:auto; flex:1;">
+                <div style="background:rgba(139,92,246,0.1); padding:8px 12px; border-radius:6px; font-size:11px; color:#888; margin-bottom:15px;">
+                    Model: <span style="color:#8b5cf6;">${model}</span>
+                </div>
+                <div style="color:#ddd; line-height:1.6; font-size:13px;">
+                    ${formatAudit(audit)}
+                </div>
+            </div>
+            <div style="padding:15px; border-top:1px solid rgba(255,255,255,0.1); text-align:right;">
+                <button onclick="document.getElementById('portfolioAuditModal').remove()" style="background:rgba(139,92,246,0.3); border:1px solid rgba(139,92,246,0.5); color:#fff; padding:8px 20px; border-radius:6px; cursor:pointer;">Close</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
