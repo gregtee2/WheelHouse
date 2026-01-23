@@ -2997,25 +2997,25 @@ window.runReconciliation = async function() {
         const endDate = new Date();
         const startDate = new Date(endDate - days * 24 * 60 * 60 * 1000);
         
-        // Get account hash - smart lookup from API
+        // Get account hash - use the /accounts/numbers endpoint (returns hashValue)
         let accountHash = null;
         const preferredAccount = localStorage.getItem('wheelhouse_preferred_account');
         
-        // Fetch accounts from API to get hash
-        const accountsRes = await fetch('/api/schwab/accounts');
-        if (!accountsRes.ok) {
+        // Fetch account numbers (this returns hashValue)
+        const numbersRes = await fetch('/api/schwab/accounts/numbers');
+        if (!numbersRes.ok) {
             throw new Error('Schwab not connected. Go to Settings → Schwab to connect.');
         }
         
-        const accounts = await accountsRes.json();
-        if (!accounts || accounts.length === 0) {
+        const accountNumbers = await numbersRes.json();
+        if (!accountNumbers || accountNumbers.length === 0) {
             throw new Error('No Schwab accounts found. Go to Settings → Schwab to connect.');
         }
         
         // Find the preferred account or use first one
-        let account = accounts[0];
+        let account = accountNumbers[0];
         if (preferredAccount) {
-            const preferred = accounts.find(a => a.securitiesAccount?.accountNumber === preferredAccount);
+            const preferred = accountNumbers.find(a => a.accountNumber === preferredAccount);
             if (preferred) account = preferred;
         }
         
