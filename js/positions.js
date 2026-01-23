@@ -3146,13 +3146,14 @@ window.runReconciliation = async function() {
             const strike = parseFloat(inst?.strikePrice || 0);
             const putCall = inst?.putCall; // PUT or CALL
             const expiry = inst?.expirationDate?.split('T')[0]; // YYYY-MM-DD
-            const netAmount = t.netAmount || 0; // Positive = credit, Negative = debit
             const qty = Math.abs(t._optionItem?.amount || 0);
             const price = Math.abs(t._optionItem?.price || 0);
+            const positionEffect = t._optionItem?.positionEffect || 'UNKNOWN'; // OPENING or CLOSING
             const tradeDate = t.tradeDate?.split('T')[0];
             const description = t.description || '';
-            const isOpen = description.includes('SELL TO OPEN') || description.includes('BUY TO OPEN');
-            const isClose = description.includes('SELL TO CLOSE') || description.includes('BUY TO CLOSE');
+            
+            // Calculate raw premium (price * contracts * 100) - excludes fees
+            const schwabPremium = price * qty * 100;
             
             // Try to find matching WheelHouse position
             const matchingPos = whPositions.find(p => {
@@ -3168,16 +3169,16 @@ window.runReconciliation = async function() {
             if (matchingPos) {
                 // Check for discrepancies
                 const whPremium = matchingPos.premium * 100 * matchingPos.contracts;
-                const schwabPremium = Math.abs(netAmount);
                 const premiumDiff = Math.abs(whPremium - schwabPremium);
                 
-                if (premiumDiff > 1) { // More than $1 difference
+                if (premiumDiff > 5) { // More than $5 difference (allows for rounding)
                     results.discrepancies.push({
                         ticker: underlying,
                         strike,
                         expiry,
                         type: putCall,
                         tradeDate,
+                        positionEffect,
                         schwabPremium,
                         whPremium,
                         diff: schwabPremium - whPremium,
@@ -3190,6 +3191,7 @@ window.runReconciliation = async function() {
                         strike,
                         expiry,
                         type: putCall,
+                        positionEffect,
                         schwabPremium,
                         position: matchingPos
                     });
@@ -3202,7 +3204,8 @@ window.runReconciliation = async function() {
                     expiry,
                     type: putCall,
                     tradeDate,
-                    netAmount,
+                    positionEffect,
+                    schwabPremium,
                     qty,
                     price,
                     description,
@@ -3212,13 +3215,23 @@ window.runReconciliation = async function() {
         });
         
         // Check for WheelHouse positions not in Schwab (within date range)
+        // Exclude positions that already matched or had discrepancies
+        const matchedPositionIds = new Set([
+            ...results.matched.map(m => m.position?.id),
+            ...results.discrepancies.map(d => d.position?.id)
+        ]);
+        
         whPositions.forEach(p => {
+            // Skip if already matched or had discrepancy
+            if (matchedPositionIds.has(p.id)) return;
+            
             const openDate = new Date(p.openDate);
             if (openDate >= startDate && openDate <= endDate) {
                 const inSchwab = optionTrades.some(t => {
-                    const inst = t.transactionItem?.instrument;
+                    const inst = t._inst;
                     return inst?.underlyingSymbol === p.ticker &&
-                           Math.abs((inst?.optionStrikePrice || 0) - p.strike) < 0.01;
+                           Math.abs((inst?.strikePrice || 0) - (p.strike || 0)) < 0.01 &&
+                           inst?.expirationDate?.split('T')[0] === p.expiry;
                 });
                 if (!inSchwab && p.broker !== 'manual') {
                     results.wheelHouseOnly.push(p);
@@ -3293,22 +3306,27 @@ function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
     // Show discrepancies
     if (discrepCount > 0) {
         html += `<h3 style="color:#ff5252; margin:20px 0 10px;">⚠️ Premium Discrepancies</h3>`;
+        html += `<div style="font-size:11px; color:#888; margin-bottom:10px;">These trades matched by ticker/strike/expiry but the premium differs by more than $5.</div>`;
         html += `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12px;">
             <tr style="background:#1a1a2e;">
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Ticker</th>
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Strike</th>
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Expiry</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Action</th>
                 <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Schwab $</th>
                 <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">WheelHouse $</th>
                 <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Diff</th>
             </tr>`;
         results.discrepancies.forEach(d => {
             const diffColor = d.diff > 0 ? '#00ff88' : '#ff5252';
+            const actionLabel = d.positionEffect === 'OPENING' ? '🟢 OPEN' : 
+                                d.positionEffect === 'CLOSING' ? '🔴 CLOSE' : '⚪ ???';
             html += `
                 <tr style="border-bottom:1px solid #222;">
                     <td style="padding:8px; color:#00d9ff; font-weight:bold;">${d.ticker}</td>
                     <td style="padding:8px;">$${d.strike}</td>
                     <td style="padding:8px;">${d.expiry}</td>
+                    <td style="padding:8px; font-size:10px;">${actionLabel}</td>
                     <td style="padding:8px; text-align:right;">$${d.schwabPremium.toFixed(2)}</td>
                     <td style="padding:8px; text-align:right;">$${d.whPremium.toFixed(2)}</td>
                     <td style="padding:8px; text-align:right; color:${diffColor};">${d.diff > 0 ? '+' : ''}$${d.diff.toFixed(2)}</td>
@@ -3321,6 +3339,7 @@ function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
     // Show Schwab-only trades
     if (schwabOnlyCount > 0) {
         html += `<h3 style="color:#ffaa00; margin:20px 0 10px;">📊 In Schwab Only (not in WheelHouse)</h3>`;
+        html += `<div style="font-size:11px; color:#888; margin-bottom:10px;">These trades exist in Schwab but no matching WheelHouse position was found.</div>`;
         html += `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12px;">
             <tr style="background:#1a1a2e;">
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Date</th>
@@ -3328,11 +3347,13 @@ function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Type</th>
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Strike</th>
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Expiry</th>
-                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Net $</th>
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Action</th>
+                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Premium</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;"></th>
             </tr>`;
         results.schwabOnly.forEach(s => {
-            const netColor = s.netAmount >= 0 ? '#00ff88' : '#ff5252';
+            const actionLabel = s.positionEffect === 'OPENING' ? '🟢 OPEN' : 
+                                s.positionEffect === 'CLOSING' ? '🔴 CLOSE' : '⚪ ???';
             html += `
                 <tr style="border-bottom:1px solid #222;">
                     <td style="padding:8px; color:#888;">${s.tradeDate}</td>
@@ -3340,7 +3361,8 @@ function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
                     <td style="padding:8px;">${s.type}</td>
                     <td style="padding:8px;">$${s.strike}</td>
                     <td style="padding:8px;">${s.expiry}</td>
-                    <td style="padding:8px; text-align:right; color:${netColor};">${s.netAmount >= 0 ? '+' : ''}$${s.netAmount.toFixed(2)}</td>
+                    <td style="padding:8px; font-size:10px;">${actionLabel}</td>
+                    <td style="padding:8px; text-align:right; color:#00ff88;">$${s.schwabPremium.toFixed(2)}</td>
                     <td style="padding:8px;">
                         <button onclick="window.importSchwabTrade(${JSON.stringify(s).replace(/"/g, '&quot;')})" 
                                 style="padding:4px 8px; background:#ffaa00; border:none; border-radius:4px; color:#000; cursor:pointer; font-size:10px;">
