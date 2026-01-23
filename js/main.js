@@ -1998,6 +1998,22 @@ window.stageTradeWithThesis = function() {
     pending.push(trade);
     localStorage.setItem('wheelhouse_pending', JSON.stringify(pending));
     
+    // Log AI prediction for accuracy tracking
+    if (window.logAIPrediction) {
+        window.logAIPrediction({
+            type: 'entry',
+            ticker: thesis.ticker,
+            strike: thesis.strike,
+            expiry: thesis.expiry,
+            positionType: 'short_put',
+            recommendation: 'ENTER',
+            confidence: trade.openingThesis?.aiSummary?.probability || null,
+            model: thesis.model || 'ollama',
+            spot: thesis.priceAtAnalysis,
+            premium: thesis.premium?.mid || 0
+        });
+    }
+    
     showNotification(`📥 Staged: ${thesis.ticker} $${thesis.strike} put, ${thesis.expiry} (with thesis)`, 'success');
     
     // Close the deep dive modal
@@ -2684,6 +2700,52 @@ window.runPositionCheckup = async function(positionId) {
         
         if (data.error) {
             throw new Error(data.error);
+        }
+        
+        // Extract recommendation from AI response (HOLD, ROLL, CLOSE)
+        const checkupText = data.checkup || '';
+        let recommendation = 'HOLD';  // default
+        if (/\b(ROLL|roll)\b/.test(checkupText) && !/don't roll|no roll|shouldn't roll/i.test(checkupText)) {
+            recommendation = 'ROLL';
+        } else if (/\b(CLOSE|close now|exit)\b/i.test(checkupText) && !/don't close|shouldn't close/i.test(checkupText)) {
+            recommendation = 'CLOSE';
+        }
+        
+        // Log AI prediction for accuracy tracking
+        if (window.logAIPrediction) {
+            window.logAIPrediction({
+                type: 'checkup',
+                ticker: pos.ticker,
+                strike: pos.strike,
+                expiry: pos.expiry,
+                positionType: pos.type,
+                recommendation: recommendation,
+                model: model,
+                spot: data.currentData?.price || null,
+                positionId: positionId
+            });
+        }
+        
+        // Save to position's analysisHistory
+        if (!pos.analysisHistory) pos.analysisHistory = [];
+        pos.analysisHistory.push({
+            id: Date.now(),
+            timestamp: new Date().toISOString(),
+            model: model,
+            recommendation: recommendation,
+            insight: checkupText.substring(0, 500),  // First 500 chars
+            snapshot: {
+                spot: parseFloat(data.currentData?.price) || null,
+                strike: pos.strike,
+                dte: Math.ceil((new Date(pos.expiry) - new Date()) / (1000 * 60 * 60 * 24))
+            }
+        });
+        
+        // Save updated position
+        const posIdx = positions.findIndex(p => p.id === positionId);
+        if (posIdx >= 0) {
+            positions[posIdx] = pos;
+            localStorage.setItem('wheelhouse_positions', JSON.stringify(positions));
         }
         
         // Calculate DTE

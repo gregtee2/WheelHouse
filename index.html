@@ -1000,7 +1000,10 @@ Entry: $3.75"
                             </label>
                             <span id="priceLastUpdated" style="font-size:11px; color:#666; margin-left:auto;"></span>
                         </div>
-                        <button id="aiPortfolioAuditBtn" onclick="window.runPortfolioAudit()" class="btn-primary" style="width:100%; margin-top:8px; padding:8px; background:rgba(139,92,246,0.3); border:1px solid rgba(139,92,246,0.6);" title="AI analyzes your entire portfolio for concentration risk, problem positions, and optimization opportunities">🤖 AI Portfolio Audit</button>
+                        <div style="display:flex; gap:8px; margin-top:8px;">
+                            <button id="aiPortfolioAuditBtn" onclick="window.runPortfolioAudit()" class="btn-primary" style="flex:1; padding:8px; background:rgba(139,92,246,0.3); border:1px solid rgba(139,92,246,0.6);" title="AI analyzes your entire portfolio for concentration risk, problem positions, and optimization opportunities">🤖 AI Audit</button>
+                            <button id="aiPerformanceBtn" onclick="window.showAIPerformanceReview()" class="btn-primary" style="flex:1; padding:8px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.5);" title="Review how accurate AI predictions have been on your closed trades">📊 AI Accuracy</button>
+                        </div>
                     </div>
                     
                     <!-- Advanced Analytics -->

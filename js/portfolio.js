@@ -8,6 +8,86 @@ import { saveHoldingsToStorage, renderPositions } from './positions.js';
 
 const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
+const AI_LOG_KEY = 'wheelhouse_ai_predictions';
+
+// ============================================================
+// AI PREDICTION LOGGING
+// ============================================================
+
+/**
+ * Log an AI prediction for future accuracy tracking
+ * Call this whenever AI makes a prediction (entry, checkup, etc.)
+ */
+export function logAIPrediction(prediction) {
+    const log = JSON.parse(localStorage.getItem(AI_LOG_KEY) || '[]');
+    
+    const entry = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        type: prediction.type, // 'entry', 'checkup', 'roll', 'close'
+        ticker: prediction.ticker,
+        strike: prediction.strike,
+        expiry: prediction.expiry,
+        positionType: prediction.positionType, // 'short_put', 'covered_call', etc.
+        
+        // AI's prediction
+        recommendation: prediction.recommendation, // 'ENTER', 'HOLD', 'ROLL', 'CLOSE'
+        confidence: prediction.confidence || null, // 0-100%
+        model: prediction.model || 'unknown',
+        
+        // Market snapshot at prediction time
+        spotAtPrediction: prediction.spot || null,
+        premiumAtPrediction: prediction.premium || null,
+        
+        // Will be filled in when position closes
+        outcome: null, // 'win', 'loss', 'breakeven'
+        actualPnL: null,
+        resolvedAt: null,
+        
+        // Link to position if available
+        positionId: prediction.positionId || null
+    };
+    
+    log.push(entry);
+    
+    // Keep only last 500 predictions
+    if (log.length > 500) {
+        log.shift();
+    }
+    
+    localStorage.setItem(AI_LOG_KEY, JSON.stringify(log));
+    console.log('[AI-LOG] Recorded prediction:', entry.type, entry.ticker, entry.recommendation);
+    
+    return entry.id;
+}
+
+/**
+ * Resolve an AI prediction with actual outcome
+ */
+export function resolveAIPrediction(predictionId, outcome, actualPnL) {
+    const log = JSON.parse(localStorage.getItem(AI_LOG_KEY) || '[]');
+    
+    const prediction = log.find(p => p.id === predictionId);
+    if (prediction) {
+        prediction.outcome = outcome;
+        prediction.actualPnL = actualPnL;
+        prediction.resolvedAt = new Date().toISOString();
+        localStorage.setItem(AI_LOG_KEY, JSON.stringify(log));
+        console.log('[AI-LOG] Resolved prediction:', prediction.ticker, outcome, actualPnL);
+    }
+}
+
+/**
+ * Get AI prediction log for analysis
+ */
+export function getAIPredictionLog() {
+    return JSON.parse(localStorage.getItem(AI_LOG_KEY) || '[]');
+}
+
+// Make available globally
+window.logAIPrediction = logAIPrediction;
+window.resolveAIPrediction = resolveAIPrediction;
+window.getAIPredictionLog = getAIPredictionLog;
 
 // ============================================================
 // ACCOUNT BALANCES
@@ -3550,6 +3630,358 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auto-refresh prices toggle
     setupAutoRefreshPrices();
 });
+
+// ============================================================
+// AI PERFORMANCE REVIEW
+// ============================================================
+
+/**
+ * Analyze AI prediction accuracy from closed positions with stored AI data
+ */
+window.showAIPerformanceReview = function() {
+    const closedPositions = state.closedPositions || [];
+    
+    // Get prediction log (forward-tracking)
+    const predictionLog = getAIPredictionLog();
+    const resolvedPredictions = predictionLog.filter(p => p.outcome !== null);
+    const unresolvedPredictions = predictionLog.filter(p => p.outcome === null);
+    
+    // Separate positions by AI data availability
+    const withThesis = closedPositions.filter(p => p.openingThesis?.aiSummary);
+    const withHistory = closedPositions.filter(p => p.analysisHistory?.length > 0);
+    const totalWithAI = closedPositions.filter(p => p.openingThesis?.aiSummary || p.analysisHistory?.length > 0);
+    
+    // Calculate entry accuracy (AI said ENTER with X% confidence → did it win?)
+    const entryAnalysis = analyzeEntryAccuracy(withThesis);
+    
+    // Calculate checkup accuracy (AI said HOLD/ROLL/CLOSE → was it right?)
+    const checkupAnalysis = analyzeCheckupAccuracy(withHistory);
+    
+    // Calculate probability calibration (AI said 75% → actual win rate?)
+    const calibrationAnalysis = analyzeCalibration(withThesis);
+    
+    // Build the modal
+    const modal = document.createElement('div');
+    modal.id = 'aiPerformanceModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;z-index:10000;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    const hasData = totalWithAI.length > 0 || unresolvedPredictions.length > 0;
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e;border-radius:12px;max-width:700px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 0 30px rgba(0,217,255,0.3);">
+            <div style="padding:20px;border-bottom:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-between;align-items:center;">
+                <h2 style="margin:0;color:#00d9ff;">📊 AI Performance Review</h2>
+                <button onclick="this.closest('#aiPerformanceModal').remove()" style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">&times;</button>
+            </div>
+            
+            <div style="padding:20px;">
+                ${!hasData ? `
+                    <div style="text-align:center;padding:40px 20px;">
+                        <div style="font-size:48px;margin-bottom:20px;">📝</div>
+                        <h3 style="color:#ffaa00;margin-bottom:15px;">No AI Data Yet</h3>
+                        <p style="color:#aaa;line-height:1.6;">
+                            AI performance tracking starts when you:<br><br>
+                            • Use <b style="color:#00d9ff;">Discord Analyzer</b> to stage trades (stores AI entry thesis)<br>
+                            • Run <b style="color:#00d9ff;">AI Checkups</b> on open positions (stores recommendations)<br><br>
+                            As you close positions that have AI data, this panel will show accuracy stats.
+                        </p>
+                        <div style="margin-top:20px;padding:15px;background:rgba(0,255,136,0.1);border-radius:8px;text-align:left;">
+                            <div style="color:#00ff88;font-weight:600;margin-bottom:8px;">🚀 Get Started:</div>
+                            <div style="color:#aaa;font-size:13px;">
+                                1. Go to <b>Ideas</b> tab → paste a trade from Discord<br>
+                                2. AI analyzes it → click "Stage Trade"<br>
+                                3. When you close that position, we'll track if AI was right
+                            </div>
+                        </div>
+                    </div>
+                ` : `
+                    <!-- Tracking Status -->
+                    ${unresolvedPredictions.length > 0 ? `
+                    <div style="background:rgba(255,170,0,0.1);padding:12px;border-radius:8px;margin-bottom:15px;border:1px solid rgba(255,170,0,0.3);">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <span style="font-size:20px;">📍</span>
+                            <div>
+                                <div style="color:#ffaa00;font-weight:600;">Currently Tracking ${unresolvedPredictions.length} Predictions</div>
+                                <div style="font-size:12px;color:#888;">
+                                    ${unresolvedPredictions.filter(p => p.type === 'entry').length} entry picks • 
+                                    ${unresolvedPredictions.filter(p => p.type === 'checkup').length} checkup recommendations
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    <!-- Summary Stats -->
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-bottom:25px;">
+                        <div style="background:rgba(0,255,136,0.1);padding:15px;border-radius:8px;text-align:center;">
+                            <div style="font-size:28px;font-weight:bold;color:#00ff88;">${entryAnalysis.total > 0 ? entryAnalysis.winRate.toFixed(0) : '—'}%</div>
+                            <div style="font-size:12px;color:#888;margin-top:4px;">Entry Accuracy</div>
+                            <div style="font-size:11px;color:#666;">${entryAnalysis.total > 0 ? `${entryAnalysis.wins}/${entryAnalysis.total} trades` : 'No data yet'}</div>
+                        </div>
+                        <div style="background:rgba(0,217,255,0.1);padding:15px;border-radius:8px;text-align:center;">
+                            <div style="font-size:28px;font-weight:bold;color:#00d9ff;">${checkupAnalysis.total > 0 ? checkupAnalysis.accuracy.toFixed(0) : '—'}%</div>
+                            <div style="font-size:12px;color:#888;margin-top:4px;">Checkup Accuracy</div>
+                            <div style="font-size:11px;color:#666;">${checkupAnalysis.total > 0 ? `${checkupAnalysis.correct}/${checkupAnalysis.total} calls` : 'No data yet'}</div>
+                        </div>
+                        <div style="background:rgba(255,170,0,0.1);padding:15px;border-radius:8px;text-align:center;">
+                            <div style="font-size:28px;font-weight:bold;color:#ffaa00;">${calibrationAnalysis.error.toFixed(0)}%</div>
+                            <div style="font-size:12px;color:#888;margin-top:4px;">Calibration Error</div>
+                            <div style="font-size:11px;color:#666;">Lower is better</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Entry Analysis -->
+                    <div style="background:rgba(0,0,0,0.2);padding:15px;border-radius:8px;margin-bottom:15px;">
+                        <h3 style="color:#00ff88;margin:0 0 12px 0;font-size:14px;">📥 Entry Predictions</h3>
+                        <div style="color:#aaa;font-size:13px;line-height:1.6;">
+                            AI recommended entering <b>${entryAnalysis.total}</b> trades with an average confidence of <b>${entryAnalysis.avgConfidence.toFixed(0)}%</b>.<br>
+                            <b style="color:#00ff88;">${entryAnalysis.wins} won</b> (profitable) · <b style="color:#ff5252;">${entryAnalysis.losses} lost</b>
+                            ${entryAnalysis.avgWinPnL > 0 ? `<br>Avg win: <span style="color:#00ff88;">+$${entryAnalysis.avgWinPnL.toFixed(0)}</span> · Avg loss: <span style="color:#ff5252;">-$${Math.abs(entryAnalysis.avgLossPnL).toFixed(0)}</span>` : ''}
+                        </div>
+                    </div>
+                    
+                    <!-- Checkup Analysis -->
+                    <div style="background:rgba(0,0,0,0.2);padding:15px;border-radius:8px;margin-bottom:15px;">
+                        <h3 style="color:#00d9ff;margin:0 0 12px 0;font-size:14px;">🔍 Checkup Recommendations</h3>
+                        <div style="color:#aaa;font-size:13px;line-height:1.6;">
+                            ${checkupAnalysis.total === 0 ? 'No checkup data yet. Run AI Checkups on open positions to build this data.' : `
+                            AI gave <b>${checkupAnalysis.total}</b> checkup recommendations.<br>
+                            <b>HOLD</b>: ${checkupAnalysis.holdCorrect}/${checkupAnalysis.holdTotal} correct (${checkupAnalysis.holdTotal > 0 ? ((checkupAnalysis.holdCorrect/checkupAnalysis.holdTotal)*100).toFixed(0) : 0}%)<br>
+                            <b>ROLL</b>: ${checkupAnalysis.rollCorrect}/${checkupAnalysis.rollTotal} correct (${checkupAnalysis.rollTotal > 0 ? ((checkupAnalysis.rollCorrect/checkupAnalysis.rollTotal)*100).toFixed(0) : 0}%)<br>
+                            <b>CLOSE</b>: ${checkupAnalysis.closeCorrect}/${checkupAnalysis.closeTotal} correct (${checkupAnalysis.closeTotal > 0 ? ((checkupAnalysis.closeCorrect/checkupAnalysis.closeTotal)*100).toFixed(0) : 0}%)
+                            `}
+                        </div>
+                    </div>
+                    
+                    <!-- Probability Calibration -->
+                    <div style="background:rgba(0,0,0,0.2);padding:15px;border-radius:8px;margin-bottom:15px;">
+                        <h3 style="color:#ffaa00;margin:0 0 12px 0;font-size:14px;">🎯 Probability Calibration</h3>
+                        <div style="color:#aaa;font-size:13px;line-height:1.6;">
+                            ${calibrationAnalysis.buckets.length === 0 ? 'Not enough data for calibration analysis.' : `
+                            How well do AI probability predictions match reality?<br><br>
+                            ${calibrationAnalysis.buckets.map(b => `
+                                <div style="display:flex;align-items:center;margin:4px 0;">
+                                    <span style="width:80px;">AI said ${b.range}:</span>
+                                    <span style="flex:1;height:8px;background:rgba(255,255,255,0.1);border-radius:4px;overflow:hidden;margin:0 8px;">
+                                        <span style="display:block;height:100%;width:${b.actual}%;background:${Math.abs(b.predicted - b.actual) <= 10 ? '#00ff88' : '#ffaa00'};"></span>
+                                    </span>
+                                    <span style="width:100px;font-size:11px;">${b.actual.toFixed(0)}% actual (${b.count} trades)</span>
+                                </div>
+                            `).join('')}
+                            <div style="margin-top:10px;font-size:11px;color:#666;">
+                                Perfect calibration = predicted % matches actual win rate
+                            </div>
+                            `}
+                        </div>
+                    </div>
+                    
+                    <!-- Misses List -->
+                    ${entryAnalysis.misses.length > 0 ? `
+                    <div style="background:rgba(255,82,82,0.1);padding:15px;border-radius:8px;">
+                        <h3 style="color:#ff5252;margin:0 0 12px 0;font-size:14px;">❌ AI Misses (Losses on High-Confidence Entries)</h3>
+                        <div style="color:#aaa;font-size:12px;">
+                            ${entryAnalysis.misses.slice(0, 5).map(m => `
+                                <div style="padding:8px;background:rgba(0,0,0,0.2);border-radius:4px;margin-bottom:6px;">
+                                    <b>${m.ticker}</b> ${m.strike}${m.type.includes('put') ? 'P' : 'C'} - AI: ${m.confidence}% conf → <span style="color:#ff5252;">-$${Math.abs(m.pnl).toFixed(0)}</span>
+                                    ${m.closeReason ? `<span style="color:#888;"> (${m.closeReason})</span>` : ''}
+                                </div>
+                            `).join('')}
+                            ${entryAnalysis.misses.length > 5 ? `<div style="color:#666;font-size:11px;margin-top:8px;">+${entryAnalysis.misses.length - 5} more...</div>` : ''}
+                        </div>
+                    </div>
+                    ` : ''}
+                `}
+            </div>
+            
+            <div style="padding:15px 20px;border-top:1px solid rgba(255,255,255,0.1);text-align:center;">
+                <div style="font-size:11px;color:#666;">
+                    ${hasData ? `Based on ${totalWithAI.length} closed positions with AI data` : 'Data collected from Discord Analyzer entries and AI Checkups'}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
+ * Analyze entry accuracy - AI recommended entering, did it profit?
+ */
+function analyzeEntryAccuracy(positions) {
+    const result = {
+        total: positions.length,
+        wins: 0,
+        losses: 0,
+        winRate: 0,
+        avgConfidence: 0,
+        avgWinPnL: 0,
+        avgLossPnL: 0,
+        misses: []
+    };
+    
+    if (positions.length === 0) return result;
+    
+    let totalConfidence = 0;
+    let winPnLSum = 0;
+    let lossPnLSum = 0;
+    
+    positions.forEach(pos => {
+        const confidence = pos.openingThesis?.aiSummary?.probability || pos.openingThesis?.probability || 50;
+        const pnl = pos.realizedPnL ?? pos.closePnL ?? 0;
+        
+        totalConfidence += confidence;
+        
+        if (pnl >= 0) {
+            result.wins++;
+            winPnLSum += pnl;
+        } else {
+            result.losses++;
+            lossPnLSum += pnl;
+            
+            // Track high-confidence misses
+            if (confidence >= 70) {
+                result.misses.push({
+                    ticker: pos.ticker,
+                    strike: pos.strike || pos.sellStrike,
+                    type: pos.type,
+                    confidence: confidence,
+                    pnl: pnl,
+                    closeReason: pos.closeReason
+                });
+            }
+        }
+    });
+    
+    result.avgConfidence = totalConfidence / positions.length;
+    result.winRate = (result.wins / positions.length) * 100;
+    result.avgWinPnL = result.wins > 0 ? winPnLSum / result.wins : 0;
+    result.avgLossPnL = result.losses > 0 ? lossPnLSum / result.losses : 0;
+    
+    // Sort misses by confidence (highest first)
+    result.misses.sort((a, b) => b.confidence - a.confidence);
+    
+    return result;
+}
+
+/**
+ * Analyze checkup accuracy - AI said HOLD/ROLL/CLOSE, was it right?
+ */
+function analyzeCheckupAccuracy(positions) {
+    const result = {
+        total: 0,
+        correct: 0,
+        accuracy: 0,
+        holdTotal: 0, holdCorrect: 0,
+        rollTotal: 0, rollCorrect: 0,
+        closeTotal: 0, closeCorrect: 0
+    };
+    
+    positions.forEach(pos => {
+        if (!pos.analysisHistory || pos.analysisHistory.length === 0) return;
+        
+        const pnl = pos.realizedPnL ?? pos.closePnL ?? 0;
+        const closeReason = pos.closeReason || '';
+        
+        pos.analysisHistory.forEach(analysis => {
+            const rec = (analysis.recommendation || '').toUpperCase();
+            if (!rec) return;
+            
+            result.total++;
+            
+            if (rec === 'HOLD' || rec.includes('HOLD')) {
+                result.holdTotal++;
+                // HOLD is correct if it eventually profited or expired worthless
+                if (pnl >= 0 || closeReason === 'expired') {
+                    result.holdCorrect++;
+                    result.correct++;
+                }
+            } else if (rec === 'ROLL' || rec.includes('ROLL')) {
+                result.rollTotal++;
+                // ROLL is correct if the position was rolled or if holding would have lost more
+                // For now, we consider it correct if closeReason was 'rolled'
+                if (closeReason === 'rolled') {
+                    result.rollCorrect++;
+                    result.correct++;
+                }
+            } else if (rec === 'CLOSE' || rec.includes('CLOSE')) {
+                result.closeTotal++;
+                // CLOSE is correct if it was closed early (not expired/assigned)
+                // This is harder to evaluate without knowing what happened after
+                if (closeReason === 'closed') {
+                    result.closeCorrect++;
+                    result.correct++;
+                }
+            }
+        });
+    });
+    
+    result.accuracy = result.total > 0 ? (result.correct / result.total) * 100 : 0;
+    
+    return result;
+}
+
+/**
+ * Analyze probability calibration - AI said X% chance, actual rate?
+ */
+function analyzeCalibration(positions) {
+    const result = {
+        buckets: [],
+        error: 0
+    };
+    
+    if (positions.length < 5) return result;
+    
+    // Group by probability buckets
+    const buckets = {
+        '60-70%': { predicted: 65, wins: 0, total: 0 },
+        '70-80%': { predicted: 75, wins: 0, total: 0 },
+        '80-90%': { predicted: 85, wins: 0, total: 0 },
+        '90%+': { predicted: 95, wins: 0, total: 0 }
+    };
+    
+    positions.forEach(pos => {
+        const confidence = pos.openingThesis?.aiSummary?.probability || pos.openingThesis?.probability || 50;
+        const pnl = pos.realizedPnL ?? pos.closePnL ?? 0;
+        const won = pnl >= 0;
+        
+        if (confidence >= 90) {
+            buckets['90%+'].total++;
+            if (won) buckets['90%+'].wins++;
+        } else if (confidence >= 80) {
+            buckets['80-90%'].total++;
+            if (won) buckets['80-90%'].wins++;
+        } else if (confidence >= 70) {
+            buckets['70-80%'].total++;
+            if (won) buckets['70-80%'].wins++;
+        } else if (confidence >= 60) {
+            buckets['60-70%'].total++;
+            if (won) buckets['60-70%'].wins++;
+        }
+    });
+    
+    // Calculate actual rates and calibration error
+    let totalError = 0;
+    let bucketCount = 0;
+    
+    Object.entries(buckets).forEach(([range, data]) => {
+        if (data.total >= 2) {
+            const actual = (data.wins / data.total) * 100;
+            result.buckets.push({
+                range: range,
+                predicted: data.predicted,
+                actual: actual,
+                count: data.total
+            });
+            totalError += Math.abs(data.predicted - actual);
+            bucketCount++;
+        }
+    });
+    
+    result.error = bucketCount > 0 ? totalError / bucketCount : 0;
+    
+    return result;
+}
 
 // ============================================================
 // AI PORTFOLIO AUDIT
