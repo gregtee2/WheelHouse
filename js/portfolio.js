@@ -299,270 +299,43 @@ function normalCDF(x) {
 }
 
 /**
- * Render the portfolio table with P&L
+ * Render the portfolio view (Holdings + Closed Trades)
+ * Note: Open positions are now only shown in the Positions tab
  */
 export async function renderPortfolio(fetchPrices = false) {
-    const tableEl = document.getElementById('portfolioTable');
     const loadingEl = document.getElementById('portfolioLoading');
     
-    if (!tableEl) return;
-    
-    // Filter to only show OPEN positions (not closed ones)
-    const positions = (state.positions || []).filter(p => p.status === 'open');
-    
-    if (positions.length === 0) {
-        tableEl.innerHTML = `
-            <div style="text-align:center; padding:40px; color:#888;">
-                <div style="font-size:48px; margin-bottom:10px;">📋</div>
-                <div>No open positions. Add positions in the Positions tab.</div>
-            </div>
-        `;
-        updatePortfolioSummary([]);
-        return;
-    }
-    
-    // Show loading if fetching prices
+    // Show loading if fetching prices for holdings
     if (fetchPrices && loadingEl) {
         loadingEl.style.display = 'block';
     }
     
-    // Build position data with P&L
-    const positionData = [];
-    let fetchSuccessCount = 0;
-    let fetchFailCount = 0;
-    
-    for (const pos of positions) {
-        // Prefer user's marked price over calculated price
-        let currentPrice = pos.markedPrice || pos.lastOptionPrice || null;
-        let currentSpot = pos.currentSpot || null;
-        let isLivePrice = false;
-        let optionIV = null;
-        let optionDelta = null;
-        let priceSource = null;
-        
-        let dataAgeMinutes = null;
-        let isStale = false;
-        
-        if (fetchPrices) {
-            const result = await fetchCurrentOptionPrice(pos);
-            if (result.success) {
-                fetchSuccessCount++;
-                // Always update spot price
-                currentSpot = result.spot;
-                pos.currentSpot = currentSpot;
-                
-                // Track if this is live CBOE data
-                isLivePrice = result.isLive || false;
-                optionIV = result.iv || null;
-                optionDelta = result.delta || null;
-                dataAgeMinutes = result.dataAgeMinutes || null;
-                priceSource = result.priceSource || null;
-                isStale = dataAgeMinutes !== null && dataAgeMinutes > 15;
-                
-                console.log(`[RENDER] ${pos.ticker}: markedPrice=${pos.markedPrice}, result.optionPrice=${result.optionPrice?.toFixed(2)}, isLive=${result.isLive}, source=${priceSource}, age=${dataAgeMinutes}min, stale=${isStale}`);
-                
-                // Live CBOE data takes precedence over marked prices
-                // Marked price is only used as fallback when live data unavailable
-                if (isLivePrice) {
-                    currentPrice = result.optionPrice;
-                    pos.lastOptionPrice = currentPrice;
-                    pos.isLivePrice = isLivePrice;
-                    pos.optionIV = optionIV;
-                    pos.optionDelta = optionDelta;
-                    pos.dataAgeMinutes = dataAgeMinutes;
-                    pos.isStale = isStale;
-                    pos.priceSource = priceSource;
-                    // Clear marked price when we have live data
-                    if (pos.markedPrice) {
-                        console.log(`[RENDER]   → Live ${priceSource} price $${currentPrice?.toFixed(2)} replaces marked price $${pos.markedPrice.toFixed(2)}`);
-                        delete pos.markedPrice;
-                    } else {
-                        console.log(`[RENDER]   → Using live ${priceSource} price: $${currentPrice?.toFixed(2)}`);
-                    }
-                } else if (!pos.markedPrice) {
-                    // Fallback: use calculated price if no marked price
-                    currentPrice = result.optionPrice;
-                    pos.lastOptionPrice = currentPrice;
-                    console.log(`[RENDER]   → Using calculated price: $${currentPrice?.toFixed(2)}`);
-                } else {
-                    // Keep using user's marked price (only for non-live data)
-                    currentPrice = pos.markedPrice;
-                    console.log(`[RENDER]   → Using MARKED price: $${currentPrice?.toFixed(2)} (no live data)`);
-                }
-                
-                // Save updated spot to localStorage
-                localStorage.setItem('wheelhouse_positions', JSON.stringify(state.positions));
-            } else {
-                fetchFailCount++;
-            }
-        }
-        
-        // Calculate P&L based on position type
-        // For SHORT options (credit): P&L = Premium received - current value (we want price to go DOWN)
-        // For LONG options (debit): P&L = Current value - premium paid (we want price to go UP)
+    // Get position data for summary calculations (but don't render the table)
+    const positions = (state.positions || []).filter(p => p.status === 'open');
+    const positionData = positions.map(pos => {
         const isDebit = isDebitPosition(pos.type);
         const premiumAmount = pos.premium * 100 * pos.contracts;
+        const currentPrice = pos.markedPrice || pos.lastOptionPrice || null;
         const currentValue = currentPrice ? currentPrice * 100 * pos.contracts : null;
         
         let unrealizedPnL = null;
-        let pnlPercent = null;
-        
         if (currentValue !== null) {
-            if (isDebit) {
-                // Long option: profit when current value > what we paid
-                unrealizedPnL = currentValue - premiumAmount;
-            } else {
-                // Short option: profit when current value < what we received
-                unrealizedPnL = premiumAmount - currentValue;
-            }
-            pnlPercent = (unrealizedPnL / premiumAmount) * 100;
+            unrealizedPnL = isDebit ? currentValue - premiumAmount : premiumAmount - currentValue;
         }
         
-        positionData.push({
+        return {
             ...pos,
-            currentSpot,
-            currentPrice,
             isDebit,
             premiumAmount,
-            isLivePrice: isLivePrice || pos.isLivePrice || false,
-            optionIV: optionIV || pos.optionIV || null,
-            optionDelta: optionDelta || pos.optionDelta || null,
-            dataAgeMinutes: dataAgeMinutes || pos.dataAgeMinutes || null,
-            isStale: isStale || pos.isStale || false,
-            priceSource: priceSource || pos.priceSource || null,
             currentValue,
-            unrealizedPnL,
-            pnlPercent
-        });
-    }
+            unrealizedPnL
+        };
+    });
     
     if (loadingEl) loadingEl.style.display = 'none';
     
-    // Show fetch result notification
-    if (fetchPrices) {
-        const liveCount = positionData.filter(p => p.isLivePrice).length;
-        if (fetchSuccessCount > 0) {
-            if (liveCount > 0) {
-                showNotification(`📡 Updated ${liveCount} with CBOE live prices`, 'success');
-            } else {
-                showNotification(`Updated ${fetchSuccessCount} position(s) (calculated)`, 'success');
-            }
-        } else if (fetchFailCount > 0) {
-            showNotification(`Failed to fetch prices - try again`, 'error');
-        }
-    }
-    
-    // Render table
-    tableEl.innerHTML = `
-        <table style="width:100%; border-collapse:collapse; font-size:13px;">
-            <thead>
-                <tr style="background:rgba(0,217,255,0.15); color:#00d9ff;">
-                    <th style="padding:10px; text-align:left;">Ticker</th>
-                    <th style="padding:10px; text-align:left;">Type</th>
-                    <th style="padding:10px; text-align:right;">Strike</th>
-                    <th style="padding:10px; text-align:right;">Spot</th>
-                    <th style="padding:10px; text-align:right;">DTE</th>
-                    <th style="padding:10px; text-align:right;">Premium</th>
-                    <th style="padding:10px; text-align:right;" title="Price per contract when opened">Open</th>
-                    <th style="padding:10px; text-align:right;" title="Current market price per contract">Current</th>
-                    <th style="padding:10px; text-align:right;">P&L</th>
-                    <th style="padding:10px; text-align:center;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${positionData.map(pos => {
-                    const pnlColor = pos.unrealizedPnL === null ? '#888' : 
-                                     pos.unrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
-                    const pnlBg = pos.unrealizedPnL === null ? '' :
-                                  pos.unrealizedPnL >= 0 ? 'rgba(0,255,136,0.1)' : 'rgba(255,82,82,0.1)';
-                    
-                    // Check if ITM (in danger for shorts, in profit for longs)
-                    const isPut = pos.type.toLowerCase().includes('put');
-                    const isITM = pos.currentSpot !== null && 
-                                  (isPut ? pos.currentSpot < pos.strike : pos.currentSpot > pos.strike);
-                    // ITM warning only for short options (for longs, ITM is good!)
-                    const itmWarning = isITM && !pos.isDebit ? '⚠️' : '';
-                    const totalPremium = pos.premium * 100 * pos.contracts;
-                    
-                    // Premium display: debit = negative/red, credit = positive/green
-                    const premiumColor = pos.isDebit ? '#ff5252' : '#00ff88';
-                    const premiumSign = pos.isDebit ? '-' : '';
-                    const premiumTooltip = pos.isDebit ? 'Premium paid' : 'Premium received';
-                    
-                    // Price change indicator
-                    // For short options: down is good (want to buy back cheaper)
-                    // For long options: up is good (want to sell higher)
-                    const priceChange = pos.currentPrice && pos.premium ? pos.currentPrice - pos.premium : null;
-                    let priceChangeColor = '#888';
-                    if (priceChange !== null) {
-                        if (pos.isDebit) {
-                            priceChangeColor = priceChange >= 0 ? '#00ff88' : '#ff5252'; // Long: up is good
-                        } else {
-                            priceChangeColor = priceChange <= 0 ? '#00ff88' : '#ff5252'; // Short: down is good
-                        }
-                    }
-                    
-                    // Staleness indicator
-                    const staleWarning = pos.isStale ? `<span style="color:#ff9800; font-size:10px;" title="Data is ${pos.dataAgeMinutes}+ min old"> ⚠️</span>` : '';
-                    const freshCheck = !pos.isStale && pos.isLivePrice ? '<span style="color:#00ff88; font-size:10px;"> ✓</span>' : '';
-                    const priceIndicator = pos.markedPrice ? '<span style="color:#00d9ff; font-size:10px;"> ✓</span>' : 
-                                          pos.isLivePrice ? (staleWarning || freshCheck) :
-                                          pos.currentPrice ? '<span style="color:#888; font-size:10px;"> ~</span>' : '';
-                    
-                    // Tooltip with age info
-                    const currentTooltip = pos.markedPrice ? 'User-entered price' : 
-                                          pos.isLivePrice ? `CBOE ${pos.priceSource || 'mid'}-price${pos.dataAgeMinutes ? ' (' + pos.dataAgeMinutes + ' min ago)' : ''}${pos.optionIV ? ' | IV: ' + (pos.optionIV * 100).toFixed(0) + '%' : ''}` : 
-                                          'Calculated (BS model)';
-                    
-                    return `
-                        <tr style="border-bottom:1px solid rgba(255,255,255,0.1); background:${pnlBg};">
-                            <td style="padding:10px; font-weight:bold; color:#00d9ff;">${pos.ticker}</td>
-                            <td style="padding:10px; color:${isPut ? '#ff5252' : '#00ff88'};">${pos.type.replace('_', ' ')}</td>
-                            <td style="padding:10px; text-align:right;">$${pos.strike.toFixed(2)}</td>
-                            <td style="padding:10px; text-align:right;">${pos.currentSpot ? '$' + pos.currentSpot.toFixed(2) + ' ' + itmWarning : '—'}</td>
-                            <td style="padding:10px; text-align:right; color:${pos.dte <= 7 ? '#ff5252' : pos.dte <= 14 ? '#ffaa00' : '#888'};">${pos.dte}d</td>
-                            <td style="padding:10px; text-align:right; color:${premiumColor};" title="${premiumTooltip}: $${pos.premium.toFixed(2)} × ${pos.contracts} contracts">${premiumSign}$${totalPremium.toFixed(0)}</td>
-                            <td style="padding:10px; text-align:right; color:#888;" title="${premiumTooltip}">$${pos.premium.toFixed(2)}</td>
-                            <td style="padding:10px; text-align:right; color:${priceChangeColor};" title="${currentTooltip}">
-                                ${pos.currentPrice ? '$' + pos.currentPrice.toFixed(2) : '—'}${priceIndicator}
-                            </td>
-                            <td style="padding:10px; text-align:right; font-weight:bold; color:${pnlColor};">
-                                ${pos.unrealizedPnL !== null ? 
-                                    (pos.unrealizedPnL >= 0 ? '+' : '') + '$' + pos.unrealizedPnL.toFixed(0) + 
-                                    ' (' + (pos.pnlPercent >= 0 ? '+' : '') + pos.pnlPercent.toFixed(0) + '%)'
-                                    : '—'}
-                            </td>
-                            <td style="padding:10px; text-align:center; white-space:nowrap;">
-                                <button onclick="window.analyzeFromPortfolio(${pos.id})" 
-                                        style="background:#8b5cf6; border:none; color:#fff; padding:4px 8px; 
-                                               border-radius:4px; cursor:pointer; font-size:11px; margin-right:4px;"
-                                        title="Get AI analysis for this position">
-                                    🤖 AI
-                                </button>
-                                <button onclick="window.markPrice(${pos.id})" 
-                                        style="background:#00d9ff; border:none; color:#000; padding:4px 8px; 
-                                               border-radius:4px; cursor:pointer; font-size:11px; margin-right:4px;"
-                                        title="Enter current option price from broker">
-                                    ✎ Mark
-                                </button>
-                                <button onclick="window.showQuickLinkModal(${pos.id})" 
-                                        style="background:${pos.challengeIds?.length ? '#8b5cf6' : 'rgba(139,92,246,0.3)'}; 
-                                               border:none; color:#fff; padding:4px 8px; 
-                                               border-radius:4px; cursor:pointer; font-size:11px;"
-                                        title="${pos.challengeIds?.length ? 'Linked to ' + pos.challengeIds.length + ' challenge(s)' : 'Link to a challenge'}">
-                                    🏆${pos.challengeIds?.length ? ' ' + pos.challengeIds.length : ''}
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                }).join('')}
-            </tbody>
-        </table>
-    `;
-    
-    // Render closed positions first (initializes year filter)
+    // Render the portfolio components
     renderClosedPositions();
-    // Then update summary (uses the year filter for performance stats)
     updatePortfolioSummary(positionData);
     renderHoldings();
 }

@@ -888,12 +888,8 @@ Entry: $3.75"
                     </div>
                     
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                        <h3 style="color:var(--accent-cyan); margin:0;">💼 Portfolio P&L Tracker</h3>
+                        <h3 style="color:var(--accent-cyan); margin:0;">💼 Holdings & Trade History</h3>
                         <div style="display:flex; gap:12px; align-items:center;">
-                            <label style="display:flex; align-items:center; gap:4px; font-size:12px; cursor:pointer; color:#aaa;" title="Auto-refresh prices every 60 seconds from CBOE">
-                                <input type="checkbox" id="autoRefreshCheckbox" style="cursor:pointer;">
-                                📡 Auto (60s)
-                            </label>
                             <button id="refreshPortfolioBtn" class="btn-primary" style="padding:6px 12px;">🔄 Refresh Prices</button>
                         </div>
                     </div>
@@ -903,20 +899,8 @@ Entry: $3.75"
                         Fetching live prices...
                     </div>
                     
-                    <!-- Open Positions Section (Collapsible) -->
-                    <div class="collapsible-header" onclick="toggleSection('openPositions')" id="openPositionsHeader">
-                        <h4 style="color:var(--accent-cyan);">
-                            <span class="collapsible-arrow">▼</span>
-                            📊 Open Positions
-                        </h4>
-                        <div class="collapsible-summary" id="openPositionsSummary"></div>
-                    </div>
-                    <div class="collapsible-content" id="openPositionsContent">
-                        <div id="portfolioTable"></div>
-                    </div>
-                    
-                    <!-- Holdings Section (Collapsible) -->
-                    <div id="holdingsSection" style="margin-top:20px; display:none;">
+                    <!-- Holdings Section (Collapsible) - Stocks you own -->
+                    <div id="holdingsSection" style="margin-top:10px; display:none;">
                         <div class="collapsible-header" onclick="toggleSection('holdings')" id="holdingsHeader" style="background:rgba(255,140,0,0.1); border:1px solid rgba(255,140,0,0.2);">
                             <h4 style="color:#fa0;">
                                 <span class="collapsible-arrow">▼</span>
@@ -969,10 +953,10 @@ Entry: $3.75"
                     <div style="margin-top:15px; padding:12px; background:rgba(0,217,255,0.1); border-radius:6px; font-size:12px;">
                         <div style="color:var(--accent-cyan); font-weight:600; margin-bottom:5px;">💡 How to Use</div>
                         <div style="color:#aaa;">
-                            <b>✎ Mark:</b> Enter current option price from Schwab<br>
-                            <b>✓ Close:</b> Lock in P&L when position expires/closes<br><br>
-                            <b>P&L = </b> Premium received − current option price<br>
-                            <i style="color:var(--accent-green);">Positive = theta decay working for you!</i>
+                            <b>Holdings:</b> Stocks you own (from assignments or buy-writes)<br>
+                            <b>Closed Trades:</b> Completed option trades with realized P&L<br><br>
+                            <b>Tip:</b> Manage open options in the <span style="color:#00d9ff;">Positions</span> tab<br>
+                            <i style="color:var(--accent-green);">Summary shows combined open + closed P&L</i>
                         </div>
                     </div>
                 </div>
