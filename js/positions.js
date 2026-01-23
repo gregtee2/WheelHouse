@@ -3086,6 +3086,18 @@ window.runReconciliation = async function() {
         console.log('[Reconcile] Raw transactions count:', transactions?.length || 0);
         console.log('[Reconcile] Raw transactions:', transactions);
         
+        // Debug: log what asset types we're seeing
+        const assetTypes = (transactions || []).map(t => {
+            const inst = t.transactionItem?.instrument;
+            return inst?.assetType || t.type || 'NO_ASSET_TYPE';
+        });
+        console.log('[Reconcile] Asset types found:', [...new Set(assetTypes)]);
+        
+        // Also log first transaction structure for debugging
+        if (transactions?.length > 0) {
+            console.log('[Reconcile] First transaction structure:', JSON.stringify(transactions[0], null, 2));
+        }
+        
         // Filter to option trades only
         const optionTrades = (transactions || []).filter(t => {
             const inst = t.transactionItem?.instrument;
