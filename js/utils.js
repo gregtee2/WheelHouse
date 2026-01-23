@@ -164,3 +164,145 @@ export function formatDate(date) {
         year: 'numeric' 
     });
 }
+
+// ============================================================
+// POSITION UTILITIES (DRY - used across multiple files)
+// ============================================================
+
+/**
+ * Check if a position type is a debit (you pay premium)
+ * Debit positions: long_call, long_put, debit spreads, skip_call
+ * Credit positions: short_call, short_put, covered_call, buy_write, credit spreads
+ */
+export function isDebitPosition(type) {
+    if (!type) return false;
+    return type.includes('debit') || type === 'long_call' || type === 'long_put' || type === 'skip_call';
+}
+
+/**
+ * Calculate position credit/debit amount
+ * @param {object} pos - Position object with premium, contracts
+ * @returns {number} - Positive for credit, negative for debit
+ */
+export function calculatePositionCredit(pos) {
+    if (!pos) return 0;
+    const premium = (pos.premium || 0) * 100 * (pos.contracts || 1);
+    return isDebitPosition(pos.type) ? -premium : premium;
+}
+
+/**
+ * Calculate chain net credit (for rolled positions)
+ * @param {object} pos - Any position in the chain
+ * @param {array} allPositions - All positions (open + closed)
+ * @returns {object} - { netCredit, totalReceived, totalBuybacks, hasRolls, chainPositions }
+ */
+export function getChainNetCredit(pos, allPositions) {
+    const chainId = pos.chainId || pos.id;
+    const chainPositions = allPositions.filter(p => (p.chainId || p.id) === chainId);
+    
+    let totalReceived = 0;
+    let totalBuybacks = 0;
+    
+    chainPositions.forEach(p => {
+        const premium = (p.premium || 0) * 100 * (p.contracts || 1);
+        
+        if (isDebitPosition(p.type)) {
+            totalBuybacks += premium;
+        } else {
+            totalReceived += premium;
+        }
+        
+        // Add buyback cost for rolled positions
+        if (p.closeReason === 'rolled' && p.closePrice) {
+            totalBuybacks += p.closePrice * 100 * (p.contracts || 1);
+        }
+    });
+    
+    return {
+        netCredit: totalReceived - totalBuybacks,
+        totalReceived,
+        totalBuybacks,
+        hasRolls: chainPositions.length > 1,
+        chainPositions
+    };
+}
+
+/**
+ * Check if a position has roll history
+ */
+export function hasRollHistory(pos, allPositions) {
+    const chainId = pos.chainId || pos.id;
+    return allPositions.filter(p => (p.chainId || p.id) === chainId).length > 1;
+}
+
+// ============================================================
+// MODAL UTILITIES (DRY - 33 modals use similar patterns)
+// ============================================================
+
+/**
+ * Standard color scheme for the app
+ */
+export const colors = {
+    green: '#00ff88',
+    red: '#ff5252',
+    orange: '#ffaa00',
+    cyan: '#00d9ff',
+    purple: '#8b5cf6',
+    muted: '#888',
+    bg: '#1a1a2e',
+    bgDark: '#0d0d1a',
+    border: '#333'
+};
+
+/**
+ * Create a modal overlay with standard styling
+ * @param {string} id - Modal element ID
+ * @param {string} content - Inner HTML content
+ * @param {object} options - { width, onClose }
+ * @returns {HTMLElement} - The modal element (already appended to body)
+ */
+export function createModal(id, content, options = {}) {
+    const { width = '600px', onClose } = options;
+    
+    // Remove existing modal with same ID
+    const existing = document.getElementById(id);
+    if (existing) existing.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = id;
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.85); display: flex; align-items: center;
+        justify-content: center; z-index: 10000;
+    `;
+    modal.onclick = (e) => {
+        if (e.target === modal) {
+            modal.remove();
+            if (onClose) onClose();
+        }
+    };
+    
+    modal.innerHTML = `
+        <div style="background: ${colors.bgDark}; border: 1px solid ${colors.border}; 
+                    border-radius: 12px; padding: 24px; max-width: ${width}; 
+                    width: 90%; max-height: 85vh; overflow-y: auto; color: #fff;">
+            ${content}
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    return modal;
+}
+
+/**
+ * Create modal header with title and close button
+ */
+export function modalHeader(title, icon = '') {
+    return `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid ${colors.border}; padding-bottom: 12px;">
+            <h2 style="margin: 0; color: ${colors.cyan};">${icon} ${title}</h2>
+            <button onclick="this.closest('[id]').remove()" 
+                    style="background: none; border: none; color: ${colors.muted}; font-size: 24px; cursor: pointer;">&times;</button>
+        </div>
+    `;
+}

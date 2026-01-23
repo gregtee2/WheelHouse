@@ -2,7 +2,7 @@
 // Tracks actual P&L across all positions
 
 import { state } from './state.js';
-import { showNotification } from './utils.js';
+import { showNotification, isDebitPosition, colors, createModal, modalHeader } from './utils.js';
 import { fetchStockPrice, fetchStockPricesBatch, fetchOptionsChain, findOption } from './api.js';
 import { saveHoldingsToStorage } from './positions.js';
 
@@ -94,15 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Export for use in main.js init
 window.fetchAccountBalances = fetchAccountBalances;
 
-/**
- * Check if a position type is a debit (you pay premium)
- * Debit positions: long_call, long_put, debit spreads
- * Credit positions: short_call, short_put, covered_call, buy_write, credit spreads
- */
-function isDebitPosition(type) {
-    if (!type) return false;
-    return type.includes('debit') || type === 'long_call' || type === 'long_put';
-}
+// isDebitPosition is now imported from utils.js
 
 /**
  * Trigger auto-save if enabled (calls the global function from positions.js)

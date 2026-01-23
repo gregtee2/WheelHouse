@@ -2431,7 +2431,7 @@ function buildCritiquePrompt(data) {
         return `No trade history provided for ${ticker}. Cannot critique.`;
     }
     
-    // Format the chain history as a timeline
+    // Format the chain history as a timeline (include buyback costs for rolls)
     let timeline = '';
     chainHistory.forEach((pos, idx) => {
         const action = idx === 0 ? 'OPENED' : 'ROLLED';
@@ -2439,9 +2439,16 @@ function buildCritiquePrompt(data) {
         const isDebit = pos.type?.includes('long') || pos.type?.includes('debit');
         const premiumStr = isDebit ? `-$${premium} paid` : `+$${premium} received`;
         
+        // Include buyback cost if position was rolled
+        let buybackStr = '';
+        if (pos.closeReason === 'rolled' && pos.closePrice) {
+            const buyback = (pos.closePrice * 100 * (pos.contracts || 1)).toFixed(0);
+            buybackStr = `\n   Buyback cost: -$${buyback}`;
+        }
+        
         timeline += `${idx + 1}. ${action}: ${pos.openDate || 'Unknown date'}
    Strike: $${pos.strike || pos.sellStrike || 'N/A'} ${pos.type || 'option'}
-   Premium: ${premiumStr}
+   Premium: ${premiumStr}${buybackStr}
    Expiry: ${pos.expiry || 'N/A'}
    ${pos.closeDate ? `Closed: ${pos.closeDate} (${pos.closeReason || 'closed'})` : 'Status: OPEN'}
    ${pos.spotAtOpen ? `Spot at open: $${pos.spotAtOpen}` : ''}
@@ -2454,7 +2461,7 @@ function buildCritiquePrompt(data) {
 ═══ TRADE SUMMARY ═══
 Ticker: ${ticker}
 Total positions in chain: ${chainHistory.length}
-Total premium: $${totalPremium?.toFixed(0) || 'N/A'}
+NET premium collected: $${totalPremium?.toFixed(0) || 'N/A'} (premiums received minus buyback costs)
 Total days in trade: ${totalDays || 'N/A'}
 Final outcome: ${finalOutcome || 'Unknown'}
 

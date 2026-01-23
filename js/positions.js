@@ -2,7 +2,7 @@
 // localStorage-based position management
 
 import { state, setPositionContext, clearPositionContext } from './state.js';
-import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal } from './utils.js';
+import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal, isDebitPosition, calculatePositionCredit, getChainNetCredit as utilsGetChainNetCredit, hasRollHistory as utilsHasRollHistory, createModal, modalHeader } from './utils.js';
 import { fetchPositionTickerPrice, fetchStockPrice, fetchStockPricesBatch } from './api.js';
 import { drawPayoffChart } from './charts.js';
 import { updateDteDisplay } from './ui.js';
@@ -29,16 +29,7 @@ const colors = {
     get bgSecondary() { return getThemeColor('--bg-secondary', '#0d0d1a'); }
 };
 
-/**
- * Check if a position type is a debit (you pay premium)
- * Debit positions: long_call, long_put, debit spreads
- * Credit positions: short_call, short_put, covered_call, buy_write, credit spreads
- */
-function isDebitPosition(type) {
-    if (!type) return false;
-    // SKIP is a debit position (you pay for both LEAPS and SKIP calls)
-    return type.includes('debit') || type === 'long_call' || type === 'long_put' || type === 'skip_call';
-}
+// isDebitPosition is now imported from utils.js
 
 // Cache for spot prices (refreshed every 5 minutes)
 const spotPriceCache = new Map();
@@ -310,12 +301,21 @@ export function getSpreadExplanation(pos) {
 }
 
 /**
- * Check if a position has roll history (other positions in its chain)
+ * Local wrapper for hasRollHistory that uses current state
+ * (The utils.js version requires passing allPositions)
  */
 function hasRollHistory(pos) {
-    const chainId = pos.chainId || pos.id;
     const allPositions = [...(state.positions || []), ...(state.closedPositions || [])];
-    return allPositions.filter(p => (p.chainId || p.id) === chainId).length > 1;
+    return utilsHasRollHistory(pos, allPositions);
+}
+
+/**
+ * Local wrapper for getChainNetCredit that uses current state
+ * (The utils.js version requires passing allPositions)
+ */
+function getChainNetCredit(pos) {
+    const allPositions = [...(state.positions || []), ...(state.closedPositions || [])];
+    return utilsGetChainNetCredit(pos, allPositions);
 }
 
 /**
@@ -509,12 +509,23 @@ window.getCritique = async function(chainId) {
         
         const ticker = chainPositions[0]?.ticker || 'Unknown';
         
-        // Calculate totals
-        const totalPremium = chainPositions.reduce((sum, p) => {
+        // Calculate totals - NET premium (received minus buybacks)
+        let totalReceived = 0;
+        let totalBuybacks = 0;
+        chainPositions.forEach(p => {
             const isDebit = p.type?.includes('long') || p.type?.includes('debit');
             const premium = p.premium * 100 * (p.contracts || 1);
-            return sum + (isDebit ? -premium : premium);
-        }, 0);
+            if (isDebit) {
+                totalBuybacks += premium; // Debit trades are costs
+            } else {
+                totalReceived += premium; // Credit trades are income
+            }
+            // If position was rolled, subtract the buyback cost
+            if (p.closeReason === 'rolled' && p.closePrice) {
+                totalBuybacks += p.closePrice * 100 * (p.contracts || 1);
+            }
+        });
+        const totalPremium = totalReceived - totalBuybacks; // NET premium
         
         const firstOpen = new Date(chainPositions[0]?.openDate || Date.now());
         const lastClose = chainPositions[chainPositions.length - 1]?.closeDate;
@@ -2141,6 +2152,11 @@ function renderPositionsTable(container, openPositions) {
         // Calculate credit/debit (premium × 100 × contracts)
         const credit = pos.premium * 100 * pos.contracts;
         
+        // Get chain net credit if position has roll history
+        const chainInfo = getChainNetCredit(pos);
+        const displayCredit = chainInfo.hasRolls ? chainInfo.netCredit : credit;
+        const isChainCredit = chainInfo.hasRolls;
+        
         // Calculate ROC: Premium / Capital at Risk
         // For spreads: Capital at Risk = spread width or debit paid
         // For puts: Capital at Risk = Strike × 100 × Contracts
@@ -2229,8 +2245,8 @@ function renderPositionsTable(container, openPositions) {
                 <td style="padding: 6px; text-align: right; color: ${dteColor}; font-weight: bold;">
                     ${isSkip ? `<span title="SKIP DTE">${pos.skipDte}d</span>` : pos.dte + 'd'}
                 </td>
-                <td style="padding: 6px; text-align: right; color: ${isDebitPosition(pos.type) ? '#ff5252' : '#00ff88'};">
-                    ${isDebitPosition(pos.type) || isSkip ? '-' : ''}$${isSkip ? pos.totalInvestment?.toFixed(0) : credit.toFixed(0)}
+                <td style="padding: 6px; text-align: right; color: ${isDebitPosition(pos.type) ? '#ff5252' : '#00ff88'};" title="${isChainCredit ? `Chain NET: $${displayCredit.toFixed(0)} (Premiums: $${chainInfo.totalReceived.toFixed(0)} - Buybacks: $${chainInfo.totalBuybacks.toFixed(0)})` : `Premium: $${credit.toFixed(0)}`}">
+                    ${isDebitPosition(pos.type) || isSkip ? '-' : ''}$${isSkip ? pos.totalInvestment?.toFixed(0) : displayCredit.toFixed(0)}${isChainCredit ? '<span style="margin-left:2px;font-size:9px;color:#00d9ff;" title="Chain NET credit (includes roll history)">🔗</span>' : ''}
                 </td>
                 <td style="padding: 6px; text-align: right; color: ${annualRocColor}; font-weight: bold;">
                     ${isSpread || isDebitPosition(pos.type) || isSkip ? '—' : annualRoc.toFixed(0) + '%'}

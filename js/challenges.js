@@ -3,6 +3,7 @@
 
 import { state } from './state.js';
 import { loadClosedPositions } from './portfolio.js';
+import { isDebitPosition, createModal, modalHeader } from './utils.js';
 
 const CHALLENGES_KEY = 'wheelhouse_challenges';
 
@@ -197,15 +198,7 @@ export function getChallengePositions(challengeId) {
     return { open, closed };
 }
 
-/**
- * Check if a position type is a debit (you pay premium)
- * Debit positions: long_call, long_put, debit spreads
- * Credit positions: short_call, short_put, covered_call, buy_write, credit spreads
- */
-function isDebitPosition(type) {
-    if (!type) return false;
-    return type.includes('debit') || type === 'long_call' || type === 'long_put';
-}
+// isDebitPosition is now imported from utils.js
 
 export function calculateChallengeProgress(challengeId) {
     const challenge = state.challenges?.find(c => c.id === challengeId);
