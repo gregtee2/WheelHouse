@@ -2156,11 +2156,13 @@ window.showOpportunityCostModal = function(holdingId, missedUpside, capital, mon
             <!-- Yield info -->
             <div style="background:#1a1a2e; border-radius:8px; padding:12px; margin-bottom:20px;">
                 <div style="color:#888; font-size:11px;">
-                    📊 <strong>Your Historical Yield:</strong> ${monthlyYieldPct.toFixed(1)}% monthly
+                    📊 <strong>Your Expected Yield:</strong> ${monthlyYieldPct.toFixed(1)}% monthly
                     ${velocity.isDefault ? ' (default - need 3+ closed trades)' : ` (from ${velocity.tradeCount} trades)`}
                 </div>
                 <div style="color:#666; font-size:10px; margin-top:5px;">
-                    Based on your ${velocity.isDefault ? 'estimated' : 'actual'} return on capital from credit strategies (short puts, covered calls, buy/writes)
+                    ${velocity.method ? `Method: ${velocity.method}` : ''}
+                    ${velocity.premiumBasedYield ? ` | Premium yield: ${velocity.premiumBasedYield.toFixed(1)}%` : ''}
+                    ${velocity.pnlBasedYield !== undefined ? ` | Realized yield: ${velocity.pnlBasedYield.toFixed(1)}%` : ''}
                 </div>
             </div>
             
@@ -3609,7 +3611,8 @@ export function calculateCapitalVelocity() {
             tradeCount: 0,
             totalPnL: 0,
             totalCapital: 0,
-            isDefault: true
+            isDefault: true,
+            method: 'default'
         };
     }
     
@@ -3638,36 +3641,73 @@ export function calculateCapitalVelocity() {
         return (p.strike || 50) * 100 * (p.contracts || 1);
     };
     
-    let totalWeightedDays = 0;
+    // === METHOD 1: Realized PnL-based (includes losses from assignments) ===
     let totalPnL = 0;
     let totalCapitalDays = 0;
+    let totalDays = 0;
+    
+    // === METHOD 2: Premium-based (what you collect if trades expire worthless) ===
+    let totalPremiumCollected = 0;
+    let totalCapital = 0;
     
     for (const p of creditTrades) {
         const pnl = getPnL(p);
         const days = getDaysHeld(p);
         const capital = getCapitalAtRisk(p);
+        const premium = (p.premium || 0) * 100 * (p.contracts || 1);
         
         totalPnL += pnl;
-        totalWeightedDays += days;
+        totalDays += days;
         totalCapitalDays += capital * days;
+        totalPremiumCollected += premium;
+        totalCapital += capital;
     }
     
-    const avgDays = totalWeightedDays / creditTrades.length;
-    const totalCapital = totalCapitalDays / totalWeightedDays;
+    const avgDays = totalDays / creditTrades.length;
+    const avgCapitalPerTrade = totalCapital / creditTrades.length;
     
-    // Annualize then convert to monthly
-    // Daily yield = total PnL / total capital-days
-    // Monthly = daily × 30
+    // Method 1: PnL-based monthly yield (can be depressed by big losers)
     const dailyYield = totalPnL / totalCapitalDays;
-    const monthlyYieldPct = dailyYield * 30 * 100;
+    const pnlBasedMonthlyYield = dailyYield * 30 * 100;
+    
+    // Method 2: Premium-based yield (what you'd earn at max profit)
+    const avgPremiumPerTrade = totalPremiumCollected / creditTrades.length;
+    const tradesPerMonth = 30 / avgDays;
+    const monthlyPremium = avgPremiumPerTrade * tradesPerMonth;
+    const premiumBasedMonthlyYield = (monthlyPremium / avgCapitalPerTrade) * 100;
+    
+    // Use a BLEND: 50% premium-based + 50% realized (acknowledges losses but not dominated by them)
+    // This gives a more realistic expectation than either extreme
+    const blendedYield = (premiumBasedMonthlyYield * 0.5) + (Math.max(0, pnlBasedMonthlyYield) * 0.5);
+    
+    // If PnL-based is negative (net loser), lean more on premium-based
+    let finalYield;
+    let method;
+    if (pnlBasedMonthlyYield < 0) {
+        // You're net negative - use 75% premium, 25% of 0 (being conservative)
+        finalYield = premiumBasedMonthlyYield * 0.75;
+        method = 'premium-weighted (losses detected)';
+    } else if (pnlBasedMonthlyYield < premiumBasedMonthlyYield * 0.5) {
+        // Realized yield is much lower than premium (big losers dragging it down)
+        finalYield = blendedYield;
+        method = 'blended (losers detected)';
+    } else {
+        // Realized is close to or above premium (efficient execution)
+        finalYield = pnlBasedMonthlyYield;
+        method = 'realized PnL';
+    }
     
     return {
-        monthlyYieldPct: Math.max(0.5, Math.min(10, monthlyYieldPct)), // Clamp to 0.5-10%
+        monthlyYieldPct: Math.max(0.5, Math.min(10, finalYield)), // Clamp to 0.5-10%
         avgDaysHeld: avgDays,
         tradeCount: creditTrades.length,
         totalPnL,
-        totalCapital,
-        isDefault: false
+        totalCapital: avgCapitalPerTrade,
+        isDefault: false,
+        method,
+        // Debug info
+        pnlBasedYield: pnlBasedMonthlyYield,
+        premiumBasedYield: premiumBasedMonthlyYield
     };
 }
 window.calculateCapitalVelocity = calculateCapitalVelocity;
