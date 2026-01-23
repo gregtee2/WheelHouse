@@ -96,6 +96,38 @@ window.getThirdFriday = getThirdFriday;
 window.formatExpiryShort = formatExpiryShort;
 
 /**
+ * Restart the server
+ */
+window.restartServer = async function() {
+    if (!confirm('Restart the server? The page will reload in a few seconds.')) {
+        return;
+    }
+    
+    const btn = document.getElementById('restartServerBtn');
+    if (btn) {
+        btn.textContent = '⏳ Restarting...';
+        btn.disabled = true;
+    }
+    
+    try {
+        await fetch('/api/restart', { method: 'POST' });
+        showNotification('Server restarting... Page will reload.', 'info');
+        
+        // Wait for server to restart, then reload
+        setTimeout(() => {
+            location.reload();
+        }, 3000);
+    } catch (e) {
+        console.error('Restart failed:', e);
+        showNotification('Restart failed: ' + e.message, 'error');
+        if (btn) {
+            btn.textContent = '🔄 Restart';
+            btn.disabled = false;
+        }
+    }
+};
+
+/**
  * Main initialization
  */
 export function init() {
