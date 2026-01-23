@@ -1308,49 +1308,61 @@ export function renderHoldings() {
                     </div>
                 </div>
                 
-                <!-- Stats Grid -->
-                <div style="display:grid; grid-template-columns:repeat(6, 1fr); gap:8px; text-align:center;">
-                    <!-- Cost Basis -->
-                    <div style="background:rgba(255,255,255,0.05); padding:8px; border-radius:6px; cursor:pointer;" 
+                <!-- Stats Grid - Caveman Clear Layout -->
+                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; text-align:center;">
+                    <!-- Row 1: The Stock -->
+                    <!-- You Paid -->
+                    <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:6px; cursor:pointer;" 
                          onclick="window.editHoldingCostBasis(${h.id})"
-                         title="Click to edit cost basis">
-                        <div style="font-size:9px; color:#666; margin-bottom:2px;">COST BASIS ✏️</div>
-                        <div id="hcb-${h.id}" style="font-size:14px; font-weight:bold; color:#ccc;">$${costBasis.toFixed(2)}</div>
-                        <div style="font-size:10px; color:#888;">per share</div>
+                         title="Click to edit. Your purchase price per share.">
+                        <div style="font-size:9px; color:#888; margin-bottom:4px;">💰 YOU PAID ✏️</div>
+                        <div id="hcb-${h.id}" style="font-size:16px; font-weight:bold; color:#ccc;">$${costBasis.toFixed(2)}</div>
+                        <div style="font-size:10px; color:#666;">× ${shares} = $${(costBasis * shares).toFixed(0)}</div>
                     </div>
                     
-                    <!-- Stock Value -->
-                    <div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:6px;">
-                        <div style="font-size:9px; color:#666; margin-bottom:2px;">STOCK VALUE</div>
-                        <div id="${priceId}" style="font-size:14px; font-weight:bold; color:#fff;">Loading...</div>
-                        <div id="${stockPnLId}" style="font-size:10px; color:#888;"></div>
+                    <!-- Now Worth -->
+                    <div style="background:rgba(0,0,0,0.2); padding:10px; border-radius:6px;">
+                        <div style="font-size:9px; color:#888; margin-bottom:4px;">📈 NOW WORTH</div>
+                        <div id="${priceId}" style="font-size:16px; font-weight:bold; color:#fff;">Loading...</div>
+                        <div style="font-size:10px; color:#666;">current value</div>
                     </div>
                     
+                    <!-- Stock Gain -->
+                    <div style="background:rgba(0,0,0,0.2); padding:10px; border-radius:6px;">
+                        <div style="font-size:9px; color:#888; margin-bottom:4px;">📊 STOCK GAIN</div>
+                        <div id="${stockPnLId}" style="font-size:16px; font-weight:bold;">—</div>
+                        <div style="font-size:10px; color:#666;">price change</div>
+                    </div>
+                </div>
+                
+                <!-- Row 2: The Option -->
+                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; text-align:center; margin-top:8px;">
                     <!-- Premium Collected -->
-                    <div style="background:rgba(0,255,136,0.08); padding:8px; border-radius:6px;">
-                        <div style="font-size:9px; color:#666; margin-bottom:2px;">PREMIUM</div>
-                        <div style="font-size:14px; font-weight:bold; color:#00ff88;">+$${premiumTotal.toFixed(0)}</div>
-                        <div style="font-size:10px; color:#888;">$${(premiumTotal/shares).toFixed(2)}/sh</div>
+                    <div style="background:rgba(0,255,136,0.08); padding:10px; border-radius:6px; border:1px solid rgba(0,255,136,0.2);">
+                        <div style="font-size:9px; color:#00ff88; margin-bottom:4px;">✅ CALL PREMIUM</div>
+                        <div style="font-size:16px; font-weight:bold; color:#00ff88;">+$${premiumTotal.toFixed(0)}</div>
+                        <div style="font-size:10px; color:#666;">yours to keep</div>
                     </div>
                     
-                    <!-- Total Return -->
-                    <div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:6px;">
-                        <div style="font-size:9px; color:#666; margin-bottom:2px;">TOTAL RETURN</div>
-                        <div id="${totalReturnId}" style="font-size:14px; font-weight:bold;">—</div>
+                    <!-- Max Profit (if called) -->
+                    <div style="background:rgba(0,217,255,0.08); padding:10px; border-radius:6px; border:1px solid rgba(0,217,255,0.2);">
+                        <div style="font-size:9px; color:#00d9ff; margin-bottom:4px;">🎯 MAX PROFIT</div>
+                        <div style="font-size:16px; font-weight:bold; color:#00d9ff;">${maxProfit > 0 ? `+$${maxProfit.toFixed(0)}` : '—'}</div>
+                        <div style="font-size:10px; color:#666;">${strike ? `if called @ $${strike}` : 'no call sold'}</div>
                     </div>
                     
-                    <!-- If Called -->
-                    <div style="background:rgba(0,217,255,0.08); padding:8px; border-radius:6px;">
-                        <div style="font-size:9px; color:#666; margin-bottom:2px;">IF CALLED</div>
-                        <div style="font-size:14px; font-weight:bold; color:#00d9ff;">${maxProfit > 0 ? `+$${maxProfit.toFixed(0)}` : '—'}</div>
-                        ${strike ? `<div style="font-size:10px; color:#888;">@ $${strike}</div>` : ''}
+                    <!-- Upside Capped / On Table -->
+                    <div id="${onTableId}" style="background:rgba(255,152,0,0.08); padding:10px; border-radius:6px; border:1px solid rgba(255,152,0,0.2);">
+                        <div style="font-size:9px; color:#ff9800; margin-bottom:4px;">⚠️ UPSIDE CAPPED</div>
+                        <div style="font-size:16px; font-weight:bold; color:#ff9800;">—</div>
+                        <div style="font-size:10px; color:#666;">gains you'd miss</div>
                     </div>
-                    
-                    <!-- Cushion/On Table -->
-                    <div id="${onTableId}" style="background:rgba(0,0,0,0.2); padding:8px; border-radius:6px;">
-                        <div style="font-size:9px; color:#666; margin-bottom:2px;">CUSHION</div>
-                        <div style="font-size:14px; font-weight:bold; color:#888;">—</div>
-                    </div>
+                </div>
+                
+                <!-- Total Return Bar -->
+                <div id="${totalReturnId}" style="margin-top:10px; padding:10px; background:rgba(0,0,0,0.3); border-radius:6px; text-align:center;">
+                    <span style="color:#888; font-size:11px;">TOTAL RETURN: </span>
+                    <span style="font-weight:bold; font-size:14px;">—</span>
                 </div>
             </div>
         `;
@@ -1489,66 +1501,77 @@ async function fetchHoldingPrices(holdingData) {
  * Update a single holding row with calculated values
  */
 function updateHoldingRow(h, currentPrice, currentValue, stockPnL, totalReturn, moneyOnTable) {
-    // Stock Value column
-    const priceEl = document.getElementById(`hp-${h.id}`);
-    const stockPnLEl = document.getElementById(`hspnl-${h.id}`);
+    // Common calculations
+    const stockPnLSign = stockPnL >= 0 ? '+' : '';
+    const stockPnLColor = stockPnL >= 0 ? '#00ff88' : '#ff5252';
     
+    // NOW WORTH column - show current value
+    const priceEl = document.getElementById(`hp-${h.id}`);
     if (priceEl) {
         priceEl.textContent = `$${currentValue.toFixed(0)}`;
         priceEl.style.color = '#fff';
     }
     
+    // STOCK GAIN column - show stock P&L
+    const stockPnLEl = document.getElementById(`hspnl-${h.id}`);
     if (stockPnLEl) {
-        const pnlColor = stockPnL >= 0 ? '#00ff88' : '#ff5252';
-        const pnlSign = stockPnL >= 0 ? '+' : '';
-        const pnlPct = h.totalCost > 0 ? ((stockPnL / h.totalCost) * 100).toFixed(1) : 0;
-        stockPnLEl.innerHTML = `<span style="color:${pnlColor};">${pnlSign}$${stockPnL.toFixed(0)} (${pnlSign}${pnlPct}%)</span>`;
+        stockPnLEl.innerHTML = `${stockPnLSign}$${stockPnL.toFixed(0)}`;
+        stockPnLEl.style.color = stockPnLColor;
     }
     
-    // Total Return column
+    // TOTAL RETURN bar at bottom
     const totalReturnEl = document.getElementById(`htr-${h.id}`);
     if (totalReturnEl) {
         const trColor = totalReturn >= 0 ? '#00ff88' : '#ff5252';
         const trSign = totalReturn >= 0 ? '+' : '';
         const trPct = h.totalCost > 0 ? ((totalReturn / h.totalCost) * 100).toFixed(1) : 0;
         totalReturnEl.innerHTML = `
-            <div style="font-size:14px; font-weight:bold; color:${trColor};">${trSign}$${totalReturn.toFixed(0)}</div>
-            <div style="font-size:10px; color:${trColor};">${trSign}${trPct}%</div>
+            <span style="color:#888; font-size:11px;">TOTAL RETURN: </span>
+            <span style="font-weight:bold; font-size:14px; color:${trColor};">${trSign}$${totalReturn.toFixed(0)} (${trSign}${trPct}%)</span>
+            <span style="color:#666; font-size:10px; margin-left:10px;">= Stock ${stockPnLSign}$${stockPnL.toFixed(0)} + Premium +$${h.premium.toFixed(0)}</span>
         `;
     }
     
-    // Money On Table / Cushion column
+    // UPSIDE CAPPED column
     const onTableEl = document.getElementById(`hot-${h.id}`);
     if (onTableEl) {
         if (moneyOnTable > 0) {
+            // Stock is above strike - money being left on table
             onTableEl.innerHTML = `
-                <div style="font-size:9px; color:#666; margin-bottom:2px;">ON TABLE</div>
-                <div style="font-size:14px; font-weight:bold; color:#ff9800;">$${moneyOnTable.toFixed(0)}</div>
-                <div style="font-size:10px; color:#ff5252;">⚠️ Roll UP!</div>
+                <div style="font-size:9px; color:#ff9800; margin-bottom:4px;">⚠️ UPSIDE CAPPED</div>
+                <div style="font-size:16px; font-weight:bold; color:#ff9800;">$${moneyOnTable.toFixed(0)}</div>
+                <div style="font-size:10px; color:#ff5252;">Roll UP to capture!</div>
             `;
             onTableEl.style.background = 'rgba(255,152,0,0.15)';
+            onTableEl.style.borderColor = 'rgba(255,152,0,0.4)';
         } else if (h.strike > 0) {
+            // Stock is below strike - show cushion
             const distToStrike = h.strike - currentPrice;
             const distPct = ((distToStrike / currentPrice) * 100).toFixed(1);
             if (distToStrike > 0) {
                 onTableEl.innerHTML = `
-                    <div style="font-size:9px; color:#666; margin-bottom:2px;">CUSHION</div>
-                    <div style="font-size:14px; font-weight:bold; color:#00ff88;">${distPct}%</div>
-                    <div style="font-size:10px; color:#888;">Safe zone</div>
+                    <div style="font-size:9px; color:#00ff88; margin-bottom:4px;">✅ CUSHION</div>
+                    <div style="font-size:16px; font-weight:bold; color:#00ff88;">${distPct}%</div>
+                    <div style="font-size:10px; color:#666;">below strike</div>
                 `;
                 onTableEl.style.background = 'rgba(0,255,136,0.08)';
+                onTableEl.style.borderColor = 'rgba(0,255,136,0.2)';
             } else {
+                // At or above strike - ITM, will be called
                 onTableEl.innerHTML = `
-                    <div style="font-size:9px; color:#666; margin-bottom:2px;">STATUS</div>
-                    <div style="font-size:14px; font-weight:bold; color:#00d9ff;">ITM</div>
-                    <div style="font-size:10px; color:#888;">Will be called</div>
+                    <div style="font-size:9px; color:#00d9ff; margin-bottom:4px;">📞 IN THE MONEY</div>
+                    <div style="font-size:16px; font-weight:bold; color:#00d9ff;">ITM</div>
+                    <div style="font-size:10px; color:#666;">likely called away</div>
                 `;
                 onTableEl.style.background = 'rgba(0,217,255,0.1)';
+                onTableEl.style.borderColor = 'rgba(0,217,255,0.3)';
             }
         } else {
+            // No strike (no call sold)
             onTableEl.innerHTML = `
-                <div style="font-size:9px; color:#666; margin-bottom:2px;">CUSHION</div>
-                <div style="font-size:14px; font-weight:bold; color:#888;">—</div>
+                <div style="font-size:9px; color:#888; margin-bottom:4px;">UPSIDE CAPPED</div>
+                <div style="font-size:16px; font-weight:bold; color:#888;">—</div>
+                <div style="font-size:10px; color:#666;">no call sold</div>
             `;
         }
     }
