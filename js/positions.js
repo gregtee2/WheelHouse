@@ -2997,10 +2997,31 @@ window.runReconciliation = async function() {
         const endDate = new Date();
         const startDate = new Date(endDate - days * 24 * 60 * 60 * 1000);
         
-        // Fetch transactions from Schwab
-        const accountHash = localStorage.getItem('wheelhouse_schwab_account_hash');
+        // Get account hash - smart lookup from API
+        let accountHash = null;
+        const preferredAccount = localStorage.getItem('wheelhouse_preferred_account');
+        
+        // Fetch accounts from API to get hash
+        const accountsRes = await fetch('/api/schwab/accounts');
+        if (!accountsRes.ok) {
+            throw new Error('Schwab not connected. Go to Settings → Schwab to connect.');
+        }
+        
+        const accounts = await accountsRes.json();
+        if (!accounts || accounts.length === 0) {
+            throw new Error('No Schwab accounts found. Go to Settings → Schwab to connect.');
+        }
+        
+        // Find the preferred account or use first one
+        let account = accounts[0];
+        if (preferredAccount) {
+            const preferred = accounts.find(a => a.securitiesAccount?.accountNumber === preferredAccount);
+            if (preferred) account = preferred;
+        }
+        
+        accountHash = account.hashValue;
         if (!accountHash) {
-            throw new Error('No Schwab account linked. Go to Settings → Schwab to connect.');
+            throw new Error('Could not get account hash from Schwab.');
         }
         
         const response = await fetch(`/api/schwab/accounts/${accountHash}/transactions?types=TRADE&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`);
