@@ -9,20 +9,24 @@
 </head>
 <body>
     <div class="container">
-        <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin-top:10px; margin-bottom:5px;">
-            <h1>🏠 WheelHouse</h1>
-            <button id="settingsBtn" onclick="showSettingsModal()" style="background:none; border:none; font-size:20px; cursor:pointer; opacity:0.5; transition:opacity 0.2s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5" title="Theme Settings">⚙️</button>
-        </div>
-        <p class="subtitle">Wheel Strategy Options Analyzer</p>
-        
-        <div class="tabs">
-            <button class="tab-btn" data-tab="ideas">🎯 Ideas</button>
-            <button class="tab-btn" data-tab="analyze">🔬 Analyze</button>
-            <button class="tab-btn" data-tab="pnl">💰 P&L</button>
-            <button class="tab-btn active" data-tab="positions">📋 Positions</button>
-            <button class="tab-btn" data-tab="portfolio">💼 Portfolio</button>
-            <button class="tab-btn" data-tab="challenges">🏆 Challenges</button>
-            <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
+        <!-- Header: Logo left, Subtitle + Tabs right -->
+        <div class="header-bar">
+            <div class="header-logo">
+                <h1>🏠<br>WheelHouse</h1>
+            </div>
+            <div class="header-right">
+                <button id="settingsBtn" onclick="showSettingsModal()" style="background:none; border:none; font-size:18px; cursor:pointer; opacity:0.4; transition:opacity 0.2s; position:absolute; top:10px; right:10px;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.4" title="Theme Settings">⚙️</button>
+                <p class="subtitle">Wheel Strategy Options Analyzer</p>
+                <div class="tabs">
+                    <button class="tab-btn" data-tab="ideas">🎯 Ideas</button>
+                    <button class="tab-btn" data-tab="analyze">🔬 Analyze</button>
+                    <button class="tab-btn" data-tab="pnl">💰 P&L</button>
+                    <button class="tab-btn active" data-tab="positions">📋 Positions</button>
+                    <button class="tab-btn" data-tab="portfolio">💼 Portfolio</button>
+                    <button class="tab-btn" data-tab="challenges">🏆 Challenges</button>
+                    <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
+                </div>
+            </div>
         </div>
 
         <!-- IDEAS TAB (NEW) -->
