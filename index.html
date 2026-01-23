@@ -955,8 +955,8 @@ Entry: $3.75"
                     
                     <!-- Portfolio Greeks Dashboard -->
                     <div class="results-box" style="margin-top:15px; background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3);">
-                        <h3 style="color:#8b5cf6;">📐 Portfolio Greeks</h3>
-                        <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px;">
+                        <h3 style="color:#8b5cf6;">📐 Portfolio Greeks & IV</h3>
+                        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
                             <div style="text-align:center; padding:10px; background:rgba(0,0,0,0.2); border-radius:6px;">
                                 <div style="font-size:24px; font-weight:bold;" id="portDelta">—</div>
                                 <div style="font-size:11px; color:#888;">Δ Delta</div>
@@ -977,8 +977,18 @@ Entry: $3.75"
                                 <div style="font-size:11px; color:#888;">ν Vega</div>
                                 <div style="font-size:9px; color:#666;">$/1% IV move</div>
                             </div>
+                            <div style="text-align:center; padding:10px; background:rgba(0,0,0,0.2); border-radius:6px;">
+                                <div style="font-size:24px; font-weight:bold;" id="portAvgIV">—</div>
+                                <div style="font-size:11px; color:#888;">Avg IV</div>
+                                <div style="font-size:9px; color:#666;">Implied volatility</div>
+                            </div>
+                            <div style="text-align:center; padding:10px; background:rgba(0,0,0,0.2); border-radius:6px;">
+                                <div style="font-size:24px; font-weight:bold;" id="portIVRank">—</div>
+                                <div style="font-size:11px; color:#888;">IV Rank</div>
+                                <div style="font-size:9px; color:#666;">vs 52wk range</div>
+                            </div>
                         </div>
-                        <button id="refreshGreeksBtn" class="btn-primary" style="width:100%; margin-top:10px; padding:8px;">🔄 Update Greeks</button>
+                        <button id="refreshGreeksBtn" class="btn-primary" style="width:100%; margin-top:10px; padding:8px;">🔄 Update Greeks & IV</button>
                     </div>
                     
                     <!-- Advanced Analytics -->

@@ -3052,7 +3052,7 @@ window.togglePositionChallenge = function(positionId, challengeId, isCurrentlyLi
 export async function updatePortfolioGreeks() {
     const positions = state.positions || [];
     if (positions.length === 0) {
-        setGreeksDisplay({ delta: 0, gamma: 0, theta: 0, vega: 0 });
+        setGreeksDisplay({ delta: 0, gamma: 0, theta: 0, vega: 0, avgIV: null, avgIVRank: null });
         return;
     }
     
@@ -3060,6 +3060,7 @@ export async function updatePortfolioGreeks() {
     const tickers = [...new Set(positions.map(p => p.ticker))];
     const spotPrices = {};
     const ivData = {};
+    const ivRankData = {};
     
     try {
         // Fetch batch prices
@@ -3068,17 +3069,39 @@ export async function updatePortfolioGreeks() {
             spotPrices[ticker] = prices[i] || 100;
         });
         
-        // For IV, we use stored IV or estimate from position data
-        positions.forEach(p => {
-            if (!ivData[p.ticker]) {
-                ivData[p.ticker] = p.iv || 0.30;  // Default 30% if not stored
+        // Fetch IV data from our new endpoint (Schwab first, then CBOE)
+        const ivPromises = tickers.map(async ticker => {
+            try {
+                const res = await fetch(`/api/iv/${ticker}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    return { ticker, iv: parseFloat(data.atmIV) / 100 || 0.30, ivRank: data.ivRank };
+                }
+            } catch (e) {
+                console.warn(`Failed to fetch IV for ${ticker}:`, e);
             }
+            return { ticker, iv: 0.30, ivRank: null };
         });
+        
+        const ivResults = await Promise.all(ivPromises);
+        ivResults.forEach(({ ticker, iv, ivRank }) => {
+            ivData[ticker] = iv;
+            ivRankData[ticker] = ivRank;
+        });
+        
     } catch (err) {
         console.warn('Failed to fetch spot prices for Greeks:', err);
     }
     
     const greeks = calculatePortfolioGreeks(positions, spotPrices, ivData);
+    
+    // Calculate average IV and IV Rank across positions
+    const validIVs = Object.values(ivData).filter(iv => iv > 0);
+    const validRanks = Object.values(ivRankData).filter(r => r !== null);
+    greeks.avgIV = validIVs.length > 0 ? (validIVs.reduce((a, b) => a + b, 0) / validIVs.length) * 100 : null;
+    greeks.avgIVRank = validRanks.length > 0 ? Math.round(validRanks.reduce((a, b) => a + b, 0) / validRanks.length) : null;
+    greeks.ivByTicker = ivRankData;
+    
     setGreeksDisplay(greeks);
     
     return greeks;
@@ -3107,6 +3130,18 @@ function setGreeksDisplay(greeks) {
     // Vega: exposure to IV changes
     const vegaColor = greeks.vega > 0 ? '#ff5252' : '#00ff88';  // Short vega is good for sellers
     setEl('portVega', (greeks.vega >= 0 ? '+$' : '-$') + Math.abs(greeks.vega).toFixed(0), vegaColor);
+    
+    // Average IV
+    if (greeks.avgIV !== null) {
+        setEl('portAvgIV', greeks.avgIV.toFixed(1) + '%', '#888');
+    }
+    
+    // Average IV Rank
+    if (greeks.avgIVRank !== null) {
+        // Color: green if high (>50), red if low (<30), orange otherwise
+        const ivRankColor = greeks.avgIVRank >= 50 ? '#00ff88' : greeks.avgIVRank < 30 ? '#ff5252' : '#ffaa00';
+        setEl('portIVRank', greeks.avgIVRank + '%', ivRankColor);
+    }
 }
 
 // ============================================================

@@ -164,6 +164,28 @@ const mainHandler = async (req, res, next) => {
         return;
     }
     
+    // IV Data endpoint - Get ATM implied volatility for a ticker
+    // Uses Schwab first (if authenticated), then CBOE fallback
+    if (url.pathname.startsWith('/api/iv/')) {
+        const ticker = url.pathname.replace('/api/iv/', '').replace('.json', '').toUpperCase();
+        console.log(`[IV] Fetching IV data for ${ticker}...`);
+        
+        try {
+            const ivData = await fetchTickerIVData(ticker);
+            res.writeHead(200, { 
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store, no-cache, must-revalidate'
+            });
+            res.end(JSON.stringify(ivData));
+            console.log(`[IV] ✅ ${ticker}: ATM IV=${ivData.atmIV}%, source=${ivData.source}`);
+        } catch (e) {
+            console.log(`[IV] ❌ Failed: ${e.message}`);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+    
     // Proxy endpoint for Yahoo Finance earnings/calendar data (MUST come before generic /api/yahoo/)
     if (url.pathname.startsWith('/api/yahoo/calendar/')) {
         const ticker = url.pathname.replace('/api/yahoo/calendar/', '').replace('.json', '').toUpperCase();
@@ -1477,6 +1499,171 @@ function parseExpiryDate(expiry) {
     
     console.log(`[DTE] Could not parse expiry for DTE: ${expiry}`);
     return null;
+}
+
+// Fetch ATM IV data for a ticker - Schwab first, CBOE fallback
+// Returns: { ticker, atmIV, ivRank, spot, source }
+async function fetchTickerIVData(ticker) {
+    try {
+        // First get current stock price
+        const quoteRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`);
+        let spot = null;
+        if (quoteRes.ok) {
+            const data = await quoteRes.json();
+            spot = data.chart?.result?.[0]?.meta?.regularMarketPrice;
+        }
+        
+        if (!spot) {
+            throw new Error(`Could not get current price for ${ticker}`);
+        }
+        
+        // Try Schwab first for IV data
+        try {
+            // Get options expiring ~30 days out
+            const targetDate = new Date();
+            targetDate.setDate(targetDate.getDate() + 30);
+            const fromDate = new Date();
+            fromDate.setDate(fromDate.getDate() + 20);
+            const toDate = new Date();
+            toDate.setDate(toDate.getDate() + 45);
+            
+            const chainData = await schwabApiCall(
+                `/marketdata/v1/chains?symbol=${ticker}&contractType=PUT&fromDate=${fromDate.toISOString().split('T')[0]}&toDate=${toDate.toISOString().split('T')[0]}&strikeCount=20`
+            );
+            
+            if (chainData && chainData.putExpDateMap) {
+                // Find ATM option (strike closest to spot)
+                const allPuts = [];
+                for (const dateKey of Object.keys(chainData.putExpDateMap)) {
+                    const strikeMap = chainData.putExpDateMap[dateKey];
+                    for (const strikeKey of Object.keys(strikeMap)) {
+                        const options = strikeMap[strikeKey];
+                        if (options && options.length > 0) {
+                            allPuts.push({
+                                strike: parseFloat(strikeKey),
+                                option: options[0]
+                            });
+                        }
+                    }
+                }
+                
+                if (allPuts.length > 0) {
+                    // Find ATM (closest to spot)
+                    allPuts.sort((a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot));
+                    const atm = allPuts[0];
+                    const atmIV = atm.option.volatility;
+                    
+                    if (atmIV) {
+                        // Estimate IV Rank (simplified: compare to typical ranges)
+                        // Real IV Rank needs 52-week IV history which Schwab doesn't provide
+                        // Using heuristic: ATM IV position relative to asset class norms
+                        const ivRank = estimateIVRank(ticker, atmIV);
+                        
+                        return {
+                            ticker,
+                            spot: spot.toFixed(2),
+                            atmIV: atmIV.toFixed(1),
+                            ivRank,
+                            atmStrike: atm.strike,
+                            delta: atm.option.delta,
+                            source: 'schwab'
+                        };
+                    }
+                }
+            }
+        } catch (schwabErr) {
+            console.log(`[IV] Schwab failed for ${ticker}: ${schwabErr.message}`);
+        }
+        
+        // Fallback to CBOE
+        const cacheBuster = Date.now();
+        const cboeUrl = `https://cdn.cboe.com/api/global/delayed_quotes/options/${ticker}.json?_=${cacheBuster}`;
+        const cboeData = await fetchJson(cboeUrl);
+        
+        if (cboeData?.data?.options) {
+            const options = cboeData.data.options;
+            // Get 30-day expiry puts
+            const targetDTE = 30;
+            const puts = options.filter(opt => {
+                if (!opt.option?.includes('P')) return false;
+                // Estimate DTE from symbol
+                const symDate = opt.option.substring(opt.option.length - 15, opt.option.length - 9);
+                const expDate = new Date(2000 + parseInt(symDate.slice(0,2)), parseInt(symDate.slice(2,4)) - 1, parseInt(symDate.slice(4,6)));
+                const dte = Math.floor((expDate - new Date()) / (1000 * 60 * 60 * 24));
+                return dte >= 20 && dte <= 45;
+            });
+            
+            if (puts.length > 0) {
+                // Find ATM
+                const putsWithStrike = puts.map(p => ({
+                    ...p,
+                    strike: parseFloat(p.option.slice(-8)) / 1000
+                }));
+                putsWithStrike.sort((a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot));
+                const atm = putsWithStrike[0];
+                const atmIV = atm.iv ? (atm.iv * 100) : null;
+                
+                if (atmIV) {
+                    const ivRank = estimateIVRank(ticker, atmIV);
+                    return {
+                        ticker,
+                        spot: spot.toFixed(2),
+                        atmIV: atmIV.toFixed(1),
+                        ivRank,
+                        atmStrike: atm.strike,
+                        source: 'cboe'
+                    };
+                }
+            }
+        }
+        
+        // No IV data available
+        return {
+            ticker,
+            spot: spot.toFixed(2),
+            atmIV: null,
+            ivRank: null,
+            source: 'none'
+        };
+        
+    } catch (e) {
+        console.log(`[IV] Error fetching IV for ${ticker}: ${e.message}`);
+        throw e;
+    }
+}
+
+// Estimate IV Rank based on typical ranges for different asset classes
+// This is a heuristic since we don't have 52-week IV history
+function estimateIVRank(ticker, currentIV) {
+    // Typical IV ranges by asset type (based on historical norms)
+    const ivRanges = {
+        // High IV stocks (meme/growth)
+        high: { tickers: ['GME', 'AMC', 'TSLA', 'RIVN', 'LCID', 'MARA', 'RIOT', 'COIN', 'HOOD', 'PLTR', 'SOFI', 'AFRM', 'UPST', 'HIMS', 'IONQ', 'SMCI', 'NVDA'], low: 40, high: 120 },
+        // Medium IV (tech)
+        medium: { tickers: ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'AMD', 'INTC', 'CRM', 'ADBE', 'ORCL'], low: 20, high: 60 },
+        // Low IV (stable)
+        low: { tickers: ['SPY', 'QQQ', 'IWM', 'DIA', 'JNJ', 'PG', 'KO', 'PEP', 'WMT', 'JPM', 'BAC'], low: 10, high: 35 },
+        // Commodities/ETFs
+        commodity: { tickers: ['GLD', 'SLV', 'USO', 'UNG', 'XLE', 'XLF', 'XLK'], low: 15, high: 50 },
+        // Leveraged ETFs
+        leveraged: { tickers: ['TQQQ', 'SQQQ', 'UPRO', 'SPXU', 'SOXL', 'SOXS', 'TSLL', 'NVDL'], low: 50, high: 150 }
+    };
+    
+    // Find which category this ticker belongs to
+    let range = { low: 20, high: 80 }; // Default range
+    for (const [category, data] of Object.entries(ivRanges)) {
+        if (data.tickers.includes(ticker.toUpperCase())) {
+            range = data;
+            break;
+        }
+    }
+    
+    // Calculate IV Rank (0-100)
+    // IV Rank = (Current IV - 52wk Low IV) / (52wk High IV - 52wk Low IV) * 100
+    let ivRank = Math.round((currentIV - range.low) / (range.high - range.low) * 100);
+    ivRank = Math.max(0, Math.min(100, ivRank)); // Clamp 0-100
+    
+    return ivRank;
 }
 
 // Fetch option premium - Schwab first, CBOE fallback
