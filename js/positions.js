@@ -2,7 +2,7 @@
 // localStorage-based position management
 
 import { state, setPositionContext, clearPositionContext } from './state.js';
-import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal, isDebitPosition, calculatePositionCredit, calculateRealizedPnL, getChainNetCredit as utilsGetChainNetCredit, hasRollHistory as utilsHasRollHistory, createModal, modalHeader } from './utils.js';
+import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal, isDebitPosition, calculatePositionCredit, calculateRealizedPnL, getChainNetCredit as utilsGetChainNetCredit, hasRollHistory as utilsHasRollHistory, createModal, modalHeader, calculateGreeks } from './utils.js';
 import { fetchPositionTickerPrice, fetchStockPrice, fetchStockPricesBatch } from './api.js';
 import { drawPayoffChart } from './charts.js';
 import { updateDteDisplay } from './ui.js';
@@ -2130,6 +2130,8 @@ function renderPositionsTable(container, openPositions) {
                     <th style="padding: 6px; text-align: right; width: 40px;">Prem</th>
                     <th style="padding: 6px; text-align: right; width: 25px;">Qty</th>
                     <th style="padding: 6px; text-align: right; width: 30px;">DTE</th>
+                    <th style="padding: 6px; text-align: right; width: 35px;" title="Position Delta - Directional exposure per $1 stock move">Δ</th>
+                    <th style="padding: 6px; text-align: right; width: 45px;" title="Daily Theta - Premium decay you collect per day">Θ/day</th>
                     <th style="padding: 6px; text-align: right; width: 45px;">Credit</th>
                     <th style="padding: 6px; text-align: right; width: 40px;" title="Annualized Return on Capital">Ann%</th>
                     <th style="padding: 6px; text-align: left; min-width: 180px;">Actions</th>
@@ -2241,6 +2243,8 @@ function renderPositionsTable(container, openPositions) {
                 <td style="padding: 6px; text-align: right; color: ${dteColor}; font-weight: bold;">
                     ${isSkip ? `<span title="SKIP DTE">${pos.skipDte}d</span>` : pos.dte + 'd'}
                 </td>
+                <td id="delta-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
+                <td id="theta-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
                 <td style="padding: 6px; text-align: right; color: ${isDebitPosition(pos.type) ? '#ff5252' : '#00ff88'};" title="${isChainCredit ? `Chain NET: $${displayCredit.toFixed(0)} (Premiums: $${chainInfo.totalReceived.toFixed(0)} - Buybacks: $${chainInfo.totalBuybacks.toFixed(0)})` : `Premium: $${credit.toFixed(0)}`}">
                     ${isDebitPosition(pos.type) || isSkip ? '-' : ''}$${isSkip ? pos.totalInvestment?.toFixed(0) : displayCredit.toFixed(0)}${isChainCredit ? '<span style="margin-left:2px;font-size:9px;color:#00d9ff;" title="Chain NET credit (includes roll history)">🔗</span>' : ''}
                 </td>
@@ -2325,6 +2329,9 @@ async function updatePositionRiskStatuses(openPositions) {
         spotPriceCache.set(ticker, { price, timestamp: Date.now() });
     }
     
+    // Calculate and update Greeks for each position
+    updatePositionGreeksDisplay(openPositions, spotPrices);
+    
     // Update each position's risk status in the DOM
     for (const pos of openPositions) {
         const cell = document.getElementById(`risk-cell-${pos.id}`);
@@ -2359,6 +2366,58 @@ async function updatePositionRiskStatuses(openPositions) {
                 </span>
             `;
         }
+    }
+}
+
+/**
+ * Update Greeks display for each position in the table
+ * Calculates per-position delta and theta with current spot prices
+ */
+async function updatePositionGreeksDisplay(positions, spotPrices) {
+    for (const pos of positions) {
+        const deltaCell = document.getElementById(`delta-${pos.id}`);
+        const thetaCell = document.getElementById(`theta-${pos.id}`);
+        if (!deltaCell || !thetaCell) continue;
+        
+        // Skip spreads for now - they need more complex calculations
+        if (pos.type?.includes('_spread')) {
+            deltaCell.innerHTML = '<span style="color:#8b5cf6;font-size:10px;">—</span>';
+            thetaCell.innerHTML = '<span style="color:#8b5cf6;font-size:10px;">—</span>';
+            continue;
+        }
+        
+        const spot = spotPrices[pos.ticker] || pos.currentSpot || 100;
+        const iv = pos.iv || 0.30;  // Default 30% IV - will be updated when portfolio Greeks refresh
+        const strike = pos.strike || 0;
+        const contracts = pos.contracts || 1;
+        const isPut = pos.type?.includes('put');
+        const isShort = pos.type?.includes('short') || pos.type === 'covered_call';
+        
+        // Calculate DTE
+        const expiry = new Date(pos.expiry);
+        const now = new Date();
+        const dte = Math.max(0, (expiry - now) / (1000 * 60 * 60 * 24));
+        const T = dte / 365;
+        
+        // Calculate Greeks
+        const greeks = calculateGreeks(spot, strike, T, 0.05, iv, isPut, contracts);
+        
+        // Sign: short positions have inverted Greeks
+        const sign = isShort ? -1 : 1;
+        const delta = greeks.delta * sign;
+        const theta = greeks.theta * sign;  // Short positions collect theta (positive)
+        
+        // Delta: color by direction (green = bullish, red = bearish)
+        const deltaColor = delta > 5 ? '#00ff88' : delta < -5 ? '#ff5252' : '#888';
+        deltaCell.innerHTML = `<span style="color:${deltaColor};font-size:10px;" title="If ${pos.ticker} moves $1, your P&L changes by $${Math.abs(delta).toFixed(0)}">${delta >= 0 ? '+' : ''}${delta.toFixed(0)}</span>`;
+        
+        // Theta: always show positive for short sellers (they collect)
+        const thetaColor = theta > 0 ? '#00ff88' : '#ff5252';
+        thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="You ${theta >= 0 ? 'collect' : 'pay'} $${Math.abs(theta).toFixed(2)}/day from time decay">${theta >= 0 ? '+' : ''}$${theta.toFixed(0)}</span>`;
+        
+        // Store on position object for reference
+        pos._delta = delta;
+        pos._theta = theta;
     }
 }
 
