@@ -4,7 +4,7 @@
 
 **WheelHouse** is a Wheel Strategy Options Analyzer & Position Tracker built with vanilla JavaScript (ES6 modules) and Node.js. It provides Monte Carlo-based options pricing, real-time CBOE quotes, position tracking, and portfolio analytics.
 
-**Version**: 1.7.0  
+**Version**: 1.9.0  
 **Repository**: https://github.com/gregtee2/WheelHouse  
 **Branches**: `main` (development), `stable` (releases)
 
@@ -477,7 +477,25 @@ git push origin main:stable
 
 ## 📋 Recent Features (January 2026)
 
-### v1.6.0 (Latest)
+### v1.9.0 (Latest)
+- **Per-Position Greeks**: Delta (Δ) and Theta (Θ/day) columns in Positions table
+- **AI Portfolio Audit**: Comprehensive AI analysis of entire portfolio with optimization suggestions
+- **Portfolio-Aware AI**: Trade analysis and Ideas now consider your existing positions
+- **Year Filter for Analytics**: Advanced Analytics filters by selected year (not all-time)
+- **Stage Roll to Ideas**: Stage suggested rolls to pending trades with "ROLL" badge
+- **Conservative Kelly**: Uses Account Value + 25% of margin (not full buying power)
+
+### v1.8.0
+- **Margin Impact Calculator**: Check if you can afford a trade before executing
+- **Margin Check on Pending**: 💳 button to check margin requirement
+- **Auto-Fill Barriers**: Barriers auto-set based on volatility
+- **Portfolio Balances Banner**: Account Value, Buying Power, Margin Used from Schwab
+
+### v1.7.0
+- **AI Holding Suggestions**: Choose Grok (best) or Ollama (free) for holding analysis
+- **Model Toggle**: Switch between AI models mid-analysis
+
+### v1.6.0
 - **Verdict Spectrum**: Discord Analyzer now gives 3 perspectives (Aggressive/Moderate/Conservative)
 - **Model Selector for Discord**: Choose 7B/14B/32B, defaults to 32B
 - **Model Warmup**: Pre-load models into GPU with progress indicator
@@ -495,23 +513,19 @@ git push origin main:stable
 - **Position Checkup**: Compare opening thesis to current conditions
 - **Trade Critique**: AI reviews closed trades with feedback
 
-### v1.1.0
-- **Spread Trading**: 4 spread types with AI explanations
-- **Roll History**: 🔗 button to view full chain timeline
-- **Chain Linking**: Manually link closed positions
-- **Challenges**: Trading challenges with date-based filtering
-- **CBOE Pricing**: Real-time delayed quotes with staleness indicators
-
 ### Key Functions Added
+- `calculateGreeks(S, K, T, r, sigma, isPut, contracts)` - Black-Scholes Greeks
+- `calculatePortfolioGreeks()` - Sum Greeks across all open positions
+- `window.runPortfolioAudit()` - AI Portfolio Audit modal
+- `getPortfolioContext()` - Get stored portfolio context
+- `formatPortfolioContextForAI()` - Format context for AI prompts
+- `window.stageRollSuggestion(data)` - Stage a roll to pending trades
+- `updateAdvancedAnalytics()` - Calculate and display advanced analytics (year-filtered)
 - `getSpreadExplanation(pos)` - Returns spread strategy details
 - `hasRollHistory(pos)` - Checks if position has been rolled
 - `window.showRollHistory(chainId)` - Roll history modal
 - `window.showLinkToChainModal(positionId)` - Chain linking modal
 - `calculateChallengeProgress(challengeId)` - Challenge P&L calculation
-- `window.saveAnalysisToPosition(id, data)` - Save AI analysis to position history
-- `window.getAnalysisHistory(id)` - Get all analyses for a position
-- `window.showAnalysisHistory(id)` - Show analysis timeline modal
-- `extractThesisSummary(analysis)` - Extract spectrum views from AI analysis
 
 ---
 

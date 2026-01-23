@@ -2,6 +2,47 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.9.0] - 2026-01-22
+
+### Added
+- **📊 Per-Position Greeks** - Delta (Δ) and Theta (Θ/day) columns in Positions table
+  - Shows individual position Greeks calculated from Black-Scholes
+  - Delta in neutral gray (pro style), Theta in green when positive
+  - Updates on page load and when "Update Greeks" is clicked
+
+- **🤖 AI Portfolio Audit** - Comprehensive AI analysis of your entire portfolio
+  - New button in Portfolio Greeks section
+  - Analyzes all open positions, Greeks, concentration risk
+  - Provides optimization suggestions (rolls, closes, adjustments)
+  - Saves portfolio context for use in future AI trade analysis
+
+- **🧠 Portfolio-Aware AI Trade Analysis** - AI now considers your existing positions
+  - Portfolio context (from last audit) included in all AI prompts
+  - Trade analysis considers sector concentration
+  - Ideas feature suggests trades that balance your portfolio
+  - Context valid for 24 hours after audit
+
+- **📅 Year Filter for Advanced Analytics** - Filter stats by trading year
+  - Uses same year filter as Closed Positions table
+  - Shows "(2026)" or "(All Time)" in section header
+  - See your current year performance vs historical
+
+- **📥 Stage Roll to Ideas** - Stage suggested rolls directly to pending trades
+  - "Stage to Ideas" button on each roll suggestion
+  - Purple "ROLL" badge shows in Pending Trades
+  - Call/Put indicator (C/P) with color coding
+  - Track roll candidates before executing
+
+- **📈 Conservative Kelly Calculator** - Uses account value + 25% of margin
+  - No longer uses full buying power (was overestimating)
+  - Formula: Account Value + (25% × Available Margin)
+  - Tooltip explains calculation
+  - Much safer position sizing recommendations
+
+### Changed
+- **🎯 Restart Server Button** - Moved to tabs row with dull orange styling
+- **📊 Delta Column** - Changed from color-coded to neutral white (professional style)
+
 ## [1.8.0] - 2026-01-22
 
 ### Added
