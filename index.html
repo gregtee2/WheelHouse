@@ -989,7 +989,17 @@ Entry: $3.75"
                                 <div style="font-size:9px; color:#666;">vs 52wk range</div>
                             </div>
                         </div>
-                        <button id="refreshGreeksBtn" class="btn-primary" style="width:100%; margin-top:10px; padding:8px;">🔄 Update Greeks & IV</button>
+                        <div style="display:flex; gap:8px; margin-top:10px;">
+                            <button id="refreshPricesBtn" class="btn-primary" style="flex:1; padding:8px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4);" title="Fetch real-time option prices from Schwab (or CBOE if not connected)">💲 Refresh Prices</button>
+                            <button id="refreshGreeksBtn" class="btn-primary" style="flex:1; padding:8px;">🔄 Greeks & IV</button>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:10px; margin-top:8px; padding:6px 10px; background:rgba(0,0,0,0.2); border-radius:6px;">
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:#aaa;">
+                                <input type="checkbox" id="autoRefreshPricesCheckbox" style="cursor:pointer;">
+                                <span>Auto-refresh (30s)</span>
+                            </label>
+                            <span id="priceLastUpdated" style="font-size:11px; color:#666; margin-left:auto;"></span>
+                        </div>
                         <button id="aiPortfolioAuditBtn" onclick="window.runPortfolioAudit()" class="btn-primary" style="width:100%; margin-top:8px; padding:8px; background:rgba(139,92,246,0.3); border:1px solid rgba(139,92,246,0.6);" title="AI analyzes your entire portfolio for concentration risk, problem positions, and optimization opportunities">🤖 AI Portfolio Audit</button>
                     </div>
                     

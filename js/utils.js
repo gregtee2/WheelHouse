@@ -316,12 +316,12 @@ export function formatDate(date) {
 
 /**
  * Check if a position type is a debit (you pay premium)
- * Debit positions: long_call, long_put, debit spreads, skip_call
+ * Debit positions: long_call, long_put, long_call_leaps, debit spreads, skip_call
  * Credit positions: short_call, short_put, covered_call, buy_write, credit spreads
  */
 export function isDebitPosition(type) {
     if (!type) return false;
-    return type.includes('debit') || type === 'long_call' || type === 'long_put' || type === 'skip_call';
+    return type.includes('debit') || type === 'long_call' || type === 'long_put' || type === 'long_call_leaps' || type === 'skip_call';
 }
 
 /**

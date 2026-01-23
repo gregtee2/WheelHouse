@@ -621,10 +621,10 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
     if (url.pathname === '/api/ai/checkup' && req.method === 'POST') {
         try {
             const data = req.body;
-                const { ticker, strike, expiry, openingThesis, model } = data;
+                const { ticker, strike, expiry, openingThesis, positionType, model } = data;
                 const selectedModel = model || 'qwen2.5:7b';
                 
-                console.log(`[AI] Position checkup for ${ticker} $${strike} put`);
+                console.log(`[AI] Position checkup for ${ticker} $${strike} ${positionType || 'position'}`);
                 
                 // Fetch current data for comparison
                 const currentData = await fetchDeepDiveData(ticker);
@@ -878,11 +878,26 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
             const greeks = data.greeks || {};
             const closedStats = data.closedStats || {};
             
-            // Build position summary for AI
+            // Build position summary for AI - include position type context
             const positionSummary = positions.map(p => {
                 const riskPct = p.riskPercent || 0;
-                const itmFlag = riskPct > 50 ? '⚠️ HIGH RISK' : riskPct > 30 ? '⚠️ ELEVATED' : '✓ OK';
-                return `${p.ticker}: ${p.type} $${p.strike} (${p.dte}d DTE) - ${riskPct.toFixed(0)}% ITM prob ${itmFlag}, Δ${p.delta?.toFixed(0) || '?'}, Θ$${p.theta?.toFixed(2) || '?'}/day`;
+                const isLong = ['long_call', 'long_put', 'long_call_leaps', 'skip_call', 'call_debit_spread', 'put_debit_spread'].includes(p.type);
+                const isLeaps = p.dte >= 365;
+                
+                // Different risk interpretation for long vs short
+                let riskNote;
+                if (isLong) {
+                    // For long options, "ITM probability" means profit probability!
+                    riskNote = riskPct > 50 ? '✓ PROFITABLE ZONE' : riskPct > 30 ? '→ APPROACHING' : '⏳ WAITING';
+                } else {
+                    // For short options, ITM = assignment risk
+                    riskNote = riskPct > 50 ? '⚠️ HIGH RISK' : riskPct > 30 ? '⚠️ ELEVATED' : '✓ OK';
+                }
+                
+                const typeNote = isLong ? '[LONG - profits from DIRECTION]' : '[SHORT - profits from theta]';
+                const leapsNote = isLeaps ? ' 📅LEAPS' : '';
+                
+                return `${p.ticker}: ${p.type}${leapsNote} $${p.strike} (${p.dte}d DTE) ${typeNote} - ${riskPct.toFixed(0)}% ITM ${riskNote}, Δ${p.delta?.toFixed(0) || '?'}, Θ$${p.theta?.toFixed(2) || '?'}/day`;
             }).join('\n');
             
             // Concentration analysis
@@ -895,6 +910,25 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
                 .map(([t, c]) => `${t}: ${c} position${c > 1 ? 's' : ''}`);
             
             const prompt = `You are a professional options portfolio manager auditing a wheel strategy portfolio.
+
+## IMPORTANT: LONG vs SHORT POSITIONS
+⚠️ This portfolio may contain BOTH short (credit) AND long (debit) positions. They are evaluated DIFFERENTLY:
+
+**SHORT positions** (short_put, covered_call, credit spreads):
+- You COLLECTED premium upfront
+- Positive theta = GOOD (you profit from time decay)
+- High ITM probability = BAD (assignment risk)
+- Goal: Let theta decay, close at 50-80% profit
+
+**LONG positions** (long_call, long_put, long_call_leaps, debit spreads):
+- You PAID premium upfront
+- Negative theta is EXPECTED (cost of holding, like insurance)
+- LEAPS (365+ DTE): Theta is TINY (~$0.50-1/day on a $1700 position = 0.04%/day = negligible)
+- Profit comes from DELTA (directional move), NOT theta
+- High ITM probability = GOOD (means you're profitable!)
+- Goal: Ride the directional move, sell when thesis achieved
+
+**DO NOT flag long positions as "problems" just because theta is negative!** That's like saying car insurance is a problem because you pay premiums. Evaluate long positions by whether the THESIS is working (is the stock moving in your favor?).
 
 ## CURRENT POSITIONS (${positions.length} total)
 ${positionSummary || 'No open positions'}
@@ -918,15 +952,35 @@ ${concentrations.join('\n') || 'None'}
 ## YOUR AUDIT TASK
 Analyze this portfolio and provide:
 
-1. **🚨 PROBLEM POSITIONS** - List any positions that need immediate attention (high ITM risk, poor theta/risk ratio, about to expire worthless for long positions)
+**START WITH THE OVERALL GRADE** (this should be the FIRST thing in your response):
+
+## 📊 PORTFOLIO GRADE: [A/B/C/D/F]
+
+Grade the portfolio health using these criteria:
+- **A (90-100%)**: No problem positions, good theta generation, balanced Greeks, proper diversification
+- **B (80-89%)**: Minor issues (1 position needs attention OR slight concentration), but fundamentally sound
+- **C (70-79%)**: Moderate issues (2+ positions need attention OR significant concentration OR poor theta)
+- **D (60-69%)**: Serious concerns (high ITM risk positions, poor Greeks balance, or heavy concentration)
+- **F (<60%)**: Critical problems (multiple positions at high assignment risk, negative net theta, severe imbalance)
+
+After the grade, explain in ONE sentence why you gave that grade.
+
+---
+
+Then provide the detailed analysis:
+
+1. **🚨 PROBLEM POSITIONS** - List positions that need attention:
+   - For SHORT positions: High ITM risk, poor theta/risk ratio, about to be assigned
+   - For LONG positions: Thesis failing (stock moving AGAINST you), about to expire worthless, far OTM with little time left
+   - **NOT a problem**: Long options with negative theta (that's normal!) or LEAPS with tiny daily theta
 
 2. **⚠️ CONCENTRATION RISKS** - Flag if too much exposure to one ticker or sector
 
-3. **📊 GREEKS ASSESSMENT** - Is the portfolio balanced? Too much delta risk? Good theta generation?
+3. **📊 GREEKS ASSESSMENT** - Is the portfolio balanced? Consider that long calls ADD to bullish delta intentionally
 
 4. **💡 OPTIMIZATION IDEAS** - Specific actionable suggestions (rolls, closes, adjustments)
 
-5. **✅ WHAT'S WORKING** - Highlight well-positioned trades
+5. **✅ WHAT'S WORKING** - Highlight well-positioned trades (including profitable long positions!)
 
 Be specific. Reference actual ticker symbols and strikes. Keep it actionable.`;
 
@@ -2137,9 +2191,14 @@ Be specific with numbers. Use the data provided. DO NOT hedge with "it depends" 
 
 // Build prompt for position checkup - compares opening thesis to current state
 function buildCheckupPrompt(tradeData, openingThesis, currentData, currentPremium) {
-    const { ticker, strike, expiry } = tradeData;
+    const { ticker, strike, expiry, positionType } = tradeData;
     const o = openingThesis; // Opening state
     const c = currentData;   // Current state
+    
+    // Determine if this is a LONG (debit) position - different evaluation!
+    const isLongPosition = ['long_call', 'long_put', 'long_call_leaps', 'skip_call', 'call_debit_spread', 'put_debit_spread'].includes(positionType);
+    const isCall = positionType?.includes('call');
+    const positionDesc = isLongPosition ? `Long $${strike} ${isCall ? 'call' : 'put'}` : `Short $${strike} ${isCall ? 'call' : 'put'}`;
     
     // Parse prices as numbers (they might come as strings from API)
     const currentPrice = parseFloat(c.price) || 0;
@@ -2163,24 +2222,32 @@ function buildCheckupPrompt(tradeData, openingThesis, currentData, currentPremiu
     const expDate = new Date(expiry);
     const dte = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
     
-    // Format premium comparison
+    // Format premium comparison - opposite meaning for long vs short!
     let premiumChange = '';
     if (o.premium && currentPremium) {
         const openMid = parseFloat(o.premium.mid) || 0;
         const currMid = parseFloat(currentPremium.mid) || 0;
         const pctChange = openMid > 0 ? ((currMid - openMid) / openMid * 100).toFixed(0) : 0;
+        
+        // For LONG options: you want premium to INCREASE (buy low, sell high)
+        // For SHORT options: you want premium to DECREASE (sell high, buy back low)
+        const profitMessage = isLongPosition
+            ? (currMid > openMid ? '✅ Premium has INCREASED - position is PROFITABLE' : '⚠️ Premium has DECREASED - position is underwater')
+            : (currMid < openMid ? '✅ Premium has DECAYED - trade is profitable' : '⚠️ Premium has INCREASED - trade is underwater');
+        
         premiumChange = `
 OPTION PREMIUM MOVEMENT:
 At Entry: $${openMid.toFixed(2)} mid
 Now: $${currMid.toFixed(2)} mid (${pctChange >= 0 ? '+' : ''}${pctChange}%)
-${currMid < openMid ? '✅ Premium has DECAYED - trade is profitable' : '⚠️ Premium has INCREASED - trade is underwater'}`;
+${profitMessage}`;
     }
     
-    return `You are conducting a POSITION CHECKUP for a wheel trade. Compare the opening thesis to current conditions.
+    return `You are conducting a POSITION CHECKUP for ${isLongPosition ? 'a LONG option position' : 'a wheel trade'}. Compare the opening thesis to current conditions.
 
 ═══ THE POSITION ═══
 Ticker: ${ticker}
-Trade: Short $${strike} put, expiry ${expiry}
+Trade: ${positionDesc}, expiry ${expiry}
+Position Type: ${isLongPosition ? '🟠 LONG (debit) - You PAID premium and profit from DIRECTION, not theta!' : '🟢 SHORT (credit) - You collected premium and profit from theta decay'}
 Days to Expiry: ${dte}
 Days Held: ${daysSinceOpen}
 
@@ -2193,8 +2260,13 @@ Now: $${currentPrice.toFixed(2)} (${priceDirection} ${Math.abs(priceChange)}%)
 RANGE POSITION (0% = 3mo low, 100% = 3mo high):
 At Entry: ${openingRange}% of range
 Now: ${currentRange}% of range
-${currentRange !== 'N/A' && openingRange !== 'N/A' ? (parseFloat(currentRange) > parseFloat(openingRange) ? '📈 Stock has moved UP in range (good for short put)' : 
-  parseFloat(currentRange) < parseFloat(openingRange) ? '📉 Stock has moved DOWN in range (closer to strike)' : '➡️ Roughly the same position') : ''}
+${currentRange !== 'N/A' && openingRange !== 'N/A' ? (
+  parseFloat(currentRange) > parseFloat(openingRange) 
+    ? (isLongPosition && isCall ? '📈 Stock has moved UP in range (GOOD for long call!)' : isLongPosition ? '📈 Stock has moved UP in range (bad for long put)' : '📈 Stock has moved UP in range (good for short put)')
+    : parseFloat(currentRange) < parseFloat(openingRange) 
+    ? (isLongPosition && isCall ? '📉 Stock has moved DOWN in range (bad for long call)' : isLongPosition ? '📉 Stock has moved DOWN in range (GOOD for long put!)' : '📉 Stock has moved DOWN in range (closer to strike)')
+    : '➡️ Roughly the same position'
+) : ''}
 
 TECHNICAL LEVELS:
 Entry SMA20: $${o.sma20 || 'N/A'} | Now: $${c.sma20 || 'N/A'}
@@ -2223,17 +2295,25 @@ Has the original reason for entry been validated, invalidated, or is it still pl
 - Support levels: Have they held or broken?
 - Probability of assignment: Higher, lower, or same as at entry?
 
-**3. TIME DECAY**
+**3. TIME DECAY / THETA**
 With ${dte} days remaining:
-- Is theta working for you?
-- How much of the original premium has decayed?
+${isLongPosition ? `⚠️ IMPORTANT: This is a LONG (debit) position - theta works AGAINST you!
+- Negative theta is EXPECTED and NOT a problem - it's the cost of holding the position.
+- You profit from DELTA (directional move), not theta decay.
+- ${dte >= 365 ? '📅 LEAPS: Daily theta is tiny! Focus on thesis, not time decay.' : dte >= 180 ? '⏳ Long-dated: Theta decay is slow. Direction matters more.' : 'Theta accelerates under 45 DTE - time is working against you.'}` : dte >= 365 ? `- 📅 LEAPS EVALUATION: Daily theta is MINIMAL for long-dated options!
+- Focus on: Has the THESIS played out? Stock direction matters more than time decay.
+- VEGA matters: Has IV changed significantly since entry?` : dte >= 180 ? `- ⏳ LONG-DATED: Theta decay is slow. Focus on directional thesis and IV changes.` : `- Is theta working for you? (Short options COLLECT theta)
+- How much of the original premium has decayed?`}
 
 **4. ACTION RECOMMENDATION**
 Pick ONE:
-- ✅ HOLD - Thesis intact, let it ride
+${dte >= 365 ? `- ✅ HOLD - LEAPS are meant to be held; thesis still valid
+- 🔄 ROLL UP/DOWN - Adjust strike if stock moved significantly (not for time!)
+- 💰 CLOSE - Take profit if thesis achieved or invalidated
+- 📈 ADD - Consider adding on pullback if thesis strengthening` : `- ✅ HOLD - Thesis intact, let it ride
 - 🔄 ROLL - Consider rolling (specify why - expiry, strike, or both)
 - 💰 CLOSE - Take profit/loss now (specify when)
-- ⚠️ WATCH - Position needs monitoring (specify triggers)
+- ⚠️ WATCH - Position needs monitoring (specify triggers)`}
 
 **5. CHECKUP VERDICT**
 Rate the position health:
@@ -2327,7 +2407,7 @@ function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium) {
             const diffMs = expDate - now;
             dte = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
             
-            // Add warnings for short DTE
+            // Add warnings for short DTE and notes for LEAPS
             if (dte <= 0) {
                 dteWarning = '🚨 EXPIRED OR EXPIRING TODAY - DO NOT ENTER';
             } else if (dte <= 3) {
@@ -2336,6 +2416,10 @@ function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium) {
                 dteWarning = '⚠️ SHORT DTE - Limited time for thesis to play out';
             } else if (dte <= 14) {
                 dteWarning = 'ℹ️ 2 weeks or less - Theta accelerating';
+            } else if (dte >= 365) {
+                dteWarning = '📅 LEAPS (1+ year) - Long-term position, evaluate as stock proxy. Daily theta is minimal, but VEGA (IV sensitivity) matters more.';
+            } else if (dte >= 180) {
+                dteWarning = '📅 LONG-DATED (6+ months) - Extended horizon means IV changes matter more than daily theta.';
             }
         }
     }
@@ -2389,13 +2473,17 @@ Breakeven: $${breakeven.toFixed(2)}
         const maxRisk = (strike - effectivePremium) * 100;
         const riskRewardRatio = maxRisk > 0 ? (maxProfit / maxRisk * 100).toFixed(2) : 'N/A';
         
+        // Add DTE context for LEAPS
+        const dteContext = dte >= 365 ? '\n📅 LEAPS NOTE: High premium is expected - contains significant time value. Evaluate cost basis after premium vs holding stock directly.' :
+                           dte >= 180 ? '\n⏳ LONG-DATED NOTE: Premium reflects extended time value. Good for cost basis reduction on covered calls.' : '';
+        
         riskRewardSection = `
 ═══ SINGLE-LEG RISK/REWARD MATH ═══
 Premium: $${effectivePremium.toFixed(2)}${!calloutPremiumValid ? ' [using live mid price]' : ''}
 Max Profit: $${maxProfit.toFixed(0)} (keep full premium if OTM at expiry)
 Max Risk: $${maxRisk.toFixed(0)} (if stock goes to $0)
 Risk/Reward: ${riskRewardRatio}% return on risk
-Capital Required: $${(strike * 100).toFixed(0)} (to secure 1 contract)`;
+Capital Required: $${(strike * 100).toFixed(0)} (to secure 1 contract)${dteContext}`;
     }
     
     // Format premium section
@@ -2461,6 +2549,8 @@ ${premiumSection}
 - Is the expiry sensible given any upcoming events?
 ${isSpread ? '- For spreads: Is the premium collected a good % of spread width? (≥30% is ideal)' : '- Is the premium worth the risk? Use the RISK/REWARD MATH above.'}
 ${dte <= 7 ? '- ⚠️ WITH ONLY ' + dte + ' DAYS TO EXPIRY, is there enough time for theta decay?' : ''}
+${dte >= 365 ? '- 📅 LEAPS CONSIDERATIONS: This is a long-term directional bet. Premium is HIGH but so is time value. Evaluate as stock alternative with defined risk.' : ''}
+${dte >= 180 && dte < 365 ? '- ⏳ LONG-DATED: Extended horizon gives time for thesis to play out. IV sensitivity (vega) matters more than daily theta.' : ''}
 
 **2. TECHNICAL CHECK**
 - Note the RANGE POSITION above - use it to assess entry timing
@@ -2613,10 +2703,10 @@ function buildTradePrompt(data, isLargeModel = false) {
     return `You are an expert options trading advisor. Analyze this position and recommend a SPECIFIC action.
 ${longOptionWarning}
 ═══ CURRENT POSITION ═══
-${ticker} ${typeLabel}
+${ticker} ${typeLabel}${dte >= 365 ? ' 📅 LEAPS' : dte >= 180 ? ' ⏳ LONG-DATED' : ''}
 Strike: $${strike} | Spot: $${spot?.toFixed(2) || 'N/A'} (${moneynessLabel})
 ${premiumLabel}: $${premium}/share | Contracts: ${contracts}
-DTE: ${dte} days
+DTE: ${dte} days${dte >= 365 ? ' (treat as stock proxy, daily theta minimal)' : dte >= 180 ? ' (extended horizon, IV matters more)' : ''}
 ${costBasis ? `Cost basis: $${costBasis.toFixed(2)}` : ''}
 ${breakeven ? `Break-even: $${breakeven.toFixed(2)}` : ''}
 ${isLong ? `Max loss: $${(premium * 100 * contracts).toFixed(0)} (premium paid)` : ''}
@@ -2626,7 +2716,7 @@ ${costToClose ? `Current option price: $${costToClose}` : ''}
 ${riskLabel}: ${riskPercent ? riskPercent.toFixed(1) + '%' : 'N/A'}
 Win probability: ${winProbability ? winProbability.toFixed(1) + '%' : 'N/A'}
 IV: ${iv ? iv.toFixed(0) + '%' : 'N/A'}
-${isLong ? 'Note: Time decay (theta) works AGAINST long options. You lose value daily.' : ''}
+${isLong ? (dte >= 365 ? 'Note: LEAPS have minimal daily theta. Focus on directional thesis and IV changes (vega exposure).' : dte >= 180 ? 'Note: Long-dated options have slow theta decay. IV changes matter more than daily time decay.' : 'Note: Time decay (theta) works AGAINST long options. You lose value daily.') : (dte >= 365 ? 'Note: LEAPS covered calls provide consistent income. Assignment is not imminent - focus on cost basis reduction.' : '')}
 
 ═══ AVAILABLE ROLL OPTIONS ═══
 ${rollInstructions}
@@ -2656,10 +2746,18 @@ Your previous reasoning:
 
 ⚠️ COMPARE: Has anything changed significantly? If your thesis is still valid, confirm it. If conditions changed, explain what's different.
 ` : ''}═══ DECISION GUIDANCE ═══
-FIRST: Decide if you should roll at all!
+${dte >= 365 ? `📅 LEAPS EVALUATION CRITERIA:
+• LEAPS are long-term bets on direction, NOT theta plays
+• Don't roll for time - you have plenty. Only roll for strike adjustment if stock moved significantly
+• Key question: Is the original THESIS still valid?
+• If selling covered calls against LEAPS: Focus on reducing cost basis over time
+• Assignment on LEAPS is RARE - only worry if deeply ITM near expiration` : dte >= 180 ? `⏳ LONG-DATED OPTION CRITERIA:
+• Extended timeframe means IV changes matter more than daily theta
+• Only roll if thesis changed or to capture significant strike adjustment
+• Don't panic on short-term moves - you have time for recovery` : `FIRST: Decide if you should roll at all!
 • If the position is OTM, low risk (<35%), and approaching expiration → "HOLD - let theta work" is often best
 • If the Expert Analysis says "on track for max profit" → you probably DON'T need to roll
-• Only roll if: (a) position is ITM/troubled, (b) risk is high (>50%), or (c) you want to extend for more premium
+• Only roll if: (a) position is ITM/troubled, (b) risk is high (>50%), or (c) you want to extend for more premium`}
 
 IF you do need to roll, compare options CAREFULLY:
 • Credit roll (you get paid) that reduces risk = ALWAYS better than debit roll (you pay) with same risk

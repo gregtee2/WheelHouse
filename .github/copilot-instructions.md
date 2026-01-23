@@ -367,7 +367,43 @@ const isSkip = pos.type === 'skip_call';
 
 ---
 
-## �🏆 Challenge System
+## 📅 LEAPS Evaluation Criteria
+
+LEAPS (Long-term Equity Anticipation Securities) require different evaluation than standard 30-45 DTE options.
+
+### DTE Thresholds
+| DTE | Classification | Evaluation Focus |
+|-----|---------------|------------------|
+| ≤ 45 | Standard | Theta decay, roll timing |
+| 180-364 | Long-dated | IV changes (vega), thesis validation |
+| ≥ 365 | LEAPS | Directional thesis, stock proxy |
+
+### LEAPS vs Standard Options
+
+| Factor | Standard (45 DTE) | LEAPS (365+ DTE) |
+|--------|-------------------|------------------|
+| **Daily Theta** | High, accelerating | Minimal |
+| **IV Sensitivity** | Moderate | HIGH (vega matters most) |
+| **Roll Timing** | Time-based (21 DTE rule) | Strike-based only |
+| **Evaluation** | Premium decay % | Thesis still valid? |
+| **Assignment Risk** | Moderate if ITM | Very low unless deep ITM |
+| **When to Roll** | Near expiry or troubled | Only if strike needs adjusting |
+
+### AI Prompt Adaptations
+- **Checkups**: Focus on "Has thesis played out?" not "How much theta decayed?"
+- **Trade Analysis**: Note LEAPS as "stock proxy with defined risk"
+- **Roll Suggestions**: No time-based rolls for LEAPS - only strike adjustments if stock moved significantly
+- **Covered Call LEAPS**: Focus on cost basis reduction over time
+
+### Key LEAPS Questions
+1. Is the original directional thesis still valid?
+2. Has IV changed significantly since entry?
+3. Is the strike still appropriate given stock movement?
+4. For covered call LEAPS: How much have you reduced cost basis?
+
+---
+
+## 🏆 Challenge System
 
 ### Position Inclusion Rules (IMPORTANT!)
 Only positions **OPENED** within the challenge date range count:
@@ -477,7 +513,21 @@ git push origin main:stable
 
 ## 📋 Recent Features (January 2026)
 
-### v1.9.0 (Latest)
+### v1.9.1 (Latest)
+- **LEAPS-Aware AI**: AI prompts now correctly handle long-dated options (365+ days)
+  - Recognizes LEAPS (1+ year) and long-dated (6+ months) options
+  - Checkups focus on thesis validity and IV changes, not daily theta
+  - Trade prompts explain LEAPS as "stock proxy with defined risk"
+  - No time-based roll recommendations for LEAPS - only strike adjustments
+- **Long Position Support**: Properly tracks debit positions (bought options)
+  - Auto-detects long vs short from Schwab sync using `shortQuantity` vs `longQuantity`
+  - Cr/Dr column shows unrealized P&L for long positions (+ green or - red)
+  - Ann% shows return % instead of yield for long positions
+  - Greeks display: Theta shown as cost (amber) not warning for long options
+  - AI Checkup understands long options profit from DELTA, not theta
+- **Margin Check for Calls/Rolls**: Fixed to recognize covered calls ($0 margin) and rolls (net ~$0)
+
+### v1.9.0
 - **Per-Position Greeks**: Delta (Δ) and Theta (Θ/day) columns in Positions table
 - **AI Portfolio Audit**: Comprehensive AI analysis of entire portfolio with optimization suggestions
 - **Portfolio-Aware AI**: Trade analysis and Ideas now consider your existing positions

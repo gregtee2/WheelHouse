@@ -168,14 +168,30 @@ const SchwabAPI = {
                 }
             }
             
+            // Determine if short or long based on position quantities
+            const isShort = (pos.shortQuantity || 0) > 0;
+            const isLong = (pos.longQuantity || 0) > 0;
+            
+            // Determine position type:
+            // - Short call = covered_call (you sold, receiving credit)
+            // - Long call = long_call (you bought, paying debit)
+            // - Short put = short_put (you sold, receiving credit)
+            // - Long put = long_put (you bought, paying debit)
+            let posType;
+            if (putCall === 'PUT') {
+                posType = isShort ? 'short_put' : 'long_put';
+            } else {
+                posType = isShort ? 'covered_call' : 'long_call';
+            }
+            
             return {
                 source: 'schwab',
-                type: putCall === 'PUT' ? 'short_put' : 'covered_call',
+                type: posType,
                 ticker: underlying,
                 strike: strike,
                 expiry: expiry,
                 contracts: Math.abs(pos.shortQuantity || pos.longQuantity || 0),
-                isShort: (pos.shortQuantity || 0) > 0,
+                isShort: isShort,
                 averagePrice: pos.averagePrice || 0,
                 marketValue: pos.marketValue || 0,
                 currentPrice: pos.currentDayProfitLoss ? 

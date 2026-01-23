@@ -2165,7 +2165,7 @@ window.renderPendingTrades = function() {
                             <td style="padding:8px; color:#888;">${new Date(p.stagedAt).toLocaleDateString()}</td>
                             <td style="padding:8px;">
                                 <div style="display:flex; flex-wrap:nowrap; gap:4px; justify-content:flex-start;">
-                                    <button onclick="window.checkMarginForTrade('${p.ticker}', ${p.strike}, ${p.premium || 0})" 
+                                    <button onclick="window.checkMarginForTrade('${p.ticker}', ${p.strike}, ${p.premium || 0}, ${p.isCall || false}, ${p.isRoll || false})" 
                                             title="Check margin requirement"
                                             style="background:#ffaa00; color:#000; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:11px; white-space:nowrap;">
                                         💳
@@ -2409,7 +2409,7 @@ window.removeStagedTrade = function(id) {
 /**
  * Check margin requirement for a pending trade
  */
-window.checkMarginForTrade = async function(ticker, strike, premium) {
+window.checkMarginForTrade = async function(ticker, strike, premium, isCall = false, isRoll = false) {
     // First fetch current stock price
     let spot = null;
     try {
@@ -2437,12 +2437,48 @@ window.checkMarginForTrade = async function(ticker, strike, premium) {
         return;
     }
     
-    // Calculate margin requirement for SHORT PUT
-    // Margin = max(20% of stock - OTM amount + premium, 10% of strike + premium)
-    const otmAmount = Math.max(0, spot - strike);  // Positive if OTM
-    const optionA = (0.20 * spot - otmAmount + premium) * 100;
-    const optionB = (0.10 * strike + premium) * 100;
-    const marginRequired = Math.max(optionA, optionB);
+    // Determine position type and margin
+    const optionType = isCall ? 'Call' : 'Put';
+    let marginRequired = 0;
+    let marginNote = '';
+    let isCovered = false;
+    
+    // Check if user owns shares (would make the call "covered")
+    const holdings = JSON.parse(localStorage.getItem('wheelhouse_holdings') || '[]');
+    const ownsShares = holdings.some(h => h.ticker?.toUpperCase() === ticker.toUpperCase() && h.shares >= 100);
+    
+    if (isCall && ownsShares) {
+        // COVERED CALL - no margin required!
+        isCovered = true;
+        marginRequired = 0;
+        marginNote = '✅ Covered by shares you own - no margin needed';
+    } else if (isCall && !ownsShares) {
+        // NAKED CALL - very high margin (treat like short stock)
+        const otmAmount = Math.max(0, strike - spot);  // Positive if OTM
+        const optionA = (0.20 * spot - otmAmount + premium) * 100;
+        const optionB = (0.10 * strike + premium) * 100;
+        marginRequired = Math.max(optionA, optionB);
+        marginNote = '⚠️ Naked call - high margin. Consider owning shares first.';
+    } else {
+        // SHORT PUT - standard margin calculation
+        const otmAmount = Math.max(0, spot - strike);  // Positive if OTM
+        const optionA = (0.20 * spot - otmAmount + premium) * 100;
+        const optionB = (0.10 * strike + premium) * 100;
+        marginRequired = Math.max(optionA, optionB);
+    }
+    
+    // For ROLLS, the net margin change is typically zero or near-zero
+    // because you're closing one position and opening another of similar size
+    let rollNote = '';
+    if (isRoll) {
+        if (isCovered) {
+            rollNote = '🔄 Rolling covered call - no additional margin needed';
+            marginRequired = 0;
+        } else {
+            rollNote = '🔄 Roll trade - actual margin impact will be ~$0 (closing and opening offset)';
+            // For rolls, show a nominal amount but explain it's offset
+        }
+    }
     
     // Fetch buying power
     let buyingPower = null;
@@ -2462,7 +2498,18 @@ window.checkMarginForTrade = async function(ticker, strike, premium) {
     
     // Build verdict
     let verdict, verdictColor, verdictBg;
-    if (buyingPower !== null) {
+    
+    if (isCovered || (isRoll && isCovered)) {
+        // Covered or covered roll - always OK
+        verdict = '✅ No margin required - covered by shares';
+        verdictColor = '#00ff88';
+        verdictBg = 'rgba(0,255,136,0.2)';
+    } else if (isRoll) {
+        // Roll (not covered) - explain the offset
+        verdict = '🔄 Roll - closes old position, opens new. Net margin change ~$0';
+        verdictColor = '#00d9ff';
+        verdictBg = 'rgba(0,217,255,0.2)';
+    } else if (buyingPower !== null) {
         const afterTrade = buyingPower - marginRequired;
         const utilization = (marginRequired / buyingPower) * 100;
         
@@ -2494,8 +2541,10 @@ window.checkMarginForTrade = async function(ticker, strike, premium) {
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
     modal.innerHTML = `
-        <div style="background:#1a1a2e; border-radius:12px; padding:24px; border:2px solid #ffaa00; max-width:400px; width:90%;">
-            <h3 style="color:#ffaa00; margin:0 0 16px 0;">💳 Margin Check: ${ticker}</h3>
+        <div style="background:#1a1a2e; border-radius:12px; padding:24px; border:2px solid ${isRoll ? '#8b5cf6' : '#ffaa00'}; max-width:400px; width:90%;">
+            <h3 style="color:${isRoll ? '#8b5cf6' : '#ffaa00'}; margin:0 0 16px 0;">
+                💳 Margin Check: ${ticker} ${isRoll ? '<span style="background:#8b5cf6;color:#fff;padding:2px 6px;border-radius:4px;font-size:12px;margin-left:6px;">ROLL</span>' : ''}
+            </h3>
             
             <div style="background:#0d0d1a; border-radius:8px; padding:12px; margin-bottom:16px;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
@@ -2503,22 +2552,31 @@ window.checkMarginForTrade = async function(ticker, strike, premium) {
                     <span style="color:#fff;">${fmt(spot)}</span>
                 </div>
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                    <span style="color:#888;">Put Strike:</span>
-                    <span style="color:#ffaa00;">${fmt(strike)}</span>
+                    <span style="color:#888;">${optionType} Strike:</span>
+                    <span style="color:${isCall ? '#ffaa00' : '#00d9ff'};">${fmt(strike)}</span>
                 </div>
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                     <span style="color:#888;">Premium:</span>
                     <span style="color:#00ff88;">$${premium.toFixed(2)}</span>
                 </div>
+                ${isCovered ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <span style="color:#888;">Coverage:</span>
+                        <span style="color:#00ff88;">✅ Own shares</span>
+                    </div>
+                ` : ''}
                 <div style="border-top:1px solid #333; padding-top:8px; margin-top:8px;">
                     <div style="display:flex; justify-content:space-between;">
-                        <span style="color:#888;">Margin Required:</span>
-                        <span style="color:#fff; font-weight:bold; font-size:16px;">${fmt(marginRequired)}</span>
+                        <span style="color:#888;">${isRoll ? 'Net Margin Change:' : 'Margin Required:'}</span>
+                        <span style="color:#fff; font-weight:bold; font-size:16px;">${isRoll && isCovered ? '$0' : fmt(marginRequired)}</span>
                     </div>
                 </div>
             </div>
             
-            ${buyingPower !== null ? `
+            ${marginNote ? `<div style="font-size:12px; color:#888; margin-bottom:12px;">${marginNote}</div>` : ''}
+            ${rollNote ? `<div style="font-size:12px; color:#8b5cf6; margin-bottom:12px;">${rollNote}</div>` : ''}
+            
+            ${buyingPower !== null && !isCovered && !isRoll ? `
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                     <span style="color:#888;">Your Buying Power:</span>
                     <span style="color:#00d9ff;">${fmt(buyingPower)}</span>
@@ -2608,7 +2666,7 @@ window.runPositionCheckup = async function(positionId) {
     }
     
     try {
-        // Call checkup API
+        // Call checkup API - include positionType so AI knows if long or short!
         const response = await fetch('/api/ai/checkup', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2617,6 +2675,7 @@ window.runPositionCheckup = async function(positionId) {
                 strike: pos.strike,
                 expiry: pos.expiry,
                 openingThesis: pos.openingThesis,
+                positionType: pos.type,  // Important for long vs short evaluation!
                 model
             })
         });

@@ -147,14 +147,24 @@ function calculatePositionRisk(pos, spotPrice) {
     const strategy = holding?.savedStrategy?.recommendation;
     const wantsAssignment = strategy === 'LET CALL';
     
-    // Thresholds match analysis.js recommendation panel:
-    // < 30% = HOLD (safe)
-    // 30-40% = WATCH (moderate)
-    // 40-50% = CAUTION (consider rolling)
-    // 50-60% = HIGH RISK (roll now!)
-    // > 60% = DANGER (close immediately)
+    // LEAPS (365+ days) have different risk thresholds
+    // With 1-2 years of time, being at 50% ITM is basically ATM - totally normal
+    const isLeaps = pos.dte >= 365;
+    const isLongDated = pos.dte >= 180 && pos.dte < 365;
     
-    if (itmPct >= 50) {
+    // Thresholds vary by time horizon:
+    // LEAPS (365+ days): 50% = normal, 70% = watch, 80% = caution
+    // Long-dated (180-364 days): 45% = watch, 55% = caution, 65% = high risk
+    // Standard (< 180 days): 30% = watch, 40% = caution, 50% = high risk
+    
+    // Define thresholds based on time horizon
+    const thresholds = isLeaps 
+        ? { safe: 60, watch: 70, caution: 80, danger: 90 }   // LEAPS: Very relaxed
+        : isLongDated 
+        ? { safe: 45, watch: 55, caution: 65, danger: 75 }   // Long-dated: Relaxed
+        : { safe: 30, watch: 40, caution: 50, danger: 60 };  // Standard: Original thresholds
+    
+    if (itmPct >= thresholds.caution) {
         if (wantsAssignment) {
             // Strategy says LET CALL - high assignment prob is GOOD!
             return { 
@@ -172,9 +182,10 @@ function calculatePositionRisk(pos, spotPrice) {
             text: `${itmPct.toFixed(0)}%`, 
             color: colors.red, 
             needsAttention: true, 
-            itmPct 
+            itmPct,
+            isLeaps  // Pass this so UI can show different message
         };
-    } else if (itmPct >= 40) {
+    } else if (itmPct >= thresholds.watch) {
         if (wantsAssignment) {
             // Wants assignment but not there yet
             return { 
@@ -191,10 +202,10 @@ function calculatePositionRisk(pos, spotPrice) {
             icon: '🟠', 
             text: `${itmPct.toFixed(0)}%`, 
             color: '#ff8800', 
-            needsAttention: true, 
+            needsAttention: !isLeaps && !isLongDated,  // Only urgent for short-dated
             itmPct 
         };
-    } else if (itmPct >= 30) {
+    } else if (itmPct >= thresholds.safe) {
         // WATCH - moderate risk
         return { 
             icon: '🟡', 
@@ -204,9 +215,9 @@ function calculatePositionRisk(pos, spotPrice) {
             itmPct 
         };
     } else {
-        // HOLD - safe
+        // HOLD - safe (or for LEAPS, "on track")
         return { 
-            icon: '🟢', 
+            icon: isLeaps ? '📅' : '🟢',  // Calendar icon for LEAPS
             text: `${itmPct.toFixed(0)}%`, 
             color: colors.green, 
             needsAttention: false, 
@@ -2132,7 +2143,8 @@ function renderPositionsTable(container, openPositions) {
                     <th style="padding: 6px; text-align: right; width: 30px;">DTE</th>
                     <th style="padding: 6px; text-align: right; width: 35px;" title="Position Delta - Directional exposure per $1 stock move">Δ</th>
                     <th style="padding: 6px; text-align: right; width: 45px;" title="Daily Theta - Premium decay you collect per day">Θ/day</th>
-                    <th style="padding: 6px; text-align: right; width: 45px;">Credit</th>
+                    <th style="padding: 6px; text-align: right; width: 55px;" title="Unrealized P&L - Current value vs entry price">P/L</th>
+                    <th style="padding: 6px; text-align: right; width: 45px;" title="Credit received (green) or Debit paid (red)">Cr/Dr</th>
                     <th style="padding: 6px; text-align: right; width: 40px;" title="Annualized Return on Capital">Ann%</th>
                     <th style="padding: 6px; text-align: left; min-width: 180px;">Actions</th>
                 </tr>
@@ -2147,8 +2159,31 @@ function renderPositionsTable(container, openPositions) {
         // Check if this is a spread
         const isSpread = pos.type?.includes('_spread');
         
+        // Check if this is a long (debit) position
+        const isLongPosition = isDebitPosition(pos.type);
+        
         // Calculate credit/debit (premium × 100 × contracts)
         const credit = pos.premium * 100 * pos.contracts;
+        
+        // For LONG positions: calculate unrealized P&L using current option price
+        let unrealizedPnL = 0;
+        let unrealizedPnLPct = 0;
+        let currentOptionPrice = pos.lastOptionPrice || pos.markedPrice || null;
+        
+        // Calculate P&L for ALL positions (both long and short)
+        if (currentOptionPrice !== null && pos.premium > 0) {
+            if (isLongPosition) {
+                // LONG: You bought, profit if price goes UP
+                // P&L = (current - entry) × 100 × contracts
+                unrealizedPnL = (currentOptionPrice - pos.premium) * 100 * pos.contracts;
+                unrealizedPnLPct = ((currentOptionPrice - pos.premium) / pos.premium) * 100;
+            } else {
+                // SHORT: You sold, profit if price goes DOWN
+                // P&L = (entry - current) × 100 × contracts
+                unrealizedPnL = (pos.premium - currentOptionPrice) * 100 * pos.contracts;
+                unrealizedPnLPct = ((pos.premium - currentOptionPrice) / pos.premium) * 100;
+            }
+        }
         
         // Get chain net credit if position has roll history
         const chainInfo = getChainNetCredit(pos);
@@ -2165,7 +2200,7 @@ function renderPositionsTable(container, openPositions) {
             capitalAtRisk = isDebitPosition(pos.type)
                 ? credit  // Debit spread: risk is what you paid
                 : (pos.spreadWidth - pos.premium) * 100 * pos.contracts;  // Credit spread: risk is width minus credit
-        } else if (isDebitPosition(pos.type)) {
+        } else if (isLongPosition) {
             // Long call/put: risk is what you paid
             capitalAtRisk = credit;
         } else {
@@ -2173,26 +2208,59 @@ function renderPositionsTable(container, openPositions) {
         }
         const roc = capitalAtRisk > 0 ? (credit / capitalAtRisk) * 100 : 0;
         
-        // Annualized ROC: ROC × (365 / DTE)
+        // For LONG positions with current price: calculate return %
+        let longReturnPct = 0;
+        let longAnnualReturn = 0;
+        if (isLongPosition && currentOptionPrice !== null && pos.premium > 0) {
+            longReturnPct = ((currentOptionPrice - pos.premium) / pos.premium) * 100;
+            // Annualize based on days held (if openDate exists) or DTE
+            const openDate = pos.openDate ? new Date(pos.openDate) : null;
+            const daysHeld = openDate ? Math.max(1, Math.ceil((new Date() - openDate) / (1000 * 60 * 60 * 24))) : pos.dte;
+            longAnnualReturn = daysHeld > 0 ? longReturnPct * (365 / daysHeld) : 0;
+        }
+        
+        // Annualized ROC: ROC × (365 / DTE) - for credit positions
         const annualRoc = pos.dte > 0 ? roc * (365 / pos.dte) : 0;
         
-        // Color code annual ROC
-        const annualRocColor = annualRoc >= 50 ? colors.green : annualRoc >= 25 ? colors.orange : colors.muted;
+        // Color code annual ROC (or long return for debit positions)
+        const displayAnnualReturn = isLongPosition ? longAnnualReturn : annualRoc;
+        const annualRocColor = displayAnnualReturn >= 50 ? colors.green : displayAnnualReturn >= 0 ? colors.orange : colors.red;
         
         // Check if this is a SKIP strategy
         const isSkip = pos.type === 'skip_call';
         
+        // Check if this is a LEAPS (365+ days) or long-dated (180+ days) option
+        const isLeaps = pos.dte >= 365 || pos.type === 'long_call_leaps';
+        const isLongDated = pos.dte >= 180 && pos.dte < 365;
+        
         // Format type for display
         let typeDisplay = pos.type.replace(/_/g, ' ').replace('short ', 'Short ').replace('long ', 'Long ');
         if (pos.type === 'buy_write') typeDisplay = 'Buy/Write';
+        if (pos.type === 'long_call_leaps') typeDisplay = 'LEAPS Call';  // Special LEAPS type
         if (isSkip) typeDisplay = 'SKIP™';
         if (isSpread) {
             // Shorten spread names for display
             typeDisplay = pos.type.replace('_spread', '').replace('_', ' ').toUpperCase() + ' Spread';
         }
+        
+        // Add LEAPS/Long-dated indicator (unless already has LEAPS in name or is SKIP)
+        if (isLeaps && !isSkip && pos.type !== 'long_call_leaps') {
+            typeDisplay += ' 📅';  // LEAPS indicator
+        } else if (isLongDated && !isSkip) {
+            typeDisplay += ' ⏳';  // Long-dated indicator
+        }
+        
+        // Type colors: 
+        // - Cyan for buy/write and SKIP
+        // - Purple for spreads
+        // - Orange/gold for LONG positions (you paid, it's a debit)
+        // - Red for puts (short puts)
+        // - Green for covered calls (short calls)
+        const isLongOption = pos.type === 'long_call' || pos.type === 'long_put';
         const typeColor = pos.type === 'buy_write' ? colors.cyan : 
                          isSkip ? '#00d9ff' :  // Cyan for SKIP
                          isSpread ? colors.purple :
+                         isLongOption ? '#ffaa00' :  // Orange/gold for long options (debit)
                          pos.type.includes('put') ? colors.red : colors.green;
         
         // Strike display - different for spreads and SKIP
@@ -2236,7 +2304,7 @@ function renderPositionsTable(container, openPositions) {
                     ${initialStatusHtml}
                 </td>
                 <td style="padding: 6px; color: #aaa; font-size: 10px;">${pos.broker || 'Schwab'}</td>
-                <td style="padding: 6px; color: ${typeColor}; font-size: 10px;">${typeDisplay}${isSkip ? '<br><span style="font-size:8px;color:#888;">LEAPS+SKIP</span>' : ''}</td>
+                <td style="padding: 6px; color: ${typeColor}; font-size: 10px;" title="${isLeaps ? 'LEAPS (1+ year) - Evaluate thesis, not theta' : isLongDated ? 'Long-dated (6+ mo) - IV changes matter more' : ''}">${typeDisplay}${isSkip ? '<br><span style="font-size:8px;color:#888;">LEAPS+SKIP</span>' : ''}</td>
                 <td style="padding: 6px; text-align: right; ${isSpread || isSkip ? 'font-size:10px;' : ''}">${strikeDisplay}</td>
                 <td style="padding: 6px; text-align: right;">${isDebitPosition(pos.type) ? '-' : ''}$${pos.premium.toFixed(2)}</td>
                 <td style="padding: 6px; text-align: right;">${pos.contracts}</td>
@@ -2245,11 +2313,23 @@ function renderPositionsTable(container, openPositions) {
                 </td>
                 <td id="delta-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
                 <td id="theta-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
-                <td style="padding: 6px; text-align: right; color: ${isDebitPosition(pos.type) ? '#ff5252' : '#00ff88'};" title="${isChainCredit ? `Chain NET: $${displayCredit.toFixed(0)} (Premiums: $${chainInfo.totalReceived.toFixed(0)} - Buybacks: $${chainInfo.totalBuybacks.toFixed(0)})` : `Premium: $${credit.toFixed(0)}`}">
-                    ${isDebitPosition(pos.type) || isSkip ? '-' : ''}$${isSkip ? pos.totalInvestment?.toFixed(0) : displayCredit.toFixed(0)}${isChainCredit ? '<span style="margin-left:2px;font-size:9px;color:#00d9ff;" title="Chain NET credit (includes roll history)">🔗</span>' : ''}
+                <td style="padding: 6px; text-align: right; font-size: 11px;" title="${currentOptionPrice !== null ? `Entry: $${pos.premium.toFixed(2)} | Current: $${currentOptionPrice.toFixed(2)} | P&L: ${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)} (${unrealizedPnLPct >= 0 ? '+' : ''}${unrealizedPnLPct.toFixed(1)}%)` : 'Mark price to see P&L'}">
+                    ${currentOptionPrice !== null 
+                        ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px;">
+                            <span style="color:${unrealizedPnL >= 0 ? '#00ff88' : '#ff5252'};font-size:11px;">${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)}</span>
+                            <span style="font-size:11px;font-weight:bold;color:${unrealizedPnLPct >= 50 ? '#00d9ff' : (unrealizedPnLPct >= 0 ? '#00ff88' : '#ff5252')};${unrealizedPnLPct >= 50 ? 'text-shadow:0 0 4px #00d9ff;' : ''}">${unrealizedPnLPct >= 50 ? '✓ ' : ''}${unrealizedPnLPct >= 0 ? '+' : ''}${unrealizedPnLPct.toFixed(0)}%</span>
+                           </div>` 
+                        : `<span style="color:#666">⏳</span>`
+                    }
                 </td>
-                <td style="padding: 6px; text-align: right; color: ${annualRocColor}; font-weight: bold;">
-                    ${isSpread || isDebitPosition(pos.type) || isSkip ? '—' : annualRoc.toFixed(0) + '%'}
+                <td style="padding: 6px; text-align: right; color: ${isLongPosition ? '#ffaa00' : '#00ff88'};" title="${isLongPosition ? `Paid: $${credit.toFixed(0)}` : (isChainCredit ? `Chain NET: $${displayCredit.toFixed(0)}` : `Premium: $${credit.toFixed(0)}`)}">
+                    ${isLongPosition 
+                        ? `<span style="color:#ffaa00">-$${credit.toFixed(0)}</span>`
+                        : (isSkip ? '-' : '') + '$' + (isSkip ? pos.totalInvestment?.toFixed(0) : displayCredit.toFixed(0)) + (isChainCredit ? '<span style="margin-left:2px;font-size:9px;color:#00d9ff;" title="Chain NET credit (includes roll history)">🔗</span>' : '')
+                    }
+                </td>
+                <td style="padding: 6px; text-align: right; color: ${annualRocColor}; font-weight: bold;" title="${isLongPosition ? (currentOptionPrice !== null ? `Return: ${longReturnPct.toFixed(1)}% | Annualized: ${longAnnualReturn.toFixed(0)}%` : 'Mark current price to calculate') : `Annual ROC: ${annualRoc.toFixed(0)}%`}">
+                    ${isSpread || isSkip ? '—' : (isLongPosition ? (currentOptionPrice !== null ? (longReturnPct >= 0 ? '+' : '') + longReturnPct.toFixed(0) + '%' : '⏳') : annualRoc.toFixed(0) + '%')}
                 </td>
                 <td style="padding: 4px; text-align: left;">
                     <div style="display: flex; flex-wrap: nowrap; gap: 4px; justify-content: flex-start; align-items: center; padding-left: 4px;">
@@ -2405,14 +2485,28 @@ async function updatePositionGreeksDisplay(positions, spotPrices) {
         // Sign: short positions have inverted Greeks
         const sign = isShort ? -1 : 1;
         const delta = greeks.delta * sign;
-        const theta = greeks.theta * sign;  // Short positions collect theta (positive)
+        const theta = greeks.theta * sign;  // Short positions collect theta (positive), long positions pay (negative)
         
         // Delta: neutral color (pro style) - just show the number
-        deltaCell.innerHTML = `<span style="color:#ccc;font-size:10px;" title="If ${pos.ticker} moves $1, your P&L changes by $${Math.abs(delta).toFixed(0)}">${delta >= 0 ? '+' : ''}${delta.toFixed(0)}</span>`;
+        // For long options, delta is your directional exposure (how you profit)
+        const deltaTooltip = isShort 
+            ? `If ${pos.ticker} moves $1, your P&L changes by $${Math.abs(delta).toFixed(0)}`
+            : `If ${pos.ticker} moves $1 in your favor, you gain $${Math.abs(delta).toFixed(0)} (this is how long options profit!)`;
+        deltaCell.innerHTML = `<span style="color:#ccc;font-size:10px;" title="${deltaTooltip}">${delta >= 0 ? '+' : ''}${delta.toFixed(0)}</span>`;
         
-        // Theta: always show positive for short sellers (they collect)
-        const thetaColor = theta > 0 ? '#00ff88' : '#ff5252';
-        thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="You ${theta >= 0 ? 'collect' : 'pay'} $${Math.abs(theta).toFixed(2)}/day from time decay">${theta >= 0 ? '+' : ''}$${theta.toFixed(0)}</span>`;
+        // Theta: Different display for short (collect) vs long (pay)
+        // Long options: theta is a COST but NOT a red flag - it's the expected cost of holding
+        let thetaColor, thetaTooltip;
+        if (isShort) {
+            // Short options COLLECT theta - green is good
+            thetaColor = theta > 0 ? '#00ff88' : '#ff5252';
+            thetaTooltip = `You collect $${Math.abs(theta).toFixed(2)}/day from time decay`;
+        } else {
+            // Long options PAY theta - use muted gold color (expected cost, not bad)
+            thetaColor = '#ffaa00';  // Neutral amber - cost but not a warning
+            thetaTooltip = `Time decay cost: $${Math.abs(theta).toFixed(2)}/day (expected for long options - you profit from DELTA, not theta)`;
+        }
+        thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${thetaTooltip}">${theta >= 0 ? '+' : ''}$${theta.toFixed(0)}</span>`;
         
         // Store on position object for reference
         pos._delta = delta;

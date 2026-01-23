@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import { showNotification, isDebitPosition, calculateRealizedPnL, colors, createModal, modalHeader, calculatePortfolioGreeks } from './utils.js';
 import { fetchStockPrice, fetchStockPricesBatch, fetchOptionsChain, findOption } from './api.js';
-import { saveHoldingsToStorage } from './positions.js';
+import { saveHoldingsToStorage, renderPositions } from './positions.js';
 
 const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
@@ -248,6 +248,237 @@ function saveClosedPositions() {
     saveDataCheckpoint(); // Track data count for integrity check
     triggerAutoSave();
 }
+
+/**
+ * Refresh prices for ALL open positions from Schwab (or CBOE fallback)
+ * Updates lastOptionPrice and markedPrice on each position
+ */
+async function refreshAllPositionPrices() {
+    const positions = state.positions || [];
+    if (positions.length === 0) {
+        console.log('[REFRESH] No positions to update');
+        return;
+    }
+    
+    console.log(`[REFRESH] Updating prices for ${positions.length} positions...`);
+    
+    // Check if Schwab is connected for real-time data
+    let hasSchwab = false;
+    try {
+        if (window.SchwabAPI) {
+            const status = await window.SchwabAPI.getStatus();
+            hasSchwab = status.hasRefreshToken;
+            console.log(`[REFRESH] Schwab status: ${hasSchwab ? 'Connected (real-time)' : 'Not connected (using CBOE delayed)'}`);
+        }
+    } catch (e) {
+        console.log('[REFRESH] Could not check Schwab status:', e.message);
+    }
+    
+    // Group positions by ticker to minimize API calls
+    const tickerPositions = {};
+    for (const pos of positions) {
+        if (!tickerPositions[pos.ticker]) {
+            tickerPositions[pos.ticker] = [];
+        }
+        tickerPositions[pos.ticker].push(pos);
+    }
+    
+    let updated = 0;
+    let failed = 0;
+    
+    for (const [ticker, tickerPos] of Object.entries(tickerPositions)) {
+        try {
+            // Fetch full options chain for this ticker (Schwab first, then CBOE)
+            const chain = await fetchOptionsChain(ticker);
+            if (!chain) {
+                console.log(`[REFRESH] No chain data for ${ticker}`);
+                failed += tickerPos.length;
+                continue;
+            }
+            
+            console.log(`[REFRESH] ${ticker}: Got ${chain.calls?.length || 0} calls, ${chain.puts?.length || 0} puts from ${hasSchwab ? 'Schwab' : 'CBOE'}`);
+            
+            // Update each position with this ticker
+            for (const pos of tickerPos) {
+                const isPut = pos.type?.toLowerCase().includes('put');
+                const isCall = pos.type?.toLowerCase().includes('call');
+                const options = isPut ? chain.puts : (isCall ? chain.calls : null);
+                
+                if (!options) {
+                    console.log(`[REFRESH] ${ticker} ${pos.type}: Unknown option type`);
+                    failed++;
+                    continue;
+                }
+                
+                // Find matching option by strike and expiry
+                const strike = pos.strike;
+                const expiry = pos.expiry; // YYYY-MM-DD format
+                
+                // Look for exact match first, then closest
+                let matchedOption = options.find(o => 
+                    Math.abs(o.strike - strike) < 0.01 && 
+                    o.expiration === expiry
+                );
+                
+                // If no exact match, try different date formats
+                if (!matchedOption) {
+                    matchedOption = options.find(o => {
+                        if (Math.abs(o.strike - strike) > 0.01) return false;
+                        // Try to normalize dates
+                        const oExp = new Date(o.expiration).toISOString().split('T')[0];
+                        const pExp = new Date(expiry).toISOString().split('T')[0];
+                        return oExp === pExp;
+                    });
+                }
+                
+                if (matchedOption) {
+                    // Use mid price (between bid and ask) for most accurate current value
+                    const mid = matchedOption.mid || ((matchedOption.bid + matchedOption.ask) / 2);
+                    const last = matchedOption.last || mid;
+                    const price = mid > 0 ? mid : last;
+                    
+                    if (price > 0) {
+                        const oldPrice = pos.lastOptionPrice;
+                        pos.lastOptionPrice = price;
+                        pos.markedPrice = price;
+                        pos.priceUpdatedAt = new Date().toISOString();
+                        updated++;
+                        console.log(`[REFRESH] ${ticker} $${strike} ${isPut ? 'put' : 'call'}: $${oldPrice?.toFixed(2) || '?'} → $${price.toFixed(2)}`);
+                    }
+                } else {
+                    console.log(`[REFRESH] ${ticker} $${strike} ${expiry}: No matching option found in chain`);
+                    failed++;
+                }
+            }
+        } catch (err) {
+            console.error(`[REFRESH] Error fetching ${ticker}:`, err);
+            failed += tickerPos.length;
+        }
+    }
+    
+    // Save updated positions
+    if (updated > 0) {
+        // Use the global window function to save
+        if (window.savePositionsToStorage) {
+            window.savePositionsToStorage();
+        }
+        // Re-render the positions table
+        renderPositions();
+    }
+    
+    console.log(`[REFRESH] Complete: ${updated} updated, ${failed} failed`);
+    return { updated, failed };
+}
+
+// Export for use in other modules
+window.refreshAllPositionPrices = refreshAllPositionPrices;
+
+// ============================================================
+// AUTO-REFRESH PRICES (30-second interval)
+// ============================================================
+
+let autoRefreshPricesInterval = null;
+let lastPriceRefreshTime = null;
+const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
+
+/**
+ * Update the "Last updated" display
+ */
+function updatePriceLastUpdated() {
+    lastPriceRefreshTime = new Date();
+    const el = document.getElementById('priceLastUpdated');
+    if (el) {
+        el.textContent = `Updated: ${lastPriceRefreshTime.toLocaleTimeString()}`;
+        el.style.color = '#00ff88';
+        // Fade back to gray after 3 seconds
+        setTimeout(() => {
+            el.style.color = '#666';
+        }, 3000);
+    }
+}
+
+/**
+ * Start auto-refreshing prices every 30 seconds
+ */
+function startAutoRefreshPrices() {
+    if (autoRefreshPricesInterval) return; // Already running
+    
+    console.log('🔄 Starting auto-refresh prices (every 30s)');
+    
+    // Update checkbox label to show active
+    const checkbox = document.getElementById('autoRefreshPricesCheckbox');
+    if (checkbox) {
+        checkbox.parentElement.style.color = '#00ff88';
+    }
+    
+    autoRefreshPricesInterval = setInterval(async () => {
+        // Check if still enabled
+        const cb = document.getElementById('autoRefreshPricesCheckbox');
+        if (!cb?.checked) {
+            stopAutoRefreshPrices();
+            return;
+        }
+        
+        console.log('🔄 Auto-refreshing prices...');
+        try {
+            await refreshAllPositionPrices();
+            updatePriceLastUpdated();
+        } catch (err) {
+            console.error('Auto-refresh failed:', err);
+        }
+    }, AUTO_REFRESH_INTERVAL);
+    
+    // Do an immediate refresh when starting
+    refreshAllPositionPrices().then(() => {
+        updatePriceLastUpdated();
+    });
+}
+
+/**
+ * Stop auto-refreshing prices
+ */
+function stopAutoRefreshPrices() {
+    if (autoRefreshPricesInterval) {
+        console.log('⏹️ Stopping auto-refresh prices');
+        clearInterval(autoRefreshPricesInterval);
+        autoRefreshPricesInterval = null;
+        
+        // Update checkbox label to show inactive
+        const checkbox = document.getElementById('autoRefreshPricesCheckbox');
+        if (checkbox) {
+            checkbox.parentElement.style.color = '#aaa';
+        }
+    }
+}
+
+/**
+ * Setup the auto-refresh checkbox toggle
+ */
+function setupAutoRefreshPrices() {
+    const checkbox = document.getElementById('autoRefreshPricesCheckbox');
+    if (!checkbox) return;
+    
+    // Load saved preference
+    const saved = localStorage.getItem('wheelhouse_autoRefreshPrices');
+    if (saved === 'true') {
+        checkbox.checked = true;
+        startAutoRefreshPrices();
+    }
+    
+    // Handle toggle
+    checkbox.addEventListener('change', (e) => {
+        localStorage.setItem('wheelhouse_autoRefreshPrices', e.target.checked);
+        if (e.target.checked) {
+            startAutoRefreshPrices();
+        } else {
+            stopAutoRefreshPrices();
+        }
+    });
+}
+
+// Export
+window.startAutoRefreshPrices = startAutoRefreshPrices;
+window.stopAutoRefreshPrices = stopAutoRefreshPrices;
 
 /**
  * Fetch current option price for a position from CBOE (real market data)
@@ -3280,7 +3511,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const refreshGreeksBtn = document.getElementById('refreshGreeksBtn');
     if (refreshGreeksBtn) {
         refreshGreeksBtn.onclick = async () => {
-            refreshGreeksBtn.textContent = '⏳ Calculating...';
+            refreshGreeksBtn.textContent = '⏳...';
             refreshGreeksBtn.disabled = true;
             try {
                 await updatePortfolioGreeks();
@@ -3290,11 +3521,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('Failed to update Greeks:', err);
                 showNotification('Failed to update Greeks', 'error');
             } finally {
-                refreshGreeksBtn.textContent = '🔄 Update Greeks';
+                refreshGreeksBtn.textContent = '🔄 Greeks & IV';
                 refreshGreeksBtn.disabled = false;
             }
         };
     }
+    
+    // Refresh Prices button - fetch real-time prices from Schwab for all positions
+    const refreshPricesBtn = document.getElementById('refreshPricesBtn');
+    if (refreshPricesBtn) {
+        refreshPricesBtn.onclick = async () => {
+            refreshPricesBtn.textContent = '⏳ Fetching...';
+            refreshPricesBtn.disabled = true;
+            try {
+                await refreshAllPositionPrices();
+                updatePriceLastUpdated();
+                showNotification('✅ Prices refreshed from Schwab', 'success', 2000);
+            } catch (err) {
+                console.error('Failed to refresh prices:', err);
+                showNotification('Failed to refresh prices', 'error');
+            } finally {
+                refreshPricesBtn.textContent = '💲 Refresh Prices';
+                refreshPricesBtn.disabled = false;
+            }
+        };
+    }
+    
+    // Auto-refresh prices toggle
+    setupAutoRefreshPrices();
 });
 
 // ============================================================
