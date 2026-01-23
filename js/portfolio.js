@@ -1983,10 +1983,28 @@ function updateHoldingRow(h, currentPrice, currentValue, stockPnL, totalReturn, 
     if (onTableEl) {
         if (moneyOnTable > 0) {
             // Stock is above strike - money being left on table
+            // Calculate opportunity cost: roll up vs redeploy
+            const capital = h.totalCost || (currentPrice * h.shares);
+            const rollOutDte = 45; // Typical roll would be ~45 DTE out
+            const opp = calculateOpportunityCost(moneyOnTable, capital, 0, rollOutDte);
+            
+            // Build recommendation text
+            let recommendation, recColor;
+            if (opp.betterChoice === 'redeploy') {
+                recommendation = `💡 Let it ride! Redeploy wins by +$${opp.difference.toFixed(0)}`;
+                recColor = '#00ff88';
+            } else {
+                recommendation = `📈 Roll UP worth +$${opp.difference.toFixed(0)} vs redeploy`;
+                recColor = '#ff9800';
+            }
+            
             onTableEl.innerHTML = `
                 <div style="font-size:9px; color:#ff9800; margin-bottom:4px;">⚠️ UPSIDE CAPPED</div>
                 <div style="font-size:16px; font-weight:bold; color:#ff9800;">$${moneyOnTable.toFixed(0)}</div>
-                <div style="font-size:10px; color:#ff5252;">Roll UP to capture!</div>
+                <div style="font-size:10px; color:${recColor}; cursor:pointer; text-decoration:underline;" 
+                     onclick="window.showOpportunityCostModal(${h.id}, ${moneyOnTable}, ${capital}, ${opp.monthlyYieldPct}, ${opp.expectedFromRedeploy})">
+                    ${opp.betterChoice === 'redeploy' ? '✅ Redeploy wins' : '🔄 Roll UP?'} ▸
+                </div>
             `;
             onTableEl.style.background = 'rgba(255,152,0,0.15)';
             onTableEl.style.borderColor = 'rgba(255,152,0,0.4)';
@@ -2048,6 +2066,116 @@ function showHoldingError(h) {
         `;
     }
 }
+
+/**
+ * Show opportunity cost analysis modal
+ * Compares: Rolling UP to capture missed upside vs. Getting called and redeploying capital
+ */
+window.showOpportunityCostModal = function(holdingId, missedUpside, capital, monthlyYieldPct, expectedFromRedeploy) {
+    const holding = state.holdings?.find(h => h.id === holdingId);
+    if (!holding) return;
+    
+    const velocity = calculateCapitalVelocity();
+    const rollOutDte = 45;
+    const monthsToCapture = rollOutDte / 30;
+    
+    const betterChoice = expectedFromRedeploy > missedUpside ? 'redeploy' : 'roll';
+    const difference = Math.abs(expectedFromRedeploy - missedUpside);
+    
+    const modal = document.createElement('div');
+    modal.id = 'oppCostModal';
+    modal.style.cssText = `
+        position:fixed; top:0; left:0; right:0; bottom:0; 
+        background:rgba(0,0,0,0.85); display:flex; align-items:center; 
+        justify-content:center; z-index:10000;
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    const redeployColor = betterChoice === 'redeploy' ? '#00ff88' : '#888';
+    const rollColor = betterChoice === 'roll' ? '#ff9800' : '#888';
+    
+    modal.innerHTML = `
+        <div style="background:linear-gradient(135deg, #0d0d1a 0%, #16213e 100%); border:1px solid #00d9ff; 
+                    border-radius:16px; padding:30px; width:90%; max-width:550px; max-height:90vh; overflow-y:auto;
+                    box-shadow: 0 0 40px rgba(0, 217, 255, 0.3);">
+            
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:25px;">
+                <span style="font-size:32px;">⚖️</span>
+                <div>
+                    <h2 style="margin:0; color:#fff; font-size:20px;">Roll vs. Redeploy Analysis</h2>
+                    <div style="color:#888; font-size:13px;">${holding.ticker} • $${capital.toLocaleString()} capital at risk</div>
+                </div>
+            </div>
+            
+            <div style="text-align:center; margin-bottom:25px; padding:20px; background:rgba(255,152,0,0.1); border:1px solid rgba(255,152,0,0.3); border-radius:10px;">
+                <div style="color:#ff9800; font-size:12px; margin-bottom:5px;">MISSED UPSIDE (above strike)</div>
+                <div style="color:#ff9800; font-size:28px; font-weight:bold;">$${missedUpside.toFixed(0)}</div>
+                <div style="color:#666; font-size:11px;">To capture this, you'd roll UP ~${rollOutDte} days</div>
+            </div>
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:25px;">
+                <!-- Option 1: Roll UP -->
+                <div style="background:rgba(255,152,0,0.08); border:2px solid ${rollColor}; border-radius:10px; padding:20px; text-align:center;">
+                    <div style="font-size:12px; color:${rollColor}; margin-bottom:10px; font-weight:bold;">🔄 ROLL UP</div>
+                    <div style="font-size:24px; font-weight:bold; color:${rollColor};">+$${missedUpside.toFixed(0)}</div>
+                    <div style="color:#888; font-size:11px; margin-top:8px;">
+                        Tie up $${capital.toLocaleString()}<br>
+                        for ~${rollOutDte} more days
+                    </div>
+                </div>
+                
+                <!-- Option 2: Let it ride, redeploy -->
+                <div style="background:rgba(0,255,136,0.08); border:2px solid ${redeployColor}; border-radius:10px; padding:20px; text-align:center;">
+                    <div style="font-size:12px; color:${redeployColor}; margin-bottom:10px; font-weight:bold;">✅ REDEPLOY</div>
+                    <div style="font-size:24px; font-weight:bold; color:${redeployColor};">+$${expectedFromRedeploy.toFixed(0)}</div>
+                    <div style="color:#888; font-size:11px; margin-top:8px;">
+                        At your ${monthlyYieldPct.toFixed(1)}%/mo yield<br>
+                        over ${monthsToCapture.toFixed(1)} months
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Verdict -->
+            <div style="background:linear-gradient(135deg, ${betterChoice === 'redeploy' ? 'rgba(0,255,136,0.15)' : 'rgba(255,152,0,0.15)'} 0%, transparent 100%); 
+                        border:1px solid ${betterChoice === 'redeploy' ? 'rgba(0,255,136,0.5)' : 'rgba(255,152,0,0.5)'}; 
+                        border-radius:10px; padding:20px; text-align:center; margin-bottom:20px;">
+                <div style="font-size:14px; font-weight:bold; color:${betterChoice === 'redeploy' ? '#00ff88' : '#ff9800'};">
+                    ${betterChoice === 'redeploy' 
+                        ? `💡 LET IT RIDE! Redeploying wins by +$${difference.toFixed(0)}`
+                        : `📈 ROLL UP is worth +$${difference.toFixed(0)} more`
+                    }
+                </div>
+                <div style="color:#888; font-size:12px; margin-top:8px;">
+                    ${betterChoice === 'redeploy'
+                        ? `Your capital velocity beats the capped upside. Take the win and redeploy!`
+                        : `The missed upside is significant enough to justify tying up capital longer.`
+                    }
+                </div>
+            </div>
+            
+            <!-- Yield info -->
+            <div style="background:#1a1a2e; border-radius:8px; padding:12px; margin-bottom:20px;">
+                <div style="color:#888; font-size:11px;">
+                    📊 <strong>Your Historical Yield:</strong> ${monthlyYieldPct.toFixed(1)}% monthly
+                    ${velocity.isDefault ? ' (default - need 3+ closed trades)' : ` (from ${velocity.tradeCount} trades)`}
+                </div>
+                <div style="color:#666; font-size:10px; margin-top:5px;">
+                    Based on your ${velocity.isDefault ? 'estimated' : 'actual'} return on capital from credit strategies (short puts, covered calls, buy/writes)
+                </div>
+            </div>
+            
+            <div style="display:flex; justify-content:center;">
+                <button onclick="document.getElementById('oppCostModal').remove()" 
+                        style="background:#00d9ff; border:none; color:#000; padding:12px 40px; 
+                               border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;">
+                    Got it! 👍
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
 
 /**
  * Update the holdings summary row
@@ -3454,6 +3582,128 @@ function setGreeksDisplay(greeks) {
         setEl('portIVRank', greeks.avgIVRank + '%', ivRankColor);
     }
 }
+
+// ============================================================
+// CAPITAL VELOCITY ANALYTICS
+// ============================================================
+
+/**
+ * Calculate the user's average monthly return on capital from closed positions
+ * This is used for opportunity cost analysis (roll up vs redeploy)
+ * Returns: { monthlyYieldPct, avgDaysHeld, tradeCount, totalPnL, totalCapital }
+ */
+export function calculateCapitalVelocity() {
+    const closed = state.closedPositions || [];
+    
+    // Only credit strategies (short puts, covered calls, buy/writes)
+    // Exclude long calls/puts and spreads for this calculation
+    const creditTrades = closed.filter(p => {
+        const type = p.type || '';
+        return type === 'short_put' || type === 'covered_call' || type === 'buy_write';
+    });
+    
+    if (creditTrades.length < 3) {
+        return {
+            monthlyYieldPct: 2.0,  // Default assumption: 2% monthly
+            avgDaysHeld: 30,
+            tradeCount: 0,
+            totalPnL: 0,
+            totalCapital: 0,
+            isDefault: true
+        };
+    }
+    
+    const getPnL = (p) => p.realizedPnL ?? p.closePnL ?? 0;
+    const getDaysHeld = (p) => {
+        if (p.daysHeld) return p.daysHeld;
+        if (p.openDate && p.closeDate) {
+            const open = new Date(p.openDate);
+            const close = new Date(p.closeDate);
+            if (!isNaN(open) && !isNaN(close)) {
+                return Math.max(1, Math.ceil((close - open) / (1000 * 60 * 60 * 24)));
+            }
+        }
+        return 30; // Default assumption
+    };
+    
+    // Calculate capital at risk for each trade
+    const getCapitalAtRisk = (p) => {
+        if (p.type === 'buy_write' && p.stockPrice) {
+            // Buy/Write: capital is stock cost
+            return p.stockPrice * 100 * (p.contracts || 1);
+        } else if (p.type === 'short_put' || p.type === 'covered_call') {
+            // Short put/CC: capital is strike × 100 (max assignment risk)
+            return (p.strike || 0) * 100 * (p.contracts || 1);
+        }
+        return (p.strike || 50) * 100 * (p.contracts || 1);
+    };
+    
+    let totalWeightedDays = 0;
+    let totalPnL = 0;
+    let totalCapitalDays = 0;
+    
+    for (const p of creditTrades) {
+        const pnl = getPnL(p);
+        const days = getDaysHeld(p);
+        const capital = getCapitalAtRisk(p);
+        
+        totalPnL += pnl;
+        totalWeightedDays += days;
+        totalCapitalDays += capital * days;
+    }
+    
+    const avgDays = totalWeightedDays / creditTrades.length;
+    const totalCapital = totalCapitalDays / totalWeightedDays;
+    
+    // Annualize then convert to monthly
+    // Daily yield = total PnL / total capital-days
+    // Monthly = daily × 30
+    const dailyYield = totalPnL / totalCapitalDays;
+    const monthlyYieldPct = dailyYield * 30 * 100;
+    
+    return {
+        monthlyYieldPct: Math.max(0.5, Math.min(10, monthlyYieldPct)), // Clamp to 0.5-10%
+        avgDaysHeld: avgDays,
+        tradeCount: creditTrades.length,
+        totalPnL,
+        totalCapital,
+        isDefault: false
+    };
+}
+window.calculateCapitalVelocity = calculateCapitalVelocity;
+
+/**
+ * Calculate opportunity cost: Roll Up vs Let It Get Called Away
+ * @param {number} missedUpside - Dollar amount left on table
+ * @param {number} currentCapital - Capital tied up in position
+ * @param {number} dteRemaining - Days until current expiry
+ * @param {number} rollOutDte - DTE of the roll target (e.g., 45 days further out)
+ */
+export function calculateOpportunityCost(missedUpside, currentCapital, dteRemaining, rollOutDte = 45) {
+    const velocity = calculateCapitalVelocity();
+    
+    // Time to capture missed upside = roll out to new expiry
+    const monthsToCapture = rollOutDte / 30;
+    
+    // Expected return from redeploying capital into new trade
+    const expectedFromRedeploy = currentCapital * (velocity.monthlyYieldPct / 100) * monthsToCapture;
+    
+    // Comparison
+    const betterChoice = expectedFromRedeploy > missedUpside ? 'redeploy' : 'roll';
+    const difference = Math.abs(expectedFromRedeploy - missedUpside);
+    
+    return {
+        missedUpside,
+        rollOutDte,
+        monthsToCapture,
+        monthlyYieldPct: velocity.monthlyYieldPct,
+        expectedFromRedeploy,
+        betterChoice,
+        difference,
+        isDefaultYield: velocity.isDefault
+    };
+}
+window.calculateOpportunityCost = calculateOpportunityCost;
 
 // ============================================================
 // ADVANCED ANALYTICS (Profit Factor, Kelly, etc.)

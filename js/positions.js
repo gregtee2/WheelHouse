@@ -402,8 +402,10 @@ window.showRollHistory = function(chainId) {
         // Check if this position is in closedPositions list
         const isInClosedList = (state.closedPositions || []).some(p => p.id === pos.id);
         
-        // Show fix button if: middle position in chain that should be closed but missing closePrice
-        const needsFix = idx < chainPositions.length - 1 && (!pos.closePrice || pos.status !== 'closed');
+        // Show fix button if: middle position in chain that should be closed but missing close data
+        // (missing closePrice, wrong status, or missing closeReason)
+        const needsFix = idx < chainPositions.length - 1 && 
+            (!pos.closePrice || pos.status !== 'closed' || !pos.closeReason);
         
         timelineHtml += `
             <div style="display:flex; align-items:flex-start; gap:15px; padding:15px 0; 
