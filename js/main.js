@@ -1838,10 +1838,14 @@ window.analyzeDiscordTrade = async function() {
                 <h4 style="margin:0 0 15px; color:#b9f;">AI Analysis</h4>
                 <div style="white-space:pre-wrap; line-height:1.6; font-size:14px;">${formatted}</div>
             </div>
-            <div style="margin-top:20px; padding-top:16px; border-top:1px solid #333; display:flex; gap:12px; justify-content:center;">
+            <div style="margin-top:20px; padding-top:16px; border-top:1px solid #333; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
                 <button onclick="window.stageDiscordTrade()" 
                         style="background:#8b5cf6; color:#fff; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:bold;">
                     📥 Stage This Trade
+                </button>
+                <button onclick="window.attachThesisToPosition()" 
+                        style="background:#00d9ff; color:#000; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:bold;">
+                    🔗 Attach to Existing Position
                 </button>
                 <button onclick="this.closest('#discordTradeModal').remove()" 
                         style="background:#333; color:#888; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-size:14px;">
@@ -1948,6 +1952,145 @@ window.stageDiscordTrade = function() {
     
     // Render pending trades
     renderPendingTrades();
+};
+
+/**
+ * Attach thesis from Discord analysis to an existing position
+ */
+window.attachThesisToPosition = function() {
+    const trade = window._currentParsedTrade;
+    if (!trade) {
+        showNotification('No trade data available', 'error');
+        return;
+    }
+    
+    // Get positions from localStorage
+    const positions = JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
+    
+    // Find matching positions (same ticker)
+    const matchingPositions = positions.filter(p => 
+        p.ticker.toUpperCase() === trade.ticker.toUpperCase() && 
+        p.status !== 'closed'
+    );
+    
+    if (matchingPositions.length === 0) {
+        showNotification(`No open positions found for ${trade.ticker}`, 'error');
+        return;
+    }
+    
+    // If only one match, attach directly
+    if (matchingPositions.length === 1) {
+        attachThesisToPositionById(matchingPositions[0].id);
+        return;
+    }
+    
+    // Multiple matches - show picker modal
+    const pickerModal = document.createElement('div');
+    pickerModal.id = 'thesisPickerModal';
+    pickerModal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:10001;';
+    pickerModal.onclick = (e) => { if (e.target === pickerModal) pickerModal.remove(); };
+    
+    const positionButtons = matchingPositions.map(p => {
+        const typeDisplay = p.type.replace(/_/g, ' ').toUpperCase();
+        const dte = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
+        return `
+            <button onclick="window.attachThesisToPositionById(${p.id}); this.closest('#thesisPickerModal').remove();"
+                    style="background:#1a1a2e; border:1px solid #8b5cf6; color:#fff; padding:15px; border-radius:8px; cursor:pointer; text-align:left; width:100%;">
+                <div style="font-weight:bold; color:#8b5cf6;">${p.ticker} $${p.strike} ${typeDisplay}</div>
+                <div style="font-size:12px; color:#888;">Expires: ${p.expiry} (${dte} DTE) | ${p.contracts} contract${p.contracts > 1 ? 's' : ''}</div>
+            </button>
+        `;
+    }).join('');
+    
+    pickerModal.innerHTML = `
+        <div style="background:#0d0d1a; border-radius:12px; max-width:500px; width:100%; padding:25px; border:1px solid #8b5cf6;">
+            <h3 style="color:#8b5cf6; margin:0 0 15px;">🔗 Select Position to Attach Thesis</h3>
+            <p style="color:#888; margin-bottom:15px;">Multiple ${trade.ticker} positions found. Select one:</p>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                ${positionButtons}
+            </div>
+            <button onclick="this.closest('#thesisPickerModal').remove()" 
+                    style="margin-top:15px; background:#333; color:#888; border:none; padding:10px 20px; border-radius:6px; cursor:pointer; width:100%;">
+                Cancel
+            </button>
+        </div>
+    `;
+    
+    document.body.appendChild(pickerModal);
+};
+
+/**
+ * Attach thesis to a specific position by ID
+ */
+window.attachThesisToPositionById = function(positionId) {
+    const trade = window._currentParsedTrade;
+    if (!trade) {
+        showNotification('No trade data available', 'error');
+        return;
+    }
+    
+    // Get positions from state (the source of truth)
+    const positions = window.state?.positions || JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
+    const posIdx = positions.findIndex(p => p.id === positionId);
+    
+    if (posIdx < 0) {
+        showNotification('Position not found', 'error');
+        return;
+    }
+    
+    const pos = positions[posIdx];
+    
+    // Calculate range position
+    const price = trade.priceAtAnalysis;
+    const rangeHigh = parseFloat(trade.rangeHigh) || 0;
+    const rangeLow = parseFloat(trade.rangeLow) || 0;
+    const rangePosition = (rangeHigh && rangeLow && rangeHigh !== rangeLow) ?
+        Math.round(((price - rangeLow) / (rangeHigh - rangeLow)) * 100) : null;
+    
+    // Build opening thesis object
+    pos.openingThesis = {
+        analyzedAt: new Date().toISOString(),
+        priceAtAnalysis: price,
+        rangePosition: rangePosition,
+        iv: trade.iv || null,
+        modelUsed: trade.model || 'qwen2.5:32b',
+        aiSummary: {
+            aggressive: trade.spectrum?.aggressive || '',
+            moderate: trade.spectrum?.moderate || '',
+            conservative: trade.spectrum?.conservative || '',
+            bottomLine: trade.spectrum?.bottomLine || '',
+            probability: trade.probability || null,
+            fullAnalysis: trade.analysis || ''
+        }
+    };
+    
+    // Update state and save
+    if (window.state?.positions) {
+        window.state.positions[posIdx] = pos;
+    }
+    
+    // Save to localStorage and trigger auto-save
+    if (window.savePositionsToStorage) {
+        window.savePositionsToStorage();
+    } else {
+        localStorage.setItem('wheelhouse_positions', JSON.stringify(positions));
+    }
+    
+    showNotification(`✅ Thesis attached to ${pos.ticker} $${pos.strike}`, 'success');
+    
+    // Re-render positions table to show the 🩺 button
+    if (window.renderPositions) {
+        window.renderPositions();
+    }
+    
+    // Close modals
+    document.getElementById('discordTradeModal')?.remove();
+    document.getElementById('thesisPickerModal')?.remove();
+    window._currentParsedTrade = null;
+    
+    // Clear textarea
+    const textarea = document.getElementById('pasteTradeInput');
+    if (textarea) textarea.value = '';
 };
 
 /**
