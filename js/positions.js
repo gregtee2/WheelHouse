@@ -3019,6 +3019,11 @@ window.runReconciliation = async function() {
             if (preferred) account = preferred;
         }
         
+        // Log which account we're using
+        console.log('[Reconcile] Using account:', account.accountNumber, 'hash:', account.hashValue);
+        console.log('[Reconcile] Preferred was:', preferredAccount);
+        console.log('[Reconcile] All accounts:', accountNumbers.map(a => a.accountNumber));
+        
         accountHash = account.hashValue;
         if (!accountHash) {
             throw new Error('Could not get account hash from Schwab.');
@@ -3032,6 +3037,7 @@ window.runReconciliation = async function() {
         }
         
         const transactions = await response.json();
+        console.log('[Reconcile] Raw transactions count:', transactions?.length || 0);
         console.log('[Reconcile] Raw transactions:', transactions);
         
         // Filter to option trades only
@@ -3040,7 +3046,7 @@ window.runReconciliation = async function() {
             return inst?.assetType === 'OPTION';
         });
         
-        console.log('[Reconcile] Option trades:', optionTrades.length);
+        console.log('[Reconcile] Option trades after filter:', optionTrades.length);
         
         // Group transactions by underlying symbol
         const bySymbol = {};
@@ -3149,8 +3155,11 @@ window.runReconciliation = async function() {
             }
         });
         
-        // Render results
-        renderReconcileResults(results, optionTrades.length, days);
+        // Render results with account info
+        renderReconcileResults(results, optionTrades.length, days, {
+            accountNumber: account.accountNumber,
+            rawTransactionCount: transactions?.length || 0
+        });
         
     } catch (e) {
         console.error('[Reconcile] Error:', e);
@@ -3169,7 +3178,7 @@ window.runReconciliation = async function() {
 /**
  * Render reconciliation results
  */
-function renderReconcileResults(results, totalTrades, days) {
+function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
     const resultsDiv = document.getElementById('reconcileResults');
     
     const matchCount = results.matched.length;
@@ -3284,10 +3293,13 @@ function renderReconcileResults(results, totalTrades, days) {
         html += `</ul>`;
     }
     
-    // Summary footer
+    // Summary footer with account info
+    const acctDisplay = accountInfo.accountNumber ? `...${accountInfo.accountNumber.slice(-4)}` : 'Unknown';
+    const rawCount = accountInfo.rawTransactionCount || 0;
     html += `
         <div style="margin-top:20px; padding:15px; background:#0d0d1a; border-radius:8px; font-size:11px; color:#666;">
             📊 Analyzed ${totalTrades} option trades from Schwab over the last ${days} days.<br>
+            🏦 Account queried: <span style="color:#00d9ff;">${acctDisplay}</span> (${rawCount} total transactions, ${totalTrades} were options)<br>
             Last reconciled: ${new Date().toLocaleString()}
         </div>
     `;
