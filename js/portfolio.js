@@ -3150,9 +3150,26 @@ function setGreeksDisplay(greeks) {
 
 /**
  * Calculate and display advanced analytics
+ * Filters by the selected year (same as Closed Positions table)
  */
 export function updateAdvancedAnalytics() {
-    const closed = state.closedPositions || [];
+    const allClosed = state.closedPositions || [];
+    const yearFilter = state.closedYearFilter || new Date().getFullYear().toString();
+    
+    // Filter by year (same logic as Closed Positions table)
+    const closed = yearFilter === 'all' 
+        ? allClosed 
+        : allClosed.filter(p => {
+            const closeDate = p.closeDate || '';
+            return closeDate.startsWith(yearFilter);
+        });
+    
+    // Update label to show which year
+    const labelEl = document.getElementById('analyticsYearLabel');
+    if (labelEl) {
+        labelEl.textContent = yearFilter === 'all' ? '(All Time)' : `(${yearFilter})`;
+    }
+    
     if (closed.length < 3) {
         setAnalyticsDefaults();
         return;
@@ -3214,15 +3231,31 @@ export function updateAdvancedAnalytics() {
         kellyEl.style.color = kellyPercent > 0 ? '#00d9ff' : '#ff5252';
     }
     
-    // Half Kelly with buying power context
+    // Half Kelly with conservative margin usage
+    // Formula: Kelly Base = Account Value + (25% × Available Margin)
+    // This uses margin sparingly while acknowledging it exists as a tool
     const halfKellyEl = document.getElementById('portHalfKelly');
     if (halfKellyEl) {
         const buyingPower = parseFloat(document.getElementById('balBuyingPower')?.textContent?.replace(/[^0-9.]/g, '')) || 0;
-        if (buyingPower > 0 && halfKelly > 0) {
-            const suggestedSize = (buyingPower * halfKelly / 100).toFixed(0);
-            halfKellyEl.textContent = `${halfKelly.toFixed(1)}% = $${suggestedSize}`;
+        const accountValue = parseFloat(document.getElementById('balAccountValue')?.textContent?.replace(/[^0-9.]/g, '')) || 0;
+        
+        // Calculate conservative Kelly Base
+        let kellyBase = 0;
+        if (accountValue > 0) {
+            // Account Value + 25% of available margin
+            const availableMargin = Math.max(0, buyingPower - accountValue);
+            kellyBase = accountValue + (availableMargin * 0.25);
+        } else if (buyingPower > 0) {
+            // Fallback: estimate account value as BP / 2
+            kellyBase = buyingPower * 0.625; // 50% + 25% of remaining 50%
+        }
+        
+        if (kellyBase > 0 && halfKelly > 0) {
+            const suggestedSize = (kellyBase * halfKelly / 100).toFixed(0);
+            halfKellyEl.textContent = `${halfKelly.toFixed(1)}% = $${Number(suggestedSize).toLocaleString()}`;
+            halfKellyEl.title = `Based on Account Value ($${accountValue.toLocaleString()}) + 25% of available margin`;
         } else {
-            halfKellyEl.textContent = halfKelly.toFixed(1) + '% of BP';
+            halfKellyEl.textContent = halfKelly.toFixed(1) + '% of account';
         }
     }
 }

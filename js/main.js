@@ -2150,10 +2150,14 @@ window.renderPendingTrades = function() {
                     </tr>
                 </thead>
                 <tbody>
-                    ${pendingWithCalcs.map(p => `
+                    ${pendingWithCalcs.map(p => {
+                        const optionType = p.isCall ? 'C' : 'P';
+                        const typeColor = p.isCall ? '#ffaa00' : '#00d9ff';
+                        const rollBadge = p.isRoll ? '<span style="background:#8b5cf6;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">ROLL</span>' : '';
+                        return `
                         <tr style="border-top:1px solid #333;">
-                            <td style="padding:8px; color:#00ff88; font-weight:bold;">${p.ticker}</td>
-                            <td style="padding:8px; color:#ffaa00;">$${p.strike}</td>
+                            <td style="padding:8px; color:#00ff88; font-weight:bold;">${p.ticker}${rollBadge}</td>
+                            <td style="padding:8px; color:${typeColor};">$${p.strike}<span style="color:#888;font-size:10px;">${optionType}</span></td>
                             <td style="padding:8px;">${p.expiry}</td>
                             <td style="padding:8px; color:#888;">${p.dte ?? '-'}</td>
                             <td style="padding:8px; color:#00d9ff;">${p.credit ? '$' + p.credit.toFixed(0) : '-'}</td>
@@ -2184,7 +2188,7 @@ window.renderPendingTrades = function() {
                                 </div>
                             </td>
                         </tr>
-                    `).join('')}
+                    `}).join('')}
                 </tbody>
             </table>
         </div>

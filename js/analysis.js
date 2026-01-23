@@ -921,11 +921,24 @@ export async function suggestOptimalRoll() {
         const ivDisplay = c.iv ? `IV${(c.iv * 100).toFixed(0)}%` : '';
         const greeksLine = [deltaDisplay, ivDisplay].filter(Boolean).join(' ');
         
+        // Prepare stage button data
+        const stageData = JSON.stringify({
+            ticker,
+            strike: c.strike,
+            expiry: c.expiration,
+            premium: c.newBidPerShare,
+            currentPrice: spot,
+            delta: c.delta,
+            iv: c.iv,
+            isCall: c.isCall
+        }).replace(/"/g, '&quot;');
+        
         return `
-            <div style="padding:6px 8px; background:rgba(0,0,0,0.4); border-radius:4px; cursor:pointer; border:1px solid rgba(255,255,255,0.1);" 
-                 onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}', ${totalRollNet})"
-                 onmouseover="this.style.borderColor='rgba(0,217,255,0.5)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.1)'">
-                <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+            <div style="padding:6px 8px; background:rgba(0,0,0,0.4); border-radius:4px; border:1px solid rgba(255,255,255,0.1);">
+                <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; cursor:pointer;"
+                     onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}', ${totalRollNet})"
+                     onmouseover="this.parentElement.style.borderColor='rgba(0,217,255,0.5)'" 
+                     onmouseout="this.parentElement.style.borderColor='rgba(255,255,255,0.1)'">
                     <span>${emoji} <b>$${c.strike.toFixed(0)}</b></span>
                     <span style="color:${riskColor}; font-size:11px;">${riskIcon}${Math.abs(c.riskChange).toFixed(0)}%</span>
                 </div>
@@ -933,6 +946,12 @@ export async function suggestOptimalRoll() {
                     ${expFormatted} · ${netDisplay}
                 </div>
                 ${greeksLine ? `<div style="font-size:10px; color:#8b5cf6; margin-top:2px;">${greeksLine}</div>` : ''}
+                <button onclick="event.stopPropagation(); window.stageRollSuggestion(${stageData})" 
+                    style="margin-top:5px; width:100%; padding:4px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); 
+                           color:#00d9ff; border-radius:3px; cursor:pointer; font-size:10px;"
+                    title="Stage this roll to Ideas tab">
+                    📥 Stage to Ideas
+                </button>
             </div>
         `;
     };
@@ -1001,6 +1020,50 @@ window.applyRollSuggestion = function(strike, dte, expiration, totalCredit) {
     // Trigger calculation
     const rollBtn = document.getElementById('rollBtn');
     if (rollBtn) rollBtn.click();
+};
+
+/**
+ * Stage a roll suggestion to the Ideas tab
+ * Called from roll suggestions grid
+ */
+window.stageRollSuggestion = function(data) {
+    const { ticker, strike, expiry, premium, currentPrice, delta, iv, isCall } = data;
+    
+    // Load existing pending trades
+    let pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+    
+    // Check for duplicates
+    const exists = pending.find(p => p.ticker === ticker && p.strike === strike && p.expiry === expiry);
+    if (exists) {
+        showNotification(`${ticker} $${strike} already staged`, 'info');
+        return;
+    }
+    
+    // Create pending trade
+    const trade = {
+        id: Date.now(),
+        ticker,
+        strike: parseFloat(strike),
+        expiry,
+        currentPrice: parseFloat(currentPrice) || 0,
+        premium: parseFloat(premium) || 0,
+        delta: parseFloat(delta) || null,
+        iv: parseFloat(iv) || null,
+        isCall: isCall || false,
+        isRoll: true,  // Flag that this came from roll suggestions
+        stagedAt: new Date().toISOString()
+    };
+    
+    pending.push(trade);
+    localStorage.setItem('wheelhouse_pending', JSON.stringify(pending));
+    
+    const optionType = isCall ? 'call' : 'put';
+    showNotification(`📥 Staged Roll: ${ticker} $${strike} ${optionType}, ${expiry}`, 'success');
+    
+    // Re-render pending trades
+    if (typeof window.renderPendingTrades === 'function') {
+        window.renderPendingTrades();
+    }
 };
 
 /**
