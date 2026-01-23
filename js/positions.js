@@ -3167,9 +3167,37 @@ window.runReconciliation = async function() {
             });
             
             if (matchingPos) {
-                // Check for discrepancies
-                const whPremium = matchingPos.premium * 100 * matchingPos.contracts;
-                const premiumDiff = Math.abs(whPremium - schwabPremium);
+                // For OPENING trades, compare to WH opening premium
+                // For CLOSING trades, compare to WH closePrice (if position is closed)
+                const isClosingTrade = positionEffect === 'CLOSING';
+                
+                let whValue, comparisonType;
+                if (isClosingTrade) {
+                    // Closing trade - compare to closePrice if position is closed
+                    if (matchingPos.status === 'closed' && matchingPos.closePrice != null) {
+                        whValue = matchingPos.closePrice * 100 * matchingPos.contracts;
+                        comparisonType = 'close';
+                    } else {
+                        // Position still open in WH but Schwab shows it closed - that's a matched close
+                        results.matched.push({
+                            ticker: underlying,
+                            strike,
+                            expiry,
+                            type: putCall,
+                            positionEffect,
+                            schwabPremium,
+                            note: 'Closing trade - position may need to be closed in WH',
+                            position: matchingPos
+                        });
+                        return; // Skip further processing
+                    }
+                } else {
+                    // Opening trade - compare to WH opening premium
+                    whValue = matchingPos.premium * 100 * matchingPos.contracts;
+                    comparisonType = 'open';
+                }
+                
+                const premiumDiff = Math.abs(whValue - schwabPremium);
                 
                 if (premiumDiff > 5) { // More than $5 difference (allows for rounding)
                     results.discrepancies.push({
@@ -3179,9 +3207,10 @@ window.runReconciliation = async function() {
                         type: putCall,
                         tradeDate,
                         positionEffect,
+                        comparisonType, // 'open' or 'close'
                         schwabPremium,
-                        whPremium,
-                        diff: schwabPremium - whPremium,
+                        whPremium: whValue,
+                        diff: schwabPremium - whValue,
                         position: matchingPos,
                         transaction: t
                     });
@@ -3306,21 +3335,22 @@ function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
     // Show discrepancies
     if (discrepCount > 0) {
         html += `<h3 style="color:#ff5252; margin:20px 0 10px;">⚠️ Premium Discrepancies</h3>`;
-        html += `<div style="font-size:11px; color:#888; margin-bottom:10px;">These trades matched by ticker/strike/expiry but the premium differs by more than $5.</div>`;
+        html += `<div style="font-size:11px; color:#888; margin-bottom:10px;">These trades matched by ticker/strike/expiry but the value differs by more than $5. Comparing: OPEN trades → WH opening premium, CLOSE trades → WH close price.</div>`;
         html += `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12px;">
             <tr style="background:#1a1a2e;">
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Ticker</th>
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Strike</th>
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Expiry</th>
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Action</th>
-                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Schwab $</th>
-                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">WheelHouse $</th>
+                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Schwab</th>
+                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">WH (${`open/close`})</th>
                 <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Diff</th>
             </tr>`;
         results.discrepancies.forEach(d => {
             const diffColor = d.diff > 0 ? '#00ff88' : '#ff5252';
             const actionLabel = d.positionEffect === 'OPENING' ? '🟢 OPEN' : 
                                 d.positionEffect === 'CLOSING' ? '🔴 CLOSE' : '⚪ ???';
+            const whLabel = d.comparisonType === 'close' ? 'close' : 'open';
             html += `
                 <tr style="border-bottom:1px solid #222;">
                     <td style="padding:8px; color:#00d9ff; font-weight:bold;">${d.ticker}</td>
@@ -3328,7 +3358,7 @@ function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
                     <td style="padding:8px;">${d.expiry}</td>
                     <td style="padding:8px; font-size:10px;">${actionLabel}</td>
                     <td style="padding:8px; text-align:right;">$${d.schwabPremium.toFixed(2)}</td>
-                    <td style="padding:8px; text-align:right;">$${d.whPremium.toFixed(2)}</td>
+                    <td style="padding:8px; text-align:right;">$${d.whPremium.toFixed(2)} <span style="font-size:9px;color:#888;">(${whLabel})</span></td>
                     <td style="padding:8px; text-align:right; color:${diffColor};">${d.diff > 0 ? '+' : ''}$${d.diff.toFixed(2)}</td>
                 </tr>
             `;
