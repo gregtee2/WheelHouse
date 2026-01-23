@@ -2952,6 +2952,12 @@ window.showReconcileModal = async function() {
             <div style="margin-bottom:20px; padding:15px; background:rgba(0,217,255,0.1); border-radius:8px;">
                 <div style="display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
                     <div>
+                        <label style="color:#888; font-size:11px;">Account:</label><br>
+                        <select id="reconcileAccount" style="padding:8px; background:#0d0d1a; color:#fff; border:1px solid #333; border-radius:4px; min-width:200px;">
+                            <option value="">Loading accounts...</option>
+                        </select>
+                    </div>
+                    <div>
                         <label style="color:#888; font-size:11px;">Date Range:</label><br>
                         <select id="reconcileDays" style="padding:8px; background:#0d0d1a; color:#fff; border:1px solid #333; border-radius:4px;">
                             <option value="7">Last 7 days</option>
@@ -2971,14 +2977,73 @@ window.showReconcileModal = async function() {
             
             <div id="reconcileResults" style="color:#ddd;">
                 <div style="text-align:center; padding:40px; color:#666;">
-                    Click "Fetch & Compare" to pull transactions from Schwab and compare with your WheelHouse data.
+                    Select an account and click "Fetch & Compare" to pull transactions from Schwab and compare with your WheelHouse data.
                 </div>
             </div>
         </div>
     `;
     
     document.body.appendChild(modal);
+    
+    // Load accounts into dropdown
+    await loadReconcileAccounts();
 };
+
+/**
+ * Load Schwab accounts into the reconcile dropdown
+ */
+async function loadReconcileAccounts() {
+    const select = document.getElementById('reconcileAccount');
+    if (!select) return;
+    
+    try {
+        // Fetch account numbers (has hashValue) and full accounts (has type/balance)
+        const [numbersRes, accountsRes] = await Promise.all([
+            fetch('/api/schwab/accounts/numbers'),
+            fetch('/api/schwab/accounts')
+        ]);
+        
+        if (!numbersRes.ok || !accountsRes.ok) {
+            select.innerHTML = '<option value="">Schwab not connected</option>';
+            return;
+        }
+        
+        const numbers = await numbersRes.json();
+        const accounts = await accountsRes.json();
+        
+        if (!numbers || numbers.length === 0) {
+            select.innerHTML = '<option value="">No accounts found</option>';
+            return;
+        }
+        
+        // Build options with account type and last 4 digits
+        select.innerHTML = '';
+        numbers.forEach((num, idx) => {
+            const fullAcct = accounts.find(a => a.securitiesAccount?.accountNumber === num.accountNumber);
+            const type = fullAcct?.securitiesAccount?.type || 'Unknown';
+            const lastFour = num.accountNumber.slice(-4);
+            
+            const option = document.createElement('option');
+            option.value = num.hashValue;
+            option.textContent = `${type} ...${lastFour}`;
+            option.dataset.accountNumber = num.accountNumber;
+            
+            // Pre-select the preferred account or first margin account
+            const preferredAccount = localStorage.getItem('wheelhouse_preferred_account');
+            if (preferredAccount && num.accountNumber === preferredAccount) {
+                option.selected = true;
+            } else if (!preferredAccount && type === 'MARGIN' && !select.value) {
+                option.selected = true;
+            }
+            
+            select.appendChild(option);
+        });
+        
+    } catch (e) {
+        console.error('[Reconcile] Failed to load accounts:', e);
+        select.innerHTML = '<option value="">Error loading accounts</option>';
+    }
+}
 
 /**
  * Run the reconciliation - fetch Schwab transactions and compare
@@ -2997,37 +3062,18 @@ window.runReconciliation = async function() {
         const endDate = new Date();
         const startDate = new Date(endDate - days * 24 * 60 * 60 * 1000);
         
-        // Get account hash - use the /accounts/numbers endpoint (returns hashValue)
-        let accountHash = null;
-        const preferredAccount = localStorage.getItem('wheelhouse_preferred_account');
+        // Get account hash from dropdown selection
+        const accountSelect = document.getElementById('reconcileAccount');
+        const accountHash = accountSelect?.value;
+        const selectedOption = accountSelect?.selectedOptions[0];
+        const accountNumber = selectedOption?.dataset?.accountNumber || 'Unknown';
         
-        // Fetch account numbers (this returns hashValue)
-        const numbersRes = await fetch('/api/schwab/accounts/numbers');
-        if (!numbersRes.ok) {
-            throw new Error('Schwab not connected. Go to Settings → Schwab to connect.');
-        }
-        
-        const accountNumbers = await numbersRes.json();
-        if (!accountNumbers || accountNumbers.length === 0) {
-            throw new Error('No Schwab accounts found. Go to Settings → Schwab to connect.');
-        }
-        
-        // Find the preferred account or use first one
-        let account = accountNumbers[0];
-        if (preferredAccount) {
-            const preferred = accountNumbers.find(a => a.accountNumber === preferredAccount);
-            if (preferred) account = preferred;
+        if (!accountHash) {
+            throw new Error('Please select an account to reconcile.');
         }
         
         // Log which account we're using
-        console.log('[Reconcile] Using account:', account.accountNumber, 'hash:', account.hashValue);
-        console.log('[Reconcile] Preferred was:', preferredAccount);
-        console.log('[Reconcile] All accounts:', accountNumbers.map(a => a.accountNumber));
-        
-        accountHash = account.hashValue;
-        if (!accountHash) {
-            throw new Error('Could not get account hash from Schwab.');
-        }
+        console.log('[Reconcile] Using account:', accountNumber, 'hash:', accountHash);
         
         const response = await fetch(`/api/schwab/accounts/${accountHash}/transactions?types=TRADE&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`);
         
@@ -3157,7 +3203,7 @@ window.runReconciliation = async function() {
         
         // Render results with account info
         renderReconcileResults(results, optionTrades.length, days, {
-            accountNumber: account.accountNumber,
+            accountNumber: accountNumber,
             rawTransactionCount: transactions?.length || 0
         });
         
