@@ -1212,23 +1212,48 @@ export function renderHoldings() {
         const shares = h.shares || 100;
         const totalCost = h.totalCost || (costBasis * shares);
         
-        // Try to find linked position for strike/premium if missing
+        // Find the CURRENT open position in the chain (not the original which may be closed)
         let strike = h.strike;
         let premiumTotal = h.premiumCredit || 0;
+        let currentOpenPosition = null;
         
         if (isBuyWrite && h.linkedPositionId) {
-            const linkedPos = state.positions.find(p => p.id === h.linkedPositionId);
-            if (linkedPos) {
-                strike = strike || linkedPos.strike;
-                if (!premiumTotal && linkedPos.premium) {
-                    premiumTotal = linkedPos.premium * 100 * (linkedPos.contracts || 1);
+            // First try to find the original linked position to get the chainId
+            const allPositions = [...(state.positions || []), ...(state.closedPositions || [])];
+            const originalPos = allPositions.find(p => p.id === h.linkedPositionId);
+            
+            if (originalPos) {
+                const chainId = originalPos.chainId || originalPos.id;
+                
+                // Find the CURRENT open position in this chain
+                currentOpenPosition = state.positions.find(p => 
+                    p.chainId === chainId || p.id === chainId
+                );
+                
+                if (currentOpenPosition) {
+                    // Use the CURRENT position's strike (after rolls)
+                    strike = currentOpenPosition.strike;
+                    
+                    // Calculate total premium from entire chain (all premiums - all buybacks)
+                    const chainPositions = allPositions.filter(p => 
+                        p.chainId === chainId || p.id === chainId
+                    );
+                    let totalPremiumCollected = 0;
+                    let totalBuybackCost = 0;
+                    chainPositions.forEach(p => {
+                        totalPremiumCollected += (p.premium || 0) * 100 * (p.contracts || 1);
+                        if (p.closePrice && p.closeReason === 'rolled') {
+                            totalBuybackCost += p.closePrice * 100 * (p.contracts || 1);
+                        }
+                    });
+                    premiumTotal = totalPremiumCollected - totalBuybackCost;
                 }
             }
         }
         
-        // Calculate max profit if called away
-        let maxProfit = h.maxProfit || 0;
-        if (!maxProfit && strike && costBasis) {
+        // Calculate max profit if called away (always recalculate for chains)
+        let maxProfit = 0;
+        if (strike && costBasis) {
             const gainOnShares = Math.max(0, (strike - costBasis) * shares);
             maxProfit = gainOnShares + premiumTotal;
         }
