@@ -454,6 +454,49 @@ Examples:
                         <div id="marginVerdict" style="margin-top:8px; padding:6px 8px; border-radius:4px; font-size:11px; text-align:center;"></div>
                         <div id="marginCoveredNote" style="display:none; margin-top:6px; font-size:10px; color:#888; text-align:center;">💡 Covered calls don't require margin if you own the shares</div>
                     </div>
+                    
+                    <!-- What-If Scenario Calculator -->
+                    <div class="results-box" id="whatIfBox" style="background:rgba(0,217,255,0.08); border:1px solid rgba(0,217,255,0.3);">
+                        <h3 style="font-size:12px; color:#00d9ff;">🎯 What-If Scenario</h3>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+                            <div>
+                                <label style="font-size:10px; color:#888;">Target Price</label>
+                                <input type="number" id="whatIfPrice" step="0.01" placeholder="$50.00" 
+                                    style="width:100%; padding:6px; background:rgba(0,217,255,0.1); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; font-size:12px;">
+                            </div>
+                            <div>
+                                <label style="font-size:10px; color:#888;">Target Date</label>
+                                <input type="date" id="whatIfDate" 
+                                    style="width:100%; padding:6px; background:rgba(0,217,255,0.1); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; font-size:12px;">
+                            </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px;">
+                            <div>
+                                <label style="font-size:10px; color:#888;">IV Assumption</label>
+                                <input type="number" id="whatIfIV" step="1" placeholder="49" 
+                                    style="width:100%; padding:6px; background:rgba(0,217,255,0.1); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; font-size:12px;">
+                            </div>
+                            <div style="display:flex; align-items:flex-end;">
+                                <button onclick="window.calculateWhatIf()" 
+                                    style="width:100%; padding:8px; background:#00d9ff; border:none; border-radius:4px; color:#000; font-weight:bold; cursor:pointer; font-size:11px;">
+                                    ▶ Calculate
+                                </button>
+                            </div>
+                        </div>
+                        <div id="whatIfResults" style="display:none; border-top:1px solid rgba(0,217,255,0.2); padding-top:8px; margin-top:4px;">
+                            <div class="metrics-grid" style="font-size:11px;">
+                                <div class="result-row"><span class="result-label">Projected Value:</span><span class="result-value" id="whatIfValue" style="color:#00ff88;">—</span></div>
+                                <div class="result-row"><span class="result-label">Current Value:</span><span class="result-value" id="whatIfCurrent">—</span></div>
+                                <div class="result-row"><span class="result-label">Gain/Loss:</span><span class="result-value" id="whatIfGain">—</span></div>
+                                <div class="result-row"><span class="result-label">Return:</span><span class="result-value" id="whatIfReturn">—</span></div>
+                            </div>
+                            <div style="border-top:1px dashed rgba(255,255,255,0.1); margin-top:6px; padding-top:6px; font-size:10px; color:#888;">
+                                <div style="display:flex; justify-content:space-between;"><span>Intrinsic:</span><span id="whatIfIntrinsic">—</span></div>
+                                <div style="display:flex; justify-content:space-between;"><span>Time Value:</span><span id="whatIfTimeValue">—</span></div>
+                                <div style="display:flex; justify-content:space-between;"><span>Remaining DTE:</span><span id="whatIfDTE">—</span></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

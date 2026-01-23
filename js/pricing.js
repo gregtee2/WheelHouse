@@ -229,3 +229,107 @@ export function getPositionType() {
         source: 'heuristic'
     };
 }
+
+/**
+ * What-If Scenario Calculator
+ * Projects option value at a target price and date using Black-Scholes
+ */
+export function calculateWhatIf() {
+    const targetPrice = parseFloat(document.getElementById('whatIfPrice')?.value);
+    const targetDateStr = document.getElementById('whatIfDate')?.value;
+    const targetIV = parseFloat(document.getElementById('whatIfIV')?.value) / 100 || state.optVol / 100;
+    
+    if (!targetPrice || !targetDateStr) {
+        alert('Please enter both target price and target date');
+        return;
+    }
+    
+    const targetDate = new Date(targetDateStr);
+    const today = new Date();
+    const expiryDate = state.currentPositionContext?.expiry ? new Date(state.currentPositionContext.expiry) : null;
+    
+    if (!expiryDate) {
+        // Fall back to DTE-based expiry
+        const expiry = new Date();
+        expiry.setDate(expiry.getDate() + state.dte);
+    }
+    
+    // Calculate new DTE from target date to expiry
+    const actualExpiry = expiryDate || (() => {
+        const e = new Date();
+        e.setDate(e.getDate() + state.dte);
+        return e;
+    })();
+    
+    const newDTE = Math.max(1, Math.ceil((actualExpiry - targetDate) / (1000 * 60 * 60 * 24)));
+    const T = newDTE / 365.25;
+    
+    // Determine if put or call
+    const posType = getPositionType();
+    const isPut = posType.isPut;
+    const isLong = posType.isLong;
+    
+    // Calculate projected option price using Black-Scholes
+    const r = 0.05; // Risk-free rate
+    const projectedValue = bsPrice(targetPrice, state.strike, T, r, targetIV, isPut);
+    
+    // Get current option value
+    const currentValueEl = isPut ? document.getElementById('putPrice') : document.getElementById('callPrice');
+    const currentValue = parseFloat(currentValueEl?.textContent?.replace('$', '') || '0') || 
+                         state.currentPositionContext?.premium || 0;
+    
+    // Calculate intrinsic and time value
+    const intrinsic = isPut ? 
+        Math.max(0, state.strike - targetPrice) : 
+        Math.max(0, targetPrice - state.strike);
+    const timeValue = Math.max(0, projectedValue - intrinsic);
+    
+    // Calculate gain/loss
+    const contracts = state.currentPositionContext?.contracts || 1;
+    const costBasis = state.currentPositionContext?.premium || currentValue;
+    
+    let gainLoss, returnPct;
+    if (isLong) {
+        // Long option: you paid premium, profit = new value - cost
+        gainLoss = (projectedValue - costBasis) * 100 * contracts;
+        returnPct = costBasis > 0 ? ((projectedValue - costBasis) / costBasis * 100) : 0;
+    } else {
+        // Short option: you received premium, profit = premium - close cost
+        gainLoss = (costBasis - projectedValue) * 100 * contracts;
+        returnPct = costBasis > 0 ? ((costBasis - projectedValue) / costBasis * 100) : 0;
+    }
+    
+    // Update UI
+    const resultsDiv = document.getElementById('whatIfResults');
+    if (resultsDiv) resultsDiv.style.display = 'block';
+    
+    const setEl = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+    
+    setEl('whatIfValue', `$${projectedValue.toFixed(2)}`);
+    setEl('whatIfCurrent', `$${currentValue.toFixed(2)}`);
+    
+    const gainEl = document.getElementById('whatIfGain');
+    if (gainEl) {
+        gainEl.textContent = `${gainLoss >= 0 ? '+' : ''}$${gainLoss.toFixed(0)}`;
+        gainEl.style.color = gainLoss >= 0 ? '#00ff88' : '#ff5252';
+    }
+    
+    const returnEl = document.getElementById('whatIfReturn');
+    if (returnEl) {
+        returnEl.textContent = `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%`;
+        returnEl.style.color = returnPct >= 0 ? '#00ff88' : '#ff5252';
+    }
+    
+    setEl('whatIfIntrinsic', `$${intrinsic.toFixed(2)}`);
+    setEl('whatIfTimeValue', `$${timeValue.toFixed(2)}`);
+    setEl('whatIfDTE', `${newDTE} days`);
+    
+    console.log(`[WHAT-IF] Target: $${targetPrice} by ${targetDateStr}, IV: ${(targetIV*100).toFixed(1)}%`);
+    console.log(`[WHAT-IF] Projected: $${projectedValue.toFixed(2)}, Current: $${currentValue.toFixed(2)}, Gain: $${gainLoss.toFixed(0)}`);
+}
+
+// Expose to window for HTML onclick
+window.calculateWhatIf = calculateWhatIf;

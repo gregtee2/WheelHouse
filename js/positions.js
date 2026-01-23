@@ -399,6 +399,12 @@ window.showRollHistory = function(chainId) {
             strikeDisplay = `$${pos.strike}`;
         }
         
+        // Check if this position is in closedPositions list
+        const isInClosedList = (state.closedPositions || []).some(p => p.id === pos.id);
+        
+        // Show fix button if: middle position in chain that should be closed but missing closePrice
+        const needsFix = idx < chainPositions.length - 1 && (!pos.closePrice || pos.status !== 'closed');
+        
         timelineHtml += `
             <div style="display:flex; align-items:flex-start; gap:15px; padding:15px 0; 
                         ${idx < chainPositions.length - 1 ? 'border-bottom:1px solid #333;' : ''}">
@@ -416,10 +422,15 @@ window.showRollHistory = function(chainId) {
                         <span style="color:${colors.text}; font-weight:bold;">
                             ${idx === 0 ? '🎬 Original' : '🔄 Roll #' + idx}
                         </span>
-                        <span style="color:${statusColor}; font-size:11px; padding:2px 8px; 
-                                     background:${statusColor}22; border-radius:10px;">
-                            ${statusText}
-                        </span>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            ${needsFix ? `<button onclick="window.fixRollCloseData(${pos.id}, ${isInClosedList})" 
+                                style="background:#ff9800; color:#000; border:none; padding:2px 8px; border-radius:4px; 
+                                       cursor:pointer; font-size:10px; font-weight:bold;">🔧 Fix</button>` : ''}
+                            <span style="color:${statusColor}; font-size:11px; padding:2px 8px; 
+                                         background:${statusColor}22; border-radius:10px;">
+                                ${statusText}
+                            </span>
+                        </div>
                     </div>
                     <div style="color:#aaa; font-size:13px;">
                         <span style="color:${colors.muted};">${pos.type?.replace(/_/g, ' ').toUpperCase() || 'PUT'}</span>
@@ -488,6 +499,144 @@ window.showRollHistory = function(chainId) {
     `;
     
     document.body.appendChild(modal);
+};
+
+/**
+ * Fix broken roll data - allows adding closePrice and status to positions
+ * that were rolled but didn't get proper close data saved
+ */
+window.fixRollCloseData = function(positionId, inClosedList) {
+    // Find the position
+    const sourceList = inClosedList ? state.closedPositions : state.positions;
+    const pos = sourceList.find(p => p.id === positionId);
+    if (!pos) {
+        showNotification('Position not found', 'error');
+        return;
+    }
+    
+    const modal = document.createElement('div');
+    modal.id = 'fixRollModal';
+    modal.style.cssText = `
+        position:fixed; top:0; left:0; right:0; bottom:0; 
+        background:rgba(0,0,0,0.85); display:flex; align-items:center; 
+        justify-content:center; z-index:10001;
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    const currentClosePrice = pos.closePrice || pos.closingPrice || '';
+    const currentStatus = pos.status || 'open';
+    const currentCloseDate = pos.closeDate || '';
+    const currentCloseReason = pos.closeReason || '';
+    
+    modal.innerHTML = `
+        <div style="background:${colors.bgPrimary}; border:1px solid #ff9800; border-radius:12px; padding:25px; width:90%; max-width:400px;">
+            <h3 style="margin:0 0 20px 0; color:#ff9800;">🔧 Fix Roll Close Data</h3>
+            <div style="color:#aaa; font-size:12px; margin-bottom:15px;">
+                <strong>${pos.ticker}</strong> $${pos.strike} - ${pos.expiry}
+            </div>
+            
+            <div style="margin-bottom:15px;">
+                <label style="color:#aaa; font-size:12px; display:block; margin-bottom:5px;">Status</label>
+                <select id="fixStatus" style="width:100%; padding:10px; background:#1a1a2e; color:white; border:1px solid #333; border-radius:6px;">
+                    <option value="open" ${currentStatus === 'open' ? 'selected' : ''}>Open</option>
+                    <option value="closed" ${currentStatus === 'closed' ? 'selected' : ''}>Closed</option>
+                </select>
+            </div>
+            
+            <div style="margin-bottom:15px;">
+                <label style="color:#aaa; font-size:12px; display:block; margin-bottom:5px;">Close Reason</label>
+                <select id="fixCloseReason" style="width:100%; padding:10px; background:#1a1a2e; color:white; border:1px solid #333; border-radius:6px;">
+                    <option value="" ${!currentCloseReason ? 'selected' : ''}>Not Closed</option>
+                    <option value="rolled" ${currentCloseReason === 'rolled' ? 'selected' : ''}>Rolled</option>
+                    <option value="expired" ${currentCloseReason === 'expired' ? 'selected' : ''}>Expired</option>
+                    <option value="assigned" ${currentCloseReason === 'assigned' ? 'selected' : ''}>Assigned</option>
+                    <option value="called" ${currentCloseReason === 'called' ? 'selected' : ''}>Called Away</option>
+                    <option value="closed" ${currentCloseReason === 'closed' ? 'selected' : ''}>Closed Early</option>
+                </select>
+            </div>
+            
+            <div style="margin-bottom:15px;">
+                <label style="color:#aaa; font-size:12px; display:block; margin-bottom:5px;">Close/Buyback Price (per share)</label>
+                <input type="number" id="fixClosePrice" step="0.01" value="${currentClosePrice}" 
+                       style="width:100%; padding:10px; background:#1a1a2e; color:white; border:1px solid #333; border-radius:6px;" 
+                       placeholder="0.00">
+            </div>
+            
+            <div style="margin-bottom:20px;">
+                <label style="color:#aaa; font-size:12px; display:block; margin-bottom:5px;">Close Date</label>
+                <input type="date" id="fixCloseDate" value="${currentCloseDate}" 
+                       style="width:100%; padding:10px; background:#1a1a2e; color:white; border:1px solid #333; border-radius:6px;">
+            </div>
+            
+            <div style="display:flex; gap:10px;">
+                <button onclick="window.applyRollFix(${positionId}, ${inClosedList})" 
+                        style="flex:1; padding:12px; background:linear-gradient(135deg, #ff9800 0%, #ff5722 100%); color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">
+                    Apply Fix
+                </button>
+                <button onclick="document.getElementById('fixRollModal').remove()" 
+                        style="flex:1; padding:12px; background:#333; color:white; border:none; border-radius:6px; cursor:pointer;">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+};
+
+/**
+ * Apply the roll fix
+ */
+window.applyRollFix = function(positionId, inClosedList) {
+    const status = document.getElementById('fixStatus').value;
+    const closeReason = document.getElementById('fixCloseReason').value;
+    const closePrice = parseFloat(document.getElementById('fixClosePrice').value) || 0;
+    const closeDate = document.getElementById('fixCloseDate').value;
+    
+    const sourceList = inClosedList ? state.closedPositions : state.positions;
+    const pos = sourceList.find(p => p.id === positionId);
+    if (!pos) {
+        showNotification('Position not found', 'error');
+        return;
+    }
+    
+    // If changing from open to closed, we need to MOVE between lists
+    const wasOpen = (pos.status === 'open' || !pos.status) && !inClosedList;
+    const isNowClosed = status === 'closed';
+    
+    // Update the position fields
+    pos.status = status;
+    pos.closePrice = closePrice > 0 ? closePrice : undefined;
+    if (pos.closingPrice) delete pos.closingPrice;  // Remove old field name
+    pos.closeReason = closeReason || undefined;
+    pos.closeDate = closeDate || undefined;
+    
+    // Calculate realized P&L if being closed
+    if (isNowClosed && closePrice >= 0) {
+        pos.realizedPnL = calculateRealizedPnL(pos, closePrice);
+    }
+    
+    // Move between lists if needed
+    if (wasOpen && isNowClosed) {
+        // Move from positions to closedPositions
+        state.positions = state.positions.filter(p => p.id !== positionId);
+        if (!state.closedPositions) state.closedPositions = [];
+        state.closedPositions.push(pos);
+        savePositionsToStorage();
+        saveClosedToStorage();
+    } else {
+        // Just save the appropriate list
+        if (inClosedList) {
+            saveClosedToStorage();
+        } else {
+            savePositionsToStorage();
+        }
+    }
+    
+    document.getElementById('fixRollModal').remove();
+    document.getElementById('rollHistoryModal')?.remove();
+    
+    showNotification('Roll data fixed! Refresh roll history to see changes.', 'success');
+    renderPositions();
 };
 
 /**
@@ -1548,9 +1697,11 @@ export function executeRoll() {
     if (!state.closedPositions) state.closedPositions = [];
     state.closedPositions.push({
         ...pos,
+        status: 'closed',
         closeDate: today,
         daysHeld,
-        closingPrice,
+        closePrice: closingPrice,  // Use closePrice (not closingPrice) for consistency
+        closeReason: 'rolled',
         realizedPnL,
         chainId: pos.chainId || pos.id, // Preserve chain ID
         rolledTo: `$${newStrike.toFixed(0)} exp ${newExpiry}`
@@ -2013,6 +2164,20 @@ export function loadPositionToAnalyze(id) {
     
     // Fetch current price (this will update spot and recalculate barriers)
     fetchPositionTickerPrice(pos.ticker);
+    
+    // Pre-populate What-If Scenario calculator
+    const whatIfDate = document.getElementById('whatIfDate');
+    const whatIfIV = document.getElementById('whatIfIV');
+    if (whatIfDate) {
+        // Default to 30 days from now
+        const defaultDate = new Date();
+        defaultDate.setDate(defaultDate.getDate() + 30);
+        whatIfDate.value = defaultDate.toISOString().split('T')[0];
+    }
+    if (whatIfIV) {
+        // Use current IV if available (will be updated when price fetches)
+        whatIfIV.value = Math.round(state.optVol || 30);
+    }
     
     // Switch to Analyze tab → Pricing sub-tab
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
