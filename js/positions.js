@@ -3099,18 +3099,31 @@ window.runReconciliation = async function() {
         }
         
         // Filter to option trades only
-        const optionTrades = (transactions || []).filter(t => {
-            const inst = t.transactionItem?.instrument;
-            return inst?.assetType === 'OPTION';
-        });
+        // Schwab API stores option data in transferItems array, not transactionItem
+        const optionTrades = (transactions || []).map(t => {
+            // Find the OPTION item in transferItems
+            const optionItem = (t.transferItems || []).find(item => 
+                item.instrument?.assetType === 'OPTION'
+            );
+            if (!optionItem) return null;
+            
+            // Return transaction with extracted option data for easy access
+            return {
+                ...t,
+                _optionItem: optionItem,
+                _inst: optionItem.instrument
+            };
+        }).filter(t => t !== null);
         
         console.log('[Reconcile] Option trades after filter:', optionTrades.length);
+        if (optionTrades.length > 0) {
+            console.log('[Reconcile] First option trade instrument:', optionTrades[0]._inst);
+        }
         
         // Group transactions by underlying symbol
         const bySymbol = {};
         optionTrades.forEach(t => {
-            const inst = t.transactionItem?.instrument;
-            const underlying = inst?.underlyingSymbol || 'UNKNOWN';
+            const underlying = t._inst?.underlyingSymbol || 'UNKNOWN';
             if (!bySymbol[underlying]) bySymbol[underlying] = [];
             bySymbol[underlying].push(t);
         });
@@ -3128,14 +3141,14 @@ window.runReconciliation = async function() {
         
         // Check each Schwab transaction
         optionTrades.forEach(t => {
-            const inst = t.transactionItem?.instrument;
+            const inst = t._inst;
             const underlying = inst?.underlyingSymbol;
-            const strike = parseFloat(inst?.optionStrikePrice || 0);
+            const strike = parseFloat(inst?.strikePrice || 0);
             const putCall = inst?.putCall; // PUT or CALL
-            const expiry = inst?.optionExpirationDate?.split('T')[0]; // YYYY-MM-DD
+            const expiry = inst?.expirationDate?.split('T')[0]; // YYYY-MM-DD
             const netAmount = t.netAmount || 0; // Positive = credit, Negative = debit
-            const qty = Math.abs(t.transactionItem?.amount || 0);
-            const price = Math.abs(t.transactionItem?.price || 0);
+            const qty = Math.abs(t._optionItem?.amount || 0);
+            const price = Math.abs(t._optionItem?.price || 0);
             const tradeDate = t.tradeDate?.split('T')[0];
             const description = t.description || '';
             const isOpen = description.includes('SELL TO OPEN') || description.includes('BUY TO OPEN');
