@@ -1267,9 +1267,55 @@ export async function suggestOptimalRoll() {
         const totalPremiumCollected = premium * 100 * contracts;
         const stockGain = (currentStrike - costBasis) * 100 * contracts;
         const assignmentProfit = stockGain + totalPremiumCollected;
+        
+        // Find REAL options from the chain for alternatives
         const skipCallStrike = Math.ceil(spot / 5) * 5;  // Round up to nearest $5
         const spreadUpperStrike = skipCallStrike + 5;
         const putStrike = Math.floor((spot * 0.9) / 5) * 5;  // 10% below spot, rounded
+        
+        // Find target expiration ~45-60 DTE
+        const today = new Date();
+        const targetDte = 52;  // ~7-8 weeks out
+        const targetExpDate = new Date(today.getTime() + targetDte * 24 * 60 * 60 * 1000);
+        
+        // Find best matching expiration from chain
+        let bestExpiry = chain.expirations?.find(exp => {
+            const expDate = new Date(exp);
+            const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+            return dte >= 30 && dte <= 75;  // 30-75 DTE range
+        }) || chain.expirations?.[2];  // Fallback to 3rd expiration
+        
+        // Find SKIP CALL option in chain
+        let skipCallOption = chain.calls?.find(c => 
+            c.strike === skipCallStrike && c.expiration === bestExpiry
+        ) || chain.calls?.find(c => 
+            Math.abs(c.strike - skipCallStrike) <= 2.5 && 
+            new Date(c.expiration) > today
+        );
+        
+        // Find spread options
+        let spreadBuyOption = chain.calls?.find(c => 
+            c.strike === skipCallStrike && c.expiration === bestExpiry
+        );
+        let spreadSellOption = chain.calls?.find(c => 
+            c.strike === spreadUpperStrike && c.expiration === bestExpiry
+        );
+        
+        // Find PUT option for selling
+        let sellPutOption = chain.puts?.find(p => 
+            p.strike === putStrike && p.expiration === bestExpiry
+        ) || chain.puts?.find(p => 
+            Math.abs(p.strike - putStrike) <= 2.5 && 
+            new Date(p.expiration) > today
+        );
+        
+        // Calculate spread details
+        const spreadCost = (spreadBuyOption && spreadSellOption) 
+            ? ((spreadBuyOption.ask || spreadBuyOption.bid * 1.05) - (spreadSellOption.bid || spreadSellOption.ask * 0.95))
+            : null;
+        const spreadMaxProfit = (spreadBuyOption && spreadSellOption)
+            ? (spreadUpperStrike - skipCallStrike - spreadCost) * 100 * contracts
+            : null;
         
         html += `
         <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(139,92,246,0.3);">
@@ -1282,64 +1328,73 @@ export async function suggestOptimalRoll() {
                 <div style="background:rgba(0,255,136,0.15); border:1px solid rgba(0,255,136,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                         <span style="color:#00ff88; font-weight:bold; font-size:12px;">✅ Let Assign</span>
-                        <span style="color:#00ff88; font-size:10px;">+$${assignmentProfit.toFixed(0)}</span>
+                        <span style="color:#00ff88; font-size:11px; font-weight:bold;">+$${assignmentProfit.toFixed(0)}</span>
                     </div>
-                    <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
-                        Take the win! Sell at $${currentStrike} + keep premium
+                    <div style="font-size:10px; color:#ccc; line-height:1.4;">
+                        <div>📈 Stock gain: <span style="color:#00ff88;">$${stockGain.toFixed(0)}</span> (sell @ $${currentStrike})</div>
+                        <div>💵 Premium kept: <span style="color:#00ff88;">$${totalPremiumCollected.toFixed(0)}</span></div>
+                        <div>🎯 ROI: <span style="color:#00ff88;">${((assignmentProfit / (costBasis * 100 * contracts)) * 100).toFixed(1)}%</span> on cost basis</div>
                     </div>
-                    <button onclick="showNotification('Let position expire ITM for clean assignment. Profit: $${assignmentProfit.toFixed(0)}', 'success')" 
-                            style="width:100%; background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#00ff88; 
-                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
-                        📋 Details
-                    </button>
                 </div>
                 
                 <!-- BUY SKIP CALL -->
                 <div style="background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                         <span style="color:#00d9ff; font-weight:bold; font-size:12px;">🚀 Skip Call</span>
-                        <span style="color:#888; font-size:10px;">$${skipCallStrike}c</span>
+                        <span style="color:#ff5252; font-size:11px; font-weight:bold;">${skipCallOption ? `-$${((skipCallOption.ask || skipCallOption.bid * 1.05) * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
                     </div>
-                    <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
-                        Buy call above spot to ride further upside
+                    ${skipCallOption ? `
+                    <div style="font-size:10px; color:#ccc; line-height:1.4;">
+                        <div>📋 Buy $${skipCallOption.strike} call @ <span style="color:#00d9ff;">$${(skipCallOption.ask || skipCallOption.bid * 1.05).toFixed(2)}</span></div>
+                        <div>📅 Exp: ${skipCallOption.expiration} (${Math.ceil((new Date(skipCallOption.expiration) - today) / (1000*60*60*24))} DTE)</div>
+                        <div>Δ ${(skipCallOption.delta || 0.40).toFixed(2)} | IV ${((skipCallOption.iv || 0.65) * 100).toFixed(0)}%</div>
                     </div>
-                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'skip_call', ${skipCallStrike}, ${spot})" 
-                            style="width:100%; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); color:#00d9ff; 
-                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
+                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'skip_call', ${skipCallOption.strike}, ${spot}, null, '${skipCallOption.expiration}', ${(skipCallOption.ask || skipCallOption.bid * 1.05).toFixed(2)}, ${skipCallOption.delta || 0.40}, ${((skipCallOption.iv || 0.65) * 100).toFixed(0)})" 
+                            style="width:100%; margin-top:6px; background:rgba(0,217,255,0.3); border:1px solid rgba(0,217,255,0.5); color:#00d9ff; 
+                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;">
                         📥 Stage to Ideas
                     </button>
+                    ` : `<div style="font-size:10px; color:#888;">No $${skipCallStrike} calls available</div>`}
                 </div>
                 
                 <!-- CALL SPREAD -->
                 <div style="background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                         <span style="color:#8b5cf6; font-weight:bold; font-size:12px;">📊 Call Spread</span>
-                        <span style="color:#888; font-size:10px;">$${skipCallStrike}/$${spreadUpperStrike}</span>
+                        <span style="color:#ff5252; font-size:11px; font-weight:bold;">${spreadCost ? `-$${(spreadCost * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
                     </div>
-                    <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
-                        Defined risk upside play, cheaper than naked call
+                    ${(spreadBuyOption && spreadSellOption) ? `
+                    <div style="font-size:10px; color:#ccc; line-height:1.4;">
+                        <div>📋 Buy $${skipCallStrike}c / Sell $${spreadUpperStrike}c</div>
+                        <div>💰 Max profit: <span style="color:#00ff88;">$${spreadMaxProfit.toFixed(0)}</span></div>
+                        <div>📅 Exp: ${bestExpiry} | Width: $${spreadUpperStrike - skipCallStrike}</div>
                     </div>
-                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'call_spread', ${skipCallStrike}, ${spot}, ${spreadUpperStrike})" 
-                            style="width:100%; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; 
-                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
+                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'call_spread', ${skipCallStrike}, ${spot}, ${spreadUpperStrike}, '${bestExpiry}', ${spreadCost.toFixed(2)})" 
+                            style="width:100%; margin-top:6px; background:rgba(139,92,246,0.3); border:1px solid rgba(139,92,246,0.5); color:#8b5cf6; 
+                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;">
                         📥 Stage to Ideas
                     </button>
+                    ` : `<div style="font-size:10px; color:#888;">Spread not available</div>`}
                 </div>
                 
                 <!-- SELL PUT -->
                 <div style="background:rgba(255,170,0,0.15); border:1px solid rgba(255,170,0,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                         <span style="color:#ffaa00; font-weight:bold; font-size:12px;">💰 Sell Put</span>
-                        <span style="color:#888; font-size:10px;">$${putStrike}p</span>
+                        <span style="color:#00ff88; font-size:11px; font-weight:bold;">${sellPutOption ? `+$${((sellPutOption.bid || sellPutOption.ask * 0.95) * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
                     </div>
-                    <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
-                        Add bullish exposure, collect premium on dip
+                    ${sellPutOption ? `
+                    <div style="font-size:10px; color:#ccc; line-height:1.4;">
+                        <div>📋 Sell $${sellPutOption.strike} put @ <span style="color:#00ff88;">$${(sellPutOption.bid || sellPutOption.ask * 0.95).toFixed(2)}</span></div>
+                        <div>📅 Exp: ${sellPutOption.expiration} (${Math.ceil((new Date(sellPutOption.expiration) - today) / (1000*60*60*24))} DTE)</div>
+                        <div>Δ ${(sellPutOption.delta || -0.20).toFixed(2)} | BE: $${(sellPutOption.strike - (sellPutOption.bid || sellPutOption.ask * 0.95)).toFixed(2)}</div>
                     </div>
-                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'short_put', ${putStrike}, ${spot})" 
-                            style="width:100%; background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#ffaa00; 
-                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
+                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'short_put', ${sellPutOption.strike}, ${spot}, null, '${sellPutOption.expiration}', ${(sellPutOption.bid || sellPutOption.ask * 0.95).toFixed(2)}, ${sellPutOption.delta || -0.20}, ${((sellPutOption.iv || 0.65) * 100).toFixed(0)})" 
+                            style="width:100%; margin-top:6px; background:rgba(255,170,0,0.3); border:1px solid rgba(255,170,0,0.5); color:#ffaa00; 
+                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;">
                         📥 Stage to Ideas
                     </button>
+                    ` : `<div style="font-size:10px; color:#888;">No $${putStrike} puts available</div>`}
                 </div>
                 
             </div>
@@ -1472,19 +1527,23 @@ window.stageRollSuggestion = function(data) {
 /**
  * Stage an alternative strategy to the Ideas tab
  * Called from alternative strategies grid (SKIP call, call spread, sell put)
+ * Now accepts real chain data: expiry, premium, delta, iv
  */
-window.stageAlternativeStrategy = function(ticker, strategyType, strike, currentPrice, upperStrike = null) {
+window.stageAlternativeStrategy = function(ticker, strategyType, strike, currentPrice, upperStrike = null, realExpiry = null, premium = null, delta = null, iv = null) {
     // Load existing pending trades
     let pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
     
-    // Calculate expiry ~60 days out (round to nearest Friday)
-    const expDate = new Date();
-    expDate.setDate(expDate.getDate() + 60);
-    // Adjust to Friday
-    const dayOfWeek = expDate.getDay();
-    const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
-    expDate.setDate(expDate.getDate() + daysUntilFriday);
-    const expiry = expDate.toISOString().split('T')[0];
+    // Use real expiry if provided, otherwise calculate ~60 days out
+    let expiry = realExpiry;
+    if (!expiry) {
+        const expDate = new Date();
+        expDate.setDate(expDate.getDate() + 60);
+        // Adjust to Friday
+        const dayOfWeek = expDate.getDay();
+        const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+        expDate.setDate(expDate.getDate() + daysUntilFriday);
+        expiry = expDate.toISOString().split('T')[0];
+    }
     
     // Determine trade details based on strategy type
     let tradeDescription, tradeType, isCall;
@@ -1518,7 +1577,7 @@ window.stageAlternativeStrategy = function(ticker, strategyType, strike, current
         return;
     }
     
-    // Create pending trade
+    // Create pending trade with real chain data
     const trade = {
         id: Date.now(),
         ticker,
@@ -1526,6 +1585,9 @@ window.stageAlternativeStrategy = function(ticker, strategyType, strike, current
         upperStrike: upperStrike ? parseFloat(upperStrike) : null,
         expiry,
         currentPrice: parseFloat(currentPrice) || 0,
+        premium: premium ? parseFloat(premium) : null,
+        delta: delta ? parseFloat(delta) : null,
+        iv: iv ? parseFloat(iv) : null,
         type: tradeType,
         isCall,
         isAlternative: true,  // Flag that this came from alternative strategies
@@ -1536,7 +1598,9 @@ window.stageAlternativeStrategy = function(ticker, strategyType, strike, current
     pending.push(trade);
     localStorage.setItem('wheelhouse_pending', JSON.stringify(pending));
     
-    showNotification(`📥 Staged: ${ticker} ${tradeDescription}, exp ${expiry}`, 'success');
+    // More detailed notification
+    const premiumText = premium ? ` @ $${parseFloat(premium).toFixed(2)}` : '';
+    showNotification(`📥 Staged: ${ticker} ${tradeDescription}${premiumText}, exp ${expiry}`, 'success');
     
     // Re-render pending trades
     if (typeof window.renderPendingTrades === 'function') {
