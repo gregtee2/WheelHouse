@@ -857,12 +857,13 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
         try {
             const data = req.body;
             const selectedModel = data.model || 'qwen2.5:7b';
-            const useMoE = data.useMoE !== false; // Default to true for 32B
+            const isGrok = selectedModel.startsWith('grok');
+            const useMoE = !isGrok && data.useMoE !== false; // Default to true for 32B, but never for Grok
             console.log('[AI] Analyzing position:', data.ticker, 'with model:', selectedModel, 'MoE:', useMoE);
             
-            // Scale token limit based on model size - bigger models can give more insight
-            const isLargeModel = selectedModel.includes('32b') || selectedModel.includes('70b') || selectedModel.includes('72b');
-            const tokenLimit = isLargeModel ? 800 : 500;
+            // Scale token limit based on model size - scorecard format needs more tokens
+            const isLargeModel = selectedModel.includes('32b') || selectedModel.includes('70b') || selectedModel.includes('72b') || isGrok;
+            const tokenLimit = isLargeModel ? 1800 : 1000;  // Scorecard needs ~1500+ tokens
             
             // Build structured prompt from pre-computed data
             const prompt = buildTradePrompt(data, isLargeModel);
@@ -3466,39 +3467,32 @@ ${data.rollOptions?.creditRolls?.length > 0 || data.rollOptions?.riskReduction?.
     console.log('[AI] 7B opinion:', opinion7B.substring(0, 100) + '...');
     console.log('[AI] 14B opinion:', opinion14B.substring(0, 100) + '...');
     
-    // Now build the judge prompt for 32B
+    // Now build the judge prompt for 32B - include full scorecard instructions
     const judgePrompt = `You are a senior options trading advisor reviewing assessments from two junior analysts.
 
-═══ POSITION DATA ═══
-${basePrompt.split('═══')[1] || 'See below'}
+${basePrompt}
 
-═══ ANALYST #1 (Quick Model) ═══
+═══ ANALYST OPINIONS (for context) ═══
+
+**Analyst #1 (7B Quick):**
 ${opinion7B}
 
-═══ ANALYST #2 (Standard Model) ═══
+**Analyst #2 (14B Standard):**
 ${opinion14B}
 
-═══ YOUR TASK ═══
-As the senior advisor, synthesize both opinions and make the final call.
+═══ YOUR TASK AS SENIOR ADVISOR ═══
+You have the full position data and strategy scorecard format above. Now:
 
-If both analysts AGREE:
-- Confirm their recommendation with additional nuance
-- Explain why this consensus makes sense
+1. Consider both analysts' quick takes
+2. Complete the FULL STRATEGY SCORECARD rating each strategy 1-10
+3. Determine the WINNER based on your expert judgment
+4. If analysts disagreed, explain which reasoning you found more compelling
 
-If they DISAGREE:
-- Adjudicate the disagreement
-- Explain which analyst's reasoning is more sound and why
-- Make the final call
+Proceed with the scorecard analysis now.`;
 
-Your response format:
-1. [Your final pick] - The specific action to take (e.g., "Roll to $48 May 15 - $505 credit" or "HOLD - let expire")
-2. [Why this one] - 2-3 sentences synthesizing the analyst opinions
-3. [Key risk] - Main risk with this approach
-4. [Consensus note] - "Both analysts agreed" or "Overriding Analyst X because..."`;
-
-    // Call 32B as the judge
+    // Call 32B as the judge - needs more tokens for full scorecard
     console.log('[AI] 👨‍⚖️ Running 32B as judge...');
-    const finalResponse = await callOllama(judgePrompt, 'deepseek-r1:32b', 600);
+    const finalResponse = await callOllama(judgePrompt, 'deepseek-r1:32b', 1800);
     
     const totalTime = Date.now() - startTime;
     console.log(`[AI] ✅ MoE complete in ${totalTime}ms (parallel: ${parallelTime}ms, judge: ${totalTime - parallelTime}ms)`);
