@@ -590,12 +590,12 @@ window.warmupAIModel = async function() {
     if (warmupBtn) {
         warmupBtn.disabled = true;
         warmupBtn.innerHTML = '⏳ 0s';
-        warmupBtn.style.color = '#b9f';
+        warmupBtn.style.color = '#8a9aa8';
         warmupBtn.style.minWidth = '60px';
     }
     if (statusEl) {
         statusEl.textContent = `Loading ${selectedModel}...`;
-        statusEl.style.color = '#b9f';
+        statusEl.style.color = '#8a9aa8';
     }
     
     const startTime = Date.now();
@@ -1043,7 +1043,7 @@ window.getXSentiment = async function() {
         const historyCount = JSON.parse(localStorage.getItem('wheelhouse_x_sentiment_history') || '[]').length;
         const usageCount = parseInt(localStorage.getItem('wheelhouse_x_sentiment_usage') || '0') + 1; // +1 because we haven't saved yet
         const historyBtn = historyCount >= 2 
-            ? `<button onclick="window.showXSentimentHistory()" style="font-size:10px; padding:3px 8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer; margin-right:6px;" title="Compare with previous scans">📊 Trends (${historyCount})</button>`
+            ? `<button onclick="window.showXSentimentHistory()" style="font-size:10px; padding:3px 8px; background:#7a8a94; border:none; border-radius:3px; color:#fff; cursor:pointer; margin-right:6px;" title="Compare with previous scans">📊 Trends (${historyCount})</button>`
             : '';
         const header = `<div style="color:#1da1f2; font-weight:bold; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;">
             <span>🔥 Live from X/Twitter <span style="color:#666; font-size:10px;">(${timestamp})</span></span>
@@ -1191,7 +1191,7 @@ window.xDeepDive = async function(ticker) {
         
         // Format the analysis
         let formatted = result.analysis
-            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#8b5cf6;">$1</strong>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#7a8a94;">$1</strong>')
             .replace(/(\$[\d,]+\.?\d*)/g, '<span style="color:#ffaa00;">$1</span>')
             .replace(/(🎯|⚠️|💡|📊)/g, '<span style="font-size:14px;">$1</span>')
             .replace(/\n/g, '<br>');
@@ -1199,7 +1199,7 @@ window.xDeepDive = async function(ticker) {
         // Get CBOE premium if available
         const premiumInfo = result.premium ? 
             `<div style="background:rgba(139,92,246,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
-                <strong style="color:#8b5cf6;">Current Premium:</strong> $${result.premium} per contract
+                <strong style="color:#7a8a94;">Current Premium:</strong> $${result.premium} per contract
                 <span style="color:#666; margin-left:10px;">(via CBOE delayed)</span>
             </div>` : '';
         
@@ -1366,7 +1366,7 @@ window.getTradeIdeas = async function() {
         let formatted = result.ideas.replace(/^(\d+)\.\s*\*{0,2}([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
                 console.log('Deep Dive match:', match, 'Ticker:', ticker);
-                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;" title="Comprehensive scenario analysis">🔍 Deep Dive</button>`;
+                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#7a8a94; border:none; border-radius:3px; color:#fff; cursor:pointer;" title="Comprehensive scenario analysis">🔍 Deep Dive</button>`;
             });
         
         // Now apply styling
@@ -1427,7 +1427,7 @@ window.deepDive = async function(ticker) {
     modal.innerHTML = `
         <div style="background:#1a1a2e; border-radius:12px; max-width:800px; width:100%; max-height:90vh; overflow-y:auto; padding:24px; border:1px solid #333;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid #333; padding-bottom:12px;">
-                <h2 style="margin:0; color:#8b5cf6;">🔍 Deep Dive: ${ticker}</h2>
+                <h2 style="margin:0; color:#7a8a94;">🔍 Deep Dive: ${ticker}</h2>
                 <button onclick="this.closest('#deepDiveModal').remove()" style="background:none; border:none; color:#888; font-size:24px; cursor:pointer;">✕</button>
             </div>
             <div style="color:#888; margin-bottom:16px;">
@@ -1473,7 +1473,7 @@ window.deepDive = async function(ticker) {
                 const colors = { 'Strong Buy': '#00ff88', 'Buy': '#00d9ff', 'Neutral': '#ffaa00', 'Avoid': '#ff5252' };
                 return `<span style="color:${colors[match] || '#fff'}; font-weight:bold;">${match}</span>`;
             })
-            .replace(/(Bull case|Base case|Bear case|Disaster case)/gi, '<span style="color:#8b5cf6; font-weight:bold;">$1</span>')
+            .replace(/(Bull case|Base case|Bear case|Disaster case)/gi, '<span style="color:#7a8a94; font-weight:bold;">$1</span>')
             .replace(/\n/g, '<br>');
         
         // Add premium info if available
@@ -1564,7 +1564,7 @@ window.deepDive = async function(ticker) {
         const stageButtonHtml = `
             <div style="margin-top:20px; padding-top:16px; border-top:1px solid #333; display:flex; gap:12px; justify-content:center;">
                 <button onclick="window.stageTradeWithThesis()" 
-                        style="background:#8b5cf6; color:#fff; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:bold;">
+                        style="background:#7a8a94; color:#fff; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:bold;">
                     📥 Stage This Trade
                 </button>
                 <button onclick="this.closest('#deepDiveModal').remove()" 
@@ -1619,13 +1619,13 @@ window.analyzeDiscordTrade = async function() {
     modal.innerHTML = `
         <div style="background:#1a1a2e; border-radius:12px; max-width:800px; width:100%; max-height:90vh; overflow-y:auto; padding:25px; border:1px solid rgba(139,92,246,0.5);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                <h2 style="margin:0; color:#b9f;">📋 Discord Trade Analysis</h2>
+                <h2 style="margin:0; color:#8a9aa8;">📋 Discord Trade Analysis</h2>
                 <button onclick="this.closest('#discordTradeModal').remove()" style="background:none; border:none; color:#888; font-size:24px; cursor:pointer;">✕</button>
             </div>
             <div id="discordTradeContent" style="color:#ccc;">
                 <div style="text-align:center; padding:40px;">
-                    <div class="spinner" style="width:50px; height:50px; border:3px solid #333; border-top:3px solid #b9f; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 20px;"></div>
-                    <p id="discordProgressText" style="font-size:16px; color:#b9f;">Initializing...</p>
+                    <div class="spinner" style="width:50px; height:50px; border:3px solid #333; border-top:3px solid #8a9aa8; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 20px;"></div>
+                    <p id="discordProgressText" style="font-size:16px; color:#8a9aa8;">Initializing...</p>
                     <div id="discordProgressSteps" style="margin-top:20px; text-align:left; display:inline-block;">
                         ${stepLabels.map((label, i) => `
                             <div id="discordStep${i+1}" style="padding:6px 0; color:#666;">
@@ -1660,7 +1660,7 @@ window.analyzeDiscordTrade = async function() {
         const progressText = document.getElementById('discordProgressText');
         if (stepEl) {
             const icon = status === 'done' ? '✓' : status === 'active' ? '●' : '○';
-            const color = status === 'done' ? '#00ff88' : status === 'active' ? '#b9f' : '#666';
+            const color = status === 'done' ? '#00ff88' : status === 'active' ? '#8a9aa8' : '#666';
             stepEl.style.color = color;
             stepEl.querySelector('span').textContent = icon;
         }
@@ -1726,7 +1726,7 @@ window.analyzeDiscordTrade = async function() {
         
         // Format the analysis
         const formatted = analysis
-            .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#b9f;">$1</strong>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#8a9aa8;">$1</strong>')
             .replace(/✅/g, '<span style="color:#00ff88;">✅</span>')
             .replace(/⚠️/g, '<span style="color:#ffaa00;">⚠️</span>')
             .replace(/❌/g, '<span style="color:#ff5252;">❌</span>')
@@ -1798,7 +1798,7 @@ window.analyzeDiscordTrade = async function() {
             const discrepancy = calloutPremiumValid && Math.abs(premium.mid - parsed.premium) > 0.5;
             premiumHtml = `
                 <div style="background:rgba(139,92,246,0.1); padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid rgba(139,92,246,0.3);">
-                    <div style="font-weight:bold; color:#b9f; margin-bottom:6px;">💰 Live CBOE Pricing</div>
+                    <div style="font-weight:bold; color:#8a9aa8; margin-bottom:6px;">💰 Live CBOE Pricing</div>
                     <div style="font-size:13px;">
                         Bid: $${premium.bid?.toFixed(2)} | Ask: $${premium.ask?.toFixed(2)} | Mid: $${premium.mid?.toFixed(2)}
                         ${premium.iv ? ` | IV: ${premium.iv}%` : ''}
@@ -1818,7 +1818,7 @@ window.analyzeDiscordTrade = async function() {
                     </div>
                     <div>
                         <div style="font-size:12px; color:#888;">Strategy</div>
-                        <div style="font-size:14px; font-weight:bold; color:#b9f;">${parsed.strategy?.replace(/_/g, ' ') || 'Unknown'}</div>
+                        <div style="font-size:14px; font-weight:bold; color:#8a9aa8;">${parsed.strategy?.replace(/_/g, ' ') || 'Unknown'}</div>
                     </div>
                     <div>
                         <div style="font-size:12px; color:#888;">Strike</div>
@@ -1835,12 +1835,12 @@ window.analyzeDiscordTrade = async function() {
             </div>
             ${premiumHtml}
             <div style="background:#0d0d1a; padding:20px; border-radius:8px;">
-                <h4 style="margin:0 0 15px; color:#b9f;">AI Analysis</h4>
+                <h4 style="margin:0 0 15px; color:#8a9aa8;">AI Analysis</h4>
                 <div style="white-space:pre-wrap; line-height:1.6; font-size:14px;">${formatted}</div>
             </div>
             <div style="margin-top:20px; padding-top:16px; border-top:1px solid #333; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
                 <button onclick="window.stageDiscordTrade()" 
-                        style="background:#8b5cf6; color:#fff; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:bold;">
+                        style="background:#7a8a94; color:#fff; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:bold;">
                     📥 Stage This Trade
                 </button>
                 <button onclick="window.attachThesisToPosition()" 
@@ -1995,16 +1995,16 @@ window.attachThesisToPosition = function() {
         const dte = Math.ceil((new Date(p.expiry) - new Date()) / (1000 * 60 * 60 * 24));
         return `
             <button onclick="window.attachThesisToPositionById(${p.id}); this.closest('#thesisPickerModal').remove();"
-                    style="background:#1a1a2e; border:1px solid #8b5cf6; color:#fff; padding:15px; border-radius:8px; cursor:pointer; text-align:left; width:100%;">
-                <div style="font-weight:bold; color:#8b5cf6;">${p.ticker} $${p.strike} ${typeDisplay}</div>
+                    style="background:#1a1a2e; border:1px solid #7a8a94; color:#fff; padding:15px; border-radius:8px; cursor:pointer; text-align:left; width:100%;">
+                <div style="font-weight:bold; color:#7a8a94;">${p.ticker} $${p.strike} ${typeDisplay}</div>
                 <div style="font-size:12px; color:#888;">Expires: ${p.expiry} (${dte} DTE) | ${p.contracts} contract${p.contracts > 1 ? 's' : ''}</div>
             </button>
         `;
     }).join('');
     
     pickerModal.innerHTML = `
-        <div style="background:#0d0d1a; border-radius:12px; max-width:500px; width:100%; padding:25px; border:1px solid #8b5cf6;">
-            <h3 style="color:#8b5cf6; margin:0 0 15px;">🔗 Select Position to Attach Thesis</h3>
+        <div style="background:#0d0d1a; border-radius:12px; max-width:500px; width:100%; padding:25px; border:1px solid #7a8a94;">
+            <h3 style="color:#7a8a94; margin:0 0 15px;">🔗 Select Position to Attach Thesis</h3>
             <p style="color:#888; margin-bottom:15px;">Multiple ${trade.ticker} positions found. Select one:</p>
             <div style="display:flex; flex-direction:column; gap:10px;">
                 ${positionButtons}
@@ -2298,8 +2298,8 @@ window.renderPendingTrades = function() {
     });
     
     container.innerHTML = `
-        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #2d1f3d 100%); border:1px solid #8b5cf6; border-radius:8px; padding:16px; margin-bottom:20px;">
-            <h3 style="color:#8b5cf6; margin:0 0 12px 0; font-size:14px;">📋 Pending Trades (${pending.length})</h3>
+        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #2d1f3d 100%); border:1px solid #7a8a94; border-radius:8px; padding:16px; margin-bottom:20px;">
+            <h3 style="color:#7a8a94; margin:0 0 12px 0; font-size:14px;">📋 Pending Trades (${pending.length})</h3>
             <div style="font-size:11px; color:#888; margin-bottom:12px;">
                 Staged from AI analysis - confirm when you execute with your broker
             </div>
@@ -2320,7 +2320,7 @@ window.renderPendingTrades = function() {
                     ${pendingWithCalcs.map(p => {
                         const optionType = p.isCall ? 'C' : 'P';
                         const typeColor = p.isCall ? '#ffaa00' : '#00d9ff';
-                        const rollBadge = p.isRoll ? '<span style="background:#8b5cf6;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">ROLL</span>' : '';
+                        const rollBadge = p.isRoll ? '<span style="background:#7a8a94;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">ROLL</span>' : '';
                         return `
                         <tr style="border-top:1px solid #333;">
                             <td style="padding:8px; color:#00ff88; font-weight:bold;">${p.ticker}${rollBadge}</td>
@@ -2708,9 +2708,9 @@ window.checkMarginForTrade = async function(ticker, strike, premium, isCall = fa
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
     modal.innerHTML = `
-        <div style="background:#1a1a2e; border-radius:12px; padding:24px; border:2px solid ${isRoll ? '#8b5cf6' : '#ffaa00'}; max-width:400px; width:90%;">
-            <h3 style="color:${isRoll ? '#8b5cf6' : '#ffaa00'}; margin:0 0 16px 0;">
-                💳 Margin Check: ${ticker} ${isRoll ? '<span style="background:#8b5cf6;color:#fff;padding:2px 6px;border-radius:4px;font-size:12px;margin-left:6px;">ROLL</span>' : ''}
+        <div style="background:#1a1a2e; border-radius:12px; padding:24px; border:2px solid ${isRoll ? '#7a8a94' : '#ffaa00'}; max-width:400px; width:90%;">
+            <h3 style="color:${isRoll ? '#7a8a94' : '#ffaa00'}; margin:0 0 16px 0;">
+                💳 Margin Check: ${ticker} ${isRoll ? '<span style="background:#7a8a94;color:#fff;padding:2px 6px;border-radius:4px;font-size:12px;margin-left:6px;">ROLL</span>' : ''}
             </h3>
             
             <div style="background:#0d0d1a; border-radius:8px; padding:12px; margin-bottom:16px;">
@@ -2741,7 +2741,7 @@ window.checkMarginForTrade = async function(ticker, strike, premium, isCall = fa
             </div>
             
             ${marginNote ? `<div style="font-size:12px; color:#888; margin-bottom:12px;">${marginNote}</div>` : ''}
-            ${rollNote ? `<div style="font-size:12px; color:#8b5cf6; margin-bottom:12px;">${rollNote}</div>` : ''}
+            ${rollNote ? `<div style="font-size:12px; color:#7a8a94; margin-bottom:12px;">${rollNote}</div>` : ''}
             
             ${buyingPower !== null && !isCovered && !isRoll ? `
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
@@ -3636,7 +3636,7 @@ window.restoreSavedIdeas = function() {
         let formatted = data.ideas.replace(/^(\d+)\.\s*\*{0,2}([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
                 console.log('[Ideas] Deep Dive match:', match, '→ Ticker:', ticker);
-                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔍 Deep Dive</button>`;
+                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#7a8a94; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔍 Deep Dive</button>`;
             });
         
         // Apply styling
@@ -3669,7 +3669,7 @@ window.restoreSavedIdeas = function() {
         // Add buttons
         formatted += poolHtml;
         formatted += `<div style="margin-top:15px; padding-top:15px; border-top:1px solid #333; text-align:center;">
-                <button onclick="window.getTradeIdeas2()" style="padding:8px 16px; background:#8b5cf6; border:none; border-radius:5px; color:#fff; cursor:pointer; font-size:13px;">
+                <button onclick="window.getTradeIdeas2()" style="padding:8px 16px; background:#7a8a94; border:none; border-radius:5px; color:#fff; cursor:pointer; font-size:13px;">
                     🔄 Generate Fresh Ideas
                 </button>
                 <button onclick="window.getTradeIdeasDifferent()" style="padding:8px 16px; margin-left:10px; background:#444; border:none; border-radius:5px; color:#00d9ff; cursor:pointer; font-size:13px;">
@@ -4233,7 +4233,7 @@ window.getTradeIdeas2 = async function() {
         // Format with deep dive buttons - match "1. TICKER" or "1. **TICKER" format
         let formatted = result.ideas.replace(/^(\d+)\.\s*\*{0,2}([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
-                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;" title="Comprehensive scenario analysis">🔍 Deep Dive</button>`;
+                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#7a8a94; border:none; border-radius:3px; color:#fff; cursor:pointer;" title="Comprehensive scenario analysis">🔍 Deep Dive</button>`;
             });
         
         // Apply styling
@@ -4353,7 +4353,7 @@ window.getTradeIdeasDifferent = async function() {
         // Format with deep dive buttons - match "1. TICKER" or "1. **TICKER" format
         let formatted = result.ideas.replace(/^(\d+)\.\s*\*{0,2}([A-Z]{1,5})\s*@\s*\$[\d.]+/gm, 
             (match, num, ticker) => {
-                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#8b5cf6; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔍 Deep Dive</button>`;
+                return `${match} <button onclick="window.deepDive('${ticker}')" style="font-size:10px; padding:2px 6px; margin-left:8px; background:#7a8a94; border:none; border-radius:3px; color:#fff; cursor:pointer;">🔍 Deep Dive</button>`;
             });
         
         // Apply styling
@@ -4769,7 +4769,7 @@ function drawProbabilityConeChart(results, spot, strike) {
     ctx.fillText('Expiry', W - padding.right, H - 5);
     
     // Legend
-    ctx.fillStyle = '#8b5cf6';
+    ctx.fillStyle = '#7a8a94';
     ctx.fillText('50% of outcomes in dark band, 90% in light band', W / 2, 12);
 }
 

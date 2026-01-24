@@ -10,7 +10,7 @@
     --accent-green: #00ff88;
     --accent-red: #ff5252;
     --accent-orange: #ffaa00;
-    --accent-purple: #8b5cf6;
+    --accent-purple: #7a8a94;
     --text-primary: #e8e8e8;
     --text-muted: #888;
     --border-color: rgba(255,255,255,0.1);
@@ -765,7 +765,7 @@ td button {
 /* Ticker group row in closed positions */
 .ticker-group-header {
     background: rgba(139, 92, 246, 0.15);
-    border-left: 3px solid #8b5cf6;
+    border-left: 3px solid #7a8a94;
     cursor: pointer;
     transition: background 0.2s;
 }
