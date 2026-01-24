@@ -3905,6 +3905,7 @@ function setAnalyticsDefaults() {
 
 /**
  * Update the Win Rate Dashboard with detailed stats
+ * Uses CHAIN-BASED accounting - roll chains count as 1 trade, not multiple
  */
 export function updateWinRateDashboard() {
     const allClosed = state.closedPositions || [];
@@ -3936,36 +3937,70 @@ export function updateWinRateDashboard() {
     }
     
     const getPnL = (p) => p.realizedPnL ?? p.closePnL ?? 0;
-    const wins = closed.filter(p => getPnL(p) > 0);
-    const losses = closed.filter(p => getPnL(p) < 0);
     
-    // Win rate
-    const winRate = (wins.length / closed.length * 100).toFixed(1);
-    setEl('dashWinRate', `${winRate}% (${wins.length}W/${losses.length}L)`);
-    setEl('dashTotalTrades', closed.length.toString());
+    // Group by chainId for chain-aware calculations
+    const chainPnL = {};
+    closed.forEach(p => {
+        const chainId = p.chainId || p.id;
+        if (!chainPnL[chainId]) {
+            chainPnL[chainId] = { 
+                ticker: p.ticker, 
+                totalPnL: 0, 
+                legs: 0,
+                totalPremium: 0,
+                totalDaysHeld: 0,
+                daysHeldCount: 0
+            };
+        }
+        chainPnL[chainId].totalPnL += getPnL(p);
+        chainPnL[chainId].legs++;
+        if (p.premium > 0) {
+            chainPnL[chainId].totalPremium += p.premium * 100 * (p.contracts || 1);
+        }
+        if (p.daysHeld != null) {
+            chainPnL[chainId].totalDaysHeld += p.daysHeld;
+            chainPnL[chainId].daysHeldCount++;
+        }
+    });
     
-    // Average DTE held
-    const dteValues = closed.filter(p => p.daysHeld != null).map(p => p.daysHeld);
-    const avgDTE = dteValues.length > 0 
-        ? (dteValues.reduce((a, b) => a + b, 0) / dteValues.length).toFixed(1) 
+    // Convert to array
+    const chains = Object.entries(chainPnL).map(([chainId, data]) => ({
+        chainId,
+        ...data,
+        isChain: data.legs > 1
+    }));
+    
+    // Win/Loss by CHAIN (not individual legs)
+    const chainWins = chains.filter(c => c.totalPnL > 0);
+    const chainLosses = chains.filter(c => c.totalPnL < 0);
+    const chainCount = chains.length;
+    
+    // Win rate based on chains
+    const winRate = chainCount > 0 ? (chainWins.length / chainCount * 100).toFixed(1) : 0;
+    setEl('dashWinRate', `${winRate}% (${chainWins.length}W/${chainLosses.length}L)`);
+    setEl('dashTotalTrades', `${chainCount} chains`);
+    
+    // Average DTE held (sum across all legs in chains)
+    const totalDaysHeld = chains.reduce((sum, c) => sum + c.totalDaysHeld, 0);
+    const daysHeldCount = chains.reduce((sum, c) => sum + c.daysHeldCount, 0);
+    const avgDTE = daysHeldCount > 0 
+        ? (totalDaysHeld / daysHeldCount).toFixed(1) 
         : '—';
     setEl('dashAvgDTE', avgDTE + ' days');
     
-    // Average premium
-    const premiums = closed.filter(p => p.premium > 0).map(p => p.premium * 100 * (p.contracts || 1));
-    const avgPremium = premiums.length > 0 
-        ? (premiums.reduce((a, b) => a + b, 0) / premiums.length).toFixed(0)
-        : 0;
+    // Average premium per chain
+    const totalPremium = chains.reduce((sum, c) => sum + c.totalPremium, 0);
+    const avgPremium = chainCount > 0 ? (totalPremium / chainCount).toFixed(0) : 0;
     setEl('dashAvgPremium', '$' + Number(avgPremium).toLocaleString());
     
-    // Group by ticker
+    // Group by ticker (using chain totals)
     const byTicker = {};
-    closed.forEach(p => {
-        const ticker = p.ticker || 'Unknown';
+    chains.forEach(c => {
+        const ticker = c.ticker || 'Unknown';
         if (!byTicker[ticker]) byTicker[ticker] = { wins: 0, losses: 0, totalPnL: 0 };
-        if (getPnL(p) > 0) byTicker[ticker].wins++;
-        else if (getPnL(p) < 0) byTicker[ticker].losses++;
-        byTicker[ticker].totalPnL += getPnL(p);
+        if (c.totalPnL > 0) byTicker[ticker].wins++;
+        else if (c.totalPnL < 0) byTicker[ticker].losses++;
+        byTicker[ticker].totalPnL += c.totalPnL;
     });
     
     // Best/Worst ticker (by total P&L)
@@ -3990,29 +4025,7 @@ export function updateWinRateDashboard() {
         setEl('dashWorstTicker', 'None! 🎉');
     }
     
-    // Biggest win/loss BY CHAIN (not individual legs)
-    // Group closed positions by chainId and sum their P&L
-    const chainPnL = {};
-    closed.forEach(p => {
-        const chainId = p.chainId || p.id; // Use position id if no chain
-        if (!chainPnL[chainId]) {
-            chainPnL[chainId] = { 
-                ticker: p.ticker, 
-                totalPnL: 0, 
-                legs: 0,
-                isChain: false 
-            };
-        }
-        chainPnL[chainId].totalPnL += getPnL(p);
-        chainPnL[chainId].legs++;
-        if (chainPnL[chainId].legs > 1) chainPnL[chainId].isChain = true;
-    });
-    
-    // Convert to array and sort
-    const chains = Object.entries(chainPnL).map(([chainId, data]) => ({
-        chainId,
-        ...data
-    }));
+    // Biggest win/loss BY CHAIN
     chains.sort((a, b) => b.totalPnL - a.totalPnL);
     
     const biggestWinChain = chains[0];
