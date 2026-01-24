@@ -3313,6 +3313,7 @@ async function callAI(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
 
 /**
  * Call Grok API (xAI)
+ * Model names: grok-3, grok-3-mini, grok-2, grok-2-mini (check xAI docs for latest)
  */
 async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
     const apiKey = process.env.GROK_API_KEY;
@@ -3322,6 +3323,13 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
     }
     
     console.log(`[AI] Using Grok model: ${model}, maxTokens: ${maxTokens}`);
+    
+    // Create AbortController for timeout (90 seconds for large responses)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+        console.log(`[AI] ⚠️ Grok request timed out after 90s`);
+        controller.abort();
+    }, 90000);
     
     try {
         const response = await fetch('https://api.x.ai/v1/chat/completions', {
@@ -3337,13 +3345,27 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
                 ],
                 max_tokens: maxTokens,
                 temperature: 0.7
-            })
+            }),
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         
         if (!response.ok) {
             const errText = await response.text();
             console.log(`[AI] Grok API error: ${response.status} - ${errText}`);
-            throw new Error(`Grok API error: ${response.status}`);
+            
+            // Parse error for helpful message
+            try {
+                const errJson = JSON.parse(errText);
+                if (errJson.error?.message) {
+                    throw new Error(`Grok: ${errJson.error.message}`);
+                }
+            } catch (parseErr) {
+                // Not JSON, use raw text
+            }
+            
+            throw new Error(`Grok API error: ${response.status} - ${errText.substring(0, 200)}`);
         }
         
         const data = await response.json();
@@ -3354,11 +3376,17 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
         if (usage) {
             console.log(`[AI] Grok tokens: ${usage.prompt_tokens} in → ${usage.completion_tokens} out = ${usage.total_tokens} total`);
         }
-        console.log(`[AI] Grok response length: ${content.length} chars`);
+        console.log(`[AI] ✅ Grok response length: ${content.length} chars`);
         return content;
         
     } catch (e) {
-        console.log(`[AI] Grok call failed: ${e.message}`);
+        clearTimeout(timeoutId);
+        
+        if (e.name === 'AbortError') {
+            throw new Error('Grok request timed out after 90 seconds. Try a smaller model or shorter prompt.');
+        }
+        
+        console.log(`[AI] ❌ Grok call failed: ${e.message}`);
         throw e;
     }
 }
