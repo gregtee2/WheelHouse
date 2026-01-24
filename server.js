@@ -3013,20 +3013,30 @@ IF you do need to roll, compare options CAREFULLY:
 • Debit rolls only make sense if you're desperate to cut risk and no credit option exists
 
 ═══ YOUR TASK ═══
-${alternativeStrategies ? `⚠️ IMPORTANT: Rolling is NOT your only option! Review the Alternative Strategies above.
+${alternativeStrategies ? `⚠️ STOP! Before recommending a roll, you MUST evaluate ALL alternatives.
 
-Consider ALL options before recommending. Your response should address:
+STEP 1: Score each option (1-10 scale):
+• LET ASSIGN: Lock in $${assignmentProfit?.toFixed(0) || '???'} profit now. Score: ?/10
+• BUY SKIP CALL: Ride further upside if bullish. Score: ?/10  
+• BUY CALL SPREAD: Cheaper defined-risk upside play. Score: ?/10
+• SELL PUTS BELOW: Add shares on dip + collect premium. Score: ?/10
+• ROLL UP+OUT: Extend position, fight the trend. Score: ?/10
 
-1. [BEST ACTION] - Choose one: ROLL, LET ASSIGN, BUY SKIP CALL, BUY CALL SPREAD, SELL PUT, or CLOSE
-   If rolling: "Roll to $XXX [date] - $XXX ${isLong ? 'debit' : 'credit'}"
-   If alternative: Describe the specific trade (e.g., "Buy $95 call Jun expiry")
+STEP 2: Pick the HIGHEST scoring option and explain why.
 
-2. [WHY THIS OVER ROLLING?] - If you chose an alternative, explain why it's better than rolling.
-   If you chose rolling, explain why alternatives don't make sense here.
+Your response format:
+1. **Quick Scores:**
+   - LET ASSIGN: X/10 (reason)
+   - SKIP CALL: X/10 (reason)
+   - CALL SPREAD: X/10 (reason)
+   - SELL PUTS: X/10 (reason)
+   - ROLL: X/10 (reason)
 
-3. [PROFIT/RISK TRADEOFF] - What do you gain vs. what do you risk with this choice?
+2. **Winner:** [Highest scoring option] - specific trade details
 
-4. [KEY WATCH] - What price level or event would change this recommendation?` : hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
+3. **Why This Over Rolling?** If rolling didn't win, explain why the winner beats it.
+
+4. **Key Risk:** Main risk with your chosen strategy` : hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
 
 If HOLD is best, respond:
 1. HOLD - Let position expire worthless for max profit
