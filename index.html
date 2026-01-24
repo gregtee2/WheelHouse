@@ -19,13 +19,11 @@
                 <p class="subtitle">Wheel Strategy Options Analyzer</p>
                 <div class="tabs">
                     <button class="tab-btn" data-tab="ideas">🎯 Ideas</button>
-                    <button class="tab-btn" data-tab="analyze">🔬 Analyze</button>
-                    <button class="tab-btn" data-tab="pnl">💰 P&L</button>
+                    <button class="tab-btn" data-tab="analyze">� Analyze</button>
                     <button class="tab-btn active" data-tab="positions">📋 Positions</button>
                     <button class="tab-btn" data-tab="portfolio">💼 Portfolio</button>
-                    <button class="tab-btn" data-tab="challenges">🏆 Challenges</button>
                     <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
-                    <button id="restartServerBtn" onclick="restartServer()" class="tab-btn" style="background:rgba(180,120,60,0.3); border:1px solid rgba(180,120,60,0.5); margin-left:10px;" title="Restart Server">🔄 Restart</button>
+                    <button id="restartServerBtn" onclick="restartServer()" class="tab-btn" style="background:rgba(180,120,60,0.3); border:1px solid rgba(180,120,60,0.5); margin-left:10px;" title="Restart Server">🔄</button>
                 </div>
             </div>
         </div>
@@ -721,37 +719,6 @@ Examples:
                     <div id="portfolioSummary" style="margin-top:20px;"></div>
                 </div>
                 <div class="controls-panel">
-                    <!-- Paste Trade from Discord/Chat -->
-                    <div id="pasteTradePanel2" style="margin-bottom:15px; padding:12px; background:rgba(139,92,246,0.08); border:1px solid rgba(139,92,246,0.3); border-radius:6px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                            <span style="color:#b9f; font-weight:bold; font-size:13px;">📋 Paste Trade Callout</span>
-                            <div style="display:flex; align-items:center; gap:6px;">
-                                <select id="discordModelSelect" style="font-size:10px; padding:2px 4px; background:#1a1a2e; color:#ddd; border:1px solid #444; border-radius:3px;">
-                                    <option value="qwen2.5:7b">7B ⚡</option>
-                                    <option value="qwen2.5:14b">14B</option>
-                                    <option value="qwen2.5:32b">32B</option>
-                                    <option value="deepseek-r1:32b" selected>DeepSeek-R1 🧮</option>
-                                    <option value="grok-3">🚀 Grok-3</option>
-                                    <option value="grok-4">🧠 Grok-4 (Reasoning)</option>
-                                    <option value="grok-4-1-fast">⚡ Grok 4.1 Fast</option>
-                                    <option value="grok-3-mini">🚀 Grok Mini</option>
-                                </select>
-                                <button onclick="window.analyzeDiscordTrade()" class="btn-mini" style="font-size:11px; padding:4px 10px; background:rgba(139,92,246,0.3); border:1px solid rgba(139,92,246,0.5); color:#b9f;">🔍 Analyze</button>
-                            </div>
-                        </div>
-                        <textarea id="pasteTradeInput" placeholder="Paste a trade from Discord...
-
-Ticker: TSLA
-Strategy: Bull Put Spread
-Strike: -$410, +$400
-Expiry: Feb 27
-Entry: $3.75" 
-                            style="width:100%; height:80px; background:#0d0d1a; border:1px solid #333; border-radius:4px; color:#ddd; font-size:11px; padding:8px; resize:vertical; font-family:monospace;"></textarea>
-                        <div style="font-size:9px; color:#666; margin-top:4px;">
-                            Supports puts, calls, spreads. AI parses and analyzes.
-                        </div>
-                    </div>
-                    
                     <h3 style="color:var(--accent-cyan); margin-bottom:15px;">➕ Add New Position</h3>
                     
                     <div class="control-group">
@@ -1180,6 +1147,18 @@ Entry: $3.75"
                             <i style="color:var(--accent-green);">Summary shows combined open + closed P&L</i>
                         </div>
                     </div>
+                    
+                    <!-- CHALLENGES SECTION (Integrated from Challenges tab) -->
+                    <div style="margin-top:20px; border-top:2px solid rgba(255,170,0,0.3); padding-top:15px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; cursor:pointer;" onclick="toggleChallengesSection()">
+                            <h3 style="color:#ffaa00; margin:0;">🏆 Trading Challenges</h3>
+                            <span id="challengesToggle" style="color:#888; font-size:18px;">▼</span>
+                        </div>
+                        <div id="challengesSectionContent">
+                            <!-- Challenges rendered by challenges.js into this container -->
+                            <div id="portfolioChallengesContainer"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1527,6 +1506,22 @@ Entry: $3.75"
 
     <!-- Broker Import Utility (loads before ES6 modules) -->
     <script src="js/broker-import.js"></script>
+    
+    <!-- Inline helpers for UI -->
+    <script>
+        // Toggle challenges section visibility in Portfolio tab
+        function toggleChallengesSection() {
+            const content = document.getElementById('challengesSectionContent');
+            const toggle = document.getElementById('challengesToggle');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                toggle.textContent = '▶';
+            }
+        }
+    </script>
     
     <!-- Theme Settings (loads before modules) -->
     <script src="js/theme.js"></script>

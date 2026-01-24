@@ -288,7 +288,7 @@ export function calculateChallengeProgress(challengeId) {
 
 export function renderChallenges() {
     const container = document.getElementById('challenges');
-    if (!container) return;
+    const portfolioContainer = document.getElementById('portfolioChallengesContainer');
     
     // Reload all data from localStorage to get latest state
     loadChallenges();
@@ -297,27 +297,29 @@ export function renderChallenges() {
     const activeChallenges = (state.challenges || []).filter(c => c.status === 'active');
     const archivedChallenges = (state.challenges || []).filter(c => c.status === 'archived');
     
-    container.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-            <h2 style="margin:0; color:${colors.cyan};">🏆 Challenges</h2>
-            <button onclick="window.showCreateChallengeModal()" 
-                    style="background:${colors.purple}; border:none; color:${colors.text}; padding:10px 20px; 
-                           border-radius:6px; cursor:pointer; font-size:14px; font-weight:bold;">
-                + New Challenge
-            </button>
-        </div>
-        
-        ${activeChallenges.length === 0 ? `
-            <div style="text-align:center; padding:60px 20px; color:${colors.muted};">
-                <div style="font-size:48px; margin-bottom:15px;">🎯</div>
-                <div style="font-size:18px; margin-bottom:10px;">No active challenges</div>
-                <div style="font-size:14px; color:${colors.muted};">Create a challenge to track your trading goals!</div>
+    // Render to main challenges tab (if exists)
+    if (container) {
+        container.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2 style="margin:0; color:${colors.cyan};">🏆 Challenges</h2>
+                <button onclick="window.showCreateChallengeModal()" 
+                        style="background:${colors.purple}; border:none; color:${colors.text}; padding:10px 20px; 
+                               border-radius:6px; cursor:pointer; font-size:14px; font-weight:bold;">
+                    + New Challenge
+                </button>
             </div>
-        ` : activeChallenges.map(c => renderChallengeCard(c)).join('')}
-        
-        ${archivedChallenges.length > 0 ? `
-            <div style="margin-top:30px;">
-                <h3 style="color:${colors.muted}; margin-bottom:15px; cursor:pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+            
+            ${activeChallenges.length === 0 ? `
+                <div style="text-align:center; padding:60px 20px; color:${colors.muted};">
+                    <div style="font-size:48px; margin-bottom:15px;">🎯</div>
+                    <div style="font-size:18px; margin-bottom:10px;">No active challenges</div>
+                    <div style="font-size:14px; color:${colors.muted};">Create a challenge to track your trading goals!</div>
+                </div>
+            ` : activeChallenges.map(c => renderChallengeCard(c)).join('')}
+            
+            ${archivedChallenges.length > 0 ? `
+                <div style="margin-top:30px;">
+                    <h3 style="color:${colors.muted}; margin-bottom:15px; cursor:pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
                     📁 Archived (${archivedChallenges.length}) ▾
                 </h3>
                 <div style="display:none;">
@@ -325,6 +327,55 @@ export function renderChallenges() {
                 </div>
             </div>
         ` : ''}
+        `;
+    }
+    
+    // Also render compact version to Portfolio tab
+    if (portfolioContainer) {
+        if (activeChallenges.length === 0) {
+            portfolioContainer.innerHTML = `
+                <div style="text-align:center; padding:20px; color:${colors.muted};">
+                    <div style="font-size:12px;">No active challenges</div>
+                    <button onclick="window.showCreateChallengeModal()" 
+                            style="background:${colors.purple}; border:none; color:${colors.text}; padding:8px 16px; 
+                                   border-radius:4px; cursor:pointer; font-size:12px; margin-top:10px;">
+                        + Create Challenge
+                    </button>
+                </div>
+            `;
+        } else {
+            portfolioContainer.innerHTML = activeChallenges.map(c => renderCompactChallengeCard(c)).join('');
+        }
+    }
+}
+
+// Compact challenge card for Portfolio tab sidebar
+function renderCompactChallengeCard(challenge) {
+    const progress = calculateChallengeProgress(challenge.id);
+    if (!progress) return '';
+    
+    const { current, percent, daysLeft, isCompleted } = progress;
+    const statusColor = isCompleted ? colors.green : colors.cyan;
+    const progressColor = isCompleted ? colors.green : percent > 75 ? colors.orange : colors.cyan;
+    const currentDisplay = challenge.goalType === 'trades' ? current : `$${current.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+    const goalDisplay = challenge.goalType === 'trades' ? `${challenge.goal}` : `$${challenge.goal.toLocaleString()}`;
+    
+    return `
+        <div style="background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3); 
+                    border-radius:8px; padding:12px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span style="font-weight:bold; color:${colors.text}; font-size:13px;">${challenge.name}</span>
+                <span style="color:${statusColor}; font-size:11px;">${isCompleted ? '✅' : `${daysLeft}d`}</span>
+            </div>
+            <div style="background:rgba(255,255,255,0.1); border-radius:6px; height:12px; overflow:hidden; margin-bottom:6px;">
+                <div style="background:${progressColor}; height:100%; width:${percent}%;"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:${colors.muted};">
+                <span>${currentDisplay}</span>
+                <span>${percent.toFixed(0)}%</span>
+                <span>${goalDisplay}</span>
+            </div>
+        </div>
     `;
 }
 
