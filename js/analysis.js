@@ -1216,7 +1216,7 @@ export async function suggestOptimalRoll() {
                 <div style="color:#aaa; font-size:11px; margin-top:3px;">
                     ${expFormatted} · ${netDisplay}
                 </div>
-                ${greeksLine ? `<div style="font-size:10px; color:#8888a8; margin-top:2px;">${greeksLine}</div>` : ''}
+                ${greeksLine ? `<div style="font-size:10px; color:#7a8a94; margin-top:2px;">${greeksLine}</div>` : ''}
                 <button onclick="event.stopPropagation(); window.stageRollSuggestion(${stageData})" 
                     style="margin-top:5px; width:100%; padding:4px; background:rgba(123,163,176,0.2); border:1px solid rgba(123,163,176,0.4); 
                            color:#7ba3b0; border-radius:3px; cursor:pointer; font-size:10px;"
@@ -1367,8 +1367,8 @@ export async function suggestOptimalRoll() {
             : null;
         
         html += `
-        <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(136,136,168,0.3);">
-            <div style="font-size:12px; color:#8888a8; margin-bottom:8px; font-weight:bold;">
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(122,138,148,0.3);">
+            <div style="font-size:12px; color:#7a8a94; margin-bottom:8px; font-weight:bold;">
                 💡 Alternative Strategies <span style="font-size:10px; color:#888; font-weight:normal;">(Instead of Rolling)</span>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
@@ -1431,9 +1431,9 @@ export async function suggestOptimalRoll() {
                 </div>
                 
                 <!-- CALL SPREAD -->
-                <div style="background:rgba(136,136,168,0.15); border:1px solid rgba(136,136,168,0.3); border-radius:6px; padding:8px;">
+                <div style="background:rgba(122,138,148,0.15); border:1px solid rgba(122,138,148,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="color:#8888a8; font-weight:bold; font-size:12px;">📊 Call Spread</span>
+                        <span style="color:#7a8a94; font-weight:bold; font-size:12px;">📊 Call Spread</span>
                         <span style="color:#b87a75; font-size:11px; font-weight:bold;">${spreadCost ? `-$${(spreadCost * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
                     </div>
                     ${(spreadBuyOption && spreadSellOption) ? `
@@ -1443,7 +1443,7 @@ export async function suggestOptimalRoll() {
                         <div>📅 Exp: ${bestExpiry} | Width: $${spreadUpperStrike - skipCallStrike}</div>
                     </div>
                     <button onclick="window.stageAlternativeStrategy('${ticker}', 'call_spread', ${skipCallStrike}, ${spot}, ${spreadUpperStrike}, '${bestExpiry}', ${spreadCost.toFixed(2)})" 
-                            style="width:100%; margin-top:6px; background:rgba(136,136,168,0.3); border:1px solid rgba(136,136,168,0.5); color:#8888a8; 
+                            style="width:100%; margin-top:6px; background:rgba(122,138,148,0.3); border:1px solid rgba(122,138,148,0.5); color:#7a8a94; 
                                    padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;">
                         📥 Stage to Ideas
                     </button>
@@ -1479,8 +1479,8 @@ export async function suggestOptimalRoll() {
         const putStrikeBelow = Math.floor((spot * 0.95) / 5) * 5;  // 5% below spot
         
         html += `
-        <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(136,136,168,0.3);">
-            <div style="font-size:12px; color:#8888a8; margin-bottom:8px; font-weight:bold;">
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(122,138,148,0.3);">
+            <div style="font-size:12px; color:#7a8a94; margin-bottom:8px; font-weight:bold;">
                 💡 Alternative Strategies <span style="font-size:10px; color:#888; font-weight:normal;">(Instead of Rolling)</span>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
@@ -1502,16 +1502,16 @@ export async function suggestOptimalRoll() {
                 </div>
                 
                 <!-- PUT SPREAD -->
-                <div style="background:rgba(136,136,168,0.15); border:1px solid rgba(136,136,168,0.3); border-radius:6px; padding:8px;">
+                <div style="background:rgba(122,138,148,0.15); border:1px solid rgba(122,138,148,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="color:#8888a8; font-weight:bold; font-size:12px;">📊 Put Spread</span>
+                        <span style="color:#7a8a94; font-weight:bold; font-size:12px;">📊 Put Spread</span>
                         <span style="color:#888; font-size:10px;">Convert</span>
                     </div>
                     <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
                         Buy protective put below to cap downside
                     </div>
                     <button onclick="showNotification('Convert to put spread: Buy $${putStrikeBelow} put to cap losses', 'info')" 
-                            style="width:100%; background:rgba(136,136,168,0.2); border:1px solid rgba(136,136,168,0.4); color:#8888a8; 
+                            style="width:100%; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#7a8a94; 
                                    padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
                         📋 Details
                     </button>
@@ -2419,7 +2419,7 @@ export function renderExpertAnalysis(containerId, optionChainData = null) {
                 ${analysis.actions.map(a => `<div style="font-size:11px; color:#eee; padding:2px 0 2px 10px;">• ${a}</div>`).join('')}
             </div>
             ${analysis.ivContext ? `
-                <div style="font-size:10px; color:#8888a8; margin-top:8px; padding-top:6px; border-top:1px solid #444;">
+                <div style="font-size:10px; color:#7a8a94; margin-top:8px; padding-top:6px; border-top:1px solid #444;">
                     💡 ${analysis.ivContext.advice} (${analysis.ivContext.value})
                 </div>
             ` : ''}
@@ -2498,7 +2498,7 @@ async function fetchCalendarAndUpdateWarnings(container, ctx, position, spot, an
                         ${analysis.actions.map(a => `<div style="font-size:13px; color:#eee; padding:4px 0 4px 16px; line-height:1.4;">• ${a}</div>`).join('')}
                     </div>
                     ${analysis.ivContext ? `
-                        <div style="font-size:12px; color:#8888a8; margin-top:12px; padding-top:10px; border-top:1px solid #444;">
+                        <div style="font-size:12px; color:#7a8a94; margin-top:12px; padding-top:10px; border-top:1px solid #444;">
                             💡 ${analysis.ivContext.advice} <span style="color:#aaa;">(Current: ${analysis.ivContext.value})</span>
                         </div>
                     ` : ''}
@@ -2701,7 +2701,7 @@ async function getAIInsight() {
         // Build MoE indicator if used
         const isMoE = result.moe && result.moe.opinions;
         const moeIndicator = isMoE ? 
-            `<span style="color:#8888a8; margin-right:8px;" title="Mixture of Experts: 7B + 14B opinions synthesized by 32B">🧠 MoE</span>` : '';
+            `<span style="color:#7a8a94; margin-right:8px;" title="Mixture of Experts: 7B + 14B opinions synthesized by 32B">🧠 MoE</span>` : '';
         
         // Store MoE opinions for "View Opinions" button
         if (isMoE) {
@@ -3058,7 +3058,7 @@ function showMoeOpinions() {
             </div>
             
             <div style="margin-top:16px; padding-top:12px; border-top:1px solid #444; text-align:center;">
-                <span style="color:#8888a8; font-size:11px;">
+                <span style="color:#7a8a94; font-size:11px;">
                     👨‍⚖️ The 32B model reviewed both opinions and made the final call shown above
                 </span>
             </div>
@@ -3215,14 +3215,14 @@ function showAIInsightModal() {
     if (data.wisdomApplied && data.wisdomApplied.count > 0) {
         const posType = data.wisdomApplied.positionType?.replace(/_/g, ' ') || 'position';
         const wisdomEntries = data.wisdomApplied.entries.map(w => 
-            `<div style="margin:4px 0; padding:6px 10px; background:rgba(136,136,168,0.1); border-radius:4px; font-size:12px;">
+            `<div style="margin:4px 0; padding:6px 10px; background:rgba(122,138,148,0.1); border-radius:4px; font-size:12px;">
                 <span style="color:#a78bfa; font-weight:bold;">[${w.category}]</span> 
                 <span style="color:#ccc;">${w.wisdom}</span>
             </div>`
         ).join('');
         
         wisdomSection = `
-            <div style="background:rgba(136,136,168,0.1); border:1px solid #8888a8; border-radius:8px; padding:12px; margin-top:16px;">
+            <div style="background:rgba(122,138,148,0.1); border:1px solid #7a8a94; border-radius:8px; padding:12px; margin-top:16px;">
                 <div style="color:#a78bfa; font-weight:bold; margin-bottom:8px; font-size:13px;">
                     📚 WISDOM APPLIED (${data.wisdomApplied.count} entries matched "${posType}")
                 </div>
@@ -3269,7 +3269,7 @@ function showAIInsightModal() {
                 ` : ''}
                 ${data.isMoE ? `
                     <button onclick="window.showMoeOpinions()" 
-                        style="background:rgba(136,136,168,0.3); border:1px solid #8888a8; color:#a78bfa; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
+                        style="background:rgba(122,138,148,0.3); border:1px solid #7a8a94; color:#a78bfa; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
                         👁️ View Expert Opinions
                     </button>
                 ` : ''}
