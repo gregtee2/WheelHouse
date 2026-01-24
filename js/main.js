@@ -3295,6 +3295,7 @@ function setupTabs() {
             // Tab-specific initialization
             if (targetId === 'portfolio') {
                 renderPortfolio(true); // Fetch fresh prices
+                renderChallenges(); // Render challenges section in sidebar
                 // Also fetch account balances
                 if (window.fetchAccountBalances) window.fetchAccountBalances();
             } else if (targetId === 'pnl') {
