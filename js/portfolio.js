@@ -822,83 +822,9 @@ function updatePortfolioSummary(positionData) {
         totalEl.style.color = totalPnL >= 0 ? '#00ff88' : '#ff5252';
     }
     
-    // Performance stats use the same filtered closed positions
-    if (filteredClosed.length > 0) {
-        // Helper to get P&L from either field name
-        const getPnL = (p) => p.realizedPnL ?? p.closePnL ?? 0;
-        
-        // Helper to get days held - calculate from dates if not stored
-        const getDaysHeld = (p) => {
-            if (p.daysHeld) return p.daysHeld;
-            if (p.openDate && p.closeDate) {
-                const open = new Date(p.openDate);
-                const close = new Date(p.closeDate);
-                if (!isNaN(open) && !isNaN(close)) {
-                    return Math.max(0, Math.ceil((close - open) / (1000 * 60 * 60 * 24)));
-                }
-            }
-            return 0;
-        };
-        
-        const wins = filteredClosed.filter(p => getPnL(p) >= 0).length;
-        const winRate = (wins / filteredClosed.length) * 100;
-        const avgDays = filteredClosed.reduce((sum, p) => sum + getDaysHeld(p), 0) / filteredClosed.length;
-        
-        // Find best and worst trades
-        const bestTrade = filteredClosed.reduce((best, p) => getPnL(p) > getPnL(best) ? p : best, filteredClosed[0]);
-        const worstTrade = filteredClosed.reduce((worst, p) => getPnL(p) < getPnL(worst) ? p : worst, filteredClosed[0]);
-        
-        setEl('portWinRate', winRate.toFixed(0) + '%');
-        setEl('portAvgDays', avgDays.toFixed(0) + 'd');
-        
-        // Best trade (always positive, green)
-        const bestEl = document.getElementById('portBestTrade');
-        if (bestEl) {
-            const bestPnL = getPnL(bestTrade);
-            bestEl.textContent = (bestPnL >= 0 ? '+$' : '-$') + Math.abs(bestPnL).toFixed(0);
-            bestEl.style.color = '#00ff88';
-            bestEl.style.cursor = 'pointer';
-            bestEl.title = `Click to see details`;
-            bestEl.onclick = () => showTradeDetails(bestTrade, 'Best Trade');
-        }
-        
-        // Worst trade (may be negative, red)
-        const worstEl = document.getElementById('portWorstTrade');
-        if (worstEl) {
-            const worstPnL = getPnL(worstTrade);
-            worstEl.textContent = (worstPnL >= 0 ? '+$' : '-$') + Math.abs(worstPnL).toFixed(0);
-            worstEl.style.color = worstPnL >= 0 ? '#ffaa00' : '#ff5252';
-            worstEl.style.cursor = 'pointer';
-            worstEl.title = `Click to see details`;
-            worstEl.onclick = () => showTradeDetails(worstTrade, 'Worst Trade');
-        }
-    } else {
-        // No closed positions for this filter - show defaults
-        setEl('portWinRate', '—');
-        setEl('portAvgDays', '—');
-        setEl('portBestTrade', '—');
-        setEl('portWorstTrade', '—');
-    }
-    
     // Update all dashboard components (analytics, win rate, P&L chart, calendar)
+    // Note: Old "Performance" panel removed - Win Rate Dashboard now provides chain-aware metrics
     refreshAllDashboards();
-}
-
-/**
- * Show trade details in a notification or alert
- */
-function showTradeDetails(trade, label) {
-    const pnl = trade.realizedPnL ?? trade.closePnL ?? 0;
-    const pnlStr = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(0);
-    const msg = `${label}: ${trade.ticker} ${trade.type.replace('_', ' ')}\n` +
-                `Strike: $${trade.strike.toFixed(2)}\n` +
-                `Premium: $${trade.premium.toFixed(2)} × ${trade.contracts || 1}\n` +
-                `Opened: ${trade.openDate || '?'} → Closed: ${trade.closeDate || '?'}\n` +
-                `Days Held: ${trade.daysHeld || '?'}\n` +
-                `P&L: ${pnlStr}`;
-    
-    // Show for 6 seconds since there's lots of info to read
-    showNotification(msg.replace(/\n/g, ' | '), pnl >= 0 ? 'success' : 'warning', 6000);
 }
 
 function setEl(id, val) {
