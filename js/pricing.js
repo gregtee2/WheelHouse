@@ -270,7 +270,7 @@ export function calculateWhatIf() {
     const isLong = posType.isLong;
     
     // Calculate projected option price using Black-Scholes
-    const r = 0.05; // Risk-free rate
+    const r = state.rate || 0.05; // Use global rate
     const projectedValue = bsPrice(targetPrice, state.strike, T, r, targetIV, isPut);
     
     // Get current option value

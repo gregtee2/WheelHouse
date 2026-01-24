@@ -677,7 +677,7 @@ async function fetchCurrentOptionPrice(position) {
         // Fallback to Black-Scholes with estimated IV
         const dte = Math.max(1, position.dte);
         const T = dte / 365;
-        const r = 0.05;
+        const r = state.rate || 0.05; // Use global rate
         const sigma = 0.30; // Fallback IV
         
         const price = blackScholesPrice(spot, strike, T, r, sigma, isPut);

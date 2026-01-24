@@ -71,7 +71,7 @@ function quickMonteCarloRisk(spot, strike, dte, vol = 0.5, isPut = true) {
     const T = Math.max(dte, 1) / 365.25;
     const numSteps = 30;
     const dt = T / numSteps;
-    const rate = 0.05; // Risk-free rate assumption
+    const rate = state.rate || 0.05; // Use global rate, fallback to 5%
     
     let itmCount = 0;
     

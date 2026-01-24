@@ -101,10 +101,10 @@ export function generateRecommendation(belowStrikePct, aboveStrikePct, dteValue)
             recTip.textContent = `💡 Consider: Close to salvage time value, or hold if you have conviction.`;
         } else if (isPut) {
             recReason.innerHTML = `<b>Why:</b> ${riskPct.toFixed(0)}% chance stock closes below strike. Close to 50/50 - not ideal.`;
-            recTip.textContent = `💡 Roll to: $${(state.strike * 0.95).toFixed(2)} for ${Math.min(dteValue + 30, 60)} DTE.`;
+            recTip.textContent = `💡 Click "Suggest Roll" below for real strikes from CBOE chain.`;
         } else {
             recReason.innerHTML = `<b>Why:</b> ${riskPct.toFixed(0)}% chance of losing shares.`;
-            recTip.textContent = `💡 Roll to: $${(state.strike * 1.05).toFixed(2)} for ${Math.min(dteValue + 30, 60)} DTE.`;
+            recTip.textContent = `💡 Click "Suggest Roll" below for real strikes from CBOE chain.`;
         }
     } else if (riskPct < dangerThreshold) {
         recBox.className = 'recommendation-box danger';
@@ -117,7 +117,7 @@ export function generateRecommendation(belowStrikePct, aboveStrikePct, dteValue)
             recTip.textContent = `💡 Action: Close to salvage remaining time value, or accept the likely loss.`;
         } else if (isPut) {
             recReason.innerHTML = `<b>Why:</b> ${riskPct.toFixed(0)}% chance stock closes below $${state.strike.toFixed(2)}. More likely to be assigned than not!`;
-            recTip.textContent = `💡 Action: Close $${state.strike.toFixed(2)} put TODAY. Sell $${(state.strike * 0.90).toFixed(2)} put for 45 DTE.`;
+            recTip.textContent = `💡 Action: Close this strike TODAY. Click "Suggest Roll" for real CBOE options.`;
         } else {
             recReason.innerHTML = `<b>Why:</b> ${riskPct.toFixed(0)}% chance shares get called away.`;
             recTip.textContent = `💡 Action: Close $${state.strike.toFixed(2)} call TODAY or roll much higher.`;
