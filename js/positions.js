@@ -1266,13 +1266,14 @@ async function performAutoSave() {
 }
 
 /**
- * Setup auto-save - user picks a file location
+ * Setup auto-save - user picks a file location (or uses download fallback for Brave/Firefox)
  */
 export async function setupAutoSave() {
     try {
         // Check if File System Access API is supported
         if (!('showSaveFilePicker' in window)) {
-            showNotification('❌ Auto-save not supported in this browser. Use Chrome or Edge.', 'error');
+            // Fallback: Use periodic download-based save
+            setupAutoSaveDownloadFallback();
             return;
         }
         
@@ -1299,6 +1300,88 @@ export async function setupAutoSave() {
         }
     }
 }
+
+/**
+ * Fallback auto-save for browsers without File System Access API (Brave, Firefox)
+ * Saves to localStorage more aggressively and offers manual download
+ */
+let autoSaveDownloadInterval = null;
+
+function setupAutoSaveDownloadFallback() {
+    // Clear any existing interval
+    if (autoSaveDownloadInterval) {
+        clearInterval(autoSaveDownloadInterval);
+    }
+    
+    // Save a backup copy every 2 minutes to a separate localStorage key
+    autoSaveDownloadInterval = setInterval(() => {
+        try {
+            const CLOSED_KEY = 'wheelhouse_closed_positions';
+            const backup = {
+                version: 1,
+                backupDate: new Date().toISOString(),
+                positions: state.positions || [],
+                holdings: state.holdings || [],
+                closedPositions: JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
+            };
+            localStorage.setItem('wheelhouse_backup', JSON.stringify(backup));
+            updateAutoSaveStatus('saved');
+            console.log('📦 Auto-backup saved to localStorage');
+        } catch (e) {
+            console.warn('Auto-backup failed:', e);
+            updateAutoSaveStatus('error');
+        }
+    }, 2 * 60 * 1000); // Every 2 minutes
+    
+    // Do an immediate backup
+    try {
+        const CLOSED_KEY = 'wheelhouse_closed_positions';
+        const backup = {
+            version: 1,
+            backupDate: new Date().toISOString(),
+            positions: state.positions || [],
+            holdings: state.holdings || [],
+            closedPositions: JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
+        };
+        localStorage.setItem('wheelhouse_backup', JSON.stringify(backup));
+    } catch (e) {
+        console.warn('Initial backup failed:', e);
+    }
+    
+    updateAutoSaveStatus('enabled');
+    showNotification('✅ Auto-backup enabled! Data saved to browser storage every 2 min.\n💡 Use "Export All" for file backup.', 'success', 5000);
+}
+
+/**
+ * Download current data as a file (manual backup for Brave/Firefox users)
+ */
+window.downloadBackup = function() {
+    try {
+        const CLOSED_KEY = 'wheelhouse_closed_positions';
+        const backup = {
+            version: 1,
+            exportDate: new Date().toISOString(),
+            positions: state.positions || [],
+            holdings: state.holdings || [],
+            closedPositions: JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
+        };
+        
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `wheelhouse_backup_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        showNotification('✅ Backup downloaded!', 'success');
+    } catch (e) {
+        console.error('Download backup failed:', e);
+        showNotification('❌ Download failed: ' + e.message, 'error');
+    }
+};
 
 /**
  * Update the auto-save status indicator in UI
@@ -2304,7 +2387,9 @@ function renderPositionsTable(container, openPositions) {
                     <th style="padding: 6px; text-align: center; width: 55px;" title="ITM probability - click to analyze">Risk</th>
                     <th style="padding: 6px; text-align: left; width: 55px;">Broker</th>
                     <th style="padding: 6px; text-align: left; width: 65px;">Type</th>
+                    <th style="padding: 6px; text-align: right; width: 50px;" title="Current stock price">Spot</th>
                     <th style="padding: 6px; text-align: right; width: 50px;">Strike</th>
+                    <th style="padding: 6px; text-align: center; width: 35px;" title="In-The-Money or Out-of-The-Money status">ITM</th>
                     <th style="padding: 6px; text-align: right; width: 40px;">Prem</th>
                     <th style="padding: 6px; text-align: right; width: 25px;">Qty</th>
                     <th style="padding: 6px; text-align: right; width: 30px;">DTE</th>
@@ -2472,7 +2557,9 @@ function renderPositionsTable(container, openPositions) {
                 </td>
                 <td style="padding: 6px; color: #aaa; font-size: 10px;">${pos.broker || 'Schwab'}</td>
                 <td style="padding: 6px; color: ${typeColor}; font-size: 10px;" title="${isLeaps ? 'LEAPS (1+ year) - Evaluate thesis, not theta' : isLongDated ? 'Long-dated (6+ mo) - IV changes matter more' : ''}">${typeDisplay}${isSkip ? '<br><span style="font-size:8px;color:#888;">LEAPS+SKIP</span>' : ''}</td>
+                <td id="spot-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 11px;">⏳</td>
                 <td style="padding: 6px; text-align: right; ${isSpread || isSkip ? 'font-size:10px;' : ''}">${strikeDisplay}</td>
+                <td id="itm-${pos.id}" style="padding: 6px; text-align: center;">⏳</td>
                 <td style="padding: 6px; text-align: right;">${isDebitPosition(pos.type) ? '-' : ''}$${pos.premium.toFixed(2)}</td>
                 <td style="padding: 6px; text-align: right;">${pos.contracts}</td>
                 <td style="padding: 6px; text-align: right; color: ${dteColor}; font-weight: bold;">
@@ -2582,12 +2669,77 @@ async function updatePositionRiskStatuses(openPositions) {
     // Update each position's risk status in the DOM
     for (const pos of openPositions) {
         const cell = document.getElementById(`risk-cell-${pos.id}`);
+        const spotCell = document.getElementById(`spot-${pos.id}`);
+        const itmCell = document.getElementById(`itm-${pos.id}`);
         if (!cell) continue;
         
         // Skip spreads - already showing static indicator
-        if (pos.type?.includes('_spread')) continue;
+        if (pos.type?.includes('_spread')) {
+            if (spotCell) spotCell.innerHTML = '<span style="color:#888;font-size:10px;">—</span>';
+            if (itmCell) itmCell.innerHTML = '<span style="color:#888;font-size:10px;">—</span>';
+            continue;
+        }
         
         const spotPrice = spotPrices[pos.ticker];
+        
+        // Update Spot Price cell
+        if (spotCell && spotPrice) {
+            spotCell.innerHTML = `<span style="color:#ccc;">$${spotPrice.toFixed(2)}</span>`;
+        }
+        
+        // Calculate ITM/OTM status and update cell
+        if (itmCell && spotPrice && pos.strike) {
+            const isPut = pos.type?.includes('put');
+            const isCall = pos.type?.includes('call');
+            const isLong = pos.type?.startsWith('long_') || pos.type === 'long_call_leaps' || pos.type === 'skip_call';
+            const isShort = !isLong;
+            
+            // Determine ITM/OTM
+            // Puts: ITM when spot < strike
+            // Calls: ITM when spot > strike
+            let isITM = isPut ? spotPrice < pos.strike : spotPrice > pos.strike;
+            const distancePct = Math.abs((spotPrice - pos.strike) / pos.strike * 100);
+            const isATM = distancePct < 2; // Within 2% is "at the money"
+            
+            // Determine if ITM is GOOD or BAD for you
+            // Long options: ITM is GOOD (you can exercise profitably)
+            // Short options: ITM is BAD (you may get assigned)
+            let color, label, tooltip;
+            
+            if (isATM) {
+                color = '#ffaa00'; // Orange for ATM
+                label = 'ATM';
+                tooltip = `At-the-money (${distancePct.toFixed(1)}% from strike)`;
+            } else if (isITM) {
+                if (isLong) {
+                    // Long + ITM = GOOD for you
+                    color = '#00ff88'; // Green
+                    label = 'ITM';
+                    tooltip = `In-the-money by ${distancePct.toFixed(1)}% - Good! Your option has intrinsic value.`;
+                } else {
+                    // Short + ITM = BAD for you (assignment risk)
+                    color = '#ff5252'; // Red
+                    label = 'ITM';
+                    tooltip = `In-the-money by ${distancePct.toFixed(1)}% - Assignment risk! Consider rolling.`;
+                }
+            } else {
+                // OTM
+                if (isLong) {
+                    // Long + OTM = not great (no intrinsic value yet)
+                    color = '#888'; // Gray/neutral
+                    label = 'OTM';
+                    tooltip = `Out-of-the-money by ${distancePct.toFixed(1)}% - Need stock to move in your favor.`;
+                } else {
+                    // Short + OTM = GOOD for you (will expire worthless)
+                    color = '#00ff88'; // Green
+                    label = 'OTM';
+                    tooltip = `Out-of-the-money by ${distancePct.toFixed(1)}% - Good! On track for max profit.`;
+                }
+            }
+            
+            itmCell.innerHTML = `<span style="color:${color};font-size:10px;font-weight:bold;" title="${tooltip}">${label}</span>`;
+        }
+        
         const risk = calculatePositionRisk(pos, spotPrice);
         
         if (risk.needsAttention) {
@@ -2691,14 +2843,37 @@ export function updatePortfolioSummary() {
     }
     
     const openPositions = state.positions.filter(p => p.status === 'open');
+    const closedPositions = state.closedPositions || [];
     
     const totalOpen = openPositions.length;
     const totalContracts = openPositions.reduce((sum, p) => sum + p.contracts, 0);
     
-    // Net Premium: credits are positive, debits are negative
+    // Net Premium: must account for buybacks from roll chains
+    // For each open position, calculate the CHAIN net premium (premiums - buybacks)
     const netPremium = openPositions.reduce((sum, p) => {
-        const premiumAmount = (p.premium || 0) * 100 * p.contracts;
-        return sum + (isDebitPosition(p.type) ? -premiumAmount : premiumAmount);
+        // Get all positions in this chain (including closed rolled positions)
+        const chainId = p.chainId || p.id;
+        const chainPositions = [
+            ...closedPositions.filter(cp => cp.chainId === chainId),
+            ...state.positions.filter(sp => sp.chainId === chainId || sp.id === chainId)
+        ].sort((a, b) => (a.openDate || '').localeCompare(b.openDate || ''));
+        
+        // Calculate net premium for the chain
+        let chainNet = 0;
+        chainPositions.forEach(cp => {
+            const premium = (cp.premium || 0) * 100 * (cp.contracts || 1);
+            const isDebit = isDebitPosition(cp.type);
+            
+            // Add or subtract premium based on position type
+            chainNet += isDebit ? -premium : premium;
+            
+            // Subtract buyback cost if position was rolled
+            if (cp.closeReason === 'rolled' && cp.closePrice) {
+                chainNet -= cp.closePrice * 100 * (cp.contracts || 1);
+            }
+        });
+        
+        return sum + chainNet;
     }, 0);
     
     // Capital at Risk calculation
@@ -2727,6 +2902,26 @@ export function updatePortfolioSummary() {
         }
         return sum;
     }, 0);
+    
+    // Calculate Unrealized P/L - sum of all P/L values from the table
+    // P/L = (entry premium - current price) * 100 * contracts for short positions
+    // P/L = (current price - entry premium) * 100 * contracts for long positions
+    const unrealizedPnL = openPositions.reduce((sum, p) => {
+        const currentPrice = p.lastOptionPrice || p.markedPrice || p.premium;
+        const entryPrice = p.premium || 0;
+        const contracts = p.contracts || 1;
+        
+        if (isDebitPosition(p.type)) {
+            // Long position: profit when current > entry
+            return sum + ((currentPrice - entryPrice) * 100 * contracts);
+        } else {
+            // Short position: profit when current < entry
+            return sum + ((entryPrice - currentPrice) * 100 * contracts);
+        }
+    }, 0);
+    
+    // Total P/L = Net Premium + Unrealized P/L
+    const totalPnL = netPremium + unrealizedPnL;
     
     // Calculate ROC (Return on Capital) = Net Premium / Capital at Risk
     const roc = capitalAtRisk > 0 ? (netPremium / capitalAtRisk) * 100 : 0;
@@ -2777,7 +2972,7 @@ export function updatePortfolioSummary() {
     const summaryEl = document.getElementById('portfolioSummary');
     if (summaryEl) {
         summaryEl.innerHTML = `
-            <div class="summary-grid" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px;">
+            <div class="summary-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px;">
                 <div class="summary-item" style="text-align: center;">
                     <div style="color: #888; font-size: 11px;">OPEN POSITIONS</div>
                     <div style="color: #00d9ff; font-size: 24px; font-weight: bold;">${totalOpen}</div>
@@ -2787,28 +2982,9 @@ export function updatePortfolioSummary() {
                     <div style="color: #fff; font-size: 24px; font-weight: bold;">${totalContracts}</div>
                 </div>
                 <div class="summary-item" style="text-align: center;">
-                    <div style="color: #888; font-size: 11px;">NET PREMIUM</div>
-                    <div style="color: ${netPremium >= 0 ? '#00ff88' : '#ff5252'}; font-size: 24px; font-weight: bold;">${netPremium >= 0 ? '' : '-'}${formatCurrency(Math.abs(netPremium))}</div>
-                </div>
-                <div class="summary-item" style="text-align: center;">
                     <div style="color: #888; font-size: 11px;">CAPITAL AT RISK</div>
                     <div style="color: #ffaa00; font-size: 24px; font-weight: bold;">
                         ${formatCurrency(capitalAtRisk)}
-                    </div>
-                </div>
-                <div class="summary-item" style="text-align: center;">
-                    <div style="color: #888; font-size: 11px;">ROC</div>
-                    <div style="color: ${roc >= 0 ? '#00ff88' : '#ff5252'}; font-size: 24px; font-weight: bold;" 
-                         title="Return on Capital: Net Premium ÷ Capital at Risk">
-                        ${roc.toFixed(2)}%
-                    </div>
-                </div>
-                <div class="summary-item" style="text-align: center;">
-                    <div style="color: #888; font-size: 11px;">AVG ANN. ROC</div>
-                    <div style="color: ${weightedAnnROC >= 100 ? '#00ff88' : weightedAnnROC >= 50 ? '#ffaa00' : '#ff5252'}; 
-                         font-size: 24px; font-weight: bold;" 
-                         title="Weighted Average Annualized Return on Capital">
-                        ${weightedAnnROC.toFixed(0)}%
                     </div>
                 </div>
                 <div class="summary-item" style="text-align: center;">
@@ -2816,6 +2992,42 @@ export function updatePortfolioSummary() {
                     <div style="color: ${closestDte <= 7 ? '#ff5252' : closestDte <= 21 ? '#ffaa00' : '#00ff88'}; 
                                 font-size: 24px; font-weight: bold;">
                         ${closestDte === Infinity ? '—' : closestDte + 'd'}
+                    </div>
+                </div>
+            </div>
+            <div class="summary-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; 
+                        background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;">
+                <div class="summary-item" style="text-align: center;">
+                    <div style="color: #888; font-size: 11px;" title="Cash collected minus cash paid (includes roll buybacks)">NET PREMIUM</div>
+                    <div style="color: ${netPremium >= 0 ? '#00ff88' : '#ff5252'}; font-size: 22px; font-weight: bold;">
+                        ${netPremium >= 0 ? '+' : ''}${formatCurrency(netPremium)}
+                    </div>
+                </div>
+                <div class="summary-item" style="text-align: center; border-left: 1px solid #333; padding-left: 12px;">
+                    <div style="color: #888; font-size: 11px;" title="Current value vs entry price">UNREALIZED P/L</div>
+                    <div style="color: ${unrealizedPnL >= 0 ? '#00ff88' : '#ff5252'}; font-size: 22px; font-weight: bold;">
+                        ${unrealizedPnL >= 0 ? '+' : ''}${formatCurrency(unrealizedPnL)}
+                    </div>
+                </div>
+                <div class="summary-item" style="text-align: center; border-left: 1px solid #333; padding-left: 12px;">
+                    <div style="color: #888; font-size: 11px;" title="Net Premium + Unrealized P/L = True portfolio value">TOTAL P/L</div>
+                    <div style="color: ${totalPnL >= 0 ? '#00ff88' : '#ff5252'}; font-size: 22px; font-weight: bold;">
+                        ${totalPnL >= 0 ? '+' : ''}${formatCurrency(totalPnL)}
+                    </div>
+                </div>
+                <div class="summary-item" style="text-align: center; border-left: 1px solid #333; padding-left: 12px;">
+                    <div style="color: #888; font-size: 11px;">ROC</div>
+                    <div style="color: ${roc >= 0 ? '#00ff88' : '#ff5252'}; font-size: 22px; font-weight: bold;" 
+                         title="Return on Capital: Net Premium ÷ Capital at Risk">
+                        ${roc.toFixed(2)}%
+                    </div>
+                </div>
+                <div class="summary-item" style="text-align: center; border-left: 1px solid #333; padding-left: 12px;">
+                    <div style="color: #888; font-size: 11px;">AVG ANN. ROC</div>
+                    <div style="color: ${weightedAnnROC >= 100 ? '#00ff88' : weightedAnnROC >= 50 ? '#ffaa00' : '#ff5252'}; 
+                         font-size: 22px; font-weight: bold;" 
+                         title="Weighted Average Annualized Return on Capital">
+                        ${weightedAnnROC.toFixed(0)}%
                     </div>
                 </div>
             </div>

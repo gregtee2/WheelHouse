@@ -2282,8 +2282,8 @@ ${t.exDividend ? `📅 Ex-Dividend: ${t.exDividend}` : ''}
 
 **1. STRIKE ANALYSIS**
 - Is $${strike} a good strike? Compare to support levels and moving averages.
-- More conservative option: What strike would be safer?
-- More aggressive option: What strike would yield more premium?
+- More conservative option: What LOWER strike (further OTM) would reduce assignment risk? (less premium, safer)
+- More aggressive option: What HIGHER strike (closer to current price) would yield more premium? (more risk, more reward)
 
 **2. EXPIRY ANALYSIS**
 - Is ${expiry} a good expiry given the earnings date?

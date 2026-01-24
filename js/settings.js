@@ -275,19 +275,30 @@ async function syncAccountFromSchwab() {
         let holdingsImported = 0;
         
         // Helper: Check if two position types are equivalent
-        // (e.g., covered_call should match buy_write since Schwab doesn't distinguish)
+        // Schwab doesn't distinguish LEAPS from regular options, or covered calls from buy/writes
         const isEquivalentType = (type1, type2) => {
             if (type1 === type2) return true;
-            // Covered calls and buy/writes are the same option position
-            const callTypes = ['covered_call', 'buy_write'];
-            if (callTypes.includes(type1) && callTypes.includes(type2)) return true;
-            return false;
+            
+            // Normalize types for comparison
+            const normalize = (t) => {
+                if (!t) return '';
+                // LEAPS are just long-dated versions of regular options
+                if (t === 'long_call_leaps' || t === 'leaps_call') return 'long_call';
+                if (t === 'long_put_leaps' || t === 'leaps_put') return 'long_put';
+                // Covered calls and buy/writes are the same option position
+                if (t === 'covered_call' || t === 'buy_write') return 'covered_call';
+                // Cash-secured puts and short puts are the same
+                if (t === 'cash_secured_put' || t === 'csp') return 'short_put';
+                return t;
+            };
+            
+            return normalize(type1) === normalize(type2);
         };
         
         // Import option positions
         for (const schwabPos of optionPositions) {
             // Check for duplicates (same ticker, strike, expiry, equivalent type)
-            const isDuplicate = existingPositions.some(p => 
+            const existingMatch = existingPositions.find(p => 
                 p.ticker === schwabPos.ticker &&
                 p.strike === schwabPos.strike &&
                 p.expiry === schwabPos.expiry &&
@@ -295,9 +306,27 @@ async function syncAccountFromSchwab() {
                 p.status !== 'closed'
             );
             
-            if (isDuplicate) {
+            if (existingMatch) {
+                // Update existing position with current Schwab prices, but PRESERVE user data
+                console.log(`[Schwab Sync] Updating existing ${schwabPos.ticker} $${schwabPos.strike} - has thesis: ${!!existingMatch.openingThesis}`);
+                existingMatch.lastOptionPrice = schwabPos.currentPrice || existingMatch.lastOptionPrice;
+                existingMatch.markedPrice = schwabPos.currentPrice || existingMatch.markedPrice;
+                existingMatch.contracts = schwabPos.contracts; // Contracts might change
+                // NOTE: Do NOT overwrite openingThesis, analysisHistory, or other user-added data
                 skipped++;
                 continue;
+            }
+            
+            // No match found - check if there's a similar position we might be replacing
+            const similarPos = existingPositions.find(p => 
+                p.ticker === schwabPos.ticker &&
+                p.status !== 'closed'
+            );
+            if (similarPos) {
+                console.warn(`[Schwab Sync] Creating NEW ${schwabPos.ticker} - existing has strike:${similarPos.strike} type:${similarPos.type}, Schwab has strike:${schwabPos.strike} type:${schwabPos.type}`);
+                if (similarPos.openingThesis) {
+                    console.warn(`[Schwab Sync] ⚠️ Existing ${schwabPos.ticker} HAS THESIS - will be orphaned!`);
+                }
             }
             
             // Convert Schwab position to WheelHouse format

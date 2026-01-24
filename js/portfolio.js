@@ -880,8 +880,8 @@ function updatePortfolioSummary(positionData) {
         setEl('portWorstTrade', '—');
     }
     
-    // Update advanced analytics
-    updateAdvancedAnalytics();
+    // Update all dashboard components (analytics, win rate, P&L chart, calendar)
+    refreshAllDashboards();
 }
 
 /**
@@ -3874,6 +3874,376 @@ function setAnalyticsDefaults() {
     setEl('portMaxDrawdown', '—');
     setEl('portKelly', '—');
     setEl('portHalfKelly', 'Need 3+ trades');
+}
+
+// ============================================================
+// WIN RATE DASHBOARD
+// ============================================================
+
+/**
+ * Update the Win Rate Dashboard with detailed stats
+ */
+export function updateWinRateDashboard() {
+    const allClosed = state.closedPositions || [];
+    const yearFilter = state.closedYearFilter || new Date().getFullYear().toString();
+    
+    const closed = yearFilter === 'all' 
+        ? allClosed 
+        : allClosed.filter(p => (p.closeDate || '').startsWith(yearFilter));
+    
+    // Update year label
+    const labelEl = document.getElementById('winRateYearLabel');
+    if (labelEl) labelEl.textContent = yearFilter === 'all' ? '(All Time)' : `(${yearFilter})`;
+    
+    const setEl = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    };
+    
+    if (closed.length === 0) {
+        setEl('dashWinRate', '—');
+        setEl('dashTotalTrades', '0');
+        setEl('dashAvgDTE', '—');
+        setEl('dashAvgPremium', '—');
+        setEl('dashBestTicker', '—');
+        setEl('dashWorstTicker', '—');
+        setEl('dashBiggestWin', '—');
+        setEl('dashBiggestLoss', '—');
+        return;
+    }
+    
+    const getPnL = (p) => p.realizedPnL ?? p.closePnL ?? 0;
+    const wins = closed.filter(p => getPnL(p) > 0);
+    const losses = closed.filter(p => getPnL(p) < 0);
+    
+    // Win rate
+    const winRate = (wins.length / closed.length * 100).toFixed(1);
+    setEl('dashWinRate', `${winRate}% (${wins.length}W/${losses.length}L)`);
+    setEl('dashTotalTrades', closed.length.toString());
+    
+    // Average DTE held
+    const dteValues = closed.filter(p => p.daysHeld != null).map(p => p.daysHeld);
+    const avgDTE = dteValues.length > 0 
+        ? (dteValues.reduce((a, b) => a + b, 0) / dteValues.length).toFixed(1) 
+        : '—';
+    setEl('dashAvgDTE', avgDTE + ' days');
+    
+    // Average premium
+    const premiums = closed.filter(p => p.premium > 0).map(p => p.premium * 100 * (p.contracts || 1));
+    const avgPremium = premiums.length > 0 
+        ? (premiums.reduce((a, b) => a + b, 0) / premiums.length).toFixed(0)
+        : 0;
+    setEl('dashAvgPremium', '$' + Number(avgPremium).toLocaleString());
+    
+    // Group by ticker
+    const byTicker = {};
+    closed.forEach(p => {
+        const ticker = p.ticker || 'Unknown';
+        if (!byTicker[ticker]) byTicker[ticker] = { wins: 0, losses: 0, totalPnL: 0 };
+        if (getPnL(p) > 0) byTicker[ticker].wins++;
+        else if (getPnL(p) < 0) byTicker[ticker].losses++;
+        byTicker[ticker].totalPnL += getPnL(p);
+    });
+    
+    // Best/Worst ticker (by total P&L)
+    const tickers = Object.entries(byTicker).map(([ticker, stats]) => ({
+        ticker,
+        ...stats,
+        winRate: stats.wins + stats.losses > 0 ? stats.wins / (stats.wins + stats.losses) : 0
+    }));
+    
+    tickers.sort((a, b) => b.totalPnL - a.totalPnL);
+    const best = tickers[0];
+    const worst = tickers[tickers.length - 1];
+    
+    if (best) {
+        const bestWinPct = (best.winRate * 100).toFixed(0);
+        setEl('dashBestTicker', `${best.ticker} +$${best.totalPnL.toLocaleString()} (${bestWinPct}%)`);
+    }
+    if (worst && worst.totalPnL < 0) {
+        const worstWinPct = (worst.winRate * 100).toFixed(0);
+        setEl('dashWorstTicker', `${worst.ticker} -$${Math.abs(worst.totalPnL).toLocaleString()} (${worstWinPct}%)`);
+    } else {
+        setEl('dashWorstTicker', 'None! 🎉');
+    }
+    
+    // Biggest win/loss
+    const sorted = [...closed].sort((a, b) => getPnL(b) - getPnL(a));
+    const biggestWin = sorted[0];
+    const biggestLoss = sorted[sorted.length - 1];
+    
+    if (biggestWin && getPnL(biggestWin) > 0) {
+        setEl('dashBiggestWin', `${biggestWin.ticker} +$${getPnL(biggestWin).toLocaleString()}`);
+    }
+    if (biggestLoss && getPnL(biggestLoss) < 0) {
+        setEl('dashBiggestLoss', `${biggestLoss.ticker} -$${Math.abs(getPnL(biggestLoss)).toLocaleString()}`);
+    }
+}
+
+// ============================================================
+// P&L CHART (Cumulative Line Chart)
+// ============================================================
+
+/**
+ * Draw cumulative P&L chart on canvas
+ */
+export function drawPnLChart() {
+    const canvas = document.getElementById('pnlChartCanvas');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const M = 25; // margin
+    
+    // Clear
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(0, 0, W, H);
+    
+    const allClosed = state.closedPositions || [];
+    const yearFilter = state.closedYearFilter || new Date().getFullYear().toString();
+    
+    const closed = yearFilter === 'all' 
+        ? allClosed 
+        : allClosed.filter(p => (p.closeDate || '').startsWith(yearFilter));
+    
+    // Update year label
+    const labelEl = document.getElementById('pnlChartYearLabel');
+    if (labelEl) labelEl.textContent = yearFilter === 'all' ? '(All Time)' : `(${yearFilter})`;
+    
+    if (closed.length < 2) {
+        ctx.fillStyle = '#888';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Need 2+ closed trades', W/2, H/2);
+        document.getElementById('pnlChartStart')?.setAttribute('textContent', '—');
+        document.getElementById('pnlChartEnd')?.setAttribute('textContent', '—');
+        return;
+    }
+    
+    const getPnL = (p) => p.realizedPnL ?? p.closePnL ?? 0;
+    
+    // Sort by close date
+    const sorted = [...closed].sort((a, b) => new Date(a.closeDate) - new Date(b.closeDate));
+    
+    // Calculate cumulative P&L
+    let cumulative = 0;
+    const dataPoints = sorted.map(p => {
+        cumulative += getPnL(p);
+        return { date: p.closeDate, value: cumulative };
+    });
+    
+    const minVal = Math.min(0, ...dataPoints.map(d => d.value));
+    const maxVal = Math.max(0, ...dataPoints.map(d => d.value));
+    const range = maxVal - minVal || 1;
+    
+    // Draw zero line
+    const zeroY = H - M - ((0 - minVal) / range) * (H - 2*M);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(M, zeroY);
+    ctx.lineTo(W - M, zeroY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Draw line
+    ctx.strokeStyle = cumulative >= 0 ? '#00ff88' : '#ff5252';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    
+    dataPoints.forEach((pt, i) => {
+        const x = M + (i / (dataPoints.length - 1)) * (W - 2*M);
+        const y = H - M - ((pt.value - minVal) / range) * (H - 2*M);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    
+    // Fill area under curve
+    ctx.lineTo(W - M, zeroY);
+    ctx.lineTo(M, zeroY);
+    ctx.closePath();
+    ctx.fillStyle = cumulative >= 0 ? 'rgba(0,255,136,0.15)' : 'rgba(255,82,82,0.15)';
+    ctx.fill();
+    
+    // End point dot
+    const lastPt = dataPoints[dataPoints.length - 1];
+    const lastX = W - M;
+    const lastY = H - M - ((lastPt.value - minVal) / range) * (H - 2*M);
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
+    ctx.fillStyle = cumulative >= 0 ? '#00ff88' : '#ff5252';
+    ctx.fill();
+    
+    // Labels for min/max
+    ctx.fillStyle = '#888';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('$' + maxVal.toLocaleString(), 2, M);
+    ctx.fillText('$' + minVal.toLocaleString(), 2, H - 5);
+    
+    // Date range labels
+    const startEl = document.getElementById('pnlChartStart');
+    const endEl = document.getElementById('pnlChartEnd');
+    if (startEl) startEl.textContent = formatShortDate(sorted[0].closeDate);
+    if (endEl) endEl.textContent = formatShortDate(sorted[sorted.length - 1].closeDate);
+}
+
+function formatShortDate(dateStr) {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    return (d.getMonth() + 1) + '/' + d.getDate();
+}
+
+// ============================================================
+// EXPIRATION CALENDAR
+// ============================================================
+
+let calendarMonth = new Date().getMonth();
+let calendarYear = new Date().getFullYear();
+
+window.changeCalendarMonth = function(delta) {
+    calendarMonth += delta;
+    if (calendarMonth > 11) { calendarMonth = 0; calendarYear++; }
+    if (calendarMonth < 0) { calendarMonth = 11; calendarYear--; }
+    renderExpirationCalendar();
+};
+
+/**
+ * Render the expiration calendar for open positions
+ */
+export function renderExpirationCalendar() {
+    const container = document.getElementById('expirationCalendar');
+    const labelEl = document.getElementById('calendarMonthLabel');
+    if (!container) return;
+    
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 
+                    'July', 'August', 'September', 'October', 'November', 'December'];
+    if (labelEl) labelEl.textContent = `${months[calendarMonth]} ${calendarYear}`;
+    
+    const positions = state.positions || [];
+    
+    // Group expirations by date
+    const expirations = {};
+    positions.forEach(p => {
+        if (!p.expiry) return;
+        const expDate = p.expiry.split('T')[0]; // YYYY-MM-DD
+        if (!expirations[expDate]) expirations[expDate] = [];
+        expirations[expDate].push(p);
+    });
+    
+    // Build calendar grid
+    const firstDay = new Date(calendarYear, calendarMonth, 1).getDay();
+    const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    let html = '<div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; text-align:center;">';
+    
+    // Day headers
+    ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].forEach(day => {
+        html += `<div style="color:#888; font-size:9px; padding:2px;">${day}</div>`;
+    });
+    
+    // Empty cells before first day
+    for (let i = 0; i < firstDay; i++) {
+        html += '<div></div>';
+    }
+    
+    // Days
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayPositions = expirations[dateStr] || [];
+        const isToday = dateStr === todayStr;
+        
+        let bgColor = 'transparent';
+        let dots = '';
+        
+        if (dayPositions.length > 0) {
+            // Create dots for each position type
+            dots = dayPositions.map(p => {
+                const type = p.type || '';
+                if (type.includes('spread')) return '🟣';
+                if (type.includes('call')) return '🔵';
+                if (type.includes('put')) return '🟢';
+                return '⚪';
+            }).join('');
+            bgColor = 'rgba(255,170,0,0.3)';
+        }
+        
+        const todayStyle = isToday ? 'border:1px solid #00d9ff;' : '';
+        const title = dayPositions.map(p => `${p.ticker} ${p.strike} ${p.type}`).join('\n');
+        
+        html += `<div style="padding:3px; border-radius:3px; background:${bgColor}; ${todayStyle} cursor:${dayPositions.length ? 'pointer' : 'default'};" 
+                      title="${title}" 
+                      onclick="${dayPositions.length ? `window.showCalendarDay('${dateStr}')` : ''}">
+                    <div style="color:${isToday ? '#00d9ff' : '#ddd'};">${day}</div>
+                    <div style="font-size:8px; line-height:1;">${dots}</div>
+                 </div>`;
+    }
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+window.showCalendarDay = function(dateStr) {
+    const positions = (state.positions || []).filter(p => (p.expiry || '').startsWith(dateStr));
+    if (positions.length === 0) return;
+    
+    const formattedDate = new Date(dateStr).toLocaleDateString('en-US', { 
+        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+    });
+    
+    let html = `
+        <div style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); 
+                    display:flex; align-items:center; justify-content:center; z-index:10000;"
+             onclick="if(event.target===this) this.remove();">
+            <div style="background:#1a1a2e; border-radius:12px; padding:20px; max-width:500px; width:90%; 
+                        border:1px solid rgba(255,170,0,0.5);">
+                <h3 style="color:#ffaa00; margin:0 0 15px;">📅 Expiring ${formattedDate}</h3>
+                <div style="max-height:300px; overflow-y:auto;">
+    `;
+    
+    positions.forEach(p => {
+        const typeIcon = (p.type || '').includes('put') ? '🟢' : (p.type || '').includes('call') ? '🔵' : '🟣';
+        html += `
+            <div style="padding:10px; background:rgba(255,255,255,0.05); border-radius:6px; margin-bottom:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-weight:600; color:#ddd;">${typeIcon} ${p.ticker}</span>
+                    <span style="color:#888;">${p.contracts || 1} contracts</span>
+                </div>
+                <div style="color:#aaa; font-size:12px; margin-top:5px;">
+                    Strike: $${p.strike || p.sellStrike || '—'} | Premium: $${p.premium?.toFixed(2) || '—'}
+                </div>
+            </div>
+        `;
+    });
+    
+    html += `
+                </div>
+                <button onclick="this.closest('div[style*=fixed]').remove()" 
+                        style="margin-top:15px; padding:10px 20px; background:#ffaa00; color:#000; border:none; 
+                               border-radius:6px; cursor:pointer; font-weight:600;">Close</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', html);
+};
+
+// ============================================================
+// REFRESH ALL DASHBOARDS
+// ============================================================
+
+/**
+ * Refresh all dashboard components when year filter changes or data updates
+ */
+export function refreshAllDashboards() {
+    updateAdvancedAnalytics();
+    updateWinRateDashboard();
+    drawPnLChart();
+    renderExpirationCalendar();
 }
 
 // Hook up refresh button

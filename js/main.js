@@ -2069,11 +2069,19 @@ window.attachThesisToPositionById = function(positionId) {
         window.state.positions[posIdx] = pos;
     }
     
-    // Save to localStorage and trigger auto-save
-    if (window.savePositionsToStorage) {
-        window.savePositionsToStorage();
-    } else {
-        localStorage.setItem('wheelhouse_positions', JSON.stringify(positions));
+    // Save to localStorage - ALWAYS save directly as well for reliability
+    try {
+        const toSave = window.state?.positions || positions;
+        localStorage.setItem('wheelhouse_positions', JSON.stringify(toSave));
+        console.log(`[AttachThesis] Saved ${pos.ticker} with thesis to localStorage`);
+        console.log('[AttachThesis] Thesis preview:', JSON.stringify(pos.openingThesis).substring(0, 200));
+        
+        // Also trigger auto-save to file if available
+        if (window.savePositionsToStorage) {
+            window.savePositionsToStorage();
+        }
+    } catch (e) {
+        console.error('[AttachThesis] Failed to save:', e);
     }
     
     showNotification(`✅ Thesis attached to ${pos.ticker} $${pos.strike}`, 'success');
