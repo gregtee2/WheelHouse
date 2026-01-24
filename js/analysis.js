@@ -924,9 +924,14 @@ export async function suggestOptimalRoll() {
     // For LONG options, rolling is less common - usually you just close or hold
     // But we can still show roll options (roll to higher strike for calls, lower for puts)
     
-    // Get current risk from displayed value
+    // Get current risk from displayed value or position context
+    // The optLower element might show "—" which parses as NaN
     const optLowerEl = document.getElementById('optLower');
-    const currentRisk = parseFloat(optLowerEl?.textContent?.replace('%','') || '50');
+    let currentRisk = parseFloat(optLowerEl?.textContent?.replace('%',''));
+    if (isNaN(currentRisk)) {
+        // Use position context if available, otherwise estimate from delta or default to 50%
+        currentRisk = state.currentPositionContext?.risk || 50;
+    }
     
     const suggestionsEl = document.getElementById('rollSuggestions');
     const listEl = document.getElementById('rollSuggestionsList');
@@ -1839,7 +1844,7 @@ window.findCreditRolls = async function() {
                 if (S < testStrike) belowCount++;
             }
             const newRisk = (belowCount / quickPaths) * 100;
-            const riskReduction = state.currentPositionContext?.risk || 50 - newRisk;
+            const riskReduction = (state.currentPositionContext?.risk || 50) - newRisk;
             
             creditCandidates.push({
                 strike: testStrike,
