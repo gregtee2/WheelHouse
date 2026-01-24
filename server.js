@@ -1467,6 +1467,14 @@ If you cannot find any trading advice, respond with: NO_TRADING_ADVICE_FOUND`;
                 ollamaReq.end();
             });
             
+            // Check if response looks like an error (Ollama crash, etc.)
+            if (!response || response.includes('"error"') || response.startsWith('{')) {
+                console.log('[AI-VISION] ⚠️ Received error-like response, rejecting');
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Vision model returned invalid response. Try restarting Ollama.' }));
+                return;
+            }
+            
             console.log('[AI-VISION] ✅ Wisdom image parsed successfully');
             
             // Check if no advice found
