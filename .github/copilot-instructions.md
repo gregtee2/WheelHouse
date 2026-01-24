@@ -539,9 +539,24 @@ git push origin main:stable
 
 ## 📋 Recent Features (January 2026)
 
-### v1.10.0 (Current)
+### v1.11.0 (Current)
+- **SKIP™ Strategy Support**: Full two-leg SKIP™ strategy now available
+  - SKIP™ = "Safely Keep Increasing Profits" (trademarked strategy)
+  - LEG 1: LEAPS call (12+ months out, ATM or slightly OTM)
+  - LEG 2: SKIP call (3-9 months out, higher strike above spot)
+  - Exit SKIP call at 45-60 DTE, continue riding LEAPS
+  - AI scorecard now rates 6 strategies (including SKIP™)
+  - Alternative Strategies tiles show real CBOE pricing for both legs
+  - `stageSkipStrategy()` stages both legs to Ideas tab
+- **Alternative Strategies Tiles**: Real-time CBOE data for all strategies
+  - Long Call, Call Spread, Sell Put tiles show actual prices/strikes
+  - SKIP™ tile shows LEAPS + SKIP call with combined cost
+  - Click "Stage to Ideas" for any strategy
+  - Uses 60-120 DTE for long calls, 90-270 DTE for SKIP calls, 365+ DTE for LEAPS
+
+### v1.10.0
 - **Alternative Strategies AI**: AI now thinks beyond rolling for covered calls
-  - When covered call is ITM, AI considers: LET ASSIGN, BUY SKIP CALL, BUY CALL SPREAD, SELL PUTS
+  - When covered call is ITM, AI considers: LET ASSIGN, SKIP™, LONG CALL, CALL SPREAD, SELL PUTS, ROLL
   - Shows assignment profit calculation (stock gain + all premiums collected)
   - Calculates upside you'd miss by getting called vs. current spot price
   - Chain-aware analysis: shows total premium collected across all rolls
@@ -555,7 +570,7 @@ git push origin main:stable
   - Premium gain: net premium across entire chain
   - Missed upside: (current spot - strike) if stock above strike
 
-### v1.9.1 (Latest)
+### v1.9.1
 - **LEAPS-Aware AI**: AI prompts now correctly handle long-dated options (365+ days)
   - Recognizes LEAPS (1+ year) and long-dated (6+ months) options
   - Checkups focus on thesis validity and IV changes, not daily theta

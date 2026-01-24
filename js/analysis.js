@@ -1289,6 +1289,46 @@ export async function suggestOptimalRoll() {
             return dte >= 45;  // Fallback: at least 45 DTE
         }) || chain.expirations?.[3];  // Last fallback to 4th expiration
         
+        // === SKIP™ STRATEGY OPTIONS ===
+        // LEAPS = 12+ months out (365+ DTE)
+        // SKIP call = 3-9 months out (90-270 DTE), higher strike
+        let leapsExpiry = chain.expirations?.find(exp => {
+            const expDate = new Date(exp);
+            const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+            return dte >= 365;  // 12+ months
+        });
+        let skipExpiry = chain.expirations?.find(exp => {
+            const expDate = new Date(exp);
+            const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+            return dte >= 120 && dte <= 270;  // 3-9 months (skip call has shorter term)
+        }) || chain.expirations?.find(exp => {
+            const expDate = new Date(exp);
+            const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+            return dte >= 90;  // Fallback: at least 90 DTE
+        });
+        
+        // LEAPS strike = ATM or slightly OTM (at the money for maximum delta)
+        const leapsStrike = Math.round(spot / 5) * 5;  // Round to nearest $5
+        // SKIP call strike = above spot, catching further upside
+        const skipStrike = Math.ceil(spot * 1.05 / 5) * 5;  // 5% above spot, rounded to $5
+        
+        let leapsOption = leapsExpiry ? chain.calls?.find(c => 
+            c.strike === leapsStrike && c.expiration === leapsExpiry
+        ) || chain.calls?.find(c => 
+            Math.abs(c.strike - leapsStrike) <= 2.5 && c.expiration === leapsExpiry
+        ) : null;
+        
+        let skipCallOption = skipExpiry ? chain.calls?.find(c => 
+            c.strike === skipStrike && c.expiration === skipExpiry
+        ) || chain.calls?.find(c => 
+            Math.abs(c.strike - skipStrike) <= 2.5 && c.expiration === skipExpiry
+        ) : null;
+        
+        // Calculate SKIP™ total cost
+        const leapsPrice = leapsOption ? (leapsOption.ask || leapsOption.bid * 1.05) : null;
+        const skipPrice = skipCallOption ? (skipCallOption.ask || skipCallOption.bid * 1.05) : null;
+        const skipTotalCost = (leapsPrice && skipPrice) ? (leapsPrice + skipPrice) * 100 * contracts : null;
+        
         // Find long call option in chain (for "Buy Upside Call" strategy)
         let longCallOption = chain.calls?.find(c => 
             c.strike === skipCallStrike && c.expiration === bestExpiry
@@ -1339,6 +1379,30 @@ export async function suggestOptimalRoll() {
                         <div>💵 Premium kept: <span style="color:#00ff88;">$${totalPremiumCollected.toFixed(0)}</span></div>
                         <div>🎯 ROI: <span style="color:#00ff88;">${((assignmentProfit / (costBasis * 100 * contracts)) * 100).toFixed(1)}%</span> on cost basis</div>
                     </div>
+                </div>
+                
+                <!-- SKIP™ STRATEGY -->
+                <div style="background:rgba(255,215,0,0.15); border:1px solid rgba(255,215,0,0.3); border-radius:6px; padding:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="color:#ffd700; font-weight:bold; font-size:12px;">⭐ SKIP™</span>
+                        <span style="color:#ff5252; font-size:11px; font-weight:bold;">${skipTotalCost ? `-$${skipTotalCost.toFixed(0)}` : 'N/A'}</span>
+                    </div>
+                    ${(leapsOption && skipCallOption) ? `
+                    <div style="font-size:10px; color:#ccc; line-height:1.4;">
+                        <div>📋 LEAPS $${leapsOption.strike}c @ <span style="color:#ffd700;">$${leapsPrice.toFixed(2)}</span> (${Math.ceil((new Date(leapsExpiry) - today) / (1000*60*60*24))} DTE)</div>
+                        <div>📋 SKIP $${skipCallOption.strike}c @ <span style="color:#ffd700;">$${skipPrice.toFixed(2)}</span> (${Math.ceil((new Date(skipExpiry) - today) / (1000*60*60*24))} DTE)</div>
+                        <div>💡 Exit SKIP at 45-60 DTE, ride LEAPS</div>
+                    </div>
+                    <button onclick="window.stageSkipStrategy('${ticker}', ${leapsOption.strike}, '${leapsExpiry}', ${leapsPrice.toFixed(2)}, ${skipCallOption.strike}, '${skipExpiry}', ${skipPrice.toFixed(2)}, ${spot})" 
+                            style="width:100%; margin-top:6px; background:rgba(255,215,0,0.3); border:1px solid rgba(255,215,0,0.5); color:#ffd700; 
+                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;">
+                        📥 Stage to Ideas
+                    </button>
+                    ` : leapsOption ? `
+                    <div style="font-size:10px; color:#888;">LEAPS available but no SKIP call expiry found</div>
+                    ` : `
+                    <div style="font-size:10px; color:#888;">No LEAPS (12+ months) available</div>
+                    `}
                 </div>
                 
                 <!-- BUY LONG CALL (Upside Participation) -->
@@ -1605,6 +1669,67 @@ window.stageAlternativeStrategy = function(ticker, strategyType, strike, current
     // More detailed notification
     const premiumText = premium ? ` @ $${parseFloat(premium).toFixed(2)}` : '';
     showNotification(`📥 Staged: ${ticker} ${tradeDescription}${premiumText}, exp ${expiry}`, 'success');
+    
+    // Re-render pending trades
+    if (typeof window.renderPendingTrades === 'function') {
+        window.renderPendingTrades();
+    }
+};
+
+/**
+ * Stage a SKIP™ strategy to the Ideas tab
+ * SKIP™ = LEAPS call (12+ months) + SKIP call (3-9 months, higher strike)
+ */
+window.stageSkipStrategy = function(ticker, leapsStrike, leapsExpiry, leapsPrice, skipStrike, skipExpiry, skipPrice, currentPrice) {
+    // Load existing pending trades
+    let pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+    
+    // Calculate DTEs
+    const today = new Date();
+    const leapsDte = Math.ceil((new Date(leapsExpiry) - today) / (1000 * 60 * 60 * 24));
+    const skipDte = Math.ceil((new Date(skipExpiry) - today) / (1000 * 60 * 60 * 24));
+    
+    // Check for duplicates
+    const exists = pending.find(p => p.ticker === ticker && p.type === 'skip_call');
+    if (exists) {
+        showNotification(`${ticker} SKIP™ strategy already staged`, 'info');
+        return;
+    }
+    
+    // Create SKIP™ trade with both legs
+    const trade = {
+        id: Date.now(),
+        ticker,
+        type: 'skip_call',
+        // LEAPS leg
+        leapsStrike: parseFloat(leapsStrike),
+        leapsExpiry,
+        leapsPremium: parseFloat(leapsPrice),
+        leapsDte,
+        // SKIP leg
+        skipStrike: parseFloat(skipStrike),
+        skipExpiry,
+        skipPremium: parseFloat(skipPrice),
+        skipDte,
+        // Combined
+        strike: parseFloat(leapsStrike),  // Primary strike for display
+        expiry: leapsExpiry,  // Primary expiry (the longer one)
+        premium: parseFloat(leapsPrice) + parseFloat(skipPrice),  // Total premium
+        currentPrice: parseFloat(currentPrice) || 0,
+        totalInvestment: (parseFloat(leapsPrice) + parseFloat(skipPrice)) * 100,
+        // Metadata
+        isSkip: true,
+        isAlternative: true,
+        description: `SKIP™ $${leapsStrike}/${skipStrike}`,
+        stagedAt: new Date().toISOString()
+    };
+    
+    pending.push(trade);
+    localStorage.setItem('wheelhouse_pending', JSON.stringify(pending));
+    
+    // Detailed notification
+    const totalCost = (parseFloat(leapsPrice) + parseFloat(skipPrice)).toFixed(2);
+    showNotification(`📥 Staged: ${ticker} SKIP™ - LEAPS $${leapsStrike} (${leapsDte} DTE) + SKIP $${skipStrike} (${skipDte} DTE) = $${totalCost}`, 'success');
     
     // Re-render pending trades
     if (typeof window.renderPendingTrades === 'function') {
@@ -2591,22 +2716,31 @@ async function getAIInsight() {
         const pos = positionId ? state.positions.find(p => p.id === positionId) : null;
         const hasThesis = pos?.openingThesis;
         
-        // Display the AI insight with Save button
+        // Show a brief summary in the panel, with button to open full modal
         contentEl.innerHTML = `
-            <div style="color:#ddd; line-height:1.6; white-space:pre-wrap; font-size:11px;">${formattedInsight}</div>
-            <div style="font-size:9px; color:#555; margin-top:8px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px;">
-                <span>${moeIndicator}${selectedModel} • ${result.took || 'N/A'}</span>
-                <div style="display:flex; gap:4px; flex-wrap:wrap;">
-                    ${positionId ? `
-                        <button onclick="window.saveAsThesis()" style="background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#0f8; padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px;" title="Save this analysis as the opening thesis for ${ticker}">
-                            💾 ${hasThesis ? 'Update' : 'Save'} Thesis
-                        </button>
-                    ` : `<span style="color:#666;" title="Load a position first to save thesis">💾 No position</span>`}
-                    ${isMoE ? `<button onclick="window.showMoeOpinions()" style="background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#a78bfa; padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px;">👁️ View Opinions</button>` : ''}
-                    ${hasHistory ? `<button onclick="window.showAnalysisHistory(${positionId})" style="background:none; border:1px solid #555; color:#888; padding:2px 6px; border-radius:3px; cursor:pointer; font-size:9px;">📜 History (${analysisHistory.length})</button>` : ''}
-                </div>
-            </div>
+            <div style="color:#00d9ff; font-weight:bold; margin-bottom:6px;">✅ Analysis Complete</div>
+            <div style="color:#888; font-size:11px; margin-bottom:8px;">${moeIndicator}${selectedModel} • ${result.took || 'N/A'}</div>
+            <button onclick="window.showAIInsightModal()" style="background:#00d9ff; border:none; color:#000; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:bold; width:100%;">
+                📊 View Full Analysis
+            </button>
         `;
+        
+        // Store data for the modal
+        window._lastAIInsightModal = {
+            formattedInsight,
+            ticker,
+            selectedModel,
+            took: result.took,
+            isMoE,
+            moeIndicator,
+            hasThesis,
+            positionId,
+            hasHistory,
+            analysisHistoryLength: analysisHistory.length
+        };
+        
+        // Auto-open the modal
+        window.showAIInsightModal();
         
         // Highlight the matching roll suggestion card
         highlightAIPick(result.insight);
@@ -3051,10 +3185,84 @@ function saveAsThesis() {
     }
 }
 
+/**
+ * Show AI Insight in a full-screen modal
+ * Much better than the cramped inline display!
+ */
+function showAIInsightModal() {
+    const data = window._lastAIInsightModal;
+    if (!data) {
+        showNotification('No analysis available', 'error');
+        return;
+    }
+    
+    // Remove existing modal if any
+    const existing = document.getElementById('aiInsightModal');
+    if (existing) existing.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'aiInsightModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); display:flex; align-items:center; justify-content:center; z-index:10000; padding:20px;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border:1px solid #00d9ff; border-radius:12px; padding:24px; max-width:800px; width:95%; max-height:90vh; display:flex; flex-direction:column;">
+            <!-- Header -->
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-shrink:0;">
+                <h2 style="margin:0; color:#00d9ff; font-size:20px;">
+                    🧠 AI Strategy Analysis: ${data.ticker}
+                </h2>
+                <button onclick="document.getElementById('aiInsightModal').remove()" 
+                    style="background:none; border:none; color:#888; font-size:28px; cursor:pointer; line-height:1;">&times;</button>
+            </div>
+            
+            <!-- Model info bar -->
+            <div style="background:rgba(0,217,255,0.1); padding:10px 14px; border-radius:8px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
+                <span style="color:#00d9ff;">${data.moeIndicator || ''}${data.selectedModel}</span>
+                <span style="color:#888;">${data.took || ''}</span>
+            </div>
+            
+            <!-- Content - scrollable -->
+            <div style="flex:1; overflow-y:auto; color:#e0e0e0; line-height:1.8; font-size:14px; white-space:pre-wrap; padding-right:8px;">
+                ${data.formattedInsight}
+            </div>
+            
+            <!-- Action buttons - fixed at bottom -->
+            <div style="display:flex; gap:10px; margin-top:16px; padding-top:16px; border-top:1px solid #333; flex-shrink:0; flex-wrap:wrap;">
+                ${data.positionId ? `
+                    <button onclick="window.saveAsThesis(); document.getElementById('aiInsightModal').remove();" 
+                        style="background:#00ff88; border:none; color:#000; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
+                        💾 ${data.hasThesis ? 'Update' : 'Save'} Thesis
+                    </button>
+                ` : ''}
+                ${data.isMoE ? `
+                    <button onclick="window.showMoeOpinions()" 
+                        style="background:rgba(139,92,246,0.3); border:1px solid #8b5cf6; color:#a78bfa; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
+                        👁️ View Expert Opinions
+                    </button>
+                ` : ''}
+                ${data.hasHistory ? `
+                    <button onclick="window.showAnalysisHistory(${data.positionId})" 
+                        style="background:rgba(255,170,0,0.2); border:1px solid #ffaa00; color:#ffaa00; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
+                        📜 History (${data.analysisHistoryLength})
+                    </button>
+                ` : ''}
+                <button onclick="document.getElementById('aiInsightModal').remove()" 
+                    style="background:#333; border:1px solid #555; color:#ccc; padding:10px 20px; border-radius:6px; cursor:pointer; font-size:13px; margin-left:auto;">
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+}
+
 // Make available globally
 window.showAnalysisHistory = showAnalysisHistory;
 window.showMoeOpinions = showMoeOpinions;
 window.saveAsThesis = saveAsThesis;
+window.showAIInsightModal = showAIInsightModal;
 
 // Make globally accessible
 window.getAIInsight = getAIInsight;

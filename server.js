@@ -2843,32 +2843,41 @@ Your covered call is ITM with the stock running. Rolling isn't your only option:
    • Free up capital for new opportunities
    • Best if: You're happy with the return, or stock looks overextended
 
-2️⃣ BUY A LONG CALL (Capture additional upside)
-   • Buy a call ABOVE current price to ride further upside
+2️⃣ BUY A SKIP™ CALL STRATEGY (Pro strategy for max upside)
+   • SKIP™ = "Safely Keep Increasing Profits" - a two-leg bullish overlay
+   • LEG 1: Buy a LEAPS call (12+ months out, ATM or slightly OTM)
+   • LEG 2: Buy a SKIP call (3-9 months out, higher strike above spot)
+   • Exit the SKIP call at 45-60 DTE to lock in gains, keep riding LEAPS
+   • Best if: Very bullish, want leveraged upside with defined risk
+   • Note: SKIP™ is a trademarked strategy - research before trading
+
+3️⃣ BUY A LONG CALL (Simpler upside participation)
+   • Buy a single call ABOVE current price to ride further upside
    • Example: Buy $${Math.ceil(spot / 5) * 5} call 60-90 DTE
    • Costs premium but lets you profit if rally continues
-   • Best if: You're bullish but okay being called at current strike
+   • Best if: Moderately bullish, want simple upside exposure
 
-3️⃣ BUY A CALL DEBIT SPREAD (Defined risk upside play)
+4️⃣ BUY A CALL DEBIT SPREAD (Defined risk upside play)
    • Buy call at one strike, sell call at higher strike
    • Example: Buy $${Math.ceil(spot / 5) * 5}/$${Math.ceil(spot / 5) * 5 + 5} call spread
    • Cheaper than naked call, capped profit but defined risk
    • Best if: Moderately bullish, want to limit cost
 
-4️⃣ SELL PUTS BELOW CURRENT PRICE (Add bullish exposure)
+5️⃣ SELL PUTS BELOW CURRENT PRICE (Add bullish exposure)
    • Sell puts at lower strikes to add more bullish delta
    • Example: Sell $${Math.floor((spot * 0.9) / 5) * 5} put
    • Collects premium + adds shares if stock pulls back
    • Best if: You'd happily buy more shares on a dip
 
-5️⃣ ROLL UP AND OUT (Traditional approach)
+6️⃣ ROLL UP AND OUT (Traditional approach)
    • Buy back current call, sell higher strike further out
    • Extends the trade but may be fighting the trend
    • Best if: You think rally will stall, want to stay in position
 
 💡 KEY INSIGHT: You're currently missing ${upsideMissed}% of upside ($${spot.toFixed(2)} vs $${strike} cap).
-   If you're BULLISH, consider strategies 2-4 to participate in further gains.
-   If you're NEUTRAL/BEARISH, strategy 1 or 5 makes more sense.`;
+   If you're VERY BULLISH, consider SKIP™ (strategy 2) for maximum leveraged upside.
+   If you're MODERATELY BULLISH, strategies 3-5 offer simpler upside exposure.
+   If you're NEUTRAL/BEARISH, strategy 1 or 6 makes more sense.`;
     } else if (isShortPut && spot < strike) {
         // Short put ITM - stock falling scenario
         alternativeStrategies = `
@@ -3022,10 +3031,11 @@ DO NOT skip to a recommendation. First, fill out this scorecard:
 | Strategy | Score | Reasoning |
 |----------|-------|-----------|
 | 1. LET ASSIGN ($${assignmentProfit?.toFixed(0) || '???'} profit) | ?/10 | [Your reasoning] |
-| 2. BUY LONG CALL ($${Math.ceil(spot / 5) * 5} call, 60-90 DTE) | ?/10 | [Your reasoning] |
-| 3. BUY CALL SPREAD ($${Math.ceil(spot / 5) * 5}/$${Math.ceil(spot / 5) * 5 + 5}) | ?/10 | [Your reasoning] |
-| 4. SELL $${Math.floor((spot * 0.9) / 5) * 5} PUT | ?/10 | [Your reasoning] |
-| 5. ROLL UP+OUT | ?/10 | [Your reasoning] |
+| 2. SKIP™ STRATEGY (LEAPS 12+ mo + SKIP call 3-9 mo) | ?/10 | [Your reasoning] |
+| 3. BUY LONG CALL ($${Math.ceil(spot / 5) * 5} call, 60-90 DTE) | ?/10 | [Your reasoning] |
+| 4. BUY CALL SPREAD ($${Math.ceil(spot / 5) * 5}/$${Math.ceil(spot / 5) * 5 + 5}) | ?/10 | [Your reasoning] |
+| 5. SELL $${Math.floor((spot * 0.9) / 5) * 5} PUT | ?/10 | [Your reasoning] |
+| 6. ROLL UP+OUT | ?/10 | [Your reasoning] |
 
 After completing the scorecard, provide:
 
@@ -3034,7 +3044,8 @@ After completing the scorecard, provide:
 **Why This Beats Rolling:** [If rolling didn't win, explain why winner is better]
 **Key Risk:** [Main downside to watch]
 
-IMPORTANT: If you recommend SKIP CALL, CALL SPREAD, or SELL PUTS, explain the specific trade setup.` : hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
+IMPORTANT: If you recommend SKIP™, include BOTH legs (LEAPS strike/expiry + SKIP call strike/expiry).
+If you recommend CALL SPREAD or SELL PUTS, explain the specific trade setup.` : hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
 
 If HOLD is best, respond:
 1. HOLD - Let position expire worthless for max profit
