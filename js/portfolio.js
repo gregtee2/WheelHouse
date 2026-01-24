@@ -3990,16 +3990,45 @@ export function updateWinRateDashboard() {
         setEl('dashWorstTicker', 'None! 🎉');
     }
     
-    // Biggest win/loss
-    const sorted = [...closed].sort((a, b) => getPnL(b) - getPnL(a));
-    const biggestWin = sorted[0];
-    const biggestLoss = sorted[sorted.length - 1];
+    // Biggest win/loss BY CHAIN (not individual legs)
+    // Group closed positions by chainId and sum their P&L
+    const chainPnL = {};
+    closed.forEach(p => {
+        const chainId = p.chainId || p.id; // Use position id if no chain
+        if (!chainPnL[chainId]) {
+            chainPnL[chainId] = { 
+                ticker: p.ticker, 
+                totalPnL: 0, 
+                legs: 0,
+                isChain: false 
+            };
+        }
+        chainPnL[chainId].totalPnL += getPnL(p);
+        chainPnL[chainId].legs++;
+        if (chainPnL[chainId].legs > 1) chainPnL[chainId].isChain = true;
+    });
     
-    if (biggestWin && getPnL(biggestWin) > 0) {
-        setEl('dashBiggestWin', `${biggestWin.ticker} +$${getPnL(biggestWin).toLocaleString()}`);
+    // Convert to array and sort
+    const chains = Object.entries(chainPnL).map(([chainId, data]) => ({
+        chainId,
+        ...data
+    }));
+    chains.sort((a, b) => b.totalPnL - a.totalPnL);
+    
+    const biggestWinChain = chains[0];
+    const biggestLossChain = chains[chains.length - 1];
+    
+    if (biggestWinChain && biggestWinChain.totalPnL > 0) {
+        const chainLabel = biggestWinChain.isChain ? ' 🔗' : '';
+        setEl('dashBiggestWin', `${biggestWinChain.ticker}${chainLabel} +$${biggestWinChain.totalPnL.toLocaleString()}`);
+    } else {
+        setEl('dashBiggestWin', '—');
     }
-    if (biggestLoss && getPnL(biggestLoss) < 0) {
-        setEl('dashBiggestLoss', `${biggestLoss.ticker} -$${Math.abs(getPnL(biggestLoss)).toLocaleString()}`);
+    if (biggestLossChain && biggestLossChain.totalPnL < 0) {
+        const chainLabel = biggestLossChain.isChain ? ' 🔗' : '';
+        setEl('dashBiggestLoss', `${biggestLossChain.ticker}${chainLabel} -$${Math.abs(biggestLossChain.totalPnL).toLocaleString()}`);
+    } else {
+        setEl('dashBiggestLoss', 'None! 🎉');
     }
 }
 
