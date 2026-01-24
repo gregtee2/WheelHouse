@@ -2082,6 +2082,12 @@ window.showOpportunityCostModal = function(holdingId, missedUpside, capital, mon
     const betterChoice = expectedFromRedeploy > missedUpside ? 'redeploy' : 'roll';
     const difference = Math.abs(expectedFromRedeploy - missedUpside);
     
+    // Calculate break-even: how much more upside needed for roll to win
+    // missedUpside = (currentPrice - callStrike) * shares
+    const shares = holding.sharesHeld || 100;
+    const additionalUpsideNeeded = betterChoice === 'redeploy' ? difference : 0;
+    const priceIncreaseNeeded = additionalUpsideNeeded / shares;
+    
     const modal = document.createElement('div');
     modal.id = 'oppCostModal';
     modal.style.cssText = `
@@ -2112,6 +2118,23 @@ window.showOpportunityCostModal = function(holdingId, missedUpside, capital, mon
                 <div style="color:#ff9800; font-size:28px; font-weight:bold;">$${missedUpside.toFixed(0)}</div>
                 <div style="color:#666; font-size:11px;">To capture this, you'd roll UP ~${rollOutDte} days</div>
             </div>
+            
+            ${betterChoice === 'redeploy' ? `
+            <div style="text-align:center; margin-bottom:20px; padding:12px; background:rgba(0,217,255,0.1); border:1px solid rgba(0,217,255,0.3); border-radius:8px;">
+                <div style="color:#00d9ff; font-size:12px;">
+                    📊 <strong>Break-even:</strong> ${holding.ticker} needs to rise <strong>+$${priceIncreaseNeeded.toFixed(2)}</strong> more for roll to win
+                </div>
+                <div style="color:#666; font-size:10px; margin-top:4px;">
+                    Roll needs $${expectedFromRedeploy.toFixed(0)} upside to match your ${monthlyYieldPct.toFixed(1)}%/mo velocity
+                </div>
+            </div>
+            ` : `
+            <div style="text-align:center; margin-bottom:20px; padding:12px; background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); border-radius:8px;">
+                <div style="color:#00ff88; font-size:12px;">
+                    ✅ Roll already beats redeploy by <strong>+$${difference.toFixed(0)}</strong>
+                </div>
+            </div>
+            `}
             
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:25px;">
                 <!-- Option 1: Roll UP -->
