@@ -3715,16 +3715,115 @@ async function loadWisdomCount() {
 }
 
 /**
- * Add new wisdom from input
+ * Handle wisdom image drag & drop
+ */
+window.handleWisdomImageDrop = function(event) {
+    event.preventDefault();
+    const dropZone = document.getElementById('wisdomImageDropZone');
+    dropZone.style.borderColor = 'rgba(34,197,94,0.3)';
+    dropZone.style.background = 'rgba(34,197,94,0.05)';
+    
+    const file = event.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+        displayWisdomImagePreview(file);
+    } else {
+        showNotification('Please drop an image file', 'error');
+    }
+};
+
+/**
+ * Handle wisdom image upload from file input
+ */
+window.handleWisdomImageUpload = function(event) {
+    const file = event.target.files[0];
+    if (file && file.type.startsWith('image/')) {
+        displayWisdomImagePreview(file);
+    }
+};
+
+/**
+ * Display wisdom image preview
+ */
+function displayWisdomImagePreview(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const preview = document.getElementById('wisdomImagePreview');
+        const img = document.getElementById('wisdomPreviewImg');
+        img.src = e.target.result;
+        preview.style.display = 'block';
+        // Store base64 for later parsing
+        window.pendingWisdomImageData = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+/**
+ * Clear wisdom image preview
+ */
+window.clearWisdomImage = function(event) {
+    if (event) event.stopPropagation();
+    document.getElementById('wisdomImagePreview').style.display = 'none';
+    document.getElementById('wisdomPreviewImg').src = '';
+    document.getElementById('wisdomImageInput').value = '';
+    window.pendingWisdomImageData = null;
+};
+
+/**
+ * Add new wisdom from input (supports both text and images)
  */
 window.addWisdom = async function() {
     const input = document.getElementById('wisdomInput');
-    if (!input || !input.value.trim()) {
-        showNotification('Please enter some trading advice', 'error');
+    const hasText = input && input.value.trim();
+    const hasImage = window.pendingWisdomImageData;
+    
+    if (!hasText && !hasImage) {
+        showNotification('Please enter text or drop an image with trading advice', 'error');
         return;
     }
     
-    const raw = input.value.trim();
+    let raw = '';
+    
+    // If we have an image, first extract text from it using vision
+    if (hasImage) {
+        try {
+            showNotification('📷 Extracting text from image...', 'info');
+            
+            const visionRes = await fetch('/api/ai/parse-wisdom-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    image: window.pendingWisdomImageData,
+                    model: 'minicpm-v:latest'
+                })
+            });
+            
+            const visionData = await visionRes.json();
+            
+            if (visionData.error) {
+                showNotification(`❌ Vision error: ${visionData.error}`, 'error');
+                return;
+            }
+            
+            raw = visionData.extractedText || '';
+            
+            if (!raw) {
+                showNotification('Could not extract any text from image', 'error');
+                return;
+            }
+            
+            // Clear the image preview
+            window.clearWisdomImage();
+            
+        } catch (e) {
+            showNotification(`❌ Vision error: ${e.message}`, 'error');
+            return;
+        }
+    }
+    
+    // Combine with any text input
+    if (hasText) {
+        raw = raw ? raw + '\n\n' + input.value.trim() : input.value.trim();
+    }
     
     try {
         showNotification('🧠 Processing wisdom...', 'info');

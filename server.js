@@ -1392,6 +1392,109 @@ If any field is unclear, write "unclear" for that field.`;
         return;
     }
     
+    // Parse wisdom image - extract trading advice text from screenshots
+    if (url.pathname === '/api/ai/parse-wisdom-image' && req.method === 'POST') {
+        console.log('[AI-VISION] 📚 Wisdom image parse request received');
+        try {
+            const { image, model = 'minicpm-v:latest' } = req.body || {};
+            
+            if (!image) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'No image provided' }));
+                return;
+            }
+            
+            // Extract base64 data (handle data URL format)
+            let base64Data = image;
+            if (image.startsWith('data:image')) {
+                base64Data = image.split(',')[1];
+            }
+            
+            console.log(`[AI-VISION] Using model: ${model}, image size: ${(base64Data.length / 1024).toFixed(1)}KB`);
+            
+            const prompt = `Look at this screenshot and extract ALL trading advice, tips, or wisdom mentioned.
+This is likely from a Discord, Twitter, or other social media post about options trading.
+
+Focus on extracting:
+- Any specific rules or guidelines mentioned (e.g., "close at 50% profit", "don't hold through earnings")
+- Any strategies or recommendations
+- Any warnings or things to avoid
+- Any tips about rolling, timing, or position sizing
+
+Return ONLY the trading advice/wisdom text that you find in the image.
+If there are multiple pieces of advice, list each one on a new line.
+Do NOT add any commentary or explanation - just the exact advice from the image.
+If you cannot find any trading advice, respond with: NO_TRADING_ADVICE_FOUND`;
+
+            const postData = JSON.stringify({
+                model: model,
+                prompt: prompt,
+                images: [base64Data],
+                stream: false,
+                options: { temperature: 0.1 }
+            });
+            
+            const response = await new Promise((resolve, reject) => {
+                const ollamaReq = http.request({
+                    hostname: 'localhost',
+                    port: 11434,
+                    path: '/api/generate',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(postData)
+                    }
+                }, (ollamaRes) => {
+                    let data = '';
+                    ollamaRes.on('data', chunk => data += chunk);
+                    ollamaRes.on('end', () => {
+                        try {
+                            const parsed = JSON.parse(data);
+                            resolve(parsed.response || parsed.message?.content || data);
+                        } catch {
+                            resolve(data);
+                        }
+                    });
+                });
+                
+                ollamaReq.on('error', reject);
+                ollamaReq.setTimeout(120000, () => {
+                    ollamaReq.destroy();
+                    reject(new Error('Timeout - vision model took too long'));
+                });
+                
+                ollamaReq.write(postData);
+                ollamaReq.end();
+            });
+            
+            console.log('[AI-VISION] ✅ Wisdom image parsed successfully');
+            
+            // Check if no advice found
+            if (response.includes('NO_TRADING_ADVICE_FOUND')) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                    success: false,
+                    error: 'No trading advice found in image',
+                    extractedText: ''
+                }));
+                return;
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true,
+                extractedText: response.trim(),
+                model
+            }));
+            
+        } catch (e) {
+            console.log('[AI-VISION] ❌ Wisdom parse error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+    
     // Static file serving
     let filePath = url.pathname;
     if (filePath === '/') filePath = '/index.html';
