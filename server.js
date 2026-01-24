@@ -127,7 +127,8 @@ function detectGPU() {
 const MODEL_VRAM_REQUIREMENTS = {
     'qwen2.5:7b': { minGB: 5, recGB: 8, description: '7B parameters - Fast, good quality' },
     'qwen2.5:14b': { minGB: 10, recGB: 14, description: '14B parameters - Balanced' },
-    'qwen2.5:32b': { minGB: 20, recGB: 24, description: '32B parameters - Best quality, slow' },
+    'deepseek-r1:32b': { minGB: 20, recGB: 24, description: '32B parameters - Best quality, slow' },
+    'deepseek-r1:32b': { minGB: 20, recGB: 24, description: '32B parameters - Best for quant/math reasoning' },
     'minicpm-v:latest': { minGB: 6, recGB: 8, description: 'Vision model - Image analysis' },
     'llava:7b': { minGB: 5, recGB: 8, description: 'Vision model - Image analysis' },
     'llava:13b': { minGB: 10, recGB: 14, description: 'Vision model - Better image analysis' }
@@ -394,7 +395,7 @@ const mainHandler = async (req, res, next) => {
     if (url.pathname === '/api/ai/critique' && req.method === 'POST') {
         try {
             const data = req.body;
-            const selectedModel = data.model || 'qwen2.5:14b'; // Use smarter model for critique
+            const selectedModel = data.model || 'deepseek-r1:32b'; // Use DeepSeek for quant reasoning
                 console.log('[AI] Critiquing trade:', data.ticker, 'with model:', selectedModel);
                 
                 const prompt = buildCritiquePrompt(data);
@@ -602,7 +603,7 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
         try {
             const data = req.body;
                 const { ticker, strike, expiry, currentPrice, model, positionType } = data;
-                const selectedModel = model || 'qwen2.5:32b'; // Use best model for deep analysis
+                const selectedModel = model || 'deepseek-r1:32b'; // Use DeepSeek for quant analysis
                 
                 // Determine option type from position type
                 const callTypes = ['long_call', 'long_call_leaps', 'covered_call', 'leap', 'leaps', 'call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
@@ -3156,10 +3157,13 @@ function callOllama(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
     const modelMap = {
         '7b': 'qwen2.5:7b',
         '14b': 'qwen2.5:14b', 
-        '32b': 'qwen2.5:32b',
+        '32b': 'deepseek-r1:32b',
+        'deepseek': 'deepseek-r1:32b',
+        'deepseek-r1': 'deepseek-r1:32b',
+        'deepseek-r1:32b': 'deepseek-r1:32b',
         'qwen2.5:7b': 'qwen2.5:7b',
         'qwen2.5:14b': 'qwen2.5:14b',
-        'qwen2.5:32b': 'qwen2.5:32b',
+        'deepseek-r1:32b': 'deepseek-r1:32b',
         'llama3.1:8b': 'llama3.1:8b',
         'mistral:7b': 'mistral:7b'
     };
@@ -3281,7 +3285,7 @@ Your response format:
 
     // Call 32B as the judge
     console.log('[AI] 👨‍⚖️ Running 32B as judge...');
-    const finalResponse = await callOllama(judgePrompt, 'qwen2.5:32b', 600);
+    const finalResponse = await callOllama(judgePrompt, 'deepseek-r1:32b', 600);
     
     const totalTime = Date.now() - startTime;
     console.log(`[AI] ✅ MoE complete in ${totalTime}ms (parallel: ${parallelTime}ms, judge: ${totalTime - parallelTime}ms)`);

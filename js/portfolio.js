@@ -2473,7 +2473,7 @@ async function runHoldingAnalysis(modelType) {
                 body: JSON.stringify({
                     ticker: holding.ticker,
                     customPrompt: prompt,
-                    model: 'qwen2.5:32b'
+                    model: 'deepseek-r1:32b'
                 })
             });
         }
@@ -2613,7 +2613,7 @@ async function runHoldingAnalysis(modelType) {
             </div>
             
             <p style="color:#888;">Failed to get AI analysis: ${e.message}</p>
-            <p style="color:#666;font-size:11px;">${modelType === 'grok' ? 'Check your Grok API key in Settings.' : 'Make sure Ollama is running with qwen2.5:32b loaded.'}</p>
+            <p style="color:#666;font-size:11px;">${modelType === 'grok' ? 'Check your Grok API key in Settings.' : 'Make sure Ollama is running with deepseek-r1:32b loaded.'}</p>
         `;
     }
 }

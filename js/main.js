@@ -192,7 +192,7 @@ async function checkAIAvailability() {
     if (!aiPanel) return;
     
     // Restore saved model preference
-    const savedModel = localStorage.getItem('wheelhouse_ai_model') || 'qwen2.5:7b';
+    const savedModel = localStorage.getItem('wheelhouse_ai_model') || 'deepseek-r1:32b';
     if (modelSelect) {
         modelSelect.value = savedModel;
     }
@@ -1111,7 +1111,7 @@ window.getXSentiment = async function() {
 window.xDeepDive = async function(ticker) {
     // Fetch current price
     const selectedModel = document.getElementById('ideaModelSelect2')?.value || 
-                          document.getElementById('ideaModelSelect')?.value || 'qwen2.5:32b';
+                          document.getElementById('ideaModelSelect')?.value || 'deepseek-r1:32b';
     
     // Show loading modal
     const modal = document.createElement('div');
@@ -1313,7 +1313,7 @@ window.getTradeIdeas = async function() {
     const buyingPower = parseFloat(document.getElementById('ideaBuyingPower')?.value) || 25000;
     const targetROC = parseFloat(document.getElementById('ideaTargetROC')?.value) || 25;
     const sectorsToAvoid = document.getElementById('ideaSectorsAvoid')?.value || '';
-    const selectedModel = document.getElementById('ideaModelSelect')?.value || 'qwen2.5:32b';
+    const selectedModel = document.getElementById('ideaModelSelect')?.value || 'deepseek-r1:32b';
     
     // Check if X trending tickers should be included
     const useXTickers = document.getElementById('useXTickers')?.checked;
@@ -1416,7 +1416,7 @@ window.deepDive = async function(ticker) {
     const rawExpiry = expiryMatch ? expiryMatch[1] : null;
     const expiry = snapToFriday(rawExpiry);
     
-    const selectedModel = document.getElementById('ideaModelSelect')?.value || 'qwen2.5:32b';
+    const selectedModel = document.getElementById('ideaModelSelect')?.value || 'deepseek-r1:32b';
     
     // Show modal with loading state
     const modal = document.createElement('div');
@@ -1600,7 +1600,7 @@ window.analyzeDiscordTrade = async function() {
     // Get selected model from Discord-specific dropdown (falls back to main AI dropdown)
     const discordModelSelect = document.getElementById('discordModelSelect');
     const mainModelSelect = document.getElementById('aiModelSelect');
-    const model = discordModelSelect?.value || mainModelSelect?.value || 'qwen2.5:32b';
+    const model = discordModelSelect?.value || mainModelSelect?.value || 'deepseek-r1:32b';
     
     // Create modal with loading state
     const modal = document.createElement('div');
@@ -1745,7 +1745,7 @@ window.analyzeDiscordTrade = async function() {
         
         // Get the model used for this analysis
         const discordModelSelect = document.getElementById('discordModelSelect');
-        const modelUsed = discordModelSelect?.value || 'qwen2.5:32b';
+        const modelUsed = discordModelSelect?.value || 'deepseek-r1:32b';
         
         // Store parsed data for staging
         window._currentParsedTrade = {
@@ -2053,7 +2053,7 @@ window.attachThesisToPositionById = function(positionId) {
         priceAtAnalysis: price,
         rangePosition: rangePosition,
         iv: trade.iv || null,
-        modelUsed: trade.model || 'qwen2.5:32b',
+        modelUsed: trade.model || 'deepseek-r1:32b',
         aiSummary: {
             aggressive: trade.spectrum?.aggressive || '',
             moderate: trade.spectrum?.moderate || '',
@@ -3596,7 +3596,7 @@ window.analyzeDiscordTrade2 = async function() {
     if (mainTextarea) mainTextarea.value = textarea.value;
     
     const mainModel = document.getElementById('discordModelSelect');
-    if (mainModel) mainModel.value = modelSelect?.value || 'qwen2.5:32b';
+    if (mainModel) mainModel.value = modelSelect?.value || 'deepseek-r1:32b';
     
     // Call the main function
     window.analyzeDiscordTrade();
@@ -3711,7 +3711,7 @@ window.getTradeIdeas2 = async function() {
     const buyingPower = parseFloat(document.getElementById('ideaBuyingPower2')?.value) || 25000;
     const targetROC = parseFloat(document.getElementById('ideaTargetROC2')?.value) || 25;
     const sectorsToAvoid = document.getElementById('ideaSectorsAvoid2')?.value || '';
-    const selectedModel = document.getElementById('ideaModelSelect2')?.value || 'qwen2.5:32b';
+    const selectedModel = document.getElementById('ideaModelSelect2')?.value || 'deepseek-r1:32b';
     
     // Check if X trending tickers should be included
     const useXTickers = document.getElementById('useXTickers2')?.checked;
@@ -3837,7 +3837,7 @@ window.getTradeIdeasDifferent = async function() {
     const buyingPower = parseFloat(document.getElementById('ideaBuyingPower2')?.value) || 25000;
     const targetROC = parseFloat(document.getElementById('ideaTargetROC2')?.value) || 25;
     const sectorsToAvoid = document.getElementById('ideaSectorsAvoid2')?.value || '';
-    const selectedModel = document.getElementById('ideaModelSelect2')?.value || 'qwen2.5:32b';
+    const selectedModel = document.getElementById('ideaModelSelect2')?.value || 'deepseek-r1:32b';
     
     // Gather current positions for context
     const currentPositions = (window.state?.positions || []).map(p => ({
