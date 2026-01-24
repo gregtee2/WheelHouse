@@ -2435,14 +2435,14 @@ ${!isLongPosition && isCall && currentPrice > strike ? `
 
 ALTERNATIVES TO ROLLING:
 • 🎯 LET IT GET CALLED - Take your profit and redeploy capital
-• 📈 BUY A SKIP CALL - Buy a call above current price to capture more upside
+• 📈 BUY A LONG CALL - Buy a call above current price to capture more upside
 • 📊 BUY A CALL DEBIT SPREAD - Defined risk way to participate in further rally
 • 💰 SELL PUTS BELOW - Add bullish exposure if you'd buy more on a pullback
 • 🔄 ROLL UP & OUT - Traditional approach, but may be fighting the trend
 
 Pick ONE:
 - ✅ HOLD - Let position get called away (take the win!)
-- 📈 ADD UPSIDE - Buy SKIP call or call spread to capture more gains
+- 📈 ADD UPSIDE - Buy a long call or call spread to capture more gains
 - 💰 ADD EXPOSURE - Sell puts below to add bullish delta
 - 🔄 ROLL - Roll up/out (explain why this beats taking assignment)
 - ⚠️ CLOSE EARLY - Buy back call to keep shares (expensive but keeps upside)` : `Pick ONE:
@@ -2843,7 +2843,7 @@ Your covered call is ITM with the stock running. Rolling isn't your only option:
    • Free up capital for new opportunities
    • Best if: You're happy with the return, or stock looks overextended
 
-2️⃣ BUY A SKIP CALL (Capture additional upside)
+2️⃣ BUY A LONG CALL (Capture additional upside)
    • Buy a call ABOVE current price to ride further upside
    • Example: Buy $${Math.ceil(spot / 5) * 5} call 60-90 DTE
    • Costs premium but lets you profit if rally continues
@@ -3022,7 +3022,7 @@ DO NOT skip to a recommendation. First, fill out this scorecard:
 | Strategy | Score | Reasoning |
 |----------|-------|-----------|
 | 1. LET ASSIGN ($${assignmentProfit?.toFixed(0) || '???'} profit) | ?/10 | [Your reasoning] |
-| 2. BUY SKIP CALL ($${Math.ceil(spot / 5) * 5} call) | ?/10 | [Your reasoning] |
+| 2. BUY LONG CALL ($${Math.ceil(spot / 5) * 5} call, 60-90 DTE) | ?/10 | [Your reasoning] |
 | 3. BUY CALL SPREAD ($${Math.ceil(spot / 5) * 5}/$${Math.ceil(spot / 5) * 5 + 5}) | ?/10 | [Your reasoning] |
 | 4. SELL $${Math.floor((spot * 0.9) / 5) * 5} PUT | ?/10 | [Your reasoning] |
 | 5. ROLL UP+OUT | ?/10 | [Your reasoning] |

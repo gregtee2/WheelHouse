@@ -1273,20 +1273,24 @@ export async function suggestOptimalRoll() {
         const spreadUpperStrike = skipCallStrike + 5;
         const putStrike = Math.floor((spot * 0.9) / 5) * 5;  // 10% below spot, rounded
         
-        // Find target expiration ~45-60 DTE
+        // Find target expiration 60-90 DTE (good for buying calls - enough time for thesis to play out)
         const today = new Date();
-        const targetDte = 52;  // ~7-8 weeks out
+        const targetDte = 75;  // ~2.5 months out - sweet spot for long calls
         const targetExpDate = new Date(today.getTime() + targetDte * 24 * 60 * 60 * 1000);
         
-        // Find best matching expiration from chain
+        // Find best matching expiration from chain (60-120 DTE range for long calls)
         let bestExpiry = chain.expirations?.find(exp => {
             const expDate = new Date(exp);
             const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
-            return dte >= 30 && dte <= 75;  // 30-75 DTE range
-        }) || chain.expirations?.[2];  // Fallback to 3rd expiration
+            return dte >= 60 && dte <= 120;  // 60-120 DTE range for long calls
+        }) || chain.expirations?.find(exp => {
+            const expDate = new Date(exp);
+            const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+            return dte >= 45;  // Fallback: at least 45 DTE
+        }) || chain.expirations?.[3];  // Last fallback to 4th expiration
         
-        // Find SKIP CALL option in chain
-        let skipCallOption = chain.calls?.find(c => 
+        // Find long call option in chain (for "Buy Upside Call" strategy)
+        let longCallOption = chain.calls?.find(c => 
             c.strike === skipCallStrike && c.expiration === bestExpiry
         ) || chain.calls?.find(c => 
             Math.abs(c.strike - skipCallStrike) <= 2.5 && 
@@ -1337,19 +1341,19 @@ export async function suggestOptimalRoll() {
                     </div>
                 </div>
                 
-                <!-- BUY SKIP CALL -->
+                <!-- BUY LONG CALL (Upside Participation) -->
                 <div style="background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="color:#00d9ff; font-weight:bold; font-size:12px;">🚀 Skip Call</span>
-                        <span style="color:#ff5252; font-size:11px; font-weight:bold;">${skipCallOption ? `-$${((skipCallOption.ask || skipCallOption.bid * 1.05) * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
+                        <span style="color:#00d9ff; font-weight:bold; font-size:12px;">🚀 Long Call</span>
+                        <span style="color:#ff5252; font-size:11px; font-weight:bold;">${longCallOption ? `-$${((longCallOption.ask || longCallOption.bid * 1.05) * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
                     </div>
-                    ${skipCallOption ? `
+                    ${longCallOption ? `
                     <div style="font-size:10px; color:#ccc; line-height:1.4;">
-                        <div>📋 Buy $${skipCallOption.strike} call @ <span style="color:#00d9ff;">$${(skipCallOption.ask || skipCallOption.bid * 1.05).toFixed(2)}</span></div>
-                        <div>📅 Exp: ${skipCallOption.expiration} (${Math.ceil((new Date(skipCallOption.expiration) - today) / (1000*60*60*24))} DTE)</div>
-                        <div>Δ ${(skipCallOption.delta || 0.40).toFixed(2)} | IV ${((skipCallOption.iv || 0.65) * 100).toFixed(0)}%</div>
+                        <div>📋 Buy $${longCallOption.strike} call @ <span style="color:#00d9ff;">$${(longCallOption.ask || longCallOption.bid * 1.05).toFixed(2)}</span></div>
+                        <div>📅 Exp: ${longCallOption.expiration} (${Math.ceil((new Date(longCallOption.expiration) - today) / (1000*60*60*24))} DTE)</div>
+                        <div>Δ ${(longCallOption.delta || 0.40).toFixed(2)} | IV ${((longCallOption.iv || 0.65) * 100).toFixed(0)}%</div>
                     </div>
-                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'skip_call', ${skipCallOption.strike}, ${spot}, null, '${skipCallOption.expiration}', ${(skipCallOption.ask || skipCallOption.bid * 1.05).toFixed(2)}, ${skipCallOption.delta || 0.40}, ${((skipCallOption.iv || 0.65) * 100).toFixed(0)})" 
+                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'long_call', ${longCallOption.strike}, ${spot}, null, '${longCallOption.expiration}', ${(longCallOption.ask || longCallOption.bid * 1.05).toFixed(2)}, ${longCallOption.delta || 0.40}, ${((longCallOption.iv || 0.65) * 100).toFixed(0)})" 
                             style="width:100%; margin-top:6px; background:rgba(0,217,255,0.3); border:1px solid rgba(0,217,255,0.5); color:#00d9ff; 
                                    padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;">
                         📥 Stage to Ideas
@@ -1526,7 +1530,7 @@ window.stageRollSuggestion = function(data) {
 
 /**
  * Stage an alternative strategy to the Ideas tab
- * Called from alternative strategies grid (SKIP call, call spread, sell put)
+ * Called from alternative strategies grid (long call, call spread, sell put)
  * Now accepts real chain data: expiry, premium, delta, iv
  */
 window.stageAlternativeStrategy = function(ticker, strategyType, strike, currentPrice, upperStrike = null, realExpiry = null, premium = null, delta = null, iv = null) {
@@ -1549,8 +1553,8 @@ window.stageAlternativeStrategy = function(ticker, strategyType, strike, current
     let tradeDescription, tradeType, isCall;
     
     switch (strategyType) {
-        case 'skip_call':
-            tradeDescription = `SKIP Call $${strike}`;
+        case 'long_call':
+            tradeDescription = `Long Call $${strike}`;
             tradeType = 'long_call';
             isCall = true;
             break;
