@@ -2831,79 +2831,139 @@ ${rollCount >= 3 ? '⚠️ Multiple rolls - consider if continuing to roll is th
     
     // Build alternative strategies section for covered calls in bullish scenarios
     let alternativeStrategies = '';
+    let scorecardStrategies = [];  // Dynamic list based on situation
+    
     if (isCoveredCall && spot > strike) {
         // Stock is above strike - ITM covered call, bullish scenario
         const upsideMissed = ((spot - strike) / strike * 100).toFixed(1);
+        const itmPercent = ((spot - strike) / strike * 100).toFixed(1);
+        
+        // Build dynamic strategy list based on situation
+        scorecardStrategies = [
+            { name: 'LET ASSIGN', detail: `($${assignmentProfit?.toFixed(0) || '???'} profit)`, always: true },
+            { name: 'ROLL UP+OUT', detail: '(higher strike, further out)', always: true },
+        ];
+        
+        // Add bullish strategies if stock has momentum (significantly ITM)
+        if (parseFloat(itmPercent) > 3) {
+            scorecardStrategies.push({ name: 'SKIP™ STRATEGY', detail: '(LEAPS 12+ mo + SKIP call 3-9 mo)', reason: 'Stock has momentum' });
+            scorecardStrategies.push({ name: 'BUY LONG CALL', detail: `($${Math.ceil(spot / 5) * 5} call, 60-90 DTE)`, reason: 'Capture upside' });
+            scorecardStrategies.push({ name: 'BUY CALL SPREAD', detail: `($${Math.ceil(spot / 5) * 5}/$${Math.ceil(spot / 5) * 5 + 5})`, reason: 'Defined risk upside' });
+        }
+        
+        // Add put selling if still bullish on underlying
+        scorecardStrategies.push({ name: 'SELL PUT', detail: `($${Math.floor((spot * 0.9) / 5) * 5} strike)`, reason: 'Add bullish exposure' });
+        
+        // Add protective strategies if concerned about pullback
+        if (parseFloat(itmPercent) > 8) {
+            scorecardStrategies.push({ name: 'COLLAR', detail: '(buy put + sell higher call)', reason: 'Lock in gains, worried about pullback' });
+        }
+        
+        // Add close entirely option
+        scorecardStrategies.push({ name: 'CLOSE ENTIRELY', detail: '(buy back call + sell stock)', reason: 'Take profits, redeploy capital' });
+        
         alternativeStrategies = `
 ═══ ALTERNATIVE STRATEGIES (Think Beyond Rolling!) ═══
-Your covered call is ITM with the stock running. Rolling isn't your only option:
+Your covered call is ITM with the stock at $${spot.toFixed(2)} vs $${strike} strike (${itmPercent}% ITM).
 
-1️⃣ LET IT GET CALLED (Take the win!)
-   • Collect your $${assignmentProfit?.toFixed(0) || '???'} profit and move on
-   • Free up capital for new opportunities
-   • Best if: You're happy with the return, or stock looks overextended
+STRATEGY MENU (evaluate each that applies to this situation):
 
-2️⃣ BUY A SKIP™ CALL STRATEGY (Pro strategy for max upside)
-   • SKIP™ = "Safely Keep Increasing Profits" - a two-leg bullish overlay
-   • LEG 1: Buy a LEAPS call (12+ months out, ATM or slightly OTM)
-   • LEG 2: Buy a SKIP call (3-9 months out, higher strike above spot)
-   • Exit the SKIP call at 45-60 DTE to lock in gains, keep riding LEAPS
-   • Best if: Very bullish, want leveraged upside with defined risk
-   • Note: SKIP™ is a trademarked strategy - research before trading
+📈 BULLISH STRATEGIES (if you think stock continues higher):
+• SKIP™ STRATEGY - Buy LEAPS (12+ mo) + SKIP call (3-9 mo, higher strike). Exit SKIP at 45-60 DTE.
+• BUY LONG CALL - Buy $${Math.ceil(spot / 5) * 5} call 60-90 DTE to ride further upside
+• BUY CALL SPREAD - Buy $${Math.ceil(spot / 5) * 5}/$${Math.ceil(spot / 5) * 5 + 5} spread for defined risk upside
+• DIAGONAL SPREAD - Sell near-term call, buy longer-dated higher strike call
 
-3️⃣ BUY A LONG CALL (Simpler upside participation)
-   • Buy a single call ABOVE current price to ride further upside
-   • Example: Buy $${Math.ceil(spot / 5) * 5} call 60-90 DTE
-   • Costs premium but lets you profit if rally continues
-   • Best if: Moderately bullish, want simple upside exposure
+📊 NEUTRAL STRATEGIES (if you think stock will consolidate):
+• ROLL UP+OUT - Buy back call, sell higher strike further out
+• CALENDAR SPREAD - Sell near-term call, buy same strike longer-dated (theta play)
+• JADE LIZARD - Sell put + sell call spread (collect premium, no upside risk)
 
-4️⃣ BUY A CALL DEBIT SPREAD (Defined risk upside play)
-   • Buy call at one strike, sell call at higher strike
-   • Example: Buy $${Math.ceil(spot / 5) * 5}/$${Math.ceil(spot / 5) * 5 + 5} call spread
-   • Cheaper than naked call, capped profit but defined risk
-   • Best if: Moderately bullish, want to limit cost
+🛡️ PROTECTIVE STRATEGIES (if worried about pullback):
+• COLLAR - Buy protective put below, sell call above (locks in gain range)
+• CLOSE ENTIRELY - Buy back call + sell stock, take profits, redeploy capital
 
-5️⃣ SELL PUTS BELOW CURRENT PRICE (Add bullish exposure)
-   • Sell puts at lower strikes to add more bullish delta
-   • Example: Sell $${Math.floor((spot * 0.9) / 5) * 5} put
-   • Collects premium + adds shares if stock pulls back
-   • Best if: You'd happily buy more shares on a dip
+🟢 TAKE THE WIN:
+• LET ASSIGN - Collect $${assignmentProfit?.toFixed(0) || '???'} profit, free up capital
 
-6️⃣ ROLL UP AND OUT (Traditional approach)
-   • Buy back current call, sell higher strike further out
-   • Extends the trade but may be fighting the trend
-   • Best if: You think rally will stall, want to stay in position
+💡 KEY INSIGHT: You're missing ${upsideMissed}% of upside ($${spot.toFixed(2)} vs $${strike} cap).
+Pick strategies that match YOUR outlook on ${ticker}.`;
 
-💡 KEY INSIGHT: You're currently missing ${upsideMissed}% of upside ($${spot.toFixed(2)} vs $${strike} cap).
-   If you're VERY BULLISH, consider SKIP™ (strategy 2) for maximum leveraged upside.
-   If you're MODERATELY BULLISH, strategies 3-5 offer simpler upside exposure.
-   If you're NEUTRAL/BEARISH, strategy 1 or 6 makes more sense.`;
+    } else if (isCoveredCall && spot <= strike) {
+        // OTM or ATM covered call - winning position, theta working
+        const otmPercent = ((strike - spot) / strike * 100).toFixed(1);
+        
+        scorecardStrategies = [
+            { name: 'HOLD', detail: '(let expire worthless)', always: true },
+            { name: 'CLOSE EARLY', detail: '(buy back cheap, lock in profit)', always: true },
+            { name: 'ROLL DOWN', detail: '(lower strike for more premium)', reason: 'Collect more if bearish' },
+        ];
+        
+        if (dte <= 14) {
+            scorecardStrategies.push({ name: 'LET EXPIRE', detail: '(collect 100% premium)', reason: 'Close to expiry' });
+        }
+        
+        alternativeStrategies = `
+═══ POSITION STATUS: OTM COVERED CALL (WINNING) ═══
+Your call is ${otmPercent}% OTM - theta is working in your favor.
+
+STRATEGY OPTIONS:
+• HOLD - Let time decay work, collect full premium at expiration
+• CLOSE EARLY - Buy back at 50-80% profit, free up the position for new trades
+• ROLL DOWN - If bearish, roll to lower strike for more premium (increases assignment risk)
+${dte <= 14 ? '• LET EXPIRE - Only ' + dte + ' DTE, likely to expire worthless' : ''}
+
+Usually best to just HOLD when OTM and winning.`;
+
     } else if (isShortPut && spot < strike) {
         // Short put ITM - stock falling scenario
+        const itmPercent = ((strike - spot) / strike * 100).toFixed(1);
+        
+        scorecardStrategies = [
+            { name: 'TAKE ASSIGNMENT', detail: `(buy shares at $${strike}, basis $${(strike - premium).toFixed(2)})`, always: true },
+            { name: 'ROLL DOWN+OUT', detail: '(lower strike, further out)', always: true },
+            { name: 'CONVERT TO SPREAD', detail: '(buy lower put to cap loss)', reason: 'Define max loss' },
+            { name: 'CLOSE FOR LOSS', detail: '(cut losses, move on)', reason: 'Thesis broken' },
+        ];
+        
+        // Add repair strategies for deep ITM
+        if (parseFloat(itmPercent) > 10) {
+            scorecardStrategies.push({ name: 'RATIO SPREAD', detail: '(sell 2x puts at lower strike, buy back current)', reason: 'Attempt to recover' });
+        }
+        
         alternativeStrategies = `
-═══ ALTERNATIVE STRATEGIES (Beyond Rolling) ═══
-Your short put is ITM with the stock below your strike:
+═══ ALTERNATIVE STRATEGIES (ITM Short Put) ═══
+Your short put is ITM with stock at $${spot.toFixed(2)} vs $${strike} strike (${itmPercent}% ITM).
 
-1️⃣ TAKE ASSIGNMENT (Get the shares)
-   • Let the put expire, buy shares at $${strike}
-   • Effective cost basis: $${(strike - premium).toFixed(2)} (strike - premium)
-   • Then sell covered calls against the shares
-   • Best if: You're bullish long-term on ${ticker}
+STRATEGY OPTIONS:
+🟢 TAKE ASSIGNMENT - Buy shares at $${strike}, effective basis $${(strike - premium).toFixed(2)}, then sell calls
+🔄 ROLL DOWN+OUT - Buy back put, sell lower strike further out for credit
+🛡️ CONVERT TO SPREAD - Buy $${Math.floor(spot * 0.9 / 5) * 5} put to cap max loss (turns into bull put spread)
+✂️ CLOSE FOR LOSS - Buy back put, take the loss, free up capital
+${parseFloat(itmPercent) > 10 ? '⚠️ RATIO SPREAD - Sell 2 lower puts, buy back current (risky, for recovery)' : ''}
 
-2️⃣ ROLL DOWN AND OUT (Reduce risk)
-   • Buy back current put, sell lower strike further out
-   • Reduces assignment risk, may collect credit
-   • Best if: You want to stay in but need breathing room
+Pick based on whether you still want to own ${ticker} at these prices.`;
 
-3️⃣ CONVERT TO SPREAD (Define your risk)
-   • Buy a put below your strike to cap max loss
-   • Turns naked put into a bull put spread
-   • Best if: You're worried about further downside
+    } else if (isShortPut && spot >= strike) {
+        // OTM short put - winning position
+        const otmPercent = ((spot - strike) / spot * 100).toFixed(1);
+        
+        scorecardStrategies = [
+            { name: 'HOLD', detail: '(let expire worthless)', always: true },
+            { name: 'CLOSE EARLY', detail: '(buy back cheap)', reason: 'Lock in 50-80% profit' },
+            { name: 'ROLL UP', detail: '(higher strike for more premium)', reason: 'If still bullish' },
+        ];
+        
+        alternativeStrategies = `
+═══ POSITION STATUS: OTM SHORT PUT (WINNING) ═══
+Your put is ${otmPercent}% OTM - theta working, low assignment risk.
 
-4️⃣ CLOSE FOR LOSS (Cut and move on)
-   • Buy back the put at a loss
-   • Frees up margin for better opportunities
-   • Best if: Thesis is broken, don't want the shares`;
+STRATEGY OPTIONS:
+• HOLD - Let expire worthless for max profit
+• CLOSE EARLY - Buy back at 50-80% profit if you want to redeploy capital
+• ROLL UP - If bullish, roll to higher strike for more premium (but more risk)
+
+Usually best to HOLD when winning.`;
     }
     
     // Format position type nicely
@@ -3022,30 +3082,28 @@ IF you do need to roll, compare options CAREFULLY:
 • Debit rolls only make sense if you're desperate to cut risk and no credit option exists
 
 ═══ YOUR TASK ═══
-${alternativeStrategies ? `🚨 MANDATORY: You MUST evaluate ALL 5 strategies before making a recommendation.
+${(scorecardStrategies && scorecardStrategies.length > 0) ? `🚨 MANDATORY: Evaluate EACH strategy before recommending.
 
-DO NOT skip to a recommendation. First, fill out this scorecard:
+These strategies were selected because they're relevant to YOUR specific situation.
 
 **STRATEGY SCORECARD** (Rate each 1-10, where 10 = best choice)
 
 | Strategy | Score | Reasoning |
 |----------|-------|-----------|
-| 1. LET ASSIGN ($${assignmentProfit?.toFixed(0) || '???'} profit) | ?/10 | [Your reasoning] |
-| 2. SKIP™ STRATEGY (LEAPS 12+ mo + SKIP call 3-9 mo) | ?/10 | [Your reasoning] |
-| 3. BUY LONG CALL ($${Math.ceil(spot / 5) * 5} call, 60-90 DTE) | ?/10 | [Your reasoning] |
-| 4. BUY CALL SPREAD ($${Math.ceil(spot / 5) * 5}/$${Math.ceil(spot / 5) * 5 + 5}) | ?/10 | [Your reasoning] |
-| 5. SELL $${Math.floor((spot * 0.9) / 5) * 5} PUT | ?/10 | [Your reasoning] |
-| 6. ROLL UP+OUT | ?/10 | [Your reasoning] |
+${scorecardStrategies.map((s, i) => `| ${i + 1}. ${s.name} ${s.detail} | ?/10 | [Your reasoning] |`).join('\n')}
 
 After completing the scorecard, provide:
 
 **WINNER:** [Highest scoring strategy] 
-**Trade Details:** [Specific action - strike, expiry, premium]
-**Why This Beats Rolling:** [If rolling didn't win, explain why winner is better]
+**Trade Details:** [Specific action - strike, expiry, premium if applicable]
+**Why This Beats Alternatives:** [Why winner is better than 2nd place]
 **Key Risk:** [Main downside to watch]
 
-IMPORTANT: If you recommend SKIP™, include BOTH legs (LEAPS strike/expiry + SKIP call strike/expiry).
-If you recommend CALL SPREAD or SELL PUTS, explain the specific trade setup.` : hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
+IMPORTANT NOTES:
+• If you recommend SKIP™, include BOTH legs (LEAPS strike/expiry + SKIP call strike/expiry)
+• If you recommend a SPREAD, specify both strikes and expiry
+• If you recommend COLLAR, specify put strike to buy and call strike to sell
+• Be specific with trade execution details` : hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
 
 If HOLD is best, respond:
 1. HOLD - Let position expire worthless for max profit
