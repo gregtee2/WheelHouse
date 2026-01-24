@@ -59,21 +59,21 @@
                     </div>
                     
                     <!-- Image Parse Result -->
-                    <div id="imageParseResult" style="display:none; background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3); border-radius:8px; padding:15px; margin-bottom:20px;">
+                    <div id="imageParseResult" style="display:none; background:rgba(122,138,148,0.1); border:1px solid rgba(122,138,148,0.3); border-radius:8px; padding:15px; margin-bottom:20px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                            <span style="color:#b9f; font-weight:bold;">📋 Extracted from Image</span>
+                            <span style="color:#8a9aa8; font-weight:bold;">📋 Extracted from Image</span>
                             <button onclick="document.getElementById('imageParseResult').style.display='none'" style="background:none; border:none; color:#888; cursor:pointer;">✕</button>
                         </div>
                         <div id="imageParseContent" style="font-family:monospace; font-size:12px; color:#ddd;"></div>
-                        <button onclick="useExtractedTrade()" style="margin-top:10px; padding:8px 16px; background:#8b5cf6; border:none; border-radius:6px; color:#fff; cursor:pointer;">
+                        <button onclick="useExtractedTrade()" style="margin-top:10px; padding:8px 16px; background:#7a8a94; border:none; border-radius:6px; color:#fff; cursor:pointer;">
                             ➡️ Send to Analyzer
                         </button>
                     </div>
                     
                     <!-- Discord Trade Analyzer (moved from Positions) -->
-                    <div style="background:rgba(139,92,246,0.08); border:1px solid rgba(139,92,246,0.3); border-radius:8px; padding:15px; margin-bottom:20px;">
+                    <div style="background:rgba(122,138,148,0.08); border:1px solid rgba(122,138,148,0.3); border-radius:8px; padding:15px; margin-bottom:20px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                            <span style="color:#b9f; font-weight:bold; font-size:14px;">📋 Paste Trade Callout</span>
+                            <span style="color:#8a9aa8; font-weight:bold; font-size:14px;">📋 Paste Trade Callout</span>
                             <div style="display:flex; align-items:center; gap:8px;">
                                 <select id="discordModelSelect2" style="font-size:11px; padding:4px 8px; background:#1a1a2e; color:#ddd; border:1px solid #444; border-radius:4px;">
                                     <option value="qwen2.5:7b">7B ⚡</option>
@@ -155,7 +155,7 @@ Examples:
                             <button onclick="window.showWisdomList()" style="padding:8px 12px; font-size:12px; background:#1a1a2e; border:1px solid #333; color:#888; border-radius:4px; cursor:pointer;">
                                 📖 View All
                             </button>
-                            <button onclick="window.testWisdomForType()" style="padding:8px 12px; font-size:12px; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#b9f; border-radius:4px; cursor:pointer;" title="See which wisdom applies to different position types">
+                            <button onclick="window.testWisdomForType()" style="padding:8px 12px; font-size:12px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#8a9aa8; border-radius:4px; cursor:pointer;" title="See which wisdom applies to different position types">
                                 🔍 Test
                             </button>
                         </div>
@@ -166,13 +166,13 @@ Examples:
                     
                     <!-- AI Generated Ideas Results -->
                     <div id="ideaResultsLarge" style="display:none; background:#0d0d1a; border-radius:8px; padding:15px;">
-                        <h4 style="color:#8b5cf6; margin-bottom:10px;">💡 AI Trade Suggestions</h4>
+                        <h4 style="color:#7a8a94; margin-bottom:10px;">💡 AI Trade Suggestions</h4>
                         <div id="ideaContentLarge" style="color:#ddd; font-size:13px; line-height:1.6; white-space:pre-wrap;"></div>
                     </div>
                 </div>
                 
                 <div class="controls-panel">
-                    <h3 style="color:#8b5cf6; margin-bottom:15px;">💡 AI Trade Ideas Generator</h3>
+                    <h3 style="color:#7a8a94; margin-bottom:15px;">💡 AI Trade Ideas Generator</h3>
                     
                     <div class="input-group" style="margin-bottom:12px;">
                         <label style="font-size:12px; color:#888;">Buying Power ($)</label>
@@ -206,7 +206,7 @@ Examples:
                         </select>
                     </div>
                     
-                    <button id="ideaBtn2" class="btn-success" style="width:100%; padding:12px; font-size:14px; background:linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);" 
+                    <button id="ideaBtn2" class="btn-success" style="width:100%; padding:12px; font-size:14px; background:linear-gradient(135deg, #7a8a94 0%, #6a7a88 100%);" 
                             onclick="window.getTradeIdeas2()">
                         💡 Generate Trade Ideas
                     </button>
@@ -256,10 +256,10 @@ Examples:
                 <div class="main-grid">
                     <div class="canvas-section">
                         <!-- Position Context for Monte Carlo -->
-                        <div id="mcPositionBanner" style="display:none; background:rgba(139,92,246,0.15); border:2px solid #8b5cf6; border-radius:6px; padding:10px 15px; margin-bottom:15px;">
+                        <div id="mcPositionBanner" style="display:none; background:rgba(122,138,148,0.15); border:2px solid #7a8a94; border-radius:6px; padding:10px 15px; margin-bottom:15px;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <div>
-                                    <span style="color:#8b5cf6; font-weight:bold;">🎲 Analyzing: </span>
+                                    <span style="color:#7a8a94; font-weight:bold;">🎲 Analyzing: </span>
                                     <span id="mcPositionTicker" style="color:#fff; font-weight:bold;">—</span>
                                     <span id="mcPositionDetails" style="color:#888; margin-left:10px;">—</span>
                                 </div>
@@ -277,15 +277,15 @@ Examples:
                         
                         <div id="mcNoPosition" style="text-align:center; padding:40px; color:#888;">
                             <div style="font-size:48px; margin-bottom:15px;">🎲</div>
-                            <h3 style="color:#b9f; margin-bottom:10px;">Monte Carlo Risk Analysis</h3>
+                            <h3 style="color:#8a9aa8; margin-bottom:10px;">Monte Carlo Risk Analysis</h3>
                             <p>Load a position from the <b>Positions</b> tab by clicking a risk badge,<br>
                             or set up a trade in <b>Pricing</b> first.</p>
                         </div>
                         
-                        <h3 id="mcTitle" style="color:#8b5cf6; margin-bottom:10px; display:none;">📊 Price Distribution at Expiry</h3>
+                        <h3 id="mcTitle" style="color:#7a8a94; margin-bottom:10px; display:none;">📊 Price Distribution at Expiry</h3>
                         <canvas id="mcDistributionCanvas" width="800" height="200" style="display:none;"></canvas>
                         
-                        <h3 id="mcConeTitle" style="color:#8b5cf6; margin:20px 0 10px; display:none;">📈 Probability Cone (Price Paths Over Time)</h3>
+                        <h3 id="mcConeTitle" style="color:#7a8a94; margin:20px 0 10px; display:none;">📈 Probability Cone (Price Paths Over Time)</h3>
                         <canvas id="mcConeCanvas" width="800" height="200" style="display:none;"></canvas>
                         
                         <!-- Key Stats Grid -->
@@ -310,7 +310,7 @@ Examples:
                         
                         <!-- Percentile Table -->
                         <div id="mcPercentiles" style="display:none; margin-top:20px; background:#0d0d1a; border-radius:8px; padding:15px;">
-                            <h4 style="color:#8b5cf6; margin-bottom:10px;">📊 Price Percentiles at Expiry</h4>
+                            <h4 style="color:#7a8a94; margin-bottom:10px;">📊 Price Percentiles at Expiry</h4>
                             <table style="width:100%; font-size:12px; color:#ddd;">
                                 <tr style="color:#888;">
                                     <th style="text-align:left; padding:5px;">Percentile</th>
@@ -331,19 +331,19 @@ Examples:
                     </div>
                     
                     <div class="controls-panel">
-                        <h3 style="color:#8b5cf6; margin-bottom:15px;">🎲 Simulation Parameters</h3>
+                        <h3 style="color:#7a8a94; margin-bottom:15px;">🎲 Simulation Parameters</h3>
                         
                         <!-- Loaded Position Info -->
                         <div id="mcParamsBox" style="background:#0d0d1a; border-radius:8px; padding:12px; margin-bottom:15px; display:none;">
                             <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:12px;">
                                 <div><span style="color:#888;">Spot:</span> <span id="mcSpot" style="color:#00d9ff;">$—</span></div>
                                 <div><span style="color:#888;">Strike:</span> <span id="mcStrike" style="color:#ffaa00;">$—</span></div>
-                                <div><span style="color:#888;">IV:</span> <span id="mcIV" style="color:#b9f;">—%</span></div>
+                                <div><span style="color:#888;">IV:</span> <span id="mcIV" style="color:#8a9aa8;">—%</span></div>
                                 <div><span style="color:#888;">DTE:</span> <span id="mcDTE">— days</span></div>
                             </div>
                         </div>
                         
-                        <button id="runMcBtn" class="btn-primary" style="width:100%; padding:12px; font-size:14px; background:linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);"
+                        <button id="runMcBtn" class="btn-primary" style="width:100%; padding:12px; font-size:14px; background:linear-gradient(135deg, #7a8a94 0%, #6a7a88 100%);"
                                 onclick="window.runMonteCarloRisk()">
                             🎲 Run Monte Carlo Simulation
                         </button>
@@ -633,7 +633,7 @@ Examples:
                     </div>
                     <div style="display:flex; gap:6px; margin-bottom:10px;">
                         <button id="rollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px;">🧮 Calc</button>
-                        <button id="suggestRollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px; background:linear-gradient(135deg, #8b5cf6, #6366f1);">✨ Suggest</button>
+                        <button id="suggestRollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px; background:linear-gradient(135deg, #7a8a94, #6a7a88);">✨ Suggest</button>
                     </div>
                     
                     <!-- Roll Results - Compact -->
@@ -652,8 +652,8 @@ Examples:
                     </div>
                     
                     <!-- Suggestions -->
-                    <div id="rollSuggestions" style="display:none; padding:8px; background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:4px; font-size:11px;">
-                        <div style="color:#8b5cf6; font-weight:bold; margin-bottom:6px; font-size:12px;">✨ Roll Suggestions</div>
+                    <div id="rollSuggestions" style="display:none; padding:8px; background:rgba(122,138,148,0.15); border:1px solid rgba(122,138,148,0.3); border-radius:4px; font-size:11px;">
+                        <div style="color:#7a8a94; font-weight:bold; margin-bottom:6px; font-size:12px;">✨ Roll Suggestions</div>
                         <div id="rollSuggestionsList"></div>
                     </div>
                 </div>
@@ -755,8 +755,8 @@ Examples:
                     </div>
                     
                     <!-- Spread extra fields (hidden by default) -->
-                    <div id="spreadFields" class="control-group" style="display:none; background:rgba(139,92,246,0.1); padding:12px; border-radius:8px; border:1px solid rgba(139,92,246,0.3);">
-                        <div style="color:#8b5cf6; font-weight:bold; margin-bottom:10px;">📊 Spread Details</div>
+                    <div id="spreadFields" class="control-group" style="display:none; background:rgba(122,138,148,0.1); padding:12px; border-radius:8px; border:1px solid rgba(122,138,148,0.3);">
+                        <div style="color:#7a8a94; font-weight:bold; margin-bottom:10px;">📊 Spread Details</div>
                         <div class="control-row">
                             <div class="control-group" style="flex:1;">
                                 <label>Buy Strike $</label>
@@ -992,8 +992,8 @@ Examples:
                         </div>
                         
                         <!-- P&L Chart -->
-                        <div class="results-box" style="background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3); margin:0; padding:12px;">
-                            <h3 style="color:#8b5cf6; font-size:13px; margin-bottom:8px;">📈 Cumulative P&L <span id="pnlChartYearLabel" style="font-size:10px; color:#888;">(2026)</span></h3>
+                        <div class="results-box" style="background:rgba(122,138,148,0.1); border:1px solid rgba(122,138,148,0.3); margin:0; padding:12px;">
+                            <h3 style="color:#7a8a94; font-size:13px; margin-bottom:8px;">📈 Cumulative P&L <span id="pnlChartYearLabel" style="font-size:10px; color:#888;">(2026)</span></h3>
                             <canvas id="pnlChartCanvas" width="300" height="140" style="width:100%; background:#0a0a15; border-radius:4px;"></canvas>
                             <div style="display:flex; justify-content:space-between; font-size:9px; color:#888; margin-top:4px;">
                                 <span id="pnlChartStart">—</span>
@@ -1074,8 +1074,8 @@ Examples:
                     </div>
                     
                     <!-- Portfolio Greeks Dashboard -->
-                    <div class="results-box" style="margin-top:15px; background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3);">
-                        <h3 style="color:#8b5cf6;">📐 Portfolio Greeks & IV</h3>
+                    <div class="results-box" style="margin-top:15px; background:rgba(122,138,148,0.1); border:1px solid rgba(122,138,148,0.3);">
+                        <h3 style="color:#7a8a94;">📐 Portfolio Greeks & IV</h3>
                         <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
                             <div style="text-align:center; padding:10px; background:rgba(0,0,0,0.2); border-radius:6px;">
                                 <div style="font-size:24px; font-weight:bold;" id="portDelta">—</div>
@@ -1120,7 +1120,7 @@ Examples:
                             <span id="priceLastUpdated" style="font-size:11px; color:#666; margin-left:auto;"></span>
                         </div>
                         <div style="display:flex; gap:8px; margin-top:8px;">
-                            <button id="aiPortfolioAuditBtn" onclick="window.runPortfolioAudit()" class="btn-primary" style="flex:1; padding:8px; background:rgba(139,92,246,0.3); border:1px solid rgba(139,92,246,0.6);" title="AI analyzes your entire portfolio for concentration risk, problem positions, and optimization opportunities">🤖 AI Audit</button>
+                            <button id="aiPortfolioAuditBtn" onclick="window.runPortfolioAudit()" class="btn-primary" style="flex:1; padding:8px; background:rgba(122,138,148,0.3); border:1px solid rgba(122,138,148,0.6);" title="AI analyzes your entire portfolio for concentration risk, problem positions, and optimization opportunities">🤖 AI Audit</button>
                             <button id="aiPerformanceBtn" onclick="window.showAIPerformanceReview()" class="btn-primary" style="flex:1; padding:8px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.5);" title="Review how accurate AI predictions have been on your closed trades">📊 AI Accuracy</button>
                         </div>
                     </div>
@@ -1226,7 +1226,7 @@ Examples:
                     
                     <!-- AI Trade Ideas Section -->
                     <div style="border-top:1px solid #333; padding-top:15px; margin-top:10px;">
-                        <h3 style="color:#8b5cf6; margin-bottom:15px;">🤖 AI Trade Ideas</h3>
+                        <h3 style="color:#7a8a94; margin-bottom:15px;">🤖 AI Trade Ideas</h3>
                         
                         <div class="input-group" style="margin-bottom:10px;">
                             <label style="font-size:11px; color:#888;">Buying Power ($)</label>
@@ -1260,7 +1260,7 @@ Examples:
                             </select>
                         </div>
                         
-                        <button id="ideaBtn" class="btn-success" style="width:100%; background:linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);" 
+                        <button id="ideaBtn" class="btn-success" style="width:100%; background:linear-gradient(135deg, #7a8a94 0%, #6a7a88 100%);" 
                                 onclick="window.getTradeIdeas()">
                             💡 Generate Ideas
                         </button>
@@ -1338,7 +1338,7 @@ Examples:
                             <option value="">-- Click "Load Accounts" after authenticating --</option>
                         </select>
                         <button onclick="loadSchwabAccounts()" 
-                                style="margin-top:8px; padding:6px 12px; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#a78bfa; border-radius:6px; cursor:pointer; font-size:11px;">
+                                style="margin-top:8px; padding:6px 12px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#a78bfa; border-radius:6px; cursor:pointer; font-size:11px;">
                             📋 Load Accounts
                         </button>
                     </div>
@@ -1358,7 +1358,7 @@ Examples:
                             🔄 Sync Account
                         </button>
                         <button onclick="viewSchwabOrders()" 
-                                style="padding:8px 16px; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#a78bfa; border-radius:6px; cursor:pointer;">
+                                style="padding:8px 16px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#a78bfa; border-radius:6px; cursor:pointer;">
                             📋 View Orders
                         </button>
                     </div>
@@ -1368,7 +1368,7 @@ Examples:
                     <div id="schwabOrdersPanel" style="display:none; margin-top:15px; padding:15px; background:rgba(0,0,0,0.3); border-radius:8px; border:1px solid #333;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                             <h4 style="color:#a78bfa; margin:0;">📋 Recent Orders</h4>
-                            <button onclick="refreshSchwabOrders()" style="padding:4px 10px; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.3); color:#a78bfa; border-radius:4px; cursor:pointer; font-size:11px;">
+                            <button onclick="refreshSchwabOrders()" style="padding:4px 10px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.3); color:#a78bfa; border-radius:4px; cursor:pointer; font-size:11px;">
                                 🔄 Refresh
                             </button>
                         </div>
@@ -1381,7 +1381,7 @@ Examples:
                 <!-- OpenAI Section -->
                 <div style="background:#1a1a2e; border-radius:12px; padding:20px; margin-bottom:20px; border:1px solid #333;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                        <h3 style="color:#8b5cf6; margin:0;">
+                        <h3 style="color:#7a8a94; margin:0;">
                             <span style="font-size:20px; margin-right:8px;">🤖</span> OpenAI API
                         </h3>
                         <span id="openaiStatus" style="padding:4px 12px; border-radius:12px; font-size:11px; background:#333; color:#888;">
@@ -1399,7 +1399,7 @@ Examples:
                     </div>
                     
                     <button onclick="testOpenAIConnection()" 
-                            style="padding:8px 16px; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#b9f; border-radius:6px; cursor:pointer;">
+                            style="padding:8px 16px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#8a9aa8; border-radius:6px; cursor:pointer;">
                         🔌 Test Connection
                     </button>
                 </div>
