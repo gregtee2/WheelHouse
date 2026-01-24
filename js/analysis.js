@@ -2683,7 +2683,11 @@ async function getAIInsight() {
             .replace(/(PICK|BEST OPTION|RECOMMENDED|EXECUTE|ACTION):/gi, '<span style="color:#ffaa00; font-weight:bold;">$1:</span>')
             // Make credits green, debits red
             .replace(/(\$\d+)\s*(credit)/gi, '<span style="color:#00ff88;">$1 $2</span>')
-            .replace(/(\$\d+)\s*(debit)/gi, '<span style="color:#ff5252;">$1 $2</span>');
+            .replace(/(\$\d+)\s*(debit)/gi, '<span style="color:#ff5252;">$1 $2</span>')
+            // Color-code ratings: 8-10 green, 5-7 orange, 1-4 red
+            .replace(/\|\s*(10|9|8)\/10\s*\|/g, '| <span style="color:#00ff88; font-weight:bold; font-size:16px;">$1/10</span> |')
+            .replace(/\|\s*(7|6|5)\/10\s*\|/g, '| <span style="color:#ffaa00; font-weight:bold; font-size:16px;">$1/10</span> |')
+            .replace(/\|\s*([1-4])\/10\s*\|/g, '| <span style="color:#ff5252; font-weight:bold; font-size:16px;">$1/10</span> |');
         
         // Check if we have previous analyses
         const analysisHistory = window.getAnalysisHistory?.(positionId) || [];
