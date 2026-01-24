@@ -2,6 +2,74 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.10.0] - 2026-01-24
+
+### Added
+- **🏆 Win Rate Dashboard** - Comprehensive trading stats panel
+  - Win Rate percentage with W/L count
+  - Average DTE held across all trades
+  - Average premium collected per trade
+  - Best/Worst ticker by total P&L
+  - Biggest single win and loss
+  - Chain-aware: counts rolled positions as single trades
+
+- **📈 Cumulative P&L Chart** - Visual line chart of your performance
+  - Shows P&L growth over time
+  - Green when profitable, red when negative
+  - Area fill under the curve
+  - Date range labels
+
+- **📅 Expiration Calendar** - Interactive monthly calendar
+  - Shows all open position expirations
+  - Color-coded dots: 🟢 Put, 🔵 Call, 🟣 Spread
+  - Navigate months with arrow buttons
+  - Click any day to see expiring positions
+
+- **📊 Break-even Indicator** - In Roll vs Redeploy modal
+  - Shows exactly how much stock needs to rise for roll to beat redeploy
+  - Displays target price increase (e.g., "+$1.61 more")
+  - Helps make data-driven roll decisions
+
+- **⚖️ Roll vs Redeploy Analysis** - New opportunity cost calculator
+  - Shows missed upside (stock above strike)
+  - Compares rolling up vs redeploying capital
+  - Uses your actual yield from closed trades
+  - Clear verdict on which choice wins
+
+- **🧠 MoE AI System** - Mixture of Experts for 32B model
+  - Runs 7B and 14B models in parallel
+  - 32B synthesizes both opinions as "judge"
+  - More consistent AI recommendations
+  - "View Opinions" button shows all perspectives
+
+- **🤖 DeepSeek-R1-Distill-Qwen-32B** - New default AI model
+  - Better reasoning for options analysis
+  - Improved roll recommendations
+
+- **📊 AI Performance Review** - Track AI prediction accuracy
+  - Logs predictions with timestamps
+  - Tracks outcomes when positions close
+  - Shows accuracy percentages by recommendation type
+
+- **⏱️ 60-Second Data Cache** - Prevents AI inconsistency
+  - Same ticker data used for all AI calls within 60 seconds
+  - Fixes issue where AI compared different price points
+
+### Changed
+- **🔄 Dashboard Layout** - Moved to bottom row (no scrollbar)
+  - Win Rate, P&L Chart, Calendar side-by-side under Account Balances
+  - Full width utilization, no vertical scroll needed
+
+- **📊 Portfolio Summary** - Fixed metrics alignment
+  - Now matches Positions footer calculations exactly
+  - Removed duplicate "Performance" panel
+
+### Fixed
+- **🔧 LEAPS Parsing** - Correct expiry detection for long-dated options
+- **🔧 Long Option Analyzer** - Correct labels for bought options
+- **🔧 Roll Workflow** - Missing close fields on roll now fixed
+- **🔧 Capital Velocity** - Now uses blended premium + P&L yield
+
 ## [1.9.0] - 2026-01-22
 
 ### Added
