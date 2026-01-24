@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": 1737734400000,
+      "raw": "Never roll a covered call more than 3 times - at that point just take assignment and move on.",
+      "wisdom": "Limit covered call rolls to 3 times maximum, then take assignment",
+      "category": "rolling",
+      "appliesTo": ["covered_call", "buy_write"],
+      "source": "Example",
+      "added": "2026-01-24"
+    },
+    {
+      "id": 1737734400001,
+      "raw": "Close short puts at 50% profit to free up capital for new trades.",
+      "wisdom": "Close short puts at 50% profit to redeploy capital faster",
+      "category": "short_puts",
+      "appliesTo": ["short_put"],
+      "source": "Example",
+      "added": "2026-01-24"
+    }
+  ]
+}

@@ -3694,6 +3694,135 @@ function extractSuggestedTickers(text) {
     return matches.map(m => m.match(/([A-Z]{1,5})/)?.[1]).filter(Boolean);
 }
 
+// ═══ TRADING WISDOM FUNCTIONS ═══
+
+/**
+ * Load and display wisdom count
+ */
+async function loadWisdomCount() {
+    try {
+        const res = await fetch('/api/wisdom');
+        if (res.ok) {
+            const data = await res.json();
+            const countEl = document.getElementById('wisdomCount');
+            if (countEl) {
+                countEl.textContent = `${data.entries?.length || 0} entries`;
+            }
+        }
+    } catch (e) {
+        console.log('Wisdom load error:', e);
+    }
+}
+
+/**
+ * Add new wisdom from input
+ */
+window.addWisdom = async function() {
+    const input = document.getElementById('wisdomInput');
+    if (!input || !input.value.trim()) {
+        showNotification('Please enter some trading advice', 'error');
+        return;
+    }
+    
+    const raw = input.value.trim();
+    
+    try {
+        showNotification('🧠 Processing wisdom...', 'info');
+        
+        const res = await fetch('/api/wisdom', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw, model: 'qwen2.5:7b' })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+            showNotification(`✅ Saved: "${data.entry.wisdom}"`, 'success');
+            input.value = '';
+            loadWisdomCount();
+        } else {
+            showNotification(`❌ ${data.error}`, 'error');
+        }
+    } catch (e) {
+        showNotification(`❌ Error: ${e.message}`, 'error');
+    }
+};
+
+/**
+ * Show all wisdom entries in a modal
+ */
+window.showWisdomList = async function() {
+    try {
+        const res = await fetch('/api/wisdom');
+        const data = await res.json();
+        const entries = data.entries || [];
+        
+        const entriesHtml = entries.length === 0 
+            ? '<p style="color:#666; text-align:center;">No wisdom saved yet. Add some trading advice above!</p>'
+            : entries.map(e => `
+                <div style="background:#1a1a2e; border-radius:6px; padding:12px; margin-bottom:10px; border-left:3px solid #22c55e;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div style="flex:1;">
+                            <div style="color:#22c55e; font-weight:bold; font-size:13px;">${e.wisdom}</div>
+                            <div style="color:#666; font-size:11px; margin-top:4px;">
+                                [${e.category}] • Applies to: ${e.appliesTo.join(', ')} • Added: ${e.added}
+                            </div>
+                            <div style="color:#555; font-size:10px; margin-top:4px; font-style:italic;">
+                                Original: "${e.raw.substring(0, 100)}${e.raw.length > 100 ? '...' : ''}"
+                            </div>
+                        </div>
+                        <button onclick="window.deleteWisdom(${e.id})" style="background:#ff5252; border:none; border-radius:4px; color:#fff; padding:4px 8px; font-size:10px; cursor:pointer; margin-left:10px;">🗑️</button>
+                    </div>
+                </div>
+            `).join('');
+        
+        const modal = document.createElement('div');
+        modal.id = 'wisdomModal';
+        modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); display:flex; align-items:center; justify-content:center; z-index:10000;';
+        modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+        
+        modal.innerHTML = `
+            <div style="background:#0d0d1a; border:1px solid #22c55e; border-radius:12px; padding:25px; max-width:700px; width:90%; max-height:80vh; overflow-y:auto;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h2 style="color:#22c55e; margin:0;">📚 Trading Wisdom Knowledge Base</h2>
+                    <button onclick="document.getElementById('wisdomModal').remove()" style="background:none; border:none; color:#888; font-size:24px; cursor:pointer;">×</button>
+                </div>
+                <p style="color:#888; font-size:12px; margin-bottom:15px;">
+                    This wisdom is automatically included in AI trade analysis based on position type.
+                </p>
+                <div id="wisdomEntriesList">
+                    ${entriesHtml}
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+    } catch (e) {
+        showNotification(`❌ Error: ${e.message}`, 'error');
+    }
+};
+
+/**
+ * Delete a wisdom entry
+ */
+window.deleteWisdom = async function(id) {
+    try {
+        const res = await fetch(`/api/wisdom/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+            showNotification('Wisdom deleted', 'success');
+            loadWisdomCount();
+            window.showWisdomList(); // Refresh modal
+        }
+    } catch (e) {
+        showNotification(`❌ Error: ${e.message}`, 'error');
+    }
+};
+
+// Load wisdom count on page load
+setTimeout(loadWisdomCount, 1000);
+
 /**
  * Ideas Tab: AI Trade Ideas Generator (uses Ideas tab element IDs)
  */

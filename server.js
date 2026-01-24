@@ -58,6 +58,102 @@ app.use('/api/settings', settingsRoutes);
 // Mount Schwab API routes
 app.use('/api/schwab', schwabRoutes);
 
+// ═══ TRADING WISDOM API ═══
+const WISDOM_FILE = path.join(__dirname, 'wisdom.json');
+
+function loadWisdom() {
+    try {
+        if (fs.existsSync(WISDOM_FILE)) {
+            return JSON.parse(fs.readFileSync(WISDOM_FILE, 'utf8'));
+        }
+    } catch (e) {
+        console.log('[WISDOM] Error loading:', e.message);
+    }
+    return { version: 1, entries: [] };
+}
+
+function saveWisdom(data) {
+    fs.writeFileSync(WISDOM_FILE, JSON.stringify(data, null, 2));
+}
+
+// Get all wisdom entries
+app.get('/api/wisdom', (req, res) => {
+    const wisdom = loadWisdom();
+    res.json(wisdom);
+});
+
+// Add new wisdom (AI processes the raw text)
+app.post('/api/wisdom', async (req, res) => {
+    try {
+        const { raw, model } = req.body;
+        if (!raw || raw.trim().length < 10) {
+            return res.status(400).json({ error: 'Wisdom text too short' });
+        }
+        
+        // AI extracts the wisdom
+        const prompt = `Extract trading wisdom from this text. Return ONLY valid JSON, no markdown.
+
+TEXT: "${raw}"
+
+Return JSON format:
+{
+  "wisdom": "One clear sentence summarizing the advice",
+  "category": "one of: rolling, short_puts, covered_calls, spreads, leaps, earnings, assignment, exit_rules, position_sizing, market_conditions, general",
+  "appliesTo": ["array of position types this applies to, e.g. covered_call, short_put, long_call, etc. Use 'all' if general advice"]
+}`;
+
+        const response = await callAI(prompt, model || 'qwen2.5:7b', 200);
+        
+        // Parse AI response
+        let parsed;
+        try {
+            // Extract JSON from response (handle markdown code blocks)
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                parsed = JSON.parse(jsonMatch[0]);
+            } else {
+                throw new Error('No JSON found in response');
+            }
+        } catch (e) {
+            console.log('[WISDOM] AI parse error:', e.message, 'Response:', response);
+            return res.status(500).json({ error: 'Failed to parse AI response', raw: response });
+        }
+        
+        // Create entry
+        const entry = {
+            id: Date.now(),
+            raw: raw.trim(),
+            wisdom: parsed.wisdom,
+            category: parsed.category || 'general',
+            appliesTo: parsed.appliesTo || ['all'],
+            source: 'User input',
+            added: new Date().toISOString().split('T')[0]
+        };
+        
+        // Save to file
+        const wisdom = loadWisdom();
+        wisdom.entries.push(entry);
+        saveWisdom(wisdom);
+        
+        console.log(`[WISDOM] ✅ Added: "${entry.wisdom}" (${entry.category})`);
+        res.json({ success: true, entry });
+        
+    } catch (e) {
+        console.log('[WISDOM] ❌ Error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Delete wisdom entry
+app.delete('/api/wisdom/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const wisdom = loadWisdom();
+    wisdom.entries = wisdom.entries.filter(e => e.id !== id);
+    saveWisdom(wisdom);
+    res.json({ success: true });
+});
+
+
 // Get current version from package.json
 function getLocalVersion() {
     try {
@@ -2788,6 +2884,25 @@ function buildTradePrompt(data, isLargeModel = false) {
         totalPremiumCollected  // Net premium across all rolls
     } = data;
     
+    // Load relevant wisdom for this position type
+    let wisdomSection = '';
+    try {
+        const wisdomData = loadWisdom();
+        const relevantWisdom = wisdomData.entries.filter(w => 
+            w.appliesTo.includes('all') || 
+            w.appliesTo.includes(positionType) ||
+            (positionType === 'buy_write' && w.appliesTo.includes('covered_call'))
+        );
+        if (relevantWisdom.length > 0) {
+            const wisdomList = relevantWisdom.slice(0, 5).map(w => 
+                `• [${w.category}] ${w.wisdom}`
+            ).join('\n');
+            wisdomSection = `\n═══ TRADER'S WISDOM (from your knowledge base) ═══\nConsider these principles from experienced traders:\n${wisdomList}\n`;
+        }
+    } catch (e) {
+        // Wisdom not available, continue without it
+    }
+    
     // Determine position characteristics
     const isLongCall = positionType === 'long_call';
     const isLongPut = positionType === 'long_put';
@@ -3047,7 +3162,7 @@ ${creditRollsText}
 
 ═══ SYSTEM ANALYSIS ═══
 ${expertRecommendation || 'No system recommendation'}
-
+${wisdomSection}
 ${portfolioContext ? `═══ PORTFOLIO CONTEXT ═══
 ${portfolioContext}
 ` : ''}${previousAnalysis ? `═══ PREVIOUS ANALYSIS ═══
