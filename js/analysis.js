@@ -252,7 +252,7 @@ export function calculateExpectedValue() {
     const expectedValueEl = document.getElementById('expectedValue');
     if (expectedValueEl) {
         expectedValueEl.textContent = `$${expectedValue.toFixed(2)}`;
-        expectedValueEl.style.color = expectedValue >= 0 ? '#00ff88' : '#ff5252';
+        expectedValueEl.style.color = expectedValue >= 0 ? '#6b9b7a' : '#b87a75';
     }
     
     calculateIsItWorthIt(expectedValue, isPut, premium, contracts, isLong);
@@ -286,10 +286,10 @@ function calculateIsItWorthIt(expectedValue, isPut, premium, contracts, isLong =
         
         if (gainIfCalled >= 0) {
             gainIfCalledValue.textContent = `+$${gainIfCalled.toFixed(0)} (${gainPct}%)`;
-            gainIfCalledValue.style.color = '#00ff88';
+            gainIfCalledValue.style.color = '#6b9b7a';
         } else {
             gainIfCalledValue.textContent = `-$${Math.abs(gainIfCalled).toFixed(0)} (${gainPct}%)`;
-            gainIfCalledValue.style.color = '#ff5252';
+            gainIfCalledValue.style.color = '#b87a75';
         }
     } else if (costBasisBox) {
         costBasisBox.style.display = 'none';
@@ -378,22 +378,22 @@ function calculateIsItWorthIt(expectedValue, isPut, premium, contracts, isLong =
         kellyPct = Math.max(0, Math.min(kellyPct, 100));
         
         // Update labels for long options context
-        setEl('rocDisplay', rocIfWin.toFixed(1) + '%', () => rocIfWin >= 100 ? '#00ff88' : rocIfWin >= 50 ? '#00d9ff' : '#ffaa00');
-        setEl('annRocDisplay', annualizedRoc.toFixed(0) + '%', () => annualizedRoc >= 100 ? '#00ff88' : annualizedRoc >= 50 ? '#00d9ff' : '#ffaa00');
+        setEl('rocDisplay', rocIfWin.toFixed(1) + '%', () => rocIfWin >= 100 ? '#6b9b7a' : rocIfWin >= 50 ? '#7ba3b0' : '#a89060');
+        setEl('annRocDisplay', annualizedRoc.toFixed(0) + '%', () => annualizedRoc >= 100 ? '#6b9b7a' : annualizedRoc >= 50 ? '#7ba3b0' : '#a89060');
         
         setEl('riskRewardRatio', rewardRiskRatio, () => {
             const ratio = parseFloat(rewardRiskRatio);
-            return ratio >= 2 ? '#00ff88' : ratio >= 1 ? '#00d9ff' : '#ffaa00';
+            return ratio >= 2 ? '#6b9b7a' : ratio >= 1 ? '#7ba3b0' : '#a89060';
         });
         
-        setEl('winProbability', winPct.toFixed(1) + '%', () => winPct > 50 ? '#00ff88' : winPct > 30 ? '#ffaa00' : '#ff5252');
+        setEl('winProbability', winPct.toFixed(1) + '%', () => winPct > 50 ? '#6b9b7a' : winPct > 30 ? '#a89060' : '#b87a75');
         setEl('requiredWinRate', requiredWinRate.toFixed(1) + '%');
-        setEl('yourEdge', (yourEdge > 0 ? '+' : '') + yourEdge.toFixed(1) + '%', () => yourEdge > 0 ? '#00ff88' : '#ff5252');
-        setEl('kellyPct', kellyPct.toFixed(1) + '%', () => kellyPct > 0 ? '#00ff88' : '#ff5252');
+        setEl('yourEdge', (yourEdge > 0 ? '+' : '') + yourEdge.toFixed(1) + '%', () => yourEdge > 0 ? '#6b9b7a' : '#b87a75');
+        setEl('kellyPct', kellyPct.toFixed(1) + '%', () => kellyPct > 0 ? '#6b9b7a' : '#b87a75');
         
         // For long options, show breakeven and max risk instead of assignment metrics
-        setEl('avgIfAssigned', `$${breakeven.toFixed(2)}`, () => '#00d9ff');
-        setEl('expectedLoss', `-$${maxRisk.toFixed(0)}`, () => '#ff5252');
+        setEl('avgIfAssigned', `$${breakeven.toFixed(2)}`, () => '#7ba3b0');
+        setEl('expectedLoss', `-$${maxRisk.toFixed(0)}`, () => '#b87a75');
         
         // Update labels to be more accurate for long options
         // Labels are <span class="result-label"> before the value spans
@@ -482,17 +482,17 @@ function calculateIsItWorthIt(expectedValue, isPut, premium, contracts, isLong =
         if (avgValueEl?.previousElementSibling) avgValueEl.previousElementSibling.textContent = 'Avg if Assigned:';
         if (lossValueEl?.previousElementSibling) lossValueEl.previousElementSibling.textContent = 'Expected Loss:';
         
-        setEl('rocDisplay', roc.toFixed(2) + '%', () => roc >= 2 ? '#00ff88' : roc >= 1 ? '#00d9ff' : '#ffaa00');
-        setEl('annRocDisplay', annualizedRoc.toFixed(0) + '%', () => annualizedRoc >= 30 ? '#00ff88' : annualizedRoc >= 15 ? '#00d9ff' : '#ffaa00');
+        setEl('rocDisplay', roc.toFixed(2) + '%', () => roc >= 2 ? '#6b9b7a' : roc >= 1 ? '#7ba3b0' : '#a89060');
+        setEl('annRocDisplay', annualizedRoc.toFixed(0) + '%', () => annualizedRoc >= 30 ? '#6b9b7a' : annualizedRoc >= 15 ? '#7ba3b0' : '#a89060');
         
         const rrValue = parseFloat(realisticRiskReward.split(':')[0]);
         setEl('riskRewardRatio', realisticRiskReward, () => 
-            rrValue === Infinity ? '#ff5252' : (rrValue < 5 ? '#00ff88' : rrValue < 20 ? '#ffaa00' : '#ff5252'));
+            rrValue === Infinity ? '#b87a75' : (rrValue < 5 ? '#6b9b7a' : rrValue < 20 ? '#a89060' : '#b87a75'));
         
-        setEl('winProbability', winPct.toFixed(1) + '%', () => winPct > 70 ? '#00ff88' : winPct > 50 ? '#ffaa00' : '#ff5252');
+        setEl('winProbability', winPct.toFixed(1) + '%', () => winPct > 70 ? '#6b9b7a' : winPct > 50 ? '#a89060' : '#b87a75');
         setEl('requiredWinRate', requiredWinRate.toFixed(1) + '%');
-        setEl('yourEdge', (yourEdge > 0 ? '+' : '') + yourEdge.toFixed(1) + '%', () => yourEdge > 0 ? '#00ff88' : '#ff5252');
-        setEl('kellyPct', kellyPct.toFixed(1) + '%', () => kellyPct > 0 ? '#00ff88' : '#ff5252');
+        setEl('yourEdge', (yourEdge > 0 ? '+' : '') + yourEdge.toFixed(1) + '%', () => yourEdge > 0 ? '#6b9b7a' : '#b87a75');
+        setEl('kellyPct', kellyPct.toFixed(1) + '%', () => kellyPct > 0 ? '#6b9b7a' : '#b87a75');
         setEl('avgIfAssigned', assignedCount > 0 ? `$${avgPriceIfAssigned.toFixed(2)}` : 'N/A');
         setEl('expectedLoss', expectedLossIfAssigned > 0 ? `-$${expectedLossIfAssigned.toFixed(0)}` : '$0');
         
@@ -547,13 +547,13 @@ async function calculateMarginImpactLong(premium, contracts, isPut) {
         const utilization = (debitPaid / buyingPower) * 100;
         
         document.getElementById('marginBuyingPower').textContent = fmt(buyingPower);
-        document.getElementById('marginBuyingPower').style.color = '#00d9ff';
+        document.getElementById('marginBuyingPower').style.color = '#7ba3b0';
         
         document.getElementById('marginAfterTrade').textContent = fmt(afterTrade);
-        document.getElementById('marginAfterTrade').style.color = afterTrade > 0 ? '#00ff88' : '#ff5252';
+        document.getElementById('marginAfterTrade').style.color = afterTrade > 0 ? '#6b9b7a' : '#b87a75';
         
         document.getElementById('marginUtilization').textContent = utilization.toFixed(1) + '%';
-        document.getElementById('marginUtilization').style.color = utilization < 25 ? '#00ff88' : utilization < 50 ? '#ffaa00' : '#ff5252';
+        document.getElementById('marginUtilization').style.color = utilization < 25 ? '#6b9b7a' : utilization < 50 ? '#a89060' : '#b87a75';
         
         // Verdict for long options
         const verdictEl = document.getElementById('marginVerdict');
@@ -653,32 +653,32 @@ async function calculateMarginImpact(spot, strike, premium, contracts, isPut) {
         const utilization = (totalMarginRequired / buyingPower) * 100;
         
         document.getElementById('marginBuyingPower').textContent = fmt(buyingPower);
-        document.getElementById('marginBuyingPower').style.color = '#00d9ff';
+        document.getElementById('marginBuyingPower').style.color = '#7ba3b0';
         
         document.getElementById('marginAfterTrade').textContent = fmt(afterTrade);
-        document.getElementById('marginAfterTrade').style.color = afterTrade > 0 ? '#00ff88' : '#ff5252';
+        document.getElementById('marginAfterTrade').style.color = afterTrade > 0 ? '#6b9b7a' : '#b87a75';
         
         document.getElementById('marginUtilization').textContent = utilization.toFixed(1) + '%';
-        document.getElementById('marginUtilization').style.color = utilization < 25 ? '#00ff88' : utilization < 50 ? '#ffaa00' : '#ff5252';
+        document.getElementById('marginUtilization').style.color = utilization < 25 ? '#6b9b7a' : utilization < 50 ? '#a89060' : '#b87a75';
         
         // Verdict
         const verdictEl = document.getElementById('marginVerdict');
         if (afterTrade < 0) {
             verdictEl.innerHTML = '❌ <strong>INSUFFICIENT MARGIN</strong> - You need $' + fmt(Math.abs(afterTrade)).replace('$','') + ' more buying power';
-            verdictEl.style.background = 'rgba(255,82,82,0.2)';
-            verdictEl.style.color = '#ff5252';
+            verdictEl.style.background = 'rgba(184,122,117,0.2)';
+            verdictEl.style.color = '#b87a75';
         } else if (utilization > 50) {
             verdictEl.innerHTML = '⚠️ <strong>HIGH UTILIZATION</strong> - This uses ' + utilization.toFixed(0) + '% of your buying power';
-            verdictEl.style.background = 'rgba(255,170,0,0.2)';
-            verdictEl.style.color = '#ffaa00';
+            verdictEl.style.background = 'rgba(168,144,96,0.2)';
+            verdictEl.style.color = '#a89060';
         } else if (utilization > 25) {
             verdictEl.innerHTML = '✓ <strong>OK</strong> - Uses ' + utilization.toFixed(0) + '% of buying power';
-            verdictEl.style.background = 'rgba(0,217,255,0.2)';
-            verdictEl.style.color = '#00d9ff';
+            verdictEl.style.background = 'rgba(123,163,176,0.2)';
+            verdictEl.style.color = '#7ba3b0';
         } else {
             verdictEl.innerHTML = '✅ <strong>LOW IMPACT</strong> - Only uses ' + utilization.toFixed(0) + '% of buying power';
-            verdictEl.style.background = 'rgba(0,255,136,0.2)';
-            verdictEl.style.color = '#00ff88';
+            verdictEl.style.background = 'rgba(107,155,122,0.2)';
+            verdictEl.style.color = '#6b9b7a';
         }
     } else {
         // No Schwab connection
@@ -804,9 +804,9 @@ export async function calculateRoll() {
     
     // Show credit or debit with appropriate styling (total amounts like Schwab)
     if (isDebit) {
-        comparison += `💸 Net DEBIT: <span style="color:#ff5252;">-$${totalDebitAmount.toFixed(0)}</span> (you pay)<br>`;
+        comparison += `💸 Net DEBIT: <span style="color:#b87a75;">-$${totalDebitAmount.toFixed(0)}</span> (you pay)<br>`;
     } else {
-        comparison += `💰 Net credit: <span style="color:#00ff88;">+$${totalRollCredit.toFixed(0)}</span> (you receive)<br>`;
+        comparison += `💰 Net credit: <span style="color:#6b9b7a;">+$${totalRollCredit.toFixed(0)}</span> (you receive)<br>`;
     }
     
     // Smarter verdict that considers both risk AND money (using totals)
@@ -863,9 +863,9 @@ function renderRollOptions(candidates, contracts, isCallPosition, currentAsk) {
         
         let netDisplay;
         if (isDebit) {
-            netDisplay = `<span style="color:#ff5252;">$${Math.abs(totalRollNet).toFixed(0)} deb</span>`;
+            netDisplay = `<span style="color:#b87a75;">$${Math.abs(totalRollNet).toFixed(0)} deb</span>`;
         } else if (totalRollNet > 0) {
-            netDisplay = `<span style="color:#00ff88;">$${totalRollNet.toFixed(0)} cr</span>`;
+            netDisplay = `<span style="color:#6b9b7a;">$${totalRollNet.toFixed(0)} cr</span>`;
         } else {
             netDisplay = '<span style="color:#888;">$0</span>';
         }
@@ -877,7 +877,7 @@ function renderRollOptions(candidates, contracts, isCallPosition, currentAsk) {
             <div style="padding:8px; background:rgba(0,0,0,0.3); border-radius:4px; cursor:pointer; border:1px solid rgba(255,255,255,0.1);"
                  onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}', ${totalRollNet})">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="color:#00d9ff; font-weight:bold;">$${c.strike}</span>
+                    <span style="color:#7ba3b0; font-weight:bold;">$${c.strike}</span>
                     <span style="color:#888; font-size:11px;">${expFormatted} (${c.dte}d)</span>
                     <span style="font-weight:bold;">${netDisplay}</span>
                 </div>
@@ -947,7 +947,7 @@ export async function suggestOptimalRoll() {
     try {
         chain = await window.fetchOptionsChain(ticker);
     } catch (e) {
-        listEl.innerHTML = `<div style="color:#ff5252;">❌ Could not fetch options chain: ${e.message}</div>`;
+        listEl.innerHTML = `<div style="color:#b87a75;">❌ Could not fetch options chain: ${e.message}</div>`;
         return;
     }
     
@@ -956,7 +956,7 @@ export async function suggestOptimalRoll() {
     const optionType = isCallPosition ? 'call' : 'put';
     
     if (!optionChain || optionChain.length === 0) {
-        listEl.innerHTML = `<div style="color:#ff5252;">❌ No ${optionType} options found for this ticker</div>`;
+        listEl.innerHTML = `<div style="color:#b87a75;">❌ No ${optionType} options found for this ticker</div>`;
         return;
     }
     
@@ -1023,7 +1023,7 @@ export async function suggestOptimalRoll() {
     
     if (candidateStrikes.length === 0) {
         const direction = isCallPosition ? 'higher' : 'lower';
-        listEl.innerHTML = `<div style="color:#ffaa00;">⚠️ No ${direction} strikes available in options chain.</div>`;
+        listEl.innerHTML = `<div style="color:#a89060;">⚠️ No ${direction} strikes available in options chain.</div>`;
         return;
     }
     
@@ -1134,7 +1134,7 @@ export async function suggestOptimalRoll() {
             const direction = isCallPosition ? 'higher' : 'lower';
             const optionLabel = isCallPosition ? 'call' : 'put';
             listEl.innerHTML = `
-                <div style="color:#ffaa00; padding:10px; background:rgba(255,170,0,0.1); border-radius:6px;">
+                <div style="color:#a89060; padding:10px; background:rgba(168,144,96,0.1); border-radius:6px;">
                     <div style="font-weight:bold; margin-bottom:8px;">⚠️ No roll options found in chain</div>
                     <div style="font-size:12px; color:#aaa;">
                         <div>• Current: $${currentStrike} ${optionLabel}, ${currentDte}d DTE</div>
@@ -1162,14 +1162,14 @@ export async function suggestOptimalRoll() {
     // Show cost to close current position
     const totalCostToClose = currentAsk * 100 * contracts;
     const optionLabel = isCallPosition ? 'call' : 'put';
-    html += `<div style="font-size:12px; color:#aaa; margin-bottom:10px; padding:8px; background:rgba(255,82,82,0.15); border-radius:4px; border:1px solid rgba(255,82,82,0.3);">
-        💰 Close <b>$${currentStrike.toFixed(0)}</b> ${optionLabel}: <span style="color:#ff5252; font-weight:bold;">$${totalCostToClose.toFixed(0)}</span>
+    html += `<div style="font-size:12px; color:#aaa; margin-bottom:10px; padding:8px; background:rgba(184,122,117,0.15); border-radius:4px; border:1px solid rgba(184,122,117,0.3);">
+        💰 Close <b>$${currentStrike.toFixed(0)}</b> ${optionLabel}: <span style="color:#b87a75; font-weight:bold;">$${totalCostToClose.toFixed(0)}</span>
         <span style="color:#888; font-size:11px;">(${contracts} × $${(currentAsk * 100).toFixed(0)})</span>
     </div>`;
     
     // Helper to render a candidate row - COMPACT for 2-column grid
     const renderCandidate = (c, i, emoji) => {
-        const riskColor = c.riskChange > 0 ? '#00ff88' : '#ff5252';
+        const riskColor = c.riskChange > 0 ? '#6b9b7a' : '#b87a75';
         const riskIcon = c.riskChange > 0 ? '↓' : '↑';
         
         const totalRollNet = c.rollNetPerContract * contracts;
@@ -1177,9 +1177,9 @@ export async function suggestOptimalRoll() {
         
         let netDisplay;
         if (isDebit) {
-            netDisplay = `<span style="color:#ff5252; font-weight:bold;">$${Math.abs(totalRollNet).toFixed(0)} deb</span>`;
+            netDisplay = `<span style="color:#b87a75; font-weight:bold;">$${Math.abs(totalRollNet).toFixed(0)} deb</span>`;
         } else if (totalRollNet > 0) {
-            netDisplay = `<span style="color:#00ff88; font-weight:bold;">$${totalRollNet.toFixed(0)} cr</span>`;
+            netDisplay = `<span style="color:#6b9b7a; font-weight:bold;">$${totalRollNet.toFixed(0)} cr</span>`;
         } else {
             netDisplay = '<span style="color:#888;">—</span>';
         }
@@ -1208,7 +1208,7 @@ export async function suggestOptimalRoll() {
             <div style="padding:6px 8px; background:rgba(0,0,0,0.4); border-radius:4px; border:1px solid rgba(255,255,255,0.1);">
                 <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; cursor:pointer;"
                      onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}', ${totalRollNet})"
-                     onmouseover="this.parentElement.style.borderColor='rgba(0,217,255,0.5)'" 
+                     onmouseover="this.parentElement.style.borderColor='rgba(123,163,176,0.5)'" 
                      onmouseout="this.parentElement.style.borderColor='rgba(255,255,255,0.1)'">
                     <span>${emoji} <b>$${c.strike.toFixed(0)}</b></span>
                     <span style="color:${riskColor}; font-size:11px;">${riskIcon}${Math.abs(c.riskChange).toFixed(0)}%</span>
@@ -1216,10 +1216,10 @@ export async function suggestOptimalRoll() {
                 <div style="color:#aaa; font-size:11px; margin-top:3px;">
                     ${expFormatted} · ${netDisplay}
                 </div>
-                ${greeksLine ? `<div style="font-size:10px; color:#8b5cf6; margin-top:2px;">${greeksLine}</div>` : ''}
+                ${greeksLine ? `<div style="font-size:10px; color:#8888a8; margin-top:2px;">${greeksLine}</div>` : ''}
                 <button onclick="event.stopPropagation(); window.stageRollSuggestion(${stageData})" 
-                    style="margin-top:5px; width:100%; padding:4px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); 
-                           color:#00d9ff; border-radius:3px; cursor:pointer; font-size:10px;"
+                    style="margin-top:5px; width:100%; padding:4px; background:rgba(123,163,176,0.2); border:1px solid rgba(123,163,176,0.4); 
+                           color:#7ba3b0; border-radius:3px; cursor:pointer; font-size:10px;"
                     title="Stage this roll to Ideas tab">
                     📥 Stage to Ideas
                 </button>
@@ -1232,7 +1232,7 @@ export async function suggestOptimalRoll() {
     // For calls: "Best Roll Up" (higher strikes = more upside)
     if (top3.length > 0) {
         const sectionTitle = isCallPosition ? '📈 Best Roll Up' : '📉 Best Risk Reduction';
-        html += `<div style="font-size:12px; color:#00d9ff; margin-bottom:6px; font-weight:bold;">${sectionTitle}</div>`;
+        html += `<div style="font-size:12px; color:#7ba3b0; margin-bottom:6px; font-weight:bold;">${sectionTitle}</div>`;
         html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">`;
         top3.forEach((c, i) => {
             const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
@@ -1243,7 +1243,7 @@ export async function suggestOptimalRoll() {
     
     // Credit Rolls section - 2-column grid
     if (creditRolls.length > 0) {
-        html += `<div style="font-size:12px; color:#00ff88; margin:8px 0 6px 0; font-weight:bold;">💵 Credit Rolls</div>`;
+        html += `<div style="font-size:12px; color:#6b9b7a; margin:8px 0 6px 0; font-weight:bold;">💵 Credit Rolls</div>`;
         html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">`;
         creditRolls.forEach((c, i) => {
             html += renderCandidate(c, i, '💰');
@@ -1251,10 +1251,10 @@ export async function suggestOptimalRoll() {
         html += `</div>`;
     } else {
         // No credit rolls found - offer to search further out
-        html += `<div style="font-size:11px; color:#aaa; margin-top:8px; padding:8px; background:rgba(255,170,0,0.1); border-radius:4px;">
+        html += `<div style="font-size:11px; color:#aaa; margin-top:8px; padding:8px; background:rgba(168,144,96,0.1); border-radius:4px;">
             ⚠️ No credit rolls nearby.
             <button onclick="window.findCreditRolls()" 
-                    style="display:block; margin-top:6px; background:#00ff88; border:none; color:#000; padding:6px 12px; 
+                    style="display:block; margin-top:6px; background:#6b9b7a; border:none; color:#000; padding:6px 12px; 
                            border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold; width:100%;">
                 🔍 Search Further Out
             </button>
@@ -1367,39 +1367,39 @@ export async function suggestOptimalRoll() {
             : null;
         
         html += `
-        <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(139,92,246,0.3);">
-            <div style="font-size:12px; color:#8b5cf6; margin-bottom:8px; font-weight:bold;">
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(136,136,168,0.3);">
+            <div style="font-size:12px; color:#8888a8; margin-bottom:8px; font-weight:bold;">
                 💡 Alternative Strategies <span style="font-size:10px; color:#888; font-weight:normal;">(Instead of Rolling)</span>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
                 
                 <!-- LET ASSIGN -->
-                <div style="background:rgba(0,255,136,0.15); border:1px solid rgba(0,255,136,0.3); border-radius:6px; padding:8px;">
+                <div style="background:rgba(107,155,122,0.15); border:1px solid rgba(107,155,122,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="color:#00ff88; font-weight:bold; font-size:12px;">✅ Let Assign</span>
-                        <span style="color:#00ff88; font-size:11px; font-weight:bold;">+$${assignmentProfit.toFixed(0)}</span>
+                        <span style="color:#6b9b7a; font-weight:bold; font-size:12px;">✅ Let Assign</span>
+                        <span style="color:#6b9b7a; font-size:11px; font-weight:bold;">+$${assignmentProfit.toFixed(0)}</span>
                     </div>
                     <div style="font-size:10px; color:#ccc; line-height:1.4;">
-                        <div>📈 Stock gain: <span style="color:#00ff88;">$${stockGain.toFixed(0)}</span> (sell @ $${currentStrike})</div>
-                        <div>💵 Premium kept: <span style="color:#00ff88;">$${totalPremiumCollected.toFixed(0)}</span></div>
-                        <div>🎯 ROI: <span style="color:#00ff88;">${((assignmentProfit / (costBasis * 100 * contracts)) * 100).toFixed(1)}%</span> on cost basis</div>
+                        <div>📈 Stock gain: <span style="color:#6b9b7a;">$${stockGain.toFixed(0)}</span> (sell @ $${currentStrike})</div>
+                        <div>💵 Premium kept: <span style="color:#6b9b7a;">$${totalPremiumCollected.toFixed(0)}</span></div>
+                        <div>🎯 ROI: <span style="color:#6b9b7a;">${((assignmentProfit / (costBasis * 100 * contracts)) * 100).toFixed(1)}%</span> on cost basis</div>
                     </div>
                 </div>
                 
                 <!-- SKIP™ STRATEGY -->
-                <div style="background:rgba(255,215,0,0.15); border:1px solid rgba(255,215,0,0.3); border-radius:6px; padding:8px;">
+                <div style="background:rgba(168,152,120,0.15); border:1px solid rgba(168,152,120,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="color:#ffd700; font-weight:bold; font-size:12px;">⭐ SKIP™</span>
-                        <span style="color:#ff5252; font-size:11px; font-weight:bold;">${skipTotalCost ? `-$${skipTotalCost.toFixed(0)}` : 'N/A'}</span>
+                        <span style="color:#a89878; font-weight:bold; font-size:12px;">⭐ SKIP™</span>
+                        <span style="color:#b87a75; font-size:11px; font-weight:bold;">${skipTotalCost ? `-$${skipTotalCost.toFixed(0)}` : 'N/A'}</span>
                     </div>
                     ${(leapsOption && skipCallOption) ? `
                     <div style="font-size:10px; color:#ccc; line-height:1.4;">
-                        <div>📋 LEAPS $${leapsOption.strike}c @ <span style="color:#ffd700;">$${leapsPrice.toFixed(2)}</span> (${Math.ceil((new Date(leapsExpiry) - today) / (1000*60*60*24))} DTE)</div>
-                        <div>📋 SKIP $${skipCallOption.strike}c @ <span style="color:#ffd700;">$${skipPrice.toFixed(2)}</span> (${Math.ceil((new Date(skipExpiry) - today) / (1000*60*60*24))} DTE)</div>
+                        <div>📋 LEAPS $${leapsOption.strike}c @ <span style="color:#a89878;">$${leapsPrice.toFixed(2)}</span> (${Math.ceil((new Date(leapsExpiry) - today) / (1000*60*60*24))} DTE)</div>
+                        <div>📋 SKIP $${skipCallOption.strike}c @ <span style="color:#a89878;">$${skipPrice.toFixed(2)}</span> (${Math.ceil((new Date(skipExpiry) - today) / (1000*60*60*24))} DTE)</div>
                         <div>💡 Exit SKIP at 45-60 DTE, ride LEAPS</div>
                     </div>
                     <button onclick="window.stageSkipStrategy('${ticker}', ${leapsOption.strike}, '${leapsExpiry}', ${leapsPrice.toFixed(2)}, ${skipCallOption.strike}, '${skipExpiry}', ${skipPrice.toFixed(2)}, ${spot})" 
-                            style="width:100%; margin-top:6px; background:rgba(255,215,0,0.3); border:1px solid rgba(255,215,0,0.5); color:#ffd700; 
+                            style="width:100%; margin-top:6px; background:rgba(168,152,120,0.3); border:1px solid rgba(168,152,120,0.5); color:#a89878; 
                                    padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;">
                         📥 Stage to Ideas
                     </button>
@@ -1411,19 +1411,19 @@ export async function suggestOptimalRoll() {
                 </div>
                 
                 <!-- BUY LONG CALL (Upside Participation) -->
-                <div style="background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:6px; padding:8px;">
+                <div style="background:rgba(123,163,176,0.15); border:1px solid rgba(123,163,176,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="color:#00d9ff; font-weight:bold; font-size:12px;">🚀 Long Call</span>
-                        <span style="color:#ff5252; font-size:11px; font-weight:bold;">${longCallOption ? `-$${((longCallOption.ask || longCallOption.bid * 1.05) * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
+                        <span style="color:#7ba3b0; font-weight:bold; font-size:12px;">🚀 Long Call</span>
+                        <span style="color:#b87a75; font-size:11px; font-weight:bold;">${longCallOption ? `-$${((longCallOption.ask || longCallOption.bid * 1.05) * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
                     </div>
                     ${longCallOption ? `
                     <div style="font-size:10px; color:#ccc; line-height:1.4;">
-                        <div>📋 Buy $${longCallOption.strike} call @ <span style="color:#00d9ff;">$${(longCallOption.ask || longCallOption.bid * 1.05).toFixed(2)}</span></div>
+                        <div>📋 Buy $${longCallOption.strike} call @ <span style="color:#7ba3b0;">$${(longCallOption.ask || longCallOption.bid * 1.05).toFixed(2)}</span></div>
                         <div>📅 Exp: ${longCallOption.expiration} (${Math.ceil((new Date(longCallOption.expiration) - today) / (1000*60*60*24))} DTE)</div>
                         <div>Δ ${(longCallOption.delta || 0.40).toFixed(2)} | IV ${((longCallOption.iv || 0.65) * 100).toFixed(0)}%</div>
                     </div>
                     <button onclick="window.stageAlternativeStrategy('${ticker}', 'long_call', ${longCallOption.strike}, ${spot}, null, '${longCallOption.expiration}', ${(longCallOption.ask || longCallOption.bid * 1.05).toFixed(2)}, ${longCallOption.delta || 0.40}, ${((longCallOption.iv || 0.65) * 100).toFixed(0)})" 
-                            style="width:100%; margin-top:6px; background:rgba(0,217,255,0.3); border:1px solid rgba(0,217,255,0.5); color:#00d9ff; 
+                            style="width:100%; margin-top:6px; background:rgba(123,163,176,0.3); border:1px solid rgba(123,163,176,0.5); color:#7ba3b0; 
                                    padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;">
                         📥 Stage to Ideas
                     </button>
@@ -1431,19 +1431,19 @@ export async function suggestOptimalRoll() {
                 </div>
                 
                 <!-- CALL SPREAD -->
-                <div style="background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:6px; padding:8px;">
+                <div style="background:rgba(136,136,168,0.15); border:1px solid rgba(136,136,168,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="color:#8b5cf6; font-weight:bold; font-size:12px;">📊 Call Spread</span>
-                        <span style="color:#ff5252; font-size:11px; font-weight:bold;">${spreadCost ? `-$${(spreadCost * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
+                        <span style="color:#8888a8; font-weight:bold; font-size:12px;">📊 Call Spread</span>
+                        <span style="color:#b87a75; font-size:11px; font-weight:bold;">${spreadCost ? `-$${(spreadCost * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
                     </div>
                     ${(spreadBuyOption && spreadSellOption) ? `
                     <div style="font-size:10px; color:#ccc; line-height:1.4;">
                         <div>📋 Buy $${skipCallStrike}c / Sell $${spreadUpperStrike}c</div>
-                        <div>💰 Max profit: <span style="color:#00ff88;">$${spreadMaxProfit.toFixed(0)}</span></div>
+                        <div>💰 Max profit: <span style="color:#6b9b7a;">$${spreadMaxProfit.toFixed(0)}</span></div>
                         <div>📅 Exp: ${bestExpiry} | Width: $${spreadUpperStrike - skipCallStrike}</div>
                     </div>
                     <button onclick="window.stageAlternativeStrategy('${ticker}', 'call_spread', ${skipCallStrike}, ${spot}, ${spreadUpperStrike}, '${bestExpiry}', ${spreadCost.toFixed(2)})" 
-                            style="width:100%; margin-top:6px; background:rgba(139,92,246,0.3); border:1px solid rgba(139,92,246,0.5); color:#8b5cf6; 
+                            style="width:100%; margin-top:6px; background:rgba(136,136,168,0.3); border:1px solid rgba(136,136,168,0.5); color:#8888a8; 
                                    padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;">
                         📥 Stage to Ideas
                     </button>
@@ -1451,19 +1451,19 @@ export async function suggestOptimalRoll() {
                 </div>
                 
                 <!-- SELL PUT -->
-                <div style="background:rgba(255,170,0,0.15); border:1px solid rgba(255,170,0,0.3); border-radius:6px; padding:8px;">
+                <div style="background:rgba(168,144,96,0.15); border:1px solid rgba(168,144,96,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="color:#ffaa00; font-weight:bold; font-size:12px;">💰 Sell Put</span>
-                        <span style="color:#00ff88; font-size:11px; font-weight:bold;">${sellPutOption ? `+$${((sellPutOption.bid || sellPutOption.ask * 0.95) * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
+                        <span style="color:#a89060; font-weight:bold; font-size:12px;">💰 Sell Put</span>
+                        <span style="color:#6b9b7a; font-size:11px; font-weight:bold;">${sellPutOption ? `+$${((sellPutOption.bid || sellPutOption.ask * 0.95) * 100 * contracts).toFixed(0)}` : 'N/A'}</span>
                     </div>
                     ${sellPutOption ? `
                     <div style="font-size:10px; color:#ccc; line-height:1.4;">
-                        <div>📋 Sell $${sellPutOption.strike} put @ <span style="color:#00ff88;">$${(sellPutOption.bid || sellPutOption.ask * 0.95).toFixed(2)}</span></div>
+                        <div>📋 Sell $${sellPutOption.strike} put @ <span style="color:#6b9b7a;">$${(sellPutOption.bid || sellPutOption.ask * 0.95).toFixed(2)}</span></div>
                         <div>📅 Exp: ${sellPutOption.expiration} (${Math.ceil((new Date(sellPutOption.expiration) - today) / (1000*60*60*24))} DTE)</div>
                         <div>Δ ${(sellPutOption.delta || -0.20).toFixed(2)} | BE: $${(sellPutOption.strike - (sellPutOption.bid || sellPutOption.ask * 0.95)).toFixed(2)}</div>
                     </div>
                     <button onclick="window.stageAlternativeStrategy('${ticker}', 'short_put', ${sellPutOption.strike}, ${spot}, null, '${sellPutOption.expiration}', ${(sellPutOption.bid || sellPutOption.ask * 0.95).toFixed(2)}, ${sellPutOption.delta || -0.20}, ${((sellPutOption.iv || 0.65) * 100).toFixed(0)})" 
-                            style="width:100%; margin-top:6px; background:rgba(255,170,0,0.3); border:1px solid rgba(255,170,0,0.5); color:#ffaa00; 
+                            style="width:100%; margin-top:6px; background:rgba(168,144,96,0.3); border:1px solid rgba(168,144,96,0.5); color:#a89060; 
                                    padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight:bold;">
                         📥 Stage to Ideas
                     </button>
@@ -1479,39 +1479,39 @@ export async function suggestOptimalRoll() {
         const putStrikeBelow = Math.floor((spot * 0.95) / 5) * 5;  // 5% below spot
         
         html += `
-        <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(139,92,246,0.3);">
-            <div style="font-size:12px; color:#8b5cf6; margin-bottom:8px; font-weight:bold;">
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(136,136,168,0.3);">
+            <div style="font-size:12px; color:#8888a8; margin-bottom:8px; font-weight:bold;">
                 💡 Alternative Strategies <span style="font-size:10px; color:#888; font-weight:normal;">(Instead of Rolling)</span>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
                 
                 <!-- TAKE ASSIGNMENT -->
-                <div style="background:rgba(0,255,136,0.15); border:1px solid rgba(0,255,136,0.3); border-radius:6px; padding:8px;">
+                <div style="background:rgba(107,155,122,0.15); border:1px solid rgba(107,155,122,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="color:#00ff88; font-weight:bold; font-size:12px;">📦 Take Shares</span>
+                        <span style="color:#6b9b7a; font-weight:bold; font-size:12px;">📦 Take Shares</span>
                         <span style="color:#888; font-size:10px;">@$${currentStrike}</span>
                     </div>
                     <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
                         Buy shares at strike, start selling calls
                     </div>
                     <button onclick="showNotification('Let put assign. Buy ${contracts * 100} shares at $${currentStrike}, then sell covered calls.', 'info')" 
-                            style="width:100%; background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#00ff88; 
+                            style="width:100%; background:rgba(107,155,122,0.2); border:1px solid rgba(107,155,122,0.4); color:#6b9b7a; 
                                    padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
                         📋 Details
                     </button>
                 </div>
                 
                 <!-- PUT SPREAD -->
-                <div style="background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:6px; padding:8px;">
+                <div style="background:rgba(136,136,168,0.15); border:1px solid rgba(136,136,168,0.3); border-radius:6px; padding:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="color:#8b5cf6; font-weight:bold; font-size:12px;">📊 Put Spread</span>
+                        <span style="color:#8888a8; font-weight:bold; font-size:12px;">📊 Put Spread</span>
                         <span style="color:#888; font-size:10px;">Convert</span>
                     </div>
                     <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
                         Buy protective put below to cap downside
                     </div>
                     <button onclick="showNotification('Convert to put spread: Buy $${putStrikeBelow} put to cap losses', 'info')" 
-                            style="width:100%; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; 
+                            style="width:100%; background:rgba(136,136,168,0.2); border:1px solid rgba(136,136,168,0.4); color:#8888a8; 
                                    padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
                         📋 Details
                     </button>
@@ -1521,7 +1521,7 @@ export async function suggestOptimalRoll() {
         </div>`;
     }
     
-    html += `<div style="font-size:11px; color:#00d9ff; margin-top:10px;">✓ Real CBOE prices: close @ ASK, open @ BID${contracts > 1 ? ` (${contracts} contracts)` : ''}</div>`;
+    html += `<div style="font-size:11px; color:#7ba3b0; margin-top:10px;">✓ Real CBOE prices: close @ ASK, open @ BID${contracts > 1 ? ` (${contracts} contracts)` : ''}</div>`;
     listEl.innerHTML = html;
     
     // Render expert analysis with option chain data for IV context
@@ -1771,12 +1771,12 @@ window.findCreditRolls = async function() {
     try {
         chain = await window.fetchOptionsChain(ticker);
     } catch (e) {
-        listEl.innerHTML = `<div style="color:#ff5252;">❌ Could not fetch options chain: ${e.message}</div>`;
+        listEl.innerHTML = `<div style="color:#b87a75;">❌ Could not fetch options chain: ${e.message}</div>`;
         return;
     }
     
     if (!chain.puts || chain.puts.length === 0) {
-        listEl.innerHTML = '<div style="color:#ff5252;">❌ No put options found</div>';
+        listEl.innerHTML = '<div style="color:#b87a75;">❌ No put options found</div>';
         return;
     }
     
@@ -1869,7 +1869,7 @@ window.findCreditRolls = async function() {
         const isLong = posType === 'long_call' || posType === 'long_put';
         const optionType = posType.includes('call') ? 'call' : 'put';
         
-        listEl.innerHTML = `<div style="color:#ff5252; padding:10px;">
+        listEl.innerHTML = `<div style="color:#b87a75; padding:10px;">
             ❌ No credit rolls available for this position.<br>
             <span style="font-size:11px; color:#888;">${isLong 
                 ? 'Long options are typically closed, not rolled. Consider selling to close.'
@@ -1882,26 +1882,26 @@ window.findCreditRolls = async function() {
     // Render credit rolls
     const posType2 = state.currentPositionContext?.type || 'short_put';
     const optionLabel2 = posType2.includes('call') ? 'call' : 'put';
-    let html = `<div style="font-size:11px; color:#888; margin-bottom:8px; padding:6px; background:rgba(255,82,82,0.1); border-radius:4px;">
-        💰 Cost to close $${currentStrike.toFixed(0)} ${optionLabel2}: <span style="color:#ff5252;">$${(currentPutAsk * 100 * contracts).toFixed(0)}</span>
+    let html = `<div style="font-size:11px; color:#888; margin-bottom:8px; padding:6px; background:rgba(184,122,117,0.1); border-radius:4px;">
+        💰 Cost to close $${currentStrike.toFixed(0)} ${optionLabel2}: <span style="color:#b87a75;">$${(currentPutAsk * 100 * contracts).toFixed(0)}</span>
     </div>`;
     
-    html += `<div style="font-size:12px; color:#00ff88; margin-bottom:6px; font-weight:bold;">💵 Credit Roll Options (${topCredits.length} found)</div>`;
+    html += `<div style="font-size:12px; color:#6b9b7a; margin-bottom:6px; font-weight:bold;">💵 Credit Roll Options (${topCredits.length} found)</div>`;
     
     topCredits.forEach((c, i) => {
         const totalRollNet = c.rollNetPerContract * contracts;
-        const riskColor = c.riskChange > 0 ? '#00ff88' : '#ff5252';
+        const riskColor = c.riskChange > 0 ? '#6b9b7a' : '#b87a75';
         const riskIcon = c.riskChange > 0 ? '↓' : '↑';
         
         const expDate = new Date(c.expiration + 'T00:00:00');
         const expFormatted = expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         
         html += `
-            <div style="padding:8px; margin-bottom:6px; background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); border-radius:4px; cursor:pointer;" 
+            <div style="padding:8px; margin-bottom:6px; background:rgba(107,155,122,0.1); border:1px solid rgba(107,155,122,0.3); border-radius:4px; cursor:pointer;" 
                  onclick="window.applyRollSuggestion(${c.strike}, ${c.dte}, '${c.expiration}', ${totalRollNet})">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <span style="white-space:nowrap;">💰 <b>$${c.strike.toFixed(2)}</b> · <b>${expFormatted}</b></span>
-                    <span style="color:#00ff88; font-weight:bold;">+$${totalRollNet.toFixed(0)} credit</span>
+                    <span style="color:#6b9b7a; font-weight:bold;">+$${totalRollNet.toFixed(0)} credit</span>
                 </div>
                 <div style="font-size:11px; color:#888; margin-top:4px;">
                     ${c.dte}d (+${c.timeAdded}) | <span style="color:${riskColor};">${riskIcon} ${Math.abs(c.riskChange).toFixed(1)}% risk</span> | ITM: ${c.risk.toFixed(1)}%
@@ -1915,7 +1915,7 @@ window.findCreditRolls = async function() {
     </div>`;
     
     html += `<button onclick="window.suggestOptimalRoll()" 
-                style="display:block; margin-top:8px; background:rgba(0,217,255,0.2); border:1px solid #00d9ff; color:#00d9ff; 
+                style="display:block; margin-top:8px; background:rgba(123,163,176,0.2); border:1px solid #7ba3b0; color:#7ba3b0; 
                        padding:6px 12px; border-radius:4px; cursor:pointer; font-size:11px; width:100%;">
         ← Back to Risk-Based Suggestions
     </button>`;
@@ -2383,18 +2383,18 @@ export function renderExpertAnalysis(containerId, optionChainData = null) {
     
     // Render
     const urgencyColors = {
-        low: '#00ff88',
-        medium: '#ffaa00',
+        low: '#6b9b7a',
+        medium: '#a89060',
         high: '#ff8800',
-        critical: '#ff5252'
+        critical: '#b87a75'
     };
     
     // Build earnings/dividend warning if we have calendar data
     let calendarWarning = '';
     if (analysis.calendarWarnings && analysis.calendarWarnings.length > 0) {
         calendarWarning = `
-            <div style="background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.5); border-radius:4px; padding:8px; margin-bottom:8px;">
-                ${analysis.calendarWarnings.map(w => `<div style="font-size:11px; color:#ffaa00;">⚠️ ${w}</div>`).join('')}
+            <div style="background:rgba(168,144,96,0.2); border:1px solid rgba(168,144,96,0.5); border-radius:4px; padding:8px; margin-bottom:8px;">
+                ${analysis.calendarWarnings.map(w => `<div style="font-size:11px; color:#a89060;">⚠️ ${w}</div>`).join('')}
             </div>
         `;
     }
@@ -2408,7 +2408,7 @@ export function renderExpertAnalysis(containerId, optionChainData = null) {
                 </span>
             </div>
             ${calendarWarning}
-            <div style="font-size:12px; color:#00d9ff; margin-bottom:6px;">
+            <div style="font-size:12px; color:#7ba3b0; margin-bottom:6px;">
                 📌 ${analysis.recommendation}
             </div>
             <div style="font-size:11px; color:#aaa; margin-bottom:8px; line-height:1.3;">
@@ -2419,7 +2419,7 @@ export function renderExpertAnalysis(containerId, optionChainData = null) {
                 ${analysis.actions.map(a => `<div style="font-size:11px; color:#eee; padding:2px 0 2px 10px;">• ${a}</div>`).join('')}
             </div>
             ${analysis.ivContext ? `
-                <div style="font-size:10px; color:#8b5cf6; margin-top:8px; padding-top:6px; border-top:1px solid #444;">
+                <div style="font-size:10px; color:#8888a8; margin-top:8px; padding-top:6px; border-top:1px solid #444;">
                     💡 ${analysis.ivContext.advice} (${analysis.ivContext.value})
                 </div>
             ` : ''}
@@ -2473,8 +2473,8 @@ async function fetchCalendarAndUpdateWarnings(container, ctx, position, spot, an
             
             // Re-render with calendar warnings (use same larger font styles)
             let calendarWarning = `
-                <div style="background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.5); border-radius:6px; padding:10px; margin-bottom:12px;">
-                    ${warnings.map(w => `<div style="font-size:13px; color:#ffaa00; margin-bottom:4px;">⚠️ ${w}</div>`).join('')}
+                <div style="background:rgba(168,144,96,0.2); border:1px solid rgba(168,144,96,0.5); border-radius:6px; padding:10px; margin-bottom:12px;">
+                    ${warnings.map(w => `<div style="font-size:13px; color:#a89060; margin-bottom:4px;">⚠️ ${w}</div>`).join('')}
                 </div>
             `;
             
@@ -2487,7 +2487,7 @@ async function fetchCalendarAndUpdateWarnings(container, ctx, position, spot, an
                         </span>
                     </div>
                     ${calendarWarning}
-                    <div style="font-size:14px; color:#00d9ff; margin-bottom:10px;">
+                    <div style="font-size:14px; color:#7ba3b0; margin-bottom:10px;">
                         📌 ${analysis.recommendation}
                     </div>
                     <div style="font-size:13px; color:#aaa; margin-bottom:12px; line-height:1.4;">
@@ -2498,7 +2498,7 @@ async function fetchCalendarAndUpdateWarnings(container, ctx, position, spot, an
                         ${analysis.actions.map(a => `<div style="font-size:13px; color:#eee; padding:4px 0 4px 16px; line-height:1.4;">• ${a}</div>`).join('')}
                     </div>
                     ${analysis.ivContext ? `
-                        <div style="font-size:12px; color:#8b5cf6; margin-top:12px; padding-top:10px; border-top:1px solid #444;">
+                        <div style="font-size:12px; color:#8888a8; margin-top:12px; padding-top:10px; border-top:1px solid #444;">
                             💡 ${analysis.ivContext.advice} <span style="color:#aaa;">(Current: ${analysis.ivContext.value})</span>
                         </div>
                     ` : ''}
@@ -2554,7 +2554,7 @@ async function getAIInsight() {
     if (isHealthy && isShortDTE) {
         // Don't bother the AI - position is cruising to max profit
         contentEl.innerHTML = `
-            <div style="color:#00ff88; font-weight:bold; margin-bottom:8px;">
+            <div style="color:#6b9b7a; font-weight:bold; margin-bottom:8px;">
                 ✅ HOLD - Position is healthy
             </div>
             <div style="color:#ddd; line-height:1.6; font-size:11px;">
@@ -2683,16 +2683,16 @@ async function getAIInsight() {
         // Format the AI response with better styling
         let formattedInsight = result.insight
             // Highlight trade execution lines
-            .replace(/(BUY TO CLOSE|SELL TO OPEN|Net:)/g, '<span style="color:#00ff88; font-weight:bold;">$1</span>')
+            .replace(/(BUY TO CLOSE|SELL TO OPEN|Net:)/g, '<span style="color:#6b9b7a; font-weight:bold;">$1</span>')
             // Highlight key actions
-            .replace(/(PICK|BEST OPTION|RECOMMENDED|EXECUTE|ACTION):/gi, '<span style="color:#ffaa00; font-weight:bold;">$1:</span>')
+            .replace(/(PICK|BEST OPTION|RECOMMENDED|EXECUTE|ACTION):/gi, '<span style="color:#a89060; font-weight:bold;">$1:</span>')
             // Make credits green, debits red
-            .replace(/(\$\d+)\s*(credit)/gi, '<span style="color:#00ff88;">$1 $2</span>')
-            .replace(/(\$\d+)\s*(debit)/gi, '<span style="color:#ff5252;">$1 $2</span>')
+            .replace(/(\$\d+)\s*(credit)/gi, '<span style="color:#6b9b7a;">$1 $2</span>')
+            .replace(/(\$\d+)\s*(debit)/gi, '<span style="color:#b87a75;">$1 $2</span>')
             // Color-code ratings: 8-10 green, 5-7 orange, 1-4 red
-            .replace(/\|\s*(10|9|8)\/10\s*\|/g, '| <span style="color:#00ff88; font-weight:bold; font-size:16px;">$1/10</span> |')
-            .replace(/\|\s*(7|6|5)\/10\s*\|/g, '| <span style="color:#ffaa00; font-weight:bold; font-size:16px;">$1/10</span> |')
-            .replace(/\|\s*([1-4])\/10\s*\|/g, '| <span style="color:#ff5252; font-weight:bold; font-size:16px;">$1/10</span> |');
+            .replace(/\|\s*(10|9|8)\/10\s*\|/g, '| <span style="color:#6b9b7a; font-weight:bold; font-size:16px;">$1/10</span> |')
+            .replace(/\|\s*(7|6|5)\/10\s*\|/g, '| <span style="color:#a89060; font-weight:bold; font-size:16px;">$1/10</span> |')
+            .replace(/\|\s*([1-4])\/10\s*\|/g, '| <span style="color:#b87a75; font-weight:bold; font-size:16px;">$1/10</span> |');
         
         // Check if we have previous analyses
         const analysisHistory = window.getAnalysisHistory?.(positionId) || [];
@@ -2701,7 +2701,7 @@ async function getAIInsight() {
         // Build MoE indicator if used
         const isMoE = result.moe && result.moe.opinions;
         const moeIndicator = isMoE ? 
-            `<span style="color:#8b5cf6; margin-right:8px;" title="Mixture of Experts: 7B + 14B opinions synthesized by 32B">🧠 MoE</span>` : '';
+            `<span style="color:#8888a8; margin-right:8px;" title="Mixture of Experts: 7B + 14B opinions synthesized by 32B">🧠 MoE</span>` : '';
         
         // Store MoE opinions for "View Opinions" button
         if (isMoE) {
@@ -2727,9 +2727,9 @@ async function getAIInsight() {
         
         // Show a brief summary in the panel, with button to open full modal
         contentEl.innerHTML = `
-            <div style="color:#00d9ff; font-weight:bold; margin-bottom:6px;">✅ Analysis Complete</div>
+            <div style="color:#7ba3b0; font-weight:bold; margin-bottom:6px;">✅ Analysis Complete</div>
             <div style="color:#888; font-size:11px; margin-bottom:8px;">${moeIndicator}${selectedModel} • ${result.took || 'N/A'}</div>
-            <button onclick="window.showAIInsightModal()" style="background:#00d9ff; border:none; color:#000; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:bold; width:100%;">
+            <button onclick="window.showAIInsightModal()" style="background:#7ba3b0; border:none; color:#000; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:bold; width:100%;">
                 📊 View Full Analysis
             </button>
         `;
@@ -2765,7 +2765,7 @@ async function getAIInsight() {
                 Then pull the model: <code style="background:#333; padding:2px 6px; border-radius:3px;">ollama pull qwen2.5:7b</code>`;
         }
         
-        contentEl.innerHTML = `<div style="color:#ff5252;">❌ ${errorMsg}</div>`;
+        contentEl.innerHTML = `<div style="color:#b87a75;">❌ ${errorMsg}</div>`;
     } finally {
         btnEl.disabled = false;
         btnEl.textContent = '💡 Get Insight';
@@ -2898,14 +2898,14 @@ function highlightAIPick(aiResponse) {
         
         // This card matches! Highlight it
         card.classList.add('ai-pick-highlight');
-        card.style.border = '2px solid #00ff88';
+        card.style.border = '2px solid #6b9b7a';
         card.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.4)';
         
         // Add a small "AI Pick" badge
         if (!card.querySelector('.ai-pick-badge')) {
             const badge = document.createElement('div');
             badge.className = 'ai-pick-badge';
-            badge.style.cssText = 'position:absolute; top:-8px; right:-8px; background:#00ff88; color:#000; font-size:9px; font-weight:bold; padding:2px 5px; border-radius:8px; z-index:10;';
+            badge.style.cssText = 'position:absolute; top:-8px; right:-8px; background:#6b9b7a; color:#000; font-size:9px; font-weight:bold; padding:2px 5px; border-radius:8px; z-index:10;';
             badge.textContent = '🤖 AI Pick';
             card.style.position = 'relative';
             card.appendChild(badge);
@@ -2935,9 +2935,9 @@ function showAnalysisHistory(positionId) {
         const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
         
         // Recommendation color
-        const recColor = entry.recommendation === 'HOLD' ? '#00ff88' :
-                        entry.recommendation === 'ROLL' ? '#ffaa00' :
-                        entry.recommendation === 'CLOSE' ? '#ff5252' : '#888';
+        const recColor = entry.recommendation === 'HOLD' ? '#6b9b7a' :
+                        entry.recommendation === 'ROLL' ? '#a89060' :
+                        entry.recommendation === 'CLOSE' ? '#b87a75' : '#888';
         
         // Snapshot diff if not first entry
         let diffHtml = '';
@@ -3037,8 +3037,8 @@ function showMoeOpinions() {
             
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                 <!-- 7B Opinion -->
-                <div style="background:rgba(0,217,255,0.1); border:1px solid rgba(0,217,255,0.3); border-radius:8px; padding:12px;">
-                    <div style="color:#00d9ff; font-weight:bold; margin-bottom:8px; font-size:12px;">
+                <div style="background:rgba(123,163,176,0.1); border:1px solid rgba(123,163,176,0.3); border-radius:8px; padding:12px;">
+                    <div style="color:#7ba3b0; font-weight:bold; margin-bottom:8px; font-size:12px;">
                         ⚡ Analyst #1 (Qwen 7B)
                     </div>
                     <div style="color:#ccc; font-size:11px; line-height:1.5; white-space:pre-wrap;">
@@ -3047,8 +3047,8 @@ function showMoeOpinions() {
                 </div>
                 
                 <!-- 14B Opinion -->
-                <div style="background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.3); border-radius:8px; padding:12px;">
-                    <div style="color:#ffaa00; font-weight:bold; margin-bottom:8px; font-size:12px;">
+                <div style="background:rgba(168,144,96,0.1); border:1px solid rgba(168,144,96,0.3); border-radius:8px; padding:12px;">
+                    <div style="color:#a89060; font-weight:bold; margin-bottom:8px; font-size:12px;">
                         📊 Analyst #2 (Qwen 14B)
                     </div>
                     <div style="color:#ccc; font-size:11px; line-height:1.5; white-space:pre-wrap;">
@@ -3058,7 +3058,7 @@ function showMoeOpinions() {
             </div>
             
             <div style="margin-top:16px; padding-top:12px; border-top:1px solid #444; text-align:center;">
-                <span style="color:#8b5cf6; font-size:11px;">
+                <span style="color:#8888a8; font-size:11px;">
                     👨‍⚖️ The 32B model reviewed both opinions and made the final call shown above
                 </span>
             </div>
@@ -3181,10 +3181,10 @@ function saveAsThesis() {
         const saveBtn = contentEl.querySelector('button[onclick="window.saveAsThesis()"]');
         if (saveBtn) {
             saveBtn.innerHTML = '✅ Saved!';
-            saveBtn.style.background = 'rgba(0,255,136,0.4)';
+            saveBtn.style.background = 'rgba(107,155,122,0.4)';
             setTimeout(() => {
                 saveBtn.innerHTML = '💾 Update Thesis';
-                saveBtn.style.background = 'rgba(0,255,136,0.2)';
+                saveBtn.style.background = 'rgba(107,155,122,0.2)';
             }, 2000);
         }
     }
@@ -3215,14 +3215,14 @@ function showAIInsightModal() {
     if (data.wisdomApplied && data.wisdomApplied.count > 0) {
         const posType = data.wisdomApplied.positionType?.replace(/_/g, ' ') || 'position';
         const wisdomEntries = data.wisdomApplied.entries.map(w => 
-            `<div style="margin:4px 0; padding:6px 10px; background:rgba(139,92,246,0.1); border-radius:4px; font-size:12px;">
+            `<div style="margin:4px 0; padding:6px 10px; background:rgba(136,136,168,0.1); border-radius:4px; font-size:12px;">
                 <span style="color:#a78bfa; font-weight:bold;">[${w.category}]</span> 
                 <span style="color:#ccc;">${w.wisdom}</span>
             </div>`
         ).join('');
         
         wisdomSection = `
-            <div style="background:rgba(139,92,246,0.1); border:1px solid #8b5cf6; border-radius:8px; padding:12px; margin-top:16px;">
+            <div style="background:rgba(136,136,168,0.1); border:1px solid #8888a8; border-radius:8px; padding:12px; margin-top:16px;">
                 <div style="color:#a78bfa; font-weight:bold; margin-bottom:8px; font-size:13px;">
                     📚 WISDOM APPLIED (${data.wisdomApplied.count} entries matched "${posType}")
                 </div>
@@ -3237,10 +3237,10 @@ function showAIInsightModal() {
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
     modal.innerHTML = `
-        <div style="background:#1a1a2e; border:1px solid #00d9ff; border-radius:12px; padding:24px; max-width:800px; width:95%; max-height:90vh; display:flex; flex-direction:column;">
+        <div style="background:#1a1a2e; border:1px solid #7ba3b0; border-radius:12px; padding:24px; max-width:800px; width:95%; max-height:90vh; display:flex; flex-direction:column;">
             <!-- Header -->
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-shrink:0;">
-                <h2 style="margin:0; color:#00d9ff; font-size:20px;">
+                <h2 style="margin:0; color:#7ba3b0; font-size:20px;">
                     🧠 AI Strategy Analysis: ${data.ticker}
                 </h2>
                 <button onclick="document.getElementById('aiInsightModal').remove()" 
@@ -3248,8 +3248,8 @@ function showAIInsightModal() {
             </div>
             
             <!-- Model info bar -->
-            <div style="background:rgba(0,217,255,0.1); padding:10px 14px; border-radius:8px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
-                <span style="color:#00d9ff;">${data.moeIndicator || ''}${data.selectedModel}</span>
+            <div style="background:rgba(123,163,176,0.1); padding:10px 14px; border-radius:8px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
+                <span style="color:#7ba3b0;">${data.moeIndicator || ''}${data.selectedModel}</span>
                 <span style="color:#888;">${data.took || ''}</span>
             </div>
             
@@ -3263,19 +3263,19 @@ function showAIInsightModal() {
             <div style="display:flex; gap:10px; margin-top:16px; padding-top:16px; border-top:1px solid #333; flex-shrink:0; flex-wrap:wrap;">
                 ${data.positionId ? `
                     <button onclick="window.saveAsThesis(); document.getElementById('aiInsightModal').remove();" 
-                        style="background:#00ff88; border:none; color:#000; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
+                        style="background:#6b9b7a; border:none; color:#000; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
                         💾 ${data.hasThesis ? 'Update' : 'Save'} Thesis
                     </button>
                 ` : ''}
                 ${data.isMoE ? `
                     <button onclick="window.showMoeOpinions()" 
-                        style="background:rgba(139,92,246,0.3); border:1px solid #8b5cf6; color:#a78bfa; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
+                        style="background:rgba(136,136,168,0.3); border:1px solid #8888a8; color:#a78bfa; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
                         👁️ View Expert Opinions
                     </button>
                 ` : ''}
                 ${data.hasHistory ? `
                     <button onclick="window.showAnalysisHistory(${data.positionId})" 
-                        style="background:rgba(255,170,0,0.2); border:1px solid #ffaa00; color:#ffaa00; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
+                        style="background:rgba(168,144,96,0.2); border:1px solid #a89060; color:#a89060; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
                         📜 History (${data.analysisHistoryLength})
                     </button>
                 ` : ''}
