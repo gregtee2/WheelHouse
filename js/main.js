@@ -3806,6 +3806,83 @@ window.restartOllama = async function() {
 setTimeout(window.checkOllamaStatus, 2000);
 
 /**
+ * Test which wisdom applies to different position types
+ */
+window.testWisdomForType = async function() {
+    const positionTypes = [
+        { type: 'short_put', label: 'Short Put / CSP' },
+        { type: 'covered_call', label: 'Covered Call' },
+        { type: 'buy_write', label: 'Buy/Write' },
+        { type: 'leaps', label: 'LEAPS' },
+        { type: 'call_debit_spread', label: 'Call Debit Spread' },
+        { type: 'put_credit_spread', label: 'Put Credit Spread' },
+        { type: 'long_call', label: 'Long Call' }
+    ];
+    
+    let resultsHtml = '';
+    
+    for (const pt of positionTypes) {
+        try {
+            const res = await fetch('/api/wisdom/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ positionType: pt.type })
+            });
+            const data = await res.json();
+            
+            const color = data.matching > 0 ? '#22c55e' : '#666';
+            const usedNote = data.matching > 5 ? ` (uses top 5)` : '';
+            
+            resultsHtml += `
+                <div style="margin-bottom:15px; padding:10px; background:#1a1a2e; border-radius:6px; border-left:3px solid ${color};">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="color:#ddd; font-weight:bold;">${pt.label}</span>
+                        <span style="color:${color}; font-size:12px;">${data.matching} entries match${usedNote}</span>
+                    </div>
+                    ${data.entries.length > 0 ? `
+                        <div style="margin-top:8px; font-size:11px; color:#888;">
+                            ${data.entries.slice(0, 3).map(e => `• [${e.category}] ${e.wisdom.substring(0, 60)}...`).join('<br>')}
+                            ${data.entries.length > 3 ? `<br><span style="color:#666;">...and ${data.entries.length - 3} more</span>` : ''}
+                        </div>
+                    ` : '<div style="font-size:11px; color:#666; margin-top:4px;">No wisdom entries apply to this type</div>'}
+                </div>
+            `;
+        } catch (e) {
+            resultsHtml += `<div style="color:#ff5252;">Error: ${e.message}</div>`;
+        }
+    }
+    
+    // Get total count
+    const totalRes = await fetch('/api/wisdom');
+    const totalData = await totalRes.json();
+    
+    const modal = document.createElement('div');
+    modal.id = 'wisdomTestModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); display:flex; align-items:center; justify-content:center; z-index:10000;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#0d0d1a; border:1px solid #22c55e; border-radius:12px; padding:25px; max-width:600px; width:90%; max-height:80vh; overflow-y:auto;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2 style="color:#22c55e; margin:0;">🔍 Wisdom Coverage Test</h2>
+                <button onclick="document.getElementById('wisdomTestModal').remove()" style="background:none; border:none; color:#888; font-size:24px; cursor:pointer;">×</button>
+            </div>
+            <p style="color:#888; font-size:12px; margin-bottom:15px;">
+                You have <strong style="color:#22c55e;">${totalData.entries?.length || 0}</strong> total wisdom entries. 
+                Here's how they apply to each position type:
+            </p>
+            <div style="color:#666; font-size:11px; background:#1a1a2e; padding:10px; border-radius:6px; margin-bottom:15px;">
+                💡 <strong>How it works:</strong> When you analyze a position, the AI receives up to 5 matching wisdom entries 
+                in the prompt under "TRADER'S WISDOM". Entries with <code>appliesTo: ["all"]</code> match everything.
+            </div>
+            ${resultsHtml}
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
  * Handle wisdom image drag & drop
  */
 window.handleWisdomImageDrop = function(event) {

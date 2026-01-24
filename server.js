@@ -153,6 +153,36 @@ app.delete('/api/wisdom/:id', (req, res) => {
     res.json({ success: true });
 });
 
+// Preview which wisdom applies to a position type
+app.post('/api/wisdom/preview', (req, res) => {
+    try {
+        const { positionType } = req.body || {};
+        const wisdomData = loadWisdom();
+        
+        const relevantWisdom = wisdomData.entries.filter(w => 
+            w.appliesTo.includes('all') || 
+            w.appliesTo.includes(positionType) ||
+            (positionType === 'buy_write' && w.appliesTo.includes('covered_call')) ||
+            (positionType === 'cash_secured_put' && w.appliesTo.includes('short_put'))
+        );
+        
+        res.json({ 
+            success: true,
+            positionType,
+            total: wisdomData.entries.length,
+            matching: relevantWisdom.length,
+            usedInPrompt: Math.min(relevantWisdom.length, 5),
+            entries: relevantWisdom.map(w => ({
+                category: w.category,
+                wisdom: w.wisdom,
+                appliesTo: w.appliesTo
+            }))
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 // Get current version from package.json
 function getLocalVersion() {
