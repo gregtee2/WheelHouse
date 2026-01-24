@@ -2430,14 +2430,29 @@ ${isLongPosition ? `⚠️ IMPORTANT: This is a LONG (debit) position - theta wo
 - How much of the original premium has decayed?`}
 
 **4. ACTION RECOMMENDATION**
+${!isLongPosition && isCall && currentPrice > strike ? `
+⚠️ YOUR COVERED CALL IS ITM - Consider ALL options, not just rolling!
+
+ALTERNATIVES TO ROLLING:
+• 🎯 LET IT GET CALLED - Take your profit and redeploy capital
+• 📈 BUY A SKIP CALL - Buy a call above current price to capture more upside
+• 📊 BUY A CALL DEBIT SPREAD - Defined risk way to participate in further rally
+• 💰 SELL PUTS BELOW - Add bullish exposure if you'd buy more on a pullback
+• 🔄 ROLL UP & OUT - Traditional approach, but may be fighting the trend
+
 Pick ONE:
+- ✅ HOLD - Let position get called away (take the win!)
+- 📈 ADD UPSIDE - Buy SKIP call or call spread to capture more gains
+- 💰 ADD EXPOSURE - Sell puts below to add bullish delta
+- 🔄 ROLL - Roll up/out (explain why this beats taking assignment)
+- ⚠️ CLOSE EARLY - Buy back call to keep shares (expensive but keeps upside)` : `Pick ONE:
 ${dte >= 365 ? `- ✅ HOLD - LEAPS are meant to be held; thesis still valid
 - 🔄 ROLL UP/DOWN - Adjust strike if stock moved significantly (not for time!)
 - 💰 CLOSE - Take profit if thesis achieved or invalidated
 - 📈 ADD - Consider adding on pullback if thesis strengthening` : `- ✅ HOLD - Thesis intact, let it ride
 - 🔄 ROLL - Consider rolling (specify why - expiry, strike, or both)
 - 💰 CLOSE - Take profit/loss now (specify when)
-- ⚠️ WATCH - Position needs monitoring (specify triggers)`}
+- ⚠️ WATCH - Position needs monitoring (specify triggers)`}`}
 
 **5. CHECKUP VERDICT**
 Rate the position health:
@@ -2767,7 +2782,9 @@ function buildTradePrompt(data, isLargeModel = false) {
         spot, costBasis, breakeven, maxProfit, maxLoss,
         iv, riskPercent, winProbability, costToClose,
         rollOptions, expertRecommendation, previousAnalysis,
-        portfolioContext  // NEW: Portfolio context from audit
+        portfolioContext,  // Portfolio context from audit
+        chainHistory,      // Array of previous positions in this chain
+        totalPremiumCollected  // Net premium across all rolls
     } = data;
     
     // Determine position characteristics
@@ -2775,6 +2792,110 @@ function buildTradePrompt(data, isLargeModel = false) {
     const isLongPut = positionType === 'long_put';
     const isLong = isLongCall || isLongPut;
     const isCall = isLongCall || positionType === 'buy_write' || positionType === 'covered_call' || positionType === 'short_call';
+    const isCoveredCall = positionType === 'covered_call' || positionType === 'buy_write';
+    const isShortPut = positionType === 'short_put';
+    
+    // Calculate assignment scenario for covered calls
+    let assignmentProfit = null;
+    let assignmentAnalysis = '';
+    if (isCoveredCall && costBasis && strike && spot) {
+        const stockGain = (strike - costBasis) * 100 * contracts;
+        const premiumGain = (totalPremiumCollected || premium * 100 * contracts);
+        assignmentProfit = stockGain + premiumGain;
+        const missedUpside = spot > strike ? ((spot - strike) * 100 * contracts).toFixed(0) : 0;
+        assignmentAnalysis = `
+═══ ASSIGNMENT SCENARIO (Let it get called) ═══
+If assigned at $${strike}:
+• Stock gain: $${stockGain.toFixed(0)} ($${strike} - $${costBasis.toFixed(2)} cost basis × ${contracts * 100} shares)
+• Premium collected: $${premiumGain.toFixed(0)}${chainHistory?.length > 1 ? ` (across ${chainHistory.length} rolls)` : ''}
+• TOTAL PROFIT: $${assignmentProfit.toFixed(0)}
+${spot > strike ? `• Upside you'd miss: $${missedUpside} (stock at $${spot.toFixed(2)} vs $${strike} strike)` : '• Stock is below strike - assignment unlikely'}
+
+⚠️ IMPORTANT: Assignment is not always bad! If you've collected good premium and the stock is above your strike, 
+getting called away can be a WIN. Consider: Is this profit acceptable, or is the upside worth chasing?`;
+    }
+    
+    // Calculate chain context if available
+    let chainContext = '';
+    if (chainHistory?.length > 1) {
+        const rollCount = chainHistory.length - 1;
+        const firstOpen = chainHistory[0]?.openDate;
+        const daysInTrade = firstOpen ? Math.floor((Date.now() - new Date(firstOpen).getTime()) / (1000 * 60 * 60 * 24)) : null;
+        chainContext = `
+═══ ROLL HISTORY ═══
+This position has been rolled ${rollCount} time${rollCount > 1 ? 's' : ''}.
+Original open: ${firstOpen || 'Unknown'}${daysInTrade ? ` (${daysInTrade} days ago)` : ''}
+Net premium collected: $${totalPremiumCollected?.toFixed(0) || 'N/A'}
+${rollCount >= 3 ? '⚠️ Multiple rolls - consider if continuing to roll is the best use of capital vs. taking assignment or closing.' : ''}`;
+    }
+    
+    // Build alternative strategies section for covered calls in bullish scenarios
+    let alternativeStrategies = '';
+    if (isCoveredCall && spot > strike) {
+        // Stock is above strike - ITM covered call, bullish scenario
+        const upsideMissed = ((spot - strike) / strike * 100).toFixed(1);
+        alternativeStrategies = `
+═══ ALTERNATIVE STRATEGIES (Think Beyond Rolling!) ═══
+Your covered call is ITM with the stock running. Rolling isn't your only option:
+
+1️⃣ LET IT GET CALLED (Take the win!)
+   • Collect your $${assignmentProfit?.toFixed(0) || '???'} profit and move on
+   • Free up capital for new opportunities
+   • Best if: You're happy with the return, or stock looks overextended
+
+2️⃣ BUY A SKIP CALL (Capture additional upside)
+   • Buy a call ABOVE current price to ride further upside
+   • Example: Buy $${Math.ceil(spot / 5) * 5} call 60-90 DTE
+   • Costs premium but lets you profit if rally continues
+   • Best if: You're bullish but okay being called at current strike
+
+3️⃣ BUY A CALL DEBIT SPREAD (Defined risk upside play)
+   • Buy call at one strike, sell call at higher strike
+   • Example: Buy $${Math.ceil(spot / 5) * 5}/$${Math.ceil(spot / 5) * 5 + 5} call spread
+   • Cheaper than naked call, capped profit but defined risk
+   • Best if: Moderately bullish, want to limit cost
+
+4️⃣ SELL PUTS BELOW CURRENT PRICE (Add bullish exposure)
+   • Sell puts at lower strikes to add more bullish delta
+   • Example: Sell $${Math.floor((spot * 0.9) / 5) * 5} put
+   • Collects premium + adds shares if stock pulls back
+   • Best if: You'd happily buy more shares on a dip
+
+5️⃣ ROLL UP AND OUT (Traditional approach)
+   • Buy back current call, sell higher strike further out
+   • Extends the trade but may be fighting the trend
+   • Best if: You think rally will stall, want to stay in position
+
+💡 KEY INSIGHT: You're currently missing ${upsideMissed}% of upside ($${spot.toFixed(2)} vs $${strike} cap).
+   If you're BULLISH, consider strategies 2-4 to participate in further gains.
+   If you're NEUTRAL/BEARISH, strategy 1 or 5 makes more sense.`;
+    } else if (isShortPut && spot < strike) {
+        // Short put ITM - stock falling scenario
+        alternativeStrategies = `
+═══ ALTERNATIVE STRATEGIES (Beyond Rolling) ═══
+Your short put is ITM with the stock below your strike:
+
+1️⃣ TAKE ASSIGNMENT (Get the shares)
+   • Let the put expire, buy shares at $${strike}
+   • Effective cost basis: $${(strike - premium).toFixed(2)} (strike - premium)
+   • Then sell covered calls against the shares
+   • Best if: You're bullish long-term on ${ticker}
+
+2️⃣ ROLL DOWN AND OUT (Reduce risk)
+   • Buy back current put, sell lower strike further out
+   • Reduces assignment risk, may collect credit
+   • Best if: You want to stay in but need breathing room
+
+3️⃣ CONVERT TO SPREAD (Define your risk)
+   • Buy a put below your strike to cap max loss
+   • Turns naked put into a bull put spread
+   • Best if: You're worried about further downside
+
+4️⃣ CLOSE FOR LOSS (Cut and move on)
+   • Buy back the put at a loss
+   • Frees up margin for better opportunities
+   • Best if: Thesis is broken, don't want the shares`;
+    }
     
     // Format position type nicely
     const typeLabel = positionType === 'buy_write' ? 'Buy/Write (covered call)' :
@@ -2844,7 +2965,7 @@ ${riskLabel}: ${riskPercent ? riskPercent.toFixed(1) + '%' : 'N/A'}
 Win probability: ${winProbability ? winProbability.toFixed(1) + '%' : 'N/A'}
 IV: ${iv ? iv.toFixed(0) + '%' : 'N/A'}
 ${isLong ? (dte >= 365 ? 'Note: LEAPS have minimal daily theta. Focus on directional thesis and IV changes (vega exposure).' : dte >= 180 ? 'Note: Long-dated options have slow theta decay. IV changes matter more than daily time decay.' : 'Note: Time decay (theta) works AGAINST long options. You lose value daily.') : (dte >= 365 ? 'Note: LEAPS covered calls provide consistent income. Assignment is not imminent - focus on cost basis reduction.' : '')}
-
+${chainContext}${assignmentAnalysis}${alternativeStrategies}
 ═══ AVAILABLE ROLL OPTIONS ═══
 ${rollInstructions}
 
@@ -2892,7 +3013,20 @@ IF you do need to roll, compare options CAREFULLY:
 • Debit rolls only make sense if you're desperate to cut risk and no credit option exists
 
 ═══ YOUR TASK ═══
-${hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
+${alternativeStrategies ? `⚠️ IMPORTANT: Rolling is NOT your only option! Review the Alternative Strategies above.
+
+Consider ALL options before recommending. Your response should address:
+
+1. [BEST ACTION] - Choose one: ROLL, LET ASSIGN, BUY SKIP CALL, BUY CALL SPREAD, SELL PUT, or CLOSE
+   If rolling: "Roll to $XXX [date] - $XXX ${isLong ? 'debit' : 'credit'}"
+   If alternative: Describe the specific trade (e.g., "Buy $95 call Jun expiry")
+
+2. [WHY THIS OVER ROLLING?] - If you chose an alternative, explain why it's better than rolling.
+   If you chose rolling, explain why alternatives don't make sense here.
+
+3. [PROFIT/RISK TRADEOFF] - What do you gain vs. what do you risk with this choice?
+
+4. [KEY WATCH] - What price level or event would change this recommendation?` : hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
 
 If HOLD is best, respond:
 1. HOLD - Let position expire worthless for max profit
@@ -2914,8 +3048,8 @@ If rolling IS needed, respond:
 Be specific. Use the actual numbers provided. No headers or bullet points - just the numbered items.${isLargeModel ? `
 
 Since you're a larger model, provide additional insight:
-4. [Greeks] - Brief comment on theta/delta implications
-5. [Market context] - Any broader market factors to consider (if relevant)` : ''}`;
+5. [Greeks] - Brief comment on theta/delta implications
+6. [Market context] - Any broader market factors to consider (if relevant)` : ''}`;
 }
 
 // Build a critique prompt for analyzing a closed trade

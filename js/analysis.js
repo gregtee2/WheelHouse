@@ -7,6 +7,63 @@ import { randomNormal, showNotification } from './utils.js';
 import { formatPortfolioContextForAI } from './portfolio.js';
 
 /**
+ * Get chain history and calculate total premium for a position
+ * @param {number} positionId - ID of the current position
+ * @returns {Object} { chainHistory, totalPremiumCollected }
+ */
+export function getChainData(positionId) {
+    if (!positionId) return { chainHistory: [], totalPremiumCollected: 0 };
+    
+    // Find the current position to get its chainId
+    const currentPos = state.positions?.find(p => p.id === positionId);
+    if (!currentPos) return { chainHistory: [], totalPremiumCollected: 0 };
+    
+    const chainId = currentPos.chainId || currentPos.id;
+    
+    // Find all positions in this chain (open + closed)
+    const allPositions = [...(state.positions || []), ...(state.closedPositions || [])];
+    const chainPositions = allPositions
+        .filter(p => (p.chainId || p.id) === chainId)
+        .sort((a, b) => new Date(a.openDate || 0) - new Date(b.openDate || 0));
+    
+    if (chainPositions.length <= 1) {
+        // No roll history - just the current position
+        return { chainHistory: [], totalPremiumCollected: currentPos.premium * 100 * (currentPos.contracts || 1) };
+    }
+    
+    // Calculate NET total: premium received MINUS cost to close (for rolled positions)
+    let totalReceived = 0;
+    let totalClosingCosts = 0;
+    
+    chainPositions.forEach(p => {
+        const premiumReceived = (p.premium || 0) * 100 * (p.contracts || 1);
+        totalReceived += premiumReceived;
+        
+        if (p.status === 'closed' && p.closePrice !== undefined && p.closePrice > 0) {
+            const closingCost = p.closePrice * 100 * (p.contracts || 1);
+            totalClosingCosts += closingCost;
+        }
+    });
+    
+    const totalPremiumCollected = totalReceived - totalClosingCosts;
+    
+    // Return simplified chain history for prompt
+    const chainHistory = chainPositions.map(p => ({
+        openDate: p.openDate,
+        strike: p.strike,
+        type: p.type,
+        premium: p.premium,
+        contracts: p.contracts,
+        expiry: p.expiry,
+        status: p.status,
+        closePrice: p.closePrice,
+        closeReason: p.closeReason
+    }));
+    
+    return { chainHistory, totalPremiumCollected };
+}
+
+/**
  * Generate AI recommendation based on probabilities
  */
 export function generateRecommendation(belowStrikePct, aboveStrikePct, dteValue) {
@@ -2136,6 +2193,9 @@ async function getAIInsight() {
         const positionId = state.currentPositionContext?.id;
         const previousAnalysis = positionId ? (window.getLatestAnalysis?.(positionId) || null) : null;
         
+        // Get chain history and total premium for rolled positions
+        const { chainHistory, totalPremiumCollected } = getChainData(positionId);
+        
         // Build request payload
         const requestData = {
             ticker: ticker,
@@ -2161,7 +2221,9 @@ async function getAIInsight() {
             expertRecommendation: expertRec,
             model: selectedModel,  // Include selected model
             previousAnalysis: previousAnalysis,  // Include previous analysis for comparison
-            portfolioContext: formatPortfolioContextForAI()  // Include portfolio context from audit
+            portfolioContext: formatPortfolioContextForAI(),  // Include portfolio context from audit
+            chainHistory: chainHistory.length > 1 ? chainHistory : null,  // Only include if rolled
+            totalPremiumCollected: totalPremiumCollected  // Net premium across all rolls
         };
         
         // Call our server endpoint

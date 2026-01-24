@@ -2,6 +2,42 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.11.0] - 2026-01-24
+
+### Added
+- **🎯 Alternative Strategies AI** - Think beyond rolling!
+  - When covered call is ITM, AI now considers 5 strategies instead of just "roll":
+    1. LET IT GET CALLED - Take the win, redeploy capital
+    2. BUY A SKIP CALL - Capture additional upside above strike
+    3. BUY A CALL DEBIT SPREAD - Defined risk upside play
+    4. SELL PUTS BELOW - Add bullish exposure on dips
+    5. ROLL UP AND OUT - Traditional approach
+  - For short puts ITM: TAKE ASSIGNMENT, ROLL, CONVERT TO SPREAD, or CLOSE
+  - Inspired by professional options trader advice
+
+- **📊 Assignment Scenario Calculator** - Shows exactly what you'd make if called
+  - Stock gain: (strike - cost basis) × shares
+  - Premium gain: net premium across entire roll chain
+  - Missed upside: (current spot - strike) if stock above strike
+  - Helps decide if assignment is actually a WIN, not a problem
+
+- **🔗 Chain History Context** - AI sees full roll history
+  - Shows "This position has been rolled X times"
+  - Displays total days in trade
+  - Calculates net premium collected across all rolls
+  - Warns about capital efficiency after 3+ rolls
+
+- **`getChainData(positionId)`** - New helper function
+  - Returns `{ chainHistory, totalPremiumCollected }`
+  - Used by AI analysis to provide chain-aware recommendations
+
+### Changed
+- AI prompts now ask "Why this OVER rolling?" when recommending alternatives
+- Checkup prompts for ITM covered calls explicitly list alternatives to consider
+- Request payload to `/api/ai/analyze` now includes `chainHistory` and `totalPremiumCollected`
+
+---
+
 ## [1.10.0] - 2026-01-24
 
 ### Added

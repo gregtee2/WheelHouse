@@ -513,6 +513,22 @@ git push origin main:stable
 
 ## 📋 Recent Features (January 2026)
 
+### v1.10.0 (Current)
+- **Alternative Strategies AI**: AI now thinks beyond rolling for covered calls
+  - When covered call is ITM, AI considers: LET ASSIGN, BUY SKIP CALL, BUY CALL SPREAD, SELL PUTS
+  - Shows assignment profit calculation (stock gain + all premiums collected)
+  - Calculates upside you'd miss by getting called vs. current spot price
+  - Chain-aware analysis: shows total premium collected across all rolls
+  - For short puts ITM: suggests TAKE ASSIGNMENT, ROLL, CONVERT TO SPREAD, or CLOSE
+- **Chain History Context**: AI now sees full roll history when analyzing positions
+  - `getChainData(positionId)` - Returns chain history and net premium
+  - Shows "This position has been rolled X times" with days in trade
+  - Warns about capital efficiency after 3+ rolls
+- **Assignment Scenario Calculator**: For covered calls, shows exactly what you'd make if called
+  - Stock gain: (strike - cost basis) × shares
+  - Premium gain: net premium across entire chain
+  - Missed upside: (current spot - strike) if stock above strike
+
 ### v1.9.1 (Latest)
 - **LEAPS-Aware AI**: AI prompts now correctly handle long-dated options (365+ days)
   - Recognizes LEAPS (1+ year) and long-dated (6+ months) options
@@ -564,6 +580,7 @@ git push origin main:stable
 - **Trade Critique**: AI reviews closed trades with feedback
 
 ### Key Functions Added
+- `getChainData(positionId)` - Returns { chainHistory, totalPremiumCollected } for rolled positions
 - `calculateGreeks(S, K, T, r, sigma, isPut, contracts)` - Black-Scholes Greeks
 - `calculatePortfolioGreeks()` - Sum Greeks across all open positions
 - `window.runPortfolioAudit()` - AI Portfolio Audit modal
