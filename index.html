@@ -934,6 +934,52 @@ Entry: $3.75"
                         <div id="balanceLastUpdated" style="font-size:10px; color:#666; margin-top:6px; text-align:right;">—</div>
                     </div>
                     
+                    <!-- Dashboard Row: Win Rate, P&L Chart, Expiration Calendar -->
+                    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:15px;">
+                        <!-- Win Rate Dashboard -->
+                        <div class="results-box" style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); margin:0; padding:12px;">
+                            <h3 style="color:#00ff88; font-size:13px; margin-bottom:8px;">🏆 Win Rate <span id="winRateYearLabel" style="font-size:10px; color:#888;">(2026)</span></h3>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:11px;">
+                                <div class="result-row"><span class="result-label">Win Rate:</span><span class="result-value" id="dashWinRate" style="color:#00ff88;">—</span></div>
+                                <div class="result-row"><span class="result-label">Trades:</span><span class="result-value" id="dashTotalTrades">—</span></div>
+                                <div class="result-row"><span class="result-label">Avg DTE:</span><span class="result-value" id="dashAvgDTE">—</span></div>
+                                <div class="result-row"><span class="result-label">Avg Prem:</span><span class="result-value" id="dashAvgPremium">—</span></div>
+                            </div>
+                            <div style="border-top:1px solid rgba(255,255,255,0.1); margin:6px 0; padding-top:6px; font-size:10px;">
+                                <div class="result-row"><span class="result-label">🏅 Best:</span><span class="result-value" id="dashBestTicker" style="color:#00ff88;">—</span></div>
+                                <div class="result-row"><span class="result-label">⚠️ Worst:</span><span class="result-value" id="dashWorstTicker" style="color:#ff5252;">—</span></div>
+                                <div class="result-row"><span class="result-label">🚀 Big Win:</span><span class="result-value" id="dashBiggestWin" style="color:#00ff88;">—</span></div>
+                                <div class="result-row"><span class="result-label">💀 Big Loss:</span><span class="result-value" id="dashBiggestLoss" style="color:#ff5252;">—</span></div>
+                            </div>
+                        </div>
+                        
+                        <!-- P&L Chart -->
+                        <div class="results-box" style="background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3); margin:0; padding:12px;">
+                            <h3 style="color:#8b5cf6; font-size:13px; margin-bottom:8px;">📈 Cumulative P&L <span id="pnlChartYearLabel" style="font-size:10px; color:#888;">(2026)</span></h3>
+                            <canvas id="pnlChartCanvas" width="300" height="140" style="width:100%; background:#0a0a15; border-radius:4px;"></canvas>
+                            <div style="display:flex; justify-content:space-between; font-size:9px; color:#888; margin-top:4px;">
+                                <span id="pnlChartStart">—</span>
+                                <span id="pnlChartEnd">—</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Expiration Calendar -->
+                        <div class="results-box" style="background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.3); margin:0; padding:12px;">
+                            <h3 style="color:#ffaa00; font-size:13px; margin-bottom:6px;">📅 Expirations</h3>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <button onclick="window.changeCalendarMonth(-1)" style="background:none; border:none; color:#ffaa00; cursor:pointer; font-size:12px;">◀</button>
+                                <span id="calendarMonthLabel" style="font-weight:600; color:#ddd; font-size:11px;">January 2026</span>
+                                <button onclick="window.changeCalendarMonth(1)" style="background:none; border:none; color:#ffaa00; cursor:pointer; font-size:12px;">▶</button>
+                            </div>
+                            <div id="expirationCalendar" style="font-size:10px;"></div>
+                            <div id="calendarLegend" style="font-size:8px; color:#888; margin-top:4px; display:flex; gap:8px; justify-content:center;">
+                                <span>🟢 Put</span>
+                                <span>🔵 Call</span>
+                                <span>🟣 Spread</span>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                         <h3 style="color:var(--accent-cyan); margin:0;">💼 Holdings & Trade History</h3>
                         <div style="display:flex; gap:12px; align-items:center;">
@@ -1071,54 +1117,6 @@ Entry: $3.75"
                             <b>Tip:</b> Manage open options in the <span style="color:#00d9ff;">Positions</span> tab<br>
                             <i style="color:var(--accent-green);">Summary shows combined open + closed P&L</i>
                         </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Dashboard Row: Win Rate, P&L Chart, Expiration Calendar -->
-            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:15px; margin-top:15px; padding:0 10px;">
-                <!-- Win Rate Dashboard -->
-                <div class="results-box" style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); margin:0;">
-                    <h3 style="color:#00ff88; font-size:14px;">🏆 Win Rate Dashboard <span id="winRateYearLabel" style="font-size:11px; color:#888;">(2026)</span></h3>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:12px;">
-                        <div class="result-row"><span class="result-label">Win Rate:</span><span class="result-value" id="dashWinRate" style="color:#00ff88;">—</span></div>
-                        <div class="result-row"><span class="result-label">Total Trades:</span><span class="result-value" id="dashTotalTrades">—</span></div>
-                        <div class="result-row"><span class="result-label">Avg DTE Held:</span><span class="result-value" id="dashAvgDTE">—</span></div>
-                        <div class="result-row"><span class="result-label">Avg Premium:</span><span class="result-value" id="dashAvgPremium">—</span></div>
-                    </div>
-                    <div style="border-top:1px solid rgba(255,255,255,0.1); margin:8px 0; padding-top:8px; font-size:12px;">
-                        <div class="result-row"><span class="result-label">🏅 Best:</span><span class="result-value" id="dashBestTicker" style="color:#00ff88; font-size:11px;">—</span></div>
-                        <div class="result-row"><span class="result-label">⚠️ Worst:</span><span class="result-value" id="dashWorstTicker" style="color:#ff5252; font-size:11px;">—</span></div>
-                    </div>
-                    <div style="border-top:1px solid rgba(255,255,255,0.1); margin:8px 0; padding-top:8px; font-size:12px;">
-                        <div class="result-row"><span class="result-label">🚀 Big Win:</span><span class="result-value" id="dashBiggestWin" style="color:#00ff88; font-size:11px;">—</span></div>
-                        <div class="result-row"><span class="result-label">💀 Big Loss:</span><span class="result-value" id="dashBiggestLoss" style="color:#ff5252; font-size:11px;">—</span></div>
-                    </div>
-                </div>
-                
-                <!-- P&L Chart -->
-                <div class="results-box" style="background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3); margin:0;">
-                    <h3 style="color:#8b5cf6; font-size:14px;">📈 Cumulative P&L <span id="pnlChartYearLabel" style="font-size:11px; color:#888;">(2026)</span></h3>
-                    <canvas id="pnlChartCanvas" width="350" height="180" style="width:100%; background:#0a0a15; border-radius:4px;"></canvas>
-                    <div style="display:flex; justify-content:space-between; font-size:10px; color:#888; margin-top:5px;">
-                        <span id="pnlChartStart">—</span>
-                        <span id="pnlChartEnd">—</span>
-                    </div>
-                </div>
-                
-                <!-- Expiration Calendar -->
-                <div class="results-box" style="background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.3); margin:0;">
-                    <h3 style="color:#ffaa00; font-size:14px;">📅 Expiration Calendar</h3>
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                        <button onclick="window.changeCalendarMonth(-1)" style="background:none; border:none; color:#ffaa00; cursor:pointer; font-size:14px;">◀</button>
-                        <span id="calendarMonthLabel" style="font-weight:600; color:#ddd; font-size:13px;">January 2026</span>
-                        <button onclick="window.changeCalendarMonth(1)" style="background:none; border:none; color:#ffaa00; cursor:pointer; font-size:14px;">▶</button>
-                    </div>
-                    <div id="expirationCalendar" style="font-size:11px;"></div>
-                    <div id="calendarLegend" style="font-size:9px; color:#888; margin-top:6px; display:flex; gap:10px; justify-content:center;">
-                        <span>🟢 Put</span>
-                        <span>🔵 Call</span>
-                        <span>🟣 Spread</span>
                     </div>
                 </div>
             </div>
