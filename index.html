@@ -130,6 +130,16 @@ Examples:
                                 <img id="wisdomPreviewImg" style="max-width:100%; max-height:100px; border-radius:6px; border:1px solid #22c55e;">
                                 <button onclick="clearWisdomImage(event)" style="position:absolute; top:4px; right:4px; background:#ff5252; border:none; border-radius:50%; width:20px; height:20px; color:#fff; cursor:pointer; font-size:12px;">×</button>
                             </div>
+                            <button onclick="window.extractWisdomFromImage()" style="margin-top:8px; padding:6px 12px; background:rgba(34,197,94,0.3); border:1px solid rgba(34,197,94,0.5); color:#22c55e; border-radius:6px; cursor:pointer; font-size:11px;">
+                                📷 Extract Text from Image
+                            </button>
+                        </div>
+                        <div id="wisdomExtractedPreview" style="display:none; background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); border-radius:6px; padding:10px; margin-bottom:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <span style="color:#22c55e; font-weight:bold; font-size:11px;">📋 Extracted Text (edit if needed):</span>
+                                <button onclick="document.getElementById('wisdomExtractedPreview').style.display='none'" style="background:none; border:none; color:#888; cursor:pointer;">×</button>
+                            </div>
+                            <div id="wisdomExtractedText" contenteditable="true" style="font-size:11px; color:#ddd; white-space:pre-wrap; min-height:40px; background:#0d0d1a; border-radius:4px; padding:8px;"></div>
                         </div>
                         
                         <textarea id="wisdomInput" placeholder="Paste trading advice from Discord, Twitter, or anywhere... or drop a screenshot above!
@@ -1436,6 +1446,36 @@ Entry: $3.75"
                             style="padding:8px 16px; background:rgba(255,107,53,0.2); border:1px solid rgba(255,107,53,0.4); color:#ff6b35; border-radius:6px; cursor:pointer;">
                         🔌 Test Connection
                     </button>
+                </div>
+                
+                <!-- Ollama (Local AI) Section -->
+                <div style="background:#1a1a2e; border-radius:12px; padding:20px; margin-bottom:20px; border:1px solid #333;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 style="color:#22c55e; margin:0;">
+                            <span style="font-size:20px; margin-right:8px;">🦙</span> Ollama (Local AI)
+                        </h3>
+                        <span id="ollamaStatus" style="padding:4px 12px; border-radius:12px; font-size:11px; background:#333; color:#888;">
+                            Checking...
+                        </span>
+                    </div>
+                    <p style="color:#aaa; font-size:12px; margin-bottom:15px;">
+                        Local AI models for analysis. Restart if models get stuck or crash.
+                    </p>
+                    
+                    <div id="ollamaModelList" style="font-size:11px; color:#888; margin-bottom:15px;">
+                        Loading models...
+                    </div>
+                    
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button onclick="window.checkOllamaStatus()" 
+                                style="padding:8px 16px; background:rgba(34,197,94,0.2); border:1px solid rgba(34,197,94,0.4); color:#22c55e; border-radius:6px; cursor:pointer;">
+                            🔍 Check Status
+                        </button>
+                        <button onclick="window.restartOllama()" 
+                                style="padding:8px 16px; background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#ffaa00; border-radius:6px; cursor:pointer;">
+                            🔄 Restart Ollama
+                        </button>
+                    </div>
                 </div>
                 
                 <!-- Telegram Section -->

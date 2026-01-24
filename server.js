@@ -1195,6 +1195,51 @@ Be specific. Reference actual ticker symbols and strikes. Keep it actionable.`;
         return;
     }
     
+    // Restart Ollama service
+    if (url.pathname === '/api/ai/restart' && req.method === 'POST') {
+        console.log('[AI] 🔄 Restarting Ollama...');
+        try {
+            const { exec } = require('child_process');
+            
+            // Kill existing Ollama processes and restart
+            await new Promise((resolve, reject) => {
+                exec('taskkill /f /im ollama.exe', (err) => {
+                    // Ignore errors (process might not exist)
+                    resolve();
+                });
+            });
+            
+            // Wait a moment then start Ollama
+            await new Promise(r => setTimeout(r, 1000));
+            
+            await new Promise((resolve, reject) => {
+                exec('start /b ollama serve', { shell: true }, (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+            
+            // Wait for Ollama to start
+            await new Promise(r => setTimeout(r, 3000));
+            
+            // Check if it's running
+            try {
+                const status = await fetchJsonHttp('http://localhost:11434/api/tags');
+                console.log('[AI] ✅ Ollama restarted successfully');
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, models: status.models?.length || 0 }));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: 'Ollama failed to start' }));
+            }
+        } catch (e) {
+            console.log('[AI] ❌ Restart error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: e.message }));
+        }
+        return;
+    }
+    
     // Warmup/preload a model into VRAM (with streaming progress)
     if (url.pathname === '/api/ai/warmup' && req.method === 'POST') {
         console.log(`[AI] 🔥 Warmup endpoint hit, body:`, req.body);

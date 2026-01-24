@@ -3714,6 +3714,97 @@ async function loadWisdomCount() {
     }
 }
 
+// ============================================================
+// SECTION: OLLAMA MANAGEMENT
+// Functions: checkOllamaStatus, restartOllama
+// ============================================================
+
+/**
+ * Check Ollama status and update UI
+ */
+window.checkOllamaStatus = async function() {
+    const statusEl = document.getElementById('ollamaStatus');
+    const modelListEl = document.getElementById('ollamaModelList');
+    
+    if (statusEl) statusEl.textContent = 'Checking...';
+    if (statusEl) statusEl.style.background = '#333';
+    if (statusEl) statusEl.style.color = '#888';
+    
+    try {
+        const res = await fetch('/api/ai/status');
+        const data = await res.json();
+        
+        if (data.available) {
+            if (statusEl) {
+                statusEl.textContent = `Running (${data.models?.length || 0} models)`;
+                statusEl.style.background = 'rgba(34,197,94,0.2)';
+                statusEl.style.color = '#22c55e';
+            }
+            
+            if (modelListEl && data.models) {
+                const modelNames = data.models.map(m => `${m.name} (${m.sizeGB}GB)`).join(', ');
+                modelListEl.innerHTML = `<strong>Available:</strong> ${modelNames}`;
+                
+                if (data.loaded?.length > 0) {
+                    const loaded = data.loaded.map(m => m.name).join(', ');
+                    modelListEl.innerHTML += `<br><strong style="color:#22c55e;">Loaded in VRAM:</strong> ${loaded}`;
+                }
+            }
+        } else {
+            if (statusEl) {
+                statusEl.textContent = 'Not Running';
+                statusEl.style.background = 'rgba(255,82,82,0.2)';
+                statusEl.style.color = '#ff5252';
+            }
+            if (modelListEl) {
+                modelListEl.innerHTML = '<span style="color:#ff5252;">Ollama not running. Click Restart to start it.</span>';
+            }
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.textContent = 'Error';
+            statusEl.style.background = 'rgba(255,82,82,0.2)';
+            statusEl.style.color = '#ff5252';
+        }
+        if (modelListEl) {
+            modelListEl.innerHTML = '<span style="color:#ff5252;">Could not connect to server</span>';
+        }
+    }
+};
+
+/**
+ * Restart Ollama service
+ */
+window.restartOllama = async function() {
+    const statusEl = document.getElementById('ollamaStatus');
+    
+    if (statusEl) {
+        statusEl.textContent = 'Restarting...';
+        statusEl.style.background = 'rgba(255,170,0,0.2)';
+        statusEl.style.color = '#ffaa00';
+    }
+    
+    showNotification('🔄 Restarting Ollama...', 'info');
+    
+    try {
+        const res = await fetch('/api/ai/restart', { method: 'POST' });
+        const data = await res.json();
+        
+        if (data.success) {
+            showNotification(`✅ Ollama restarted! ${data.models} models available`, 'success');
+            window.checkOllamaStatus();
+        } else {
+            showNotification(`❌ Restart failed: ${data.error}`, 'error');
+            window.checkOllamaStatus();
+        }
+    } catch (e) {
+        showNotification(`❌ Error: ${e.message}`, 'error');
+    }
+};
+
+// Check Ollama status on page load
+setTimeout(window.checkOllamaStatus, 2000);
+
 /**
  * Handle wisdom image drag & drop
  */
@@ -3765,26 +3856,93 @@ window.clearWisdomImage = function(event) {
     document.getElementById('wisdomImagePreview').style.display = 'none';
     document.getElementById('wisdomPreviewImg').src = '';
     document.getElementById('wisdomImageInput').value = '';
+    document.getElementById('wisdomExtractedPreview').style.display = 'none';
     window.pendingWisdomImageData = null;
+    window.extractedWisdomText = null;
 };
 
 /**
- * Add new wisdom from input (supports both text and images)
+ * Extract text from wisdom image and show preview for editing
+ */
+window.extractWisdomFromImage = async function() {
+    if (!window.pendingWisdomImageData) {
+        showNotification('No image to extract from', 'error');
+        return;
+    }
+    
+    showNotification('📷 Extracting text from image...', 'info');
+    
+    try {
+        const visionRes = await fetch('/api/ai/parse-wisdom-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                image: window.pendingWisdomImageData,
+                model: 'minicpm-v:latest'
+            })
+        });
+        
+        const visionData = await visionRes.json();
+        
+        if (visionData.error) {
+            showNotification(`❌ Vision error: ${visionData.error}`, 'error');
+            return;
+        }
+        
+        const extracted = visionData.extractedText || '';
+        
+        if (!extracted) {
+            showNotification('Could not extract any text from image', 'error');
+            return;
+        }
+        
+        // Show the extracted text preview
+        const previewDiv = document.getElementById('wisdomExtractedPreview');
+        const textDiv = document.getElementById('wisdomExtractedText');
+        
+        if (previewDiv && textDiv) {
+            textDiv.textContent = extracted;
+            previewDiv.style.display = 'block';
+            window.extractedWisdomText = extracted;
+            showNotification('✅ Text extracted! Review and click "Process & Save"', 'success');
+        }
+        
+        // Clear the image preview (keep extracted text)
+        document.getElementById('wisdomImagePreview').style.display = 'none';
+        window.pendingWisdomImageData = null;
+        
+    } catch (e) {
+        showNotification(`❌ Vision error: ${e.message}`, 'error');
+    }
+};
+
+/**
+ * Add new wisdom from input (supports text, images, and extracted preview)
  */
 window.addWisdom = async function() {
     const input = document.getElementById('wisdomInput');
+    const extractedTextDiv = document.getElementById('wisdomExtractedText');
+    
     const hasText = input && input.value.trim();
+    const hasExtracted = window.extractedWisdomText || (extractedTextDiv && extractedTextDiv.textContent.trim());
     const hasImage = window.pendingWisdomImageData;
     
-    if (!hasText && !hasImage) {
+    if (!hasText && !hasImage && !hasExtracted) {
         showNotification('Please enter text or drop an image with trading advice', 'error');
         return;
     }
     
     let raw = '';
     
-    // If we have an image, first extract text from it using vision
-    if (hasImage) {
+    // Use extracted text if available (from image preview)
+    if (hasExtracted) {
+        raw = extractedTextDiv ? extractedTextDiv.textContent.trim() : window.extractedWisdomText;
+        // Clear the preview
+        document.getElementById('wisdomExtractedPreview').style.display = 'none';
+        window.extractedWisdomText = null;
+    }
+    // If we have an image but no extracted text, extract now
+    else if (hasImage) {
         try {
             showNotification('📷 Extracting text from image...', 'info');
             
