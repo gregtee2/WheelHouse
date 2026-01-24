@@ -65,6 +65,9 @@ All notable changes to WheelHouse will be documented in this file.
   - Removed duplicate "Performance" panel
 
 ### Fixed
+- **🔧 Hardcoded Risk-Free Rate** - Now uses `state.rate` instead of hardcoded 0.05
+  - Black-Scholes calculations respect user's rate setting
+  - Improved roll tips and suggestions
 - **🔧 LEAPS Parsing** - Correct expiry detection for long-dated options
 - **🔧 Long Option Analyzer** - Correct labels for bought options
 - **🔧 Roll Workflow** - Missing close fields on roll now fixed
