@@ -3013,30 +3013,28 @@ IF you do need to roll, compare options CAREFULLY:
 • Debit rolls only make sense if you're desperate to cut risk and no credit option exists
 
 ═══ YOUR TASK ═══
-${alternativeStrategies ? `⚠️ STOP! Before recommending a roll, you MUST evaluate ALL alternatives.
+${alternativeStrategies ? `🚨 MANDATORY: You MUST evaluate ALL 5 strategies before making a recommendation.
 
-STEP 1: Score each option (1-10 scale):
-• LET ASSIGN: Lock in $${assignmentProfit?.toFixed(0) || '???'} profit now. Score: ?/10
-• BUY SKIP CALL: Ride further upside if bullish. Score: ?/10  
-• BUY CALL SPREAD: Cheaper defined-risk upside play. Score: ?/10
-• SELL PUTS BELOW: Add shares on dip + collect premium. Score: ?/10
-• ROLL UP+OUT: Extend position, fight the trend. Score: ?/10
+DO NOT skip to a recommendation. First, fill out this scorecard:
 
-STEP 2: Pick the HIGHEST scoring option and explain why.
+**STRATEGY SCORECARD** (Rate each 1-10, where 10 = best choice)
 
-Your response format:
-1. **Quick Scores:**
-   - LET ASSIGN: X/10 (reason)
-   - SKIP CALL: X/10 (reason)
-   - CALL SPREAD: X/10 (reason)
-   - SELL PUTS: X/10 (reason)
-   - ROLL: X/10 (reason)
+| Strategy | Score | Reasoning |
+|----------|-------|-----------|
+| 1. LET ASSIGN ($${assignmentProfit?.toFixed(0) || '???'} profit) | ?/10 | [Your reasoning] |
+| 2. BUY SKIP CALL ($${Math.ceil(spot / 5) * 5} call) | ?/10 | [Your reasoning] |
+| 3. BUY CALL SPREAD ($${Math.ceil(spot / 5) * 5}/$${Math.ceil(spot / 5) * 5 + 5}) | ?/10 | [Your reasoning] |
+| 4. SELL $${Math.floor((spot * 0.9) / 5) * 5} PUT | ?/10 | [Your reasoning] |
+| 5. ROLL UP+OUT | ?/10 | [Your reasoning] |
 
-2. **Winner:** [Highest scoring option] - specific trade details
+After completing the scorecard, provide:
 
-3. **Why This Over Rolling?** If rolling didn't win, explain why the winner beats it.
+**WINNER:** [Highest scoring strategy] 
+**Trade Details:** [Specific action - strike, expiry, premium]
+**Why This Beats Rolling:** [If rolling didn't win, explain why winner is better]
+**Key Risk:** [Main downside to watch]
 
-4. **Key Risk:** Main risk with your chosen strategy` : hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
+IMPORTANT: If you recommend SKIP CALL, CALL SPREAD, or SELL PUTS, explain the specific trade setup.` : hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
 
 If HOLD is best, respond:
 1. HOLD - Let position expire worthless for max profit
