@@ -1211,7 +1211,7 @@ export async function suggestOptimalRoll() {
                      onmouseover="this.parentElement.style.borderColor='rgba(123,163,176,0.5)'" 
                      onmouseout="this.parentElement.style.borderColor='rgba(255,255,255,0.1)'">
                     <span>${emoji} <b>$${c.strike.toFixed(0)}</b></span>
-                    <span style="color:${riskColor}; font-size:11px;">${riskIcon}${Math.abs(c.riskChange).toFixed(0)}%</span>
+                    <span style="color:${riskColor}; font-size:11px;">${riskIcon}${Math.abs(c.riskChange).toFixed(0)}% risk</span>
                 </div>
                 <div style="color:#aaa; font-size:11px; margin-top:3px;">
                     ${expFormatted} · ${netDisplay}
