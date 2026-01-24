@@ -4,7 +4,7 @@
 
 **WheelHouse** is a Wheel Strategy Options Analyzer & Position Tracker built with vanilla JavaScript (ES6 modules) and Node.js. It provides Monte Carlo-based options pricing, real-time CBOE quotes, position tracking, and portfolio analytics.
 
-**Version**: 1.10.0  
+**Version**: 1.11.0  
 **Repository**: https://github.com/gregtee2/WheelHouse  
 **Branches**: `main` (development), `stable` (releases)
 
@@ -432,7 +432,33 @@ const progress = calculateChallengeProgress(challengeId);
 
 ## 🎨 UI Patterns
 
-### Tab System
+### Tab Structure (Main Navigation)
+
+| Tab | ID | Icon | Purpose |
+|-----|-----|------|---------|
+| Ideas | `ideas` | 🎯 | Trade Ideas, Discord Analyzer, AI staging |
+| Analyze | `analyze` | 🔬 | Pricing simulator (Pricing/Monte Carlo/Greeks sub-tabs), payoff charts |
+| P&L | `pnl` | 💰 | Roll Calculator, AI Trade Advisor (💡 Get Insight button), Trade Metrics |
+| Positions | `positions` | 📋 | Open positions table, quick actions |
+| Portfolio | `portfolio` | 💼 | Closed trades, analytics, P&L history |
+| Challenges | 🏆 | | Trading challenges & goals |
+| Settings | `settings` | ⚙️ | API keys, broker sync, preferences |
+
+### Key UI Locations
+
+**Where to find AI features:**
+- **💡 Get Insight** (trade analysis) → **P&L tab** → right panel → "🧠 AI Trade Advisor"
+- **✨ Suggest** (roll suggestions) → **P&L tab** → middle section → "🔄 Roll Calculator"
+- **🤖 Trade Ideas** (AI-generated) → **Ideas tab** → left panel
+- **📝 Discord Analyzer** → **Ideas tab** → "📋 Pending Trades" section
+
+**Where to find analysis tools:**
+- **Payoff Charts** → **Analyze tab** → Pricing sub-tab
+- **Monte Carlo Simulation** → **Analyze tab** → Monte Carlo sub-tab
+- **Greeks Calculator** → **Analyze tab** → Greeks sub-tab
+- **Trade Metrics** → **P&L tab** → right panel (ROC, Win Prob, etc.)
+
+### Tab System Code Pattern
 Tabs are shown/hidden via `data-tab` attributes:
 ```html
 <button data-tab="positions">Positions</button>
