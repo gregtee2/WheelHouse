@@ -1512,11 +1512,19 @@ If you cannot find any trading advice, respond with: NO_TRADING_ADVICE_FOUND`;
                 ollamaReq.end();
             });
             
-            // Check if response looks like an error (Ollama crash, etc.)
-            if (!response || response.includes('"error"') || response.startsWith('{')) {
-                console.log('[AI-VISION] ⚠️ Received error-like response, rejecting');
+            // Check if response looks like an Ollama error
+            if (!response) {
+                console.log('[AI-VISION] ⚠️ Empty response from Ollama');
                 res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Vision model returned invalid response. Try restarting Ollama.' }));
+                res.end(JSON.stringify({ error: 'Vision model returned empty response. Try restarting Ollama.' }));
+                return;
+            }
+            
+            // Check for JSON error objects (but not regular text that happens to have quotes)
+            if (response.trim().startsWith('{"error"')) {
+                console.log('[AI-VISION] ⚠️ Ollama returned error JSON:', response);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Vision model crashed. Try restarting Ollama.' }));
                 return;
             }
             
