@@ -769,21 +769,74 @@ export async function renderPortfolio(fetchPrices = false) {
 function updatePortfolioSummary(positionData) {
     const openCount = positionData.length;
     
-    // Premium breakdown: credits vs debits
-    const premiumCollected = positionData.filter(p => !p.isDebit).reduce((sum, p) => sum + p.premiumAmount, 0);
-    const premiumPaid = positionData.filter(p => p.isDebit).reduce((sum, p) => sum + p.premiumAmount, 0);
-    const netPremium = premiumCollected - premiumPaid;
+    // Net Premium: must account for buybacks from roll chains
+    // This matches the Positions footer calculation
+    const closedPositions = state.closedPositions || [];
+    const openPositions = state.positions || [];
     
-    // Max assignment cost - only for short puts (cash needed if assigned)
-    // Covered calls: $0 (shares cover it)
-    // Long options: already paid premium (not additional capital)
-    const maxAssignment = positionData.reduce((sum, p) => {
+    // Track which chainIds we've already processed to avoid double-counting
+    const processedChains = new Set();
+    
+    let netPremium = 0;
+    let premiumCollected = 0;
+    let premiumPaid = 0;
+    
+    positionData.forEach(p => {
+        const chainId = p.chainId || p.id;
+        
+        // Skip if we've already processed this chain
+        if (processedChains.has(chainId)) return;
+        processedChains.add(chainId);
+        
+        // Get all positions in this chain (including closed rolled positions)
+        const chainPositions = [
+            ...closedPositions.filter(cp => cp.chainId === chainId),
+            ...openPositions.filter(sp => sp.chainId === chainId || sp.id === chainId)
+        ];
+        
+        // Calculate net premium for the chain
+        chainPositions.forEach(cp => {
+            const premium = (cp.premium || 0) * 100 * (cp.contracts || 1);
+            const isDebit = isDebitPosition(cp.type);
+            
+            // Track collected vs paid
+            if (isDebit) {
+                premiumPaid += premium;
+            } else {
+                premiumCollected += premium;
+            }
+            
+            // Subtract buyback cost if position was rolled
+            if (cp.closeReason === 'rolled' && cp.closePrice) {
+                premiumPaid += cp.closePrice * 100 * (cp.contracts || 1);
+            }
+        });
+    });
+    
+    netPremium = premiumCollected - premiumPaid;
+    
+    // Capital at Risk - matches Positions footer calculation
+    const capitalAtRisk = positionData.reduce((sum, p) => {
         const type = (p.type || '').toLowerCase();
-        if (type.includes('short_put') || type === 'put') {
-            // Cash-secured put: need full strike × 100 × contracts
-            return sum + (p.strike * 100 * (p.contracts || 1));
+        const isSpread = type.includes('_spread');
+        
+        if (isSpread) {
+            // For spreads, use maxLoss or calculate it
+            if (p.maxLoss) return sum + p.maxLoss;
+            const width = p.spreadWidth || Math.abs((p.sellStrike || 0) - (p.buyStrike || 0));
+            const premium = p.premium || 0;
+            const maxLoss = isDebitPosition(p.type) 
+                ? premium * 100 * (p.contracts || 1)
+                : (width - premium) * 100 * (p.contracts || 1);
+            return sum + maxLoss;
+        } else if (isDebitPosition(p.type)) {
+            // Long call/put: max loss = premium paid
+            return sum + ((p.premium || 0) * 100 * (p.contracts || 1));
+        } else if (type.includes('short_put') || type === 'buy_write') {
+            // Cash-secured put or buy-write: strike × 100 × contracts
+            return sum + ((p.strike || 0) * 100 * (p.contracts || 1));
         }
-        // Covered calls, long options, spreads - no additional capital at risk
+        // Covered calls: $0 (shares cover it)
         return sum;
     }, 0);
     const unrealizedPnL = positionData.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0);
@@ -815,7 +868,7 @@ function updatePortfolioSummary(positionData) {
         premEl.title = `Collected: $${premiumCollected.toFixed(0)} | Paid: $${premiumPaid.toFixed(0)} | Net: $${netPremium.toFixed(0)}`;
     }
     
-    setEl('portCapitalRisk', '$' + maxAssignment.toLocaleString());
+    setEl('portCapitalRisk', '$' + capitalAtRisk.toLocaleString());
     
     const unrealEl = document.getElementById('portUnrealizedPnL');
     if (unrealEl) {
