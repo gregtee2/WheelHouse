@@ -994,6 +994,9 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
             // Build structured prompt from pre-computed data
             const prompt = buildTradePrompt(data, isLargeModel);
             
+            // Get the wisdom entries that were applied (stored by buildTradePrompt)
+            const wisdomUsed = buildTradePrompt._lastWisdomUsed || [];
+            
             let response;
             let took = '';
             let moeDetails = null;
@@ -1020,9 +1023,14 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
                 insight: response,
                 model: selectedModel,
                 took,
-                moe: moeDetails
+                moe: moeDetails,
+                wisdomApplied: wisdomUsed.length > 0 ? {
+                    count: wisdomUsed.length,
+                    positionType: data.positionType,
+                    entries: wisdomUsed.map(w => ({ category: w.category, wisdom: w.wisdom }))
+                } : null
             }));
-            console.log('[AI] ✅ Analysis complete');
+            console.log('[AI] ✅ Analysis complete' + (wisdomUsed.length > 0 ? ` (${wisdomUsed.length} wisdom entries applied)` : ''));
         } catch (e) {
             console.log('[AI] ❌ Error:', e.message);
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -3080,6 +3088,7 @@ function buildTradePrompt(data, isLargeModel = false) {
     
     // Load relevant wisdom for this position type
     let wisdomSection = '';
+    let wisdomUsed = [];  // Track which wisdom entries were applied
     try {
         const wisdomData = loadWisdom();
         const relevantWisdom = wisdomData.entries.filter(w => 
@@ -3088,7 +3097,8 @@ function buildTradePrompt(data, isLargeModel = false) {
             (positionType === 'buy_write' && w.appliesTo.includes('covered_call'))
         );
         if (relevantWisdom.length > 0) {
-            const wisdomList = relevantWisdom.slice(0, 5).map(w => 
+            wisdomUsed = relevantWisdom.slice(0, 5);  // Store for return
+            const wisdomList = wisdomUsed.map(w => 
                 `• [${w.category}] ${w.wisdom}`
             ).join('\n');
             wisdomSection = `\n═══ TRADER'S WISDOM (from your knowledge base) ═══\nConsider these principles from experienced traders:\n${wisdomList}\n`;
@@ -3096,6 +3106,9 @@ function buildTradePrompt(data, isLargeModel = false) {
     } catch (e) {
         // Wisdom not available, continue without it
     }
+    
+    // Store wisdom in function result metadata
+    buildTradePrompt._lastWisdomUsed = wisdomUsed;
     
     // Determine position characteristics
     const isLongCall = positionType === 'long_call';

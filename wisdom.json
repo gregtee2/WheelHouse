@@ -6,7 +6,10 @@
       "raw": "Never roll a covered call more than 3 times - at that point just take assignment and move on.",
       "wisdom": "Limit covered call rolls to 3 times maximum, then take assignment",
       "category": "rolling",
-      "appliesTo": ["covered_call", "buy_write"],
+      "appliesTo": [
+        "covered_call",
+        "buy_write"
+      ],
       "source": "Example",
       "added": "2026-01-24"
     },
@@ -15,8 +18,115 @@
       "raw": "Close short puts at 50% profit to free up capital for new trades.",
       "wisdom": "Close short puts at 50% profit to redeploy capital faster",
       "category": "short_puts",
-      "appliesTo": ["short_put"],
+      "appliesTo": [
+        "short_put"
+      ],
       "source": "Example",
+      "added": "2026-01-24"
+    },
+    {
+      "id": 1769288575071,
+      "raw": "Many of you have questions on what to do if a covered call has blown past your strike price so putting this here for easy reference along with these rules:  STRATEGIES FOR MANAGING YOUR POSITION, WHEN A STOCK HAS SURGED PAST YOUR SOLD CALL STRIKE PRICE: \n\nIf a stock you own has surged past the strike price of a covered call you sold, and you still want to retain or reacquire the shares, consider these strategies:\n\nBuy Back the Call and Wait for a Stock Price Recovery -\nAction: Close the sold call by buying it back, accepting the loss (e.g., $5 per share). Wait to sell a new call until the stock price rises enough to offset this loss (e.g., an additional $5 per share).\nGoal: Recover the cost of exiting the call through future stock appreciation before resuming call sales.\nConsiderations: Ensure the stock’s upward momentum justifies the wait. Monitor for pullbacks that could delay recovery.\n\nRoll the Call Up and Out, Pair with New Shares -\n\nAction: Roll the sold call to a higher strike price and later expiration date. Simultaneously, buy additional shares at the current market price before the stock reaches the new strike. Allow the original shares to be called away at the original strike, leaving the new shares uncovered to capture further upside.\nGoal: Retain exposure to the stock’s potential gains while managing the call obligation.\nConsiderations: If the stock pulls back and the original shares aren’t called away, you may hold double the intended shares, increasing risk and capital requirements.\n\nLet the Call Be Exercised and Pivot to Puts or Repurchase -\n\nAction: Allow the original shares to be called away at the strike price. Then, either sell aggressive put options during early signs of a pullback to re-enter at a lower price or repurchase shares outright if the stock remains attractive.\nGoal: Exit the position profitably and re-enter at a better price or generate income via puts.\nConsiderations:  If the stock is super bullish, it may be hard to find a good entry for replacement shares.  Always look for an oversold RSI to get back in.  Another option if you allow the call away, is to buy a LEAPS or a SKIP to take advantage of additional upside if your shares are covered.",
+      "wisdom": "When a stock surges past your sold call strike price, consider buying back the call and waiting for recovery, rolling up and out while acquiring new shares, or letting the call be exercised to pivot to puts or repurchase shares.",
+      "category": "covered_calls",
+      "appliesTo": [
+        "covered_call"
+      ],
+      "source": "User input",
+      "added": "2026-01-24"
+    },
+    {
+      "id": 1769288645366,
+      "raw": "GUIDANCE ON WHEN TO CONSIDER SELLING CALLS ON A LEAPS TO TRADE A POOR MAN’S COVERED CALL (PMCC): I prefer to wait until my LEAPS Freedom Day before selling calls against my LEAPS. What is a LEAPS Freedom Day (LFD), you ask? It’s the point where the purchased call reaches its break-even price if you need to exercise it to satisfy the sold call. You can calculate it using this formula: LEAPS Strike + Cost of LEAPS = LEAPS Freedom Price. Once this price is reached, you can sell calls with confidence—if the calls are exercised by the buyer, you won’t lose money, as exercising at your break-even price allows you to honor the trade without a loss.",
+      "wisdom": "Wait until the LEAPS Freedom Day before selling calls against your LEAPS to avoid losses upon exercise.",
+      "category": "exit_rules",
+      "appliesTo": [
+        "covered_call",
+        "leaps"
+      ],
+      "source": "User input",
+      "added": "2026-01-24"
+    },
+    {
+      "id": 1769288706845,
+      "raw": "To help protect me on the DOWNSIDE in a BEARISH market, I like to use a DIAGONAL FRONT PUT RATIO SPREADS —‘front’ because you’re selling two puts against one bought put, and ‘diagonal’ due to staggered expiration dates—the aim is to pocket a net credit, not a debit. You want the premium from your two sold puts to more than cover the cost of the long put (the put you buy). Here’s how I set it up: First, I pick a sold put strike at a fair stock price, targeting a delta below 0.2 for a cushion. Next, I hunt for a put to buy—minimum 3 months out, usually at a 0.5-0.6 delta for solid intrinsic value (the built-in profit if exercised right now, with nothing to do with extrinsic value, i.e., time value). The key? Ensure the credit from the two sold puts beats the debit of the one bought put. Left alone, this trade wins both ways: if the stock climbs, you keep the credit; if it drops, your long put (the put you own) gains value—sell it for profit or hold if you expect more downside. If the sold puts get tested, just roll them down and out to a safer strike and later date. It’s a flexible, cash-flowing setup with upside and downside potential!",
+      "wisdom": "Set up diagonal front put ratio spreads in a bearish market by selling two puts and buying one at a lower delta, ensuring the credit from the sold puts covers the cost of the bought put.",
+      "category": "spreads",
+      "appliesTo": [
+        "short_put"
+      ],
+      "source": "User input",
+      "added": "2026-01-24"
+    },
+    {
+      "id": 1769288964114,
+      "raw": "Credit Spreads Best Practices:\n- Optimum DTE: 45 days\n- Sell at 0.15-0.20 delta (lower risk)\n- Width: - wide for protection\n- Exit at 50% of max gain (profit target)\n- Exit with loss of 100% of max gain (stop loss)\n- Exit at 21 DTE regardless\n- Consider converting to directional play if short strike breached rapidly",
+      "wisdom": "Optimize credit spreads by setting a DTE of 45 days, selling at deltas between 0.15-0.20 for lower risk, and exiting with specific profit or loss targets regardless of time decay.",
+      "category": "spreads",
+      "appliesTo": [
+        "all"
+      ],
+      "source": "User input",
+      "added": "2026-01-24"
+    },
+    {
+      "id": 1769289576205,
+      "raw": "To help protect me on the DOWNSIDE in a BEARISH market, I like to use a DIAGONAL FRONT PUT RATIO SPREADS —‘front’ because you’re selling two puts against one bought put, and ‘diagonal’ due to staggered expiration dates—the aim is to pocket a net credit, not a debit. You want the premium from your two sold puts to more than cover the cost of the long put (the put you buy). Here’s how I set it up: First, I pick a sold put strike at a fair stock price, targeting a delta below 0.2 for a cushion. Next, I hunt for a put to buy—minimum 3 months out, usually at a 0.5-0.6 delta for solid intrinsic value (the built-in profit if exercised right now, with nothing to do with extrinsic value, i.e., time value). The key? Ensure the credit from the two sold puts beats the debit of the one bought put. Left alone, this trade wins both ways: if the stock climbs, you keep the credit; if it drops, your long put (the put you own) gains value—sell it for profit or hold if you expect more downside. If the sold puts get tested, just roll them down and out to a safer strike and later date. It’s a flexible, cash-flowing setup with upside and downside potential!",
+      "wisdom": "Use diagonal front put ratio spreads for downside protection in a bearish market by ensuring the credit from two sold puts covers the debit of one bought put.",
+      "category": "spreads",
+      "appliesTo": [
+        "short_put",
+        "long_put"
+      ],
+      "source": "User input",
+      "added": "2026-01-24"
+    },
+    {
+      "id": 1769289635069,
+      "raw": "• Cash-secured puts = getting paid to wait; but only on quality stock you're willing to own\n• Covered calls = getting paid to own\n• Theta = is your best friend, but it never hurts to close out positions early in profit\n• Earnings = avoid them\n• Assignment = not a failure, it's an opportunity\n\nIf you can understand this, you can build a slow, safe monthly income.",
+      "wisdom": "Understand that cash-secured puts and covered calls can generate income, but always be prepared to close positions early or avoid earnings periods.",
+      "category": "general",
+      "appliesTo": [
+        "covered_call",
+        "cash_secured_put"
+      ],
+      "source": "User input",
+      "added": "2026-01-24"
+    },
+    {
+      "id": 1769289651692,
+      "raw": "For every new trader chasing their financial future here's the truth most people never realize.  Success in options trading isn't about how BIG your account is, it's about the ratio between your risk and reward.  Many beginners think that the key is finding that one BIG trade or one fancy strategy that will double their account.  But as professionals, we think in ratios not results. If I risk $1,000 to make $3,000 I don't have to win every time I just need to stay consistent because even if I'm only right 40% of the time the math still works in my favor.  We don't rely on luck; it takes discipline, structure and risk management.  Wealth in trading options isn't built from home runs  it's built by stacking base hits while controlling your losses.  My goal isn't to be right every time, it's to make sure my losses are small and my winners are meaningful.  That's why I focus on high probability strategies like cash secured puts, covered calls, calendar and diagonal spreads.  The bread and butter of my trading. Trades where time and probability work for me not against me.  A lot of traders blow up their accounts because they chase the next big win instead of building a system that compounds. I like to trade small positions and trade often.\n\nTrading is not about prediction, it's really about probability.  When you learn to build a consistent edge; when you define your risk before you click submit order you stop gambling and start running your trading like a business.  Don't ask \"how much can I make?\", instead ask \"how much can I risk and still sleep at night.\"  That's the mindset shift that changes everything. When you master the ratio between risk and reward when your \"process\" is more important than your \"prediction\" that's when you stop \"hoping for financial freedom and life on your own terms\" and start \"earning\" it one trade at a time!",
+      "wisdom": "Focus on stacking high probability trades with controlled risk rather than chasing big wins.",
+      "category": "spreads",
+      "appliesTo": [
+        "covered_calls",
+        "cash_secured_puts",
+        "calendar_spreads",
+        "diagonal_spreads"
+      ],
+      "source": "User input",
+      "added": "2026-01-24"
+    },
+    {
+      "id": 1769289677587,
+      "raw": "Just a friendly reminder on selling puts. Selling puts is the foundational trade for all option trading. It's as close to a can't lose strategy as it gets. You really can't lose if you are following a set of principles and have the right mindset.  What do I mean?\n\n2 things typically happen when you sell a put.. You either pick up the stock at the strike you chose or not. Period. Either way you are still collecting premium (ie getting paid no matter what). If you get assigned you manage accordingly.  \"But coachjb, the stock dropped on earnings and I need to get out of this trade.\"   New traders tend to panic when a stock has a sudden drop and goes below the strike and they close the trade for an unnecessary loss. It then leads to hesitation on setting up a new trade bc of worry.  Remember, picking up the stock at the price you chose is what you agreed to. This is a good thing. This is the mindset to have. You want the stock.  Sure, you can roll and kick the can down the road for a better entry but that should be part of your plan on eventually picking up the shares or buying to close and getting as much premium as you can.  Avoid the stress by selling puts ONLY on companies you want. DO NOT sell puts on junk or speculative stocks that you don't want to own. For example, OSCR is speculative but I'll take those shares and manage accordingly. No worries. Don't needlessly BTC out of a losing cash secured put. That makes no sense. \n\nThe more homework you do ahead of time with companies you are trading the better your mindset will be. You'll have more confidence on the strength of the company and feel so much better about assignment when it does happen.",
+      "wisdom": "Picking up the stock at the strike price is what you agreed to and should be seen as a good thing, not a loss.",
+      "category": "short_puts",
+      "appliesTo": [
+        "short_put"
+      ],
+      "source": "User input",
+      "added": "2026-01-24"
+    },
+    {
+      "id": 1769289716517,
+      "raw": "Deep-In-The-Money (DITM) Buy/Write Strategy:\n\nBuying the stock and immediately selling a DITM CC.  This strategy can actually provide a hedge to the downside if the stock retreats through elevated premium generation due to selling a DITM strike while the stock is rallying. The buyer of the call is paying elevated premium due to the stock price rising and the short strike being DITM which consists of intrinsic & extrinsic value. This strategy is for premium income generation only; not a long term play. This helps when you want quick profit.  The quicker you make profit and close the trade, the more you can re-use that same money to make more money.\n \nScenario 1:\nAt expiration, if your strike is ITM and the shares are called away, you win by keeping the difference in the elevated premium received minus the appreciation you give up in the stock by having the shares called away.  You want to make sure the premium received is greater than you are giving up between the cost basis/sh - strike price/sh. \n\n(DITM) Example: Purchase price = $412/sh, DITM strike = $405/sh (0.6 delta), Premium = $22/sh ($2,200).  Shares called away @ exp:  $22/sh - ($412/sh - $405/sh) = $15/sh*100 = $1,500 profit.\n\nScenario 2:\nAt expiration, if your strike is OTM and you keep the shares, you win by keeping ALL the elevated premium.  This will lower your cost basis in the stock and hedge your position. Once the stock starts moving back up you can repeat the process again until the shares are called away.\n\n(OTM) Example:  Purchase price $412/sh, DITM strike = $405/sh, Premium = $22/sh ($2,200 keep all).  Stock price retreats below your $405 strike @ exp. You keep the shares but your reduced cost  basis = ($412/sh - $22/sh) = $390/sh.",
+      "wisdom": "Quickly closing profitable trades allows for more frequent trading opportunities and higher overall profits.",
+      "category": "general",
+      "appliesTo": [
+        "covered_call"
+      ],
+      "source": "User input",
       "added": "2026-01-24"
     }
   ]

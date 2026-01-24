@@ -2740,7 +2740,8 @@ async function getAIInsight() {
             hasThesis,
             positionId,
             hasHistory,
-            analysisHistoryLength: analysisHistory.length
+            analysisHistoryLength: analysisHistory.length,
+            wisdomApplied: result.wisdomApplied  // Store wisdom entries used
         };
         
         // Auto-open the modal
@@ -3204,6 +3205,27 @@ function showAIInsightModal() {
     const existing = document.getElementById('aiInsightModal');
     if (existing) existing.remove();
     
+    // Build wisdom section if wisdom was applied
+    let wisdomSection = '';
+    if (data.wisdomApplied && data.wisdomApplied.count > 0) {
+        const posType = data.wisdomApplied.positionType?.replace(/_/g, ' ') || 'position';
+        const wisdomEntries = data.wisdomApplied.entries.map(w => 
+            `<div style="margin:4px 0; padding:6px 10px; background:rgba(139,92,246,0.1); border-radius:4px; font-size:12px;">
+                <span style="color:#a78bfa; font-weight:bold;">[${w.category}]</span> 
+                <span style="color:#ccc;">${w.wisdom}</span>
+            </div>`
+        ).join('');
+        
+        wisdomSection = `
+            <div style="background:rgba(139,92,246,0.1); border:1px solid #8b5cf6; border-radius:8px; padding:12px; margin-top:16px;">
+                <div style="color:#a78bfa; font-weight:bold; margin-bottom:8px; font-size:13px;">
+                    📚 WISDOM APPLIED (${data.wisdomApplied.count} entries matched "${posType}")
+                </div>
+                ${wisdomEntries}
+            </div>
+        `;
+    }
+    
     const modal = document.createElement('div');
     modal.id = 'aiInsightModal';
     modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); display:flex; align-items:center; justify-content:center; z-index:10000; padding:20px;';
@@ -3229,6 +3251,7 @@ function showAIInsightModal() {
             <!-- Content - scrollable -->
             <div style="flex:1; overflow-y:auto; color:#e0e0e0; line-height:1.8; font-size:14px; white-space:pre-wrap; padding-right:8px;">
                 ${data.formattedInsight}
+                ${wisdomSection}
             </div>
             
             <!-- Action buttons - fixed at bottom -->
