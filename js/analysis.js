@@ -1256,6 +1256,143 @@ export async function suggestOptimalRoll() {
         </div>`;
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ALTERNATIVE STRATEGIES SECTION - Think beyond rolling!
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Only show for covered calls that are ITM (stock above strike)
+    if ((isCoveredCall || isBuyWrite) && spot > currentStrike) {
+        const costBasis = state.currentPositionContext?.costBasis || state.currentPositionContext?.stockPrice || currentStrike;
+        const premium = state.currentPositionContext?.premium || 0;
+        const totalPremiumCollected = premium * 100 * contracts;
+        const stockGain = (currentStrike - costBasis) * 100 * contracts;
+        const assignmentProfit = stockGain + totalPremiumCollected;
+        const skipCallStrike = Math.ceil(spot / 5) * 5;  // Round up to nearest $5
+        const spreadUpperStrike = skipCallStrike + 5;
+        const putStrike = Math.floor((spot * 0.9) / 5) * 5;  // 10% below spot, rounded
+        
+        html += `
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(139,92,246,0.3);">
+            <div style="font-size:12px; color:#8b5cf6; margin-bottom:8px; font-weight:bold;">
+                💡 Alternative Strategies <span style="font-size:10px; color:#888; font-weight:normal;">(Instead of Rolling)</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                
+                <!-- LET ASSIGN -->
+                <div style="background:rgba(0,255,136,0.15); border:1px solid rgba(0,255,136,0.3); border-radius:6px; padding:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="color:#00ff88; font-weight:bold; font-size:12px;">✅ Let Assign</span>
+                        <span style="color:#00ff88; font-size:10px;">+$${assignmentProfit.toFixed(0)}</span>
+                    </div>
+                    <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
+                        Take the win! Sell at $${currentStrike} + keep premium
+                    </div>
+                    <button onclick="showNotification('Let position expire ITM for clean assignment. Profit: $${assignmentProfit.toFixed(0)}', 'success')" 
+                            style="width:100%; background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#00ff88; 
+                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
+                        📋 Details
+                    </button>
+                </div>
+                
+                <!-- BUY SKIP CALL -->
+                <div style="background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:6px; padding:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="color:#00d9ff; font-weight:bold; font-size:12px;">🚀 Skip Call</span>
+                        <span style="color:#888; font-size:10px;">$${skipCallStrike}c</span>
+                    </div>
+                    <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
+                        Buy call above spot to ride further upside
+                    </div>
+                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'skip_call', ${skipCallStrike}, ${spot})" 
+                            style="width:100%; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); color:#00d9ff; 
+                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
+                        📥 Stage to Ideas
+                    </button>
+                </div>
+                
+                <!-- CALL SPREAD -->
+                <div style="background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:6px; padding:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="color:#8b5cf6; font-weight:bold; font-size:12px;">📊 Call Spread</span>
+                        <span style="color:#888; font-size:10px;">$${skipCallStrike}/$${spreadUpperStrike}</span>
+                    </div>
+                    <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
+                        Defined risk upside play, cheaper than naked call
+                    </div>
+                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'call_spread', ${skipCallStrike}, ${spot}, ${spreadUpperStrike})" 
+                            style="width:100%; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; 
+                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
+                        📥 Stage to Ideas
+                    </button>
+                </div>
+                
+                <!-- SELL PUT -->
+                <div style="background:rgba(255,170,0,0.15); border:1px solid rgba(255,170,0,0.3); border-radius:6px; padding:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="color:#ffaa00; font-weight:bold; font-size:12px;">💰 Sell Put</span>
+                        <span style="color:#888; font-size:10px;">$${putStrike}p</span>
+                    </div>
+                    <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
+                        Add bullish exposure, collect premium on dip
+                    </div>
+                    <button onclick="window.stageAlternativeStrategy('${ticker}', 'short_put', ${putStrike}, ${spot})" 
+                            style="width:100%; background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#ffaa00; 
+                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
+                        📥 Stage to Ideas
+                    </button>
+                </div>
+                
+            </div>
+        </div>`;
+    }
+    
+    // Similar section for short puts that are ITM (stock below strike)
+    if (!isCoveredCall && !isBuyWrite && !isLong && spot < currentStrike) {
+        const putStrikeBelow = Math.floor((spot * 0.95) / 5) * 5;  // 5% below spot
+        
+        html += `
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(139,92,246,0.3);">
+            <div style="font-size:12px; color:#8b5cf6; margin-bottom:8px; font-weight:bold;">
+                💡 Alternative Strategies <span style="font-size:10px; color:#888; font-weight:normal;">(Instead of Rolling)</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                
+                <!-- TAKE ASSIGNMENT -->
+                <div style="background:rgba(0,255,136,0.15); border:1px solid rgba(0,255,136,0.3); border-radius:6px; padding:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="color:#00ff88; font-weight:bold; font-size:12px;">📦 Take Shares</span>
+                        <span style="color:#888; font-size:10px;">@$${currentStrike}</span>
+                    </div>
+                    <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
+                        Buy shares at strike, start selling calls
+                    </div>
+                    <button onclick="showNotification('Let put assign. Buy ${contracts * 100} shares at $${currentStrike}, then sell covered calls.', 'info')" 
+                            style="width:100%; background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#00ff88; 
+                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
+                        📋 Details
+                    </button>
+                </div>
+                
+                <!-- PUT SPREAD -->
+                <div style="background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.3); border-radius:6px; padding:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="color:#8b5cf6; font-weight:bold; font-size:12px;">📊 Put Spread</span>
+                        <span style="color:#888; font-size:10px;">Convert</span>
+                    </div>
+                    <div style="font-size:10px; color:#aaa; margin-bottom:6px;">
+                        Buy protective put below to cap downside
+                    </div>
+                    <button onclick="showNotification('Convert to put spread: Buy $${putStrikeBelow} put to cap losses', 'info')" 
+                            style="width:100%; background:rgba(139,92,246,0.2); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; 
+                                   padding:5px 8px; border-radius:4px; cursor:pointer; font-size:10px;">
+                        📋 Details
+                    </button>
+                </div>
+                
+            </div>
+        </div>`;
+    }
+    
     html += `<div style="font-size:11px; color:#00d9ff; margin-top:10px;">✓ Real CBOE prices: close @ ASK, open @ BID${contracts > 1 ? ` (${contracts} contracts)` : ''}</div>`;
     listEl.innerHTML = html;
     
@@ -1325,6 +1462,81 @@ window.stageRollSuggestion = function(data) {
     
     const optionType = isCall ? 'call' : 'put';
     showNotification(`📥 Staged Roll: ${ticker} $${strike} ${optionType}, ${expiry}`, 'success');
+    
+    // Re-render pending trades
+    if (typeof window.renderPendingTrades === 'function') {
+        window.renderPendingTrades();
+    }
+};
+
+/**
+ * Stage an alternative strategy to the Ideas tab
+ * Called from alternative strategies grid (SKIP call, call spread, sell put)
+ */
+window.stageAlternativeStrategy = function(ticker, strategyType, strike, currentPrice, upperStrike = null) {
+    // Load existing pending trades
+    let pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+    
+    // Calculate expiry ~60 days out (round to nearest Friday)
+    const expDate = new Date();
+    expDate.setDate(expDate.getDate() + 60);
+    // Adjust to Friday
+    const dayOfWeek = expDate.getDay();
+    const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+    expDate.setDate(expDate.getDate() + daysUntilFriday);
+    const expiry = expDate.toISOString().split('T')[0];
+    
+    // Determine trade details based on strategy type
+    let tradeDescription, tradeType, isCall;
+    
+    switch (strategyType) {
+        case 'skip_call':
+            tradeDescription = `SKIP Call $${strike}`;
+            tradeType = 'long_call';
+            isCall = true;
+            break;
+        case 'call_spread':
+            tradeDescription = `Call Spread $${strike}/$${upperStrike}`;
+            tradeType = 'call_debit_spread';
+            isCall = true;
+            break;
+        case 'short_put':
+            tradeDescription = `Short Put $${strike}`;
+            tradeType = 'short_put';
+            isCall = false;
+            break;
+        default:
+            tradeDescription = `${strategyType} $${strike}`;
+            tradeType = strategyType;
+            isCall = strategyType.includes('call');
+    }
+    
+    // Check for duplicates
+    const exists = pending.find(p => p.ticker === ticker && p.strike === strike && p.type === tradeType);
+    if (exists) {
+        showNotification(`${ticker} ${tradeDescription} already staged`, 'info');
+        return;
+    }
+    
+    // Create pending trade
+    const trade = {
+        id: Date.now(),
+        ticker,
+        strike: parseFloat(strike),
+        upperStrike: upperStrike ? parseFloat(upperStrike) : null,
+        expiry,
+        currentPrice: parseFloat(currentPrice) || 0,
+        type: tradeType,
+        isCall,
+        isAlternative: true,  // Flag that this came from alternative strategies
+        description: tradeDescription,
+        stagedAt: new Date().toISOString()
+    };
+    
+    pending.push(trade);
+    localStorage.setItem('wheelhouse_pending', JSON.stringify(pending));
+    
+    showNotification(`📥 Staged: ${ticker} ${tradeDescription}, exp ${expiry}`, 'success');
     
     // Re-render pending trades
     if (typeof window.renderPendingTrades === 'function') {
