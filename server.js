@@ -3356,9 +3356,11 @@ function callOllama(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
             reject(new Error(`Ollama connection failed: ${e.message}. Is Ollama running?`));
         });
         
-        req.setTimeout(60000, () => {
+        // DeepSeek-R1 is a reasoning model that takes much longer - give it 3 minutes
+        const timeoutMs = resolvedModel.includes('deepseek') ? 180000 : 60000;
+        req.setTimeout(timeoutMs, () => {
             req.destroy();
-            reject(new Error('Ollama request timed out (60s)'));
+            reject(new Error(`Ollama request timed out (${timeoutMs/1000}s)`));
         });
         
         req.write(postData);
