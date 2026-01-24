@@ -769,12 +769,23 @@ export async function renderPortfolio(fetchPrices = false) {
 function updatePortfolioSummary(positionData) {
     const openCount = positionData.length;
     
-    // Net premium: credits add, debits subtract
-    const netPremium = positionData.reduce((sum, p) => {
-        return sum + (p.isDebit ? -p.premiumAmount : p.premiumAmount);
-    }, 0);
+    // Premium breakdown: credits vs debits
+    const premiumCollected = positionData.filter(p => !p.isDebit).reduce((sum, p) => sum + p.premiumAmount, 0);
+    const premiumPaid = positionData.filter(p => p.isDebit).reduce((sum, p) => sum + p.premiumAmount, 0);
+    const netPremium = premiumCollected - premiumPaid;
     
-    const capitalRisk = positionData.reduce((sum, p) => sum + (p.strike * 100 * p.contracts), 0);
+    // Max assignment cost - only for short puts (cash needed if assigned)
+    // Covered calls: $0 (shares cover it)
+    // Long options: already paid premium (not additional capital)
+    const maxAssignment = positionData.reduce((sum, p) => {
+        const type = (p.type || '').toLowerCase();
+        if (type.includes('short_put') || type === 'put') {
+            // Cash-secured put: need full strike × 100 × contracts
+            return sum + (p.strike * 100 * (p.contracts || 1));
+        }
+        // Covered calls, long options, spreads - no additional capital at risk
+        return sum;
+    }, 0);
     const unrealizedPnL = positionData.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0);
     
     // Filter closed positions by selected year
@@ -795,14 +806,16 @@ function updatePortfolioSummary(positionData) {
     // Update display
     setEl('portOpenCount', openCount.toString());
     
-    // Net premium with sign and color
+    // Net premium with sign, color, and tooltip breakdown
     const premEl = document.getElementById('portTotalPremium');
     if (premEl) {
         premEl.textContent = (netPremium >= 0 ? '$' : '-$') + Math.abs(netPremium).toFixed(0);
         premEl.style.color = netPremium >= 0 ? '#00ff88' : '#ff5252';
+        // Show breakdown on hover
+        premEl.title = `Collected: $${premiumCollected.toFixed(0)} | Paid: $${premiumPaid.toFixed(0)} | Net: $${netPremium.toFixed(0)}`;
     }
     
-    setEl('portCapitalRisk', '$' + capitalRisk.toLocaleString());
+    setEl('portCapitalRisk', '$' + maxAssignment.toLocaleString());
     
     const unrealEl = document.getElementById('portUnrealizedPnL');
     if (unrealEl) {
