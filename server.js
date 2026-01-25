@@ -4428,21 +4428,38 @@ SETUP A - Short Put:
   Trade: Sell ${ticker} $${sellPutStrike} Put, ${firstExpiry}
   Credit: ~$${atmPutPremium}/share
   Buying Power: ~$${(parseFloat(sellPutStrike) * 100).toLocaleString()} per contract
+  Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (parseFloat(sellPutStrike) * 100))} contracts
 
-SETUP B - Put Credit Spread:
+SETUP B - Put Credit Spread (MATH PRE-CALCULATED):
   Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike} Put Spread, ${firstExpiry}
-  Credit: ~$${(parseFloat(atmPutPremium) * 0.6).toFixed(2)}/share (estimated)
-  Max Loss: $${((parseFloat(sellPutStrike) - parseFloat(buyPutStrike)) * 100).toFixed(0)} per contract
+  Spread Width: $${sellPutStrike} - $${buyPutStrike} = $${(parseFloat(sellPutStrike) - parseFloat(buyPutStrike)).toFixed(2)}
+  Credit Received: ~$${(parseFloat(atmPutPremium) * 0.6).toFixed(2)}/share
+  
+  📐 FORMULAS (use these EXACT numbers):
+  • Max Profit per contract = Credit × 100 = $${(parseFloat(atmPutPremium) * 0.6).toFixed(2)} × 100 = $${(parseFloat(atmPutPremium) * 0.6 * 100).toFixed(0)}
+  • Max Loss per contract = (Width - Credit) × 100 = ($${(parseFloat(sellPutStrike) - parseFloat(buyPutStrike)).toFixed(2)} - $${(parseFloat(atmPutPremium) * 0.6).toFixed(2)}) × 100 = $${((parseFloat(sellPutStrike) - parseFloat(buyPutStrike) - parseFloat(atmPutPremium) * 0.6) * 100).toFixed(0)}
+  • Breakeven = Sell Strike - Credit = $${sellPutStrike} - $${(parseFloat(atmPutPremium) * 0.6).toFixed(2)} = $${(parseFloat(sellPutStrike) - parseFloat(atmPutPremium) * 0.6).toFixed(2)}
+  • Buying Power per contract = Width × 100 = $${((parseFloat(sellPutStrike) - parseFloat(buyPutStrike)) * 100).toFixed(0)}
+  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / ((parseFloat(sellPutStrike) - parseFloat(buyPutStrike)) * 100))} contracts
+  • Risk/Reward = Max Loss / Max Profit = $${((parseFloat(sellPutStrike) - parseFloat(buyPutStrike) - parseFloat(atmPutPremium) * 0.6) * 100).toFixed(0)} / $${(parseFloat(atmPutPremium) * 0.6 * 100).toFixed(0)} = ${((parseFloat(sellPutStrike) - parseFloat(buyPutStrike) - parseFloat(atmPutPremium) * 0.6) / (parseFloat(atmPutPremium) * 0.6)).toFixed(1)}:1
 
 SETUP C - Covered Call (if you own shares):
   Trade: Sell ${ticker} $${sellCallStrike} Call, ${firstExpiry}
   Credit: ~$${atmPutPremium}/share
 
-SETUP D - Call Credit Spread:
+SETUP D - Call Credit Spread (MATH PRE-CALCULATED):
   Trade: Sell ${ticker} $${sellCallStrike}/$${buyCallStrike} Call Spread, ${firstExpiry}
-  Credit: ~$${(parseFloat(atmPutPremium) * 0.5).toFixed(2)}/share (estimated)
+  Spread Width: $${buyCallStrike} - $${sellCallStrike} = $${(parseFloat(buyCallStrike) - parseFloat(sellCallStrike)).toFixed(2)}
+  Credit Received: ~$${(parseFloat(atmPutPremium) * 0.5).toFixed(2)}/share
+  
+  📐 FORMULAS (use these EXACT numbers):
+  • Max Profit per contract = Credit × 100 = $${(parseFloat(atmPutPremium) * 0.5 * 100).toFixed(0)}
+  • Max Loss per contract = (Width - Credit) × 100 = $${((parseFloat(buyCallStrike) - parseFloat(sellCallStrike) - parseFloat(atmPutPremium) * 0.5) * 100).toFixed(0)}
+  • Breakeven = Sell Strike + Credit = $${(parseFloat(sellCallStrike) + parseFloat(atmPutPremium) * 0.5).toFixed(2)}
+  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / ((parseFloat(buyCallStrike) - parseFloat(sellCallStrike)) * 100))} contracts
 
 YOUR JOB: Pick ONE setup (A, B, C, or D) and explain WHY it's best for this situation.
+⚠️ COPY THE PRE-CALCULATED MATH - do NOT recalculate or make up numbers!
 
 Respond with this format:
 
@@ -4460,23 +4477,23 @@ Respond with this format:
 • ⚠️ [Risk 1]
 • ⚠️ [Risk 2]
 
-### THE NUMBERS
-• Max Profit: [Calculate based on premium × 100 × contracts]
-• Max Loss: [For spreads: width × 100. For naked: stock to zero]
-• Breakeven: [Strike - Premium for puts]
-• Contracts: [Suggest based on $${buyingPower.toLocaleString()} and ${riskTolerance} risk]
-• Win Probability: ~X% (based on delta or estimate)
-• Risk/Reward Ratio: X:X
+### THE NUMBERS (COPY FROM SETUP ABOVE - do NOT make up numbers!)
+• Max Profit: [Copy from setup's "Max Profit per contract" × your contract count]
+• Max Loss: [Copy from setup's "Max Loss per contract" × your contract count]
+• Breakeven: [Copy from setup's "Breakeven" value]
+• Contracts: [Use ${riskTolerance === 'conservative' ? '50%' : riskTolerance === 'aggressive' ? '80%' : '60%'} of max contracts from setup]
+• Win Probability: ~X% (based on delta - typically 60-70% for credit spreads)
+• Risk/Reward Ratio: [Copy from setup's "Risk/Reward" calculation]
 
 ### 📊 PROFIT/LOSS AT EXPIRATION
-For your recommended # of contracts, show outcome at each price:
+Using your recommended contract count, multiply per-contract values:
 | If Stock Ends At | You Make/Lose | Result |
 |------------------|---------------|--------|
-| $${(parseFloat(sellPutStrike) * 1.05).toFixed(0)} or higher | +$X | ✅ Max profit |
-| $${sellPutStrike} | +$X | ✅ Full profit |
-| Breakeven ($X) | $0 | ➖ Break even |
-| $${(parseFloat(sellPutStrike) * 0.95).toFixed(0)} | -$X | ⚠️ Partial loss |
-| $${buyPutStrike} or lower | -$X | ❌ Max loss |
+| $${(parseFloat(sellPutStrike) * 1.05).toFixed(0)} or higher | +$[Max Profit × contracts] | ✅ Max profit |
+| $${sellPutStrike} | +$[Max Profit × contracts] | ✅ Full profit |
+| Breakeven | $0 | ➖ Break even |
+| $${(parseFloat(sellPutStrike) * 0.95).toFixed(0)} | -$[Calculate] | ⚠️ Partial loss |
+| $${buyPutStrike} or lower | -$[Max Loss × contracts] | ❌ Max loss |
 
 ### PORTFOLIO IMPACT
 • Buying Power Used: $X (X% of available)
