@@ -818,15 +818,17 @@ const mainHandler = async (req, res, next) => {
             const spreadWidth = 5;
             const stockPrice = quote.price.toFixed(0);
             
-            // Count how many "$1" appear - if ANY appear, the AI likely hallucinated
-            // (Real option prices would never show "$1" strikes for a $94 stock)
-            const dollarOneCount = (aiResponse.match(/\$1(?![0-9])/g) || []).length;
-            console.log(`[STRATEGY-ADVISOR] Checking for $1 hallucinations: found ${dollarOneCount} instances`);
-            console.log(`[STRATEGY-ADVISOR] AI response length: ${aiResponse?.length || 0} chars`);
+            // Count how many standalone "$1" appear (not $1.xx which is valid premium)
+            // Pattern: $1 NOT followed by digit or decimal point
+            const dollarOneCount = (aiResponse.match(/\$1(?![0-9.])/g) || []).length;
             
-            // If the stock is > $10 and we see ANY "$1", it's a hallucination
+            // If the stock is > $10 and we see standalone "$1", it's likely a hallucination
             const stockIsExpensive = quote.price > 10;
             const shouldFix = stockIsExpensive && dollarOneCount >= 1;
+            
+            if (dollarOneCount > 0) {
+                console.log(`[STRATEGY-ADVISOR] ⚠️ Detected ${dollarOneCount} standalone "$1" - applying fixes (using $${sellPutStrike}/$${buyPutStrike} spreads)`);
+            }
             
             if (shouldFix) {
                 console.log(`[STRATEGY-ADVISOR] ⚠️ Detected ${dollarOneCount} "$1" hallucinations - applying fixes (using $${sellPutStrike}/$${buyPutStrike} spreads)`);
@@ -881,15 +883,14 @@ const mainHandler = async (req, res, next) => {
                 // Pattern: $1 NOT followed by digit or decimal point
                 aiResponse = aiResponse.replace(/\$1(?![0-9.])/g, `$${stockPrice}`);
                 
-                // Count remaining $1 instances (for sanity check)
-                const remainingCount = (aiResponse.match(/\$1(?![0-9])/g) || []).length;
+                // Count remaining standalone $1 instances (for sanity check)
+                // Use same pattern - exclude valid $1.xx prices
+                const remainingCount = (aiResponse.match(/\$1(?![0-9.])/g) || []).length;
                 if (remainingCount > 0) {
-                    console.log(`[STRATEGY-ADVISOR] ⚠️ ${remainingCount} "$1" instances remain after fixes`);
+                    console.log(`[STRATEGY-ADVISOR] ⚠️ ${remainingCount} standalone "$1" remain after fixes`);
                 } else {
-                    console.log(`[STRATEGY-ADVISOR] ✅ All "$1" hallucinations corrected`);
+                    console.log(`[STRATEGY-ADVISOR] ✅ All standalone "$1" corrected`);
                 }
-            } else {
-                console.log(`[STRATEGY-ADVISOR] No $1 hallucinations detected (count: ${dollarOneCount})`);
             }
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
