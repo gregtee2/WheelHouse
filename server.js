@@ -4238,7 +4238,26 @@ function buildStrategyAdvisorPrompt(context) {
     const buyPutStrike = otmPut ? parseFloat(otmPut.strike).toFixed(2) : (spot - 5).toFixed(2);
     const sellCallStrike = atmCall ? parseFloat(atmCall.strike).toFixed(2) : (spot + 1).toFixed(2);
     const buyCallStrike = otmCall ? parseFloat(otmCall.strike).toFixed(2) : (spot + 5).toFixed(2);
-    const firstExpiry = expirations?.[0] || 'next weekly';
+    
+    // Find ideal expiration: target 30-45 DTE for wheel strategies
+    // Weeklies (< 7 days) have too much gamma risk and not enough premium
+    let targetExpiry = expirations?.[0] || 'next monthly';
+    if (expirations && expirations.length > 1) {
+        const today = new Date();
+        for (const exp of expirations) {
+            const expDate = new Date(exp);
+            const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+            if (dte >= 21) { // Prefer 21+ DTE for premium decay
+                targetExpiry = exp;
+                break;
+            }
+        }
+        // If no 21+ DTE found, use the furthest available
+        if (targetExpiry === expirations[0]) {
+            targetExpiry = expirations[expirations.length - 1];
+        }
+    }
+    const firstExpiry = targetExpiry;
     
     // Get premium for ATM put (what you'd receive)
     const atmPutPremium = atmPut ? ((parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2).toFixed(2) : '1.00';
