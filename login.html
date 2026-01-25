@@ -229,7 +229,7 @@
             
             <div class="setup-form" id="setupForm">
                 <div class="form-group">
-                    <label class="setup-label">Create Password (6-12 chars, letters + numbers)</label>
+                    <label class="setup-label">Create Password (6-12 chars, letters/numbers/symbols)</label>
                     <input 
                         type="password" 
                         id="newPinInput" 
@@ -360,8 +360,9 @@
                 return;
             }
             
-            if (!/^[a-zA-Z0-9]+$/.test(newPin)) {
-                showMessage('Password must be letters and numbers only', 'error');
+            // Allow letters, numbers, and common special characters
+            if (!/^[a-zA-Z0-9!@#$%^&*?]+$/.test(newPin)) {
+                showMessage('Invalid characters (use letters, numbers, !@#$%^&*?)', 'error');
                 return;
             }
             
