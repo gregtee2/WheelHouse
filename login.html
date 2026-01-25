@@ -71,8 +71,8 @@
             border: 1px solid rgba(123, 163, 176, 0.3);
             border-radius: 4px;
             color: #7ba3b0;
-            font-size: 24px;
-            letter-spacing: 4px;
+            font-size: 18px;
+            letter-spacing: 2px;
             text-align: center;
             font-family: 'Courier New', monospace;
             transition: border-color 0.3s;
@@ -209,14 +209,13 @@
         
         <div id="loginView">
             <div class="form-group">
-                <label>Enter PIN</label>
+                <label>Enter Password</label>
                 <input 
                     type="password" 
                     id="pinInput" 
                     class="pin-input" 
-                    placeholder="••••" 
-                    maxlength="6"
-                    inputmode="numeric"
+                    placeholder="••••••" 
+                    maxlength="12"
                 >
                 <div class="pin-dots" id="pinDots"></div>
             </div>
@@ -230,31 +229,29 @@
             
             <div class="setup-form" id="setupForm">
                 <div class="form-group">
-                    <label class="setup-label">Create New PIN (4-6 digits)</label>
+                    <label class="setup-label">Create Password (6-12 chars, letters + numbers)</label>
                     <input 
                         type="password" 
                         id="newPinInput" 
                         class="pin-input" 
-                        placeholder="••••" 
-                        maxlength="6"
-                        inputmode="numeric"
+                        placeholder="••••••" 
+                        maxlength="12"
                     >
                 </div>
                 
                 <div class="form-group">
-                    <label class="setup-label">Confirm PIN</label>
+                    <label class="setup-label">Confirm Password</label>
                     <input 
                         type="password" 
                         id="confirmPinInput" 
                         class="pin-input" 
-                        placeholder="••••" 
-                        maxlength="6"
-                        inputmode="numeric"
+                        placeholder="••••••" 
+                        maxlength="12"
                     >
                 </div>
                 
                 <div class="button-group">
-                    <button class="btn-login" onclick="setupPin()">Create PIN</button>
+                    <button class="btn-login" onclick="setupPin()">Create Password</button>
                     <button class="btn-setup" onclick="toggleSetup()">Cancel</button>
                 </div>
             </div>
@@ -287,7 +284,8 @@
             const dotsContainer = document.getElementById('pinDots');
             dotsContainer.innerHTML = '';
             
-            for (let i = 0; i < 6; i++) {
+            // Show up to 12 dots for password length indicator
+            for (let i = 0; i < 12; i++) {
                 const dot = document.createElement('div');
                 dot.className = 'pin-dot';
                 if (i < pin.length) {
@@ -310,7 +308,7 @@
             const pin = document.getElementById('pinInput').value;
             
             if (!pin) {
-                showMessage('Please enter your PIN', 'error');
+                showMessage('Please enter your password', 'error');
                 return;
             }
             
@@ -319,7 +317,7 @@
                 const result = await window.electronAPI.secureStorage.get('pin-hash');
                 
                 if (!result) {
-                    showMessage('PIN not set. Use Setup to create one.', 'error');
+                    showMessage('Password not set. Use Setup to create one.', 'error');
                     return;
                 }
                 
@@ -333,7 +331,7 @@
                         window.location.href = 'http://localhost:8888';
                     }, 500);
                 } else {
-                    showMessage('Invalid PIN', 'error');
+                    showMessage('Invalid password', 'error');
                     document.getElementById('pinInput').value = '';
                     updatePinDots();
                 }
@@ -348,22 +346,22 @@
             const confirmPin = document.getElementById('confirmPinInput').value;
             
             if (!newPin || !confirmPin) {
-                showMessage('Please enter both PINs', 'error');
+                showMessage('Please enter both passwords', 'error');
                 return;
             }
             
-            if (newPin.length < 4 || newPin.length > 6) {
-                showMessage('PIN must be 4-6 digits', 'error');
+            if (newPin.length < 6 || newPin.length > 12) {
+                showMessage('Password must be 6-12 characters', 'error');
                 return;
             }
             
             if (newPin !== confirmPin) {
-                showMessage('PINs do not match', 'error');
+                showMessage('Passwords do not match', 'error');
                 return;
             }
             
-            if (!/^\d+$/.test(newPin)) {
-                showMessage('PIN must contain only digits', 'error');
+            if (!/^[a-zA-Z0-9]+$/.test(newPin)) {
+                showMessage('Password must be letters and numbers only', 'error');
                 return;
             }
             
@@ -373,7 +371,7 @@
                 const success = await window.electronAPI.secureStorage.set('pin-hash', pinHash);
                 
                 if (success) {
-                    showMessage('PIN created successfully!', 'success');
+                    showMessage('Password created successfully!', 'success');
                     
                     // Reset form
                     setTimeout(() => {
@@ -383,7 +381,7 @@
                         document.getElementById('pinInput').focus();
                     }, 500);
                 } else {
-                    showMessage('Failed to save PIN', 'error');
+                    showMessage('Failed to save password', 'error');
                 }
             } catch (err) {
                 console.error('Setup error:', err);
