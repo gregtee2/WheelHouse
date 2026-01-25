@@ -4756,29 +4756,87 @@ function callOllama(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
                     const isDeepSeekR1 = model.includes('deepseek-r1');
                     let answer = '';
                     
-                    if (isDeepSeekR1 && json.thinking) {
-                        console.log(`[AI] DeepSeek-R1 detected, checking thinking field (${json.thinking.length} chars)`);
-                        const thinking = json.thinking;
+                    // Helper to detect chain-of-thought rambling vs actual formatted answer
+                    const looksLikeChainOfThought = (text) => {
+                        if (!text) return false;
+                        const cotIndicators = [
+                            'let me think',
+                            'I need to',
+                            'I should',
+                            'let me go through',
+                            'considering all this',
+                            "I'm trying to",
+                            'wait, maybe',
+                            'hmm,',
+                            'okay, so',
+                            'let me check',
+                            "I'm not sure",
+                            'actually,'
+                        ];
+                        const lowerText = text.slice(0, 500).toLowerCase();
+                        return cotIndicators.some(indicator => lowerText.includes(indicator));
+                    };
+                    
+                    // Helper to find formatted answer in text
+                    const extractFormattedAnswer = (text) => {
+                        if (!text) return null;
                         
-                        // Look for the formatted recommendation section
-                        const recommendedIdx = thinking.indexOf('## 🏆 RECOMMENDED');
-                        const setupIdx = thinking.indexOf('### THE TRADE');
+                        // Look for our expected format markers
+                        const markers = [
+                            '## 🏆 RECOMMENDED',
+                            '### THE TRADE',
+                            '🏆 RECOMMENDED:',
+                            '**RECOMMENDED:**'
+                        ];
                         
-                        if (recommendedIdx !== -1) {
-                            // Found the formatted recommendation - use from there
-                            answer = thinking.slice(recommendedIdx);
-                            console.log(`[AI] ✅ Extracted recommendation section (${answer.length} chars)`);
-                        } else if (setupIdx !== -1) {
-                            answer = thinking.slice(setupIdx);
-                            console.log(`[AI] ✅ Extracted from THE TRADE section (${answer.length} chars)`);
-                        } else if (json.response && json.response.length > 100) {
-                            // No clear sections in thinking, but response has content - use response
+                        for (const marker of markers) {
+                            const idx = text.indexOf(marker);
+                            if (idx !== -1) {
+                                return text.slice(idx);
+                            }
+                        }
+                        return null;
+                    };
+                    
+                    if (isDeepSeekR1) {
+                        console.log(`[AI] DeepSeek-R1 detected`);
+                        console.log(`[AI]   thinking: ${json.thinking?.length || 0} chars`);
+                        console.log(`[AI]   response: ${json.response?.length || 0} chars`);
+                        
+                        // First, try to find formatted answer in thinking
+                        const thinkingAnswer = extractFormattedAnswer(json.thinking);
+                        if (thinkingAnswer) {
+                            answer = thinkingAnswer;
+                            console.log(`[AI] ✅ Found formatted answer in thinking (${answer.length} chars)`);
+                        }
+                        
+                        // If not found in thinking, try response
+                        if (!answer) {
+                            const responseAnswer = extractFormattedAnswer(json.response);
+                            if (responseAnswer) {
+                                answer = responseAnswer;
+                                console.log(`[AI] ✅ Found formatted answer in response (${answer.length} chars)`);
+                            }
+                        }
+                        
+                        // If still no formatted answer, check if response is NOT chain-of-thought
+                        if (!answer && json.response && !looksLikeChainOfThought(json.response)) {
                             answer = json.response;
-                            console.log(`[AI] Using response field (${answer.length} chars) - no clear sections in thinking`);
-                        } else {
-                            // Last resort: use full thinking (will be verbose with reasoning)
-                            answer = thinking;
-                            console.log(`[AI] ⚠️ Using full thinking output (no clear sections found)`);
+                            console.log(`[AI] Using response (not chain-of-thought) (${answer.length} chars)`);
+                        }
+                        
+                        // Last resort: if thinking has formatted sections but no clear header, try to extract
+                        if (!answer && json.thinking) {
+                            // Look for any markdown headers that might indicate structure
+                            const headerMatch = json.thinking.match(/^(#+\s+.+)$/m);
+                            if (headerMatch) {
+                                const headerIdx = json.thinking.indexOf(headerMatch[0]);
+                                answer = json.thinking.slice(headerIdx);
+                                console.log(`[AI] ⚠️ Extracted from first markdown header (${answer.length} chars)`);
+                            } else {
+                                answer = json.thinking;
+                                console.log(`[AI] ⚠️ Using full thinking (no structure found) (${answer.length} chars)`);
+                            }
                         }
                     } else {
                         // Non-DeepSeek model: use response field
