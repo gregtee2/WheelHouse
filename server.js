@@ -24,6 +24,13 @@ const settingsRoutes = require('./src/routes/settingsRoutes');
 const schwabRoutes = require('./src/routes/schwabRoutes');
 const { schwabApiCall } = schwabRoutes; // For internal option chain calls
 
+// ============================================================================
+// CENTRALIZED MARKET DATA SERVICE
+// All features should use this for consistent, reliable pricing
+// ============================================================================
+const MarketDataService = require('./src/services/MarketDataService');
+MarketDataService.initialize(schwabApiCall);
+
 const PORT = process.env.PORT || 8888;
 const app = express();
 
@@ -680,6 +687,116 @@ const mainHandler = async (req, res, next) => {
         return;
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AI STRATEGY ADVISOR - Analyzes all strategies for a ticker and recommends best
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (url.pathname === '/api/ai/strategy-advisor' && req.method === 'POST') {
+        try {
+            const data = req.body;
+            const { ticker, buyingPower, riskTolerance, existingPositions, model } = data;
+            const selectedModel = model || 'qwen2.5:32b';
+            
+            console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with model ${selectedModel}`);
+            
+            // =====================================================================
+            // USE CENTRALIZED MarketDataService - single source of truth for pricing
+            // =====================================================================
+            
+            // 1. Get stock quote
+            const quote = await MarketDataService.getQuote(ticker);
+            if (!quote) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: `Could not fetch price for ${ticker}` }));
+                return;
+            }
+            
+            console.log(`[STRATEGY-ADVISOR] ✅ Quote from ${quote.source}: $${quote.price}`);
+            
+            // 2. Get options chain
+            const chain = await MarketDataService.getOptionsChain(ticker, { strikeCount: 20, range: 'NTM' });
+            
+            let sampleOptions = [];
+            let expirations = [];
+            let ivRank = null;
+            let dataSource = quote.source;
+            
+            if (chain) {
+                expirations = chain.expirations.slice(0, 6);
+                ivRank = chain.ivRank;
+                dataSource = chain.source === quote.source ? chain.source : `${quote.source}+${chain.source}`;
+                
+                // Combine calls and puts, sort by proximity to ATM
+                const allOpts = [...chain.calls, ...chain.puts];
+                allOpts.sort((a, b) => Math.abs(a.strike - quote.price) - Math.abs(b.strike - quote.price));
+                sampleOptions = allOpts.slice(0, 18).map(o => ({
+                    option_type: chain.calls.includes(o) ? 'C' : 'P',
+                    strike: o.strike,
+                    expiration_date: o.expiration,
+                    bid: o.bid,
+                    ask: o.ask,
+                    delta: o.delta,
+                    iv: o.iv
+                }));
+                
+                console.log(`[STRATEGY-ADVISOR] ✅ Options from ${chain.source}: ${sampleOptions.length} contracts, IV ~${ivRank}%`);
+            } else {
+                console.log(`[STRATEGY-ADVISOR] ⚠️ No options data available for ${ticker}`);
+            }
+            
+            // 3. Build context for AI
+            const stockData = {
+                price: quote.price,
+                change: quote.change,
+                changePercent: quote.changePercent,
+                high52: quote.high52,
+                low52: quote.low52,
+                volume: quote.volume,
+                rangePosition: quote.rangePosition
+            };
+            
+            const context = {
+                ticker,
+                spot: quote.price,
+                stockData,
+                ivRank,
+                expirations,
+                sampleOptions: sampleOptions.slice(0, 12), // Limit to avoid token overflow
+                buyingPower: buyingPower || 25000,
+                riskTolerance: riskTolerance || 'moderate',
+                existingPositions: existingPositions || [],
+                dataSource
+            };
+            
+            // 4. Build AI prompt
+            const prompt = buildStrategyAdvisorPrompt(context);
+            
+            // 5. Call AI
+            console.log(`[STRATEGY-ADVISOR] Calling AI for recommendation...`);
+            const aiResponse = await callAI(prompt, selectedModel, 2000);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                ticker,
+                spot: quote.price,
+                stockData,
+                ivRank,
+                expirations,
+                dataSource,
+                recommendation: aiResponse,
+                model: selectedModel
+            }));
+            
+            console.log(`[STRATEGY-ADVISOR] ✅ Analysis complete for ${ticker}`);
+            
+        } catch (e) {
+            console.log('[STRATEGY-ADVISOR] ❌ Error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+    
     // AI Trade Idea Generator endpoint
     if (url.pathname === '/api/ai/ideas' && req.method === 'POST') {
         try {
@@ -1079,7 +1196,117 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
                 
                 // Step 4: Build analysis prompt and get AI recommendation
                 sendProgress(4, `Generating AI analysis with ${selectedModel}...`);
-                const analysisPrompt = buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium);
+                
+                // Generate pattern context from closed positions summary
+                let patternContext = null;
+                const closedSummary = req.body.closedSummary || null;
+                
+                if (closedSummary && closedSummary.length > 0) {
+                    const ticker = parsed.ticker?.toUpperCase();
+                    const strategyType = parsed.strategy?.toLowerCase().replace(/\s+/g, '_') || '';
+                    
+                    // Find trades with same ticker + same type
+                    const sameTickerType = closedSummary.filter(p => 
+                        p.ticker?.toUpperCase() === ticker && 
+                        p.type?.toLowerCase().replace(/\s+/g, '_') === strategyType
+                    );
+                    
+                    // Find all trades with same ticker
+                    const sameTicker = closedSummary.filter(p => 
+                        p.ticker?.toUpperCase() === ticker
+                    );
+                    
+                    // Find all trades with same type
+                    const sameType = closedSummary.filter(p => 
+                        p.type?.toLowerCase().replace(/\s+/g, '_') === strategyType
+                    );
+                    
+                    // Calculate stats
+                    const calcStats = (trades) => {
+                        if (trades.length === 0) return null;
+                        const totalPnL = trades.reduce((sum, p) => sum + (p.pnl || 0), 0);
+                        const winners = trades.filter(p => (p.pnl || 0) >= 0);
+                        const winRate = (winners.length / trades.length * 100);
+                        return { count: trades.length, totalPnL, winRate, avgPnL: totalPnL / trades.length };
+                    };
+                    
+                    const tickerTypeStats = calcStats(sameTickerType);
+                    const tickerStats = calcStats(sameTicker);
+                    const typeStats = calcStats(sameType);
+                    
+                    // Build pattern context string
+                    let text = '';
+                    const warnings = [];
+                    const encouragements = [];
+                    
+                    if (tickerTypeStats && tickerTypeStats.count >= 2) {
+                        text += `### ${ticker} ${strategyType.replace(/_/g, ' ')} History\n`;
+                        text += `- ${tickerTypeStats.count} trades, ${tickerTypeStats.winRate.toFixed(0)}% win rate, $${tickerTypeStats.totalPnL.toFixed(0)} total P&L\n\n`;
+                        
+                        if (tickerTypeStats.winRate < 40) {
+                            warnings.push(`⚠️ LOW WIN RATE: Only ${tickerTypeStats.winRate.toFixed(0)}% on ${ticker} ${strategyType.replace(/_/g,' ')}`);
+                        }
+                        if (tickerTypeStats.totalPnL < -500) {
+                            warnings.push(`🚨 LOSING PATTERN: You've lost $${Math.abs(tickerTypeStats.totalPnL).toFixed(0)} on this exact setup`);
+                        }
+                        if (tickerTypeStats.winRate >= 75) {
+                            encouragements.push(`✅ STRONG PATTERN: ${tickerTypeStats.winRate.toFixed(0)}% win rate on this setup`);
+                        }
+                        if (tickerTypeStats.avgPnL > 100) {
+                            encouragements.push(`💰 PROFITABLE: Avg $${tickerTypeStats.avgPnL.toFixed(0)} on ${ticker} ${strategyType.replace(/_/g,' ')}`);
+                        }
+                    }
+                    
+                    if (tickerStats && tickerStats.count >= 3 && !tickerTypeStats) {
+                        text += `### All ${ticker} Trades\n`;
+                        text += `- ${tickerStats.count} trades, ${tickerStats.winRate.toFixed(0)}% win rate\n\n`;
+                        
+                        if (tickerStats.winRate < 40) {
+                            warnings.push(`⚠️ ${ticker} HAS BEEN DIFFICULT: ${tickerStats.winRate.toFixed(0)}% win rate`);
+                        }
+                        if (tickerStats.winRate >= 70) {
+                            encouragements.push(`✅ ${ticker} WORKS FOR YOU: ${tickerStats.winRate.toFixed(0)}% win rate`);
+                        }
+                    }
+                    
+                    if (typeStats && typeStats.count >= 5) {
+                        text += `### All ${strategyType.replace(/_/g, ' ')} Trades\n`;
+                        text += `- ${typeStats.count} trades, ${typeStats.winRate.toFixed(0)}% win rate, $${typeStats.avgPnL.toFixed(0)} avg\n\n`;
+                        
+                        if (typeStats.winRate < 50 && strategyType.includes('long')) {
+                            warnings.push(`⚠️ ${strategyType.replace(/_/g,' ')} UNDERPERFORMING: Only ${typeStats.winRate.toFixed(0)}% win rate`);
+                        }
+                        if (typeStats.winRate >= 70) {
+                            encouragements.push(`✅ ${strategyType.replace(/_/g,' ')} IS YOUR STRENGTH: ${typeStats.winRate.toFixed(0)}% win rate`);
+                        }
+                    }
+                    
+                    // Add warnings and encouragements
+                    if (warnings.length > 0) {
+                        text += `### ⚠️ WARNINGS\n${warnings.join('\n')}\n\n`;
+                    }
+                    if (encouragements.length > 0) {
+                        text += `### ✅ POSITIVE PATTERNS\n${encouragements.join('\n')}\n\n`;
+                    }
+                    
+                    // Set summary
+                    if (warnings.length > 0 && encouragements.length === 0) {
+                        text += `**SUMMARY**: ⚠️ CAUTION - Historical patterns suggest risk.\n`;
+                    } else if (encouragements.length > 0 && warnings.length === 0) {
+                        text += `**SUMMARY**: ✅ FAVORABLE - Matches your winning patterns.\n`;
+                    } else if (warnings.length > 0 && encouragements.length > 0) {
+                        text += `**SUMMARY**: ⚖️ MIXED SIGNALS - Some patterns favorable, others concerning.\n`;
+                    } else if (tickerTypeStats || tickerStats || typeStats) {
+                        text += `**SUMMARY**: 📊 NEUTRAL - Limited history, proceed with standard caution.\n`;
+                    }
+                    
+                    if (text.length > 0) {
+                        patternContext = text;
+                        console.log(`[AI] Pattern context: ${warnings.length} warnings, ${encouragements.length} encouragements`);
+                    }
+                }
+                
+                const analysisPrompt = buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternContext);
                 const analysis = await callAI(analysisPrompt, selectedModel, 1200);
                 
                 // Send final result
@@ -1322,6 +1549,101 @@ IMPORTANT FORMATTING RULES:
             console.log('[AI] ✅ Portfolio audit complete');
         } catch (e) {
             console.log('[AI] ❌ Portfolio audit error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+    
+    // AI Historical Audit - analyzes closed trades for a specific time period
+    if (url.pathname === '/api/ai/historical-audit' && req.method === 'POST') {
+        try {
+            const data = req.body;
+            console.log('[AI] Historical audit for period:', data.periodLabel, '- Trades:', data.totalTrades);
+            
+            const prompt = `You are a professional options trading coach analyzing historical trade data for a wheel strategy trader.
+
+## PERIOD ANALYZED: ${data.periodLabel}
+## OVERALL STATS
+- Total Trades: ${data.totalTrades}
+- Total P&L: $${data.totalPnL?.toFixed(0) || 0} ${data.totalPnL >= 0 ? '✅' : '❌'}
+- Win Rate: ${data.winRate}% (${data.winnersCount} winners, ${data.losersCount} losers)
+
+## PERFORMANCE BY TICKER (Top 10)
+${(data.tickerSummary || []).join('\n') || 'No data'}
+
+## PERFORMANCE BY STRATEGY TYPE
+${(data.typeSummary || []).join('\n') || 'No data'}
+
+## BIGGEST WINNERS
+${(data.topWinners || []).join('\n') || 'None'}
+
+## BIGGEST LOSERS
+${(data.topLosers || []).join('\n') || 'None'}
+
+## YOUR ANALYSIS TASK
+Provide a comprehensive audit of this trading period using this EXACT format:
+
+## 📊 PERIOD GRADE: [A/B/C/D/F]
+
+Grade the trading performance:
+- **A (90-100%)**: Win rate >70%, positive P&L, no major drawdowns, consistent execution
+- **B (80-89%)**: Win rate >60%, positive P&L, minor issues but overall profitable
+- **C (70-79%)**: Win rate 50-60%, break-even or small profit, needs improvement
+- **D (60-69%)**: Win rate <50% OR negative P&L, significant issues
+- **F (<60%)**: Major losses, poor execution, serious problems to address
+
+After the grade, ONE sentence summary of why.
+
+---
+
+## 1. 🎯 WHAT WORKED WELL
+Use bullet points to highlight:
+• Best performing tickers and why they likely worked
+• Most profitable strategy types
+• Good execution patterns observed
+
+## 2. ⚠️ AREAS FOR IMPROVEMENT  
+Use bullet points to identify:
+• Worst performing tickers and possible reasons
+• Strategy types that underperformed
+• Patterns in losing trades
+
+## 3. 📈 PATTERN ANALYSIS
+Identify trading patterns:
+• Any ticker concentration (good or bad)?
+• Strategy type preferences
+• Win rate by strategy type observation
+
+## 4. 💡 RECOMMENDATIONS
+Actionable suggestions based on this data:
+• What to do more of (based on winners)
+• What to avoid or change (based on losers)
+• Position sizing observations
+• Risk management notes
+
+## 5. 🏆 KEY LESSONS
+Top 3 takeaways from this trading period:
+• Lesson 1
+• Lesson 2
+• Lesson 3
+
+FORMATTING RULES:
+- Use exact section headers with emojis
+- Use bullet points (•) for all lists
+- Be specific - reference actual ticker symbols
+- Keep insights actionable and practical`;
+
+            const response = await callAI(prompt, 'qwen2.5:14b', 1200);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true, 
+                analysis: response
+            }));
+            console.log('[AI] ✅ Historical audit complete');
+        } catch (e) {
+            console.log('[AI] ❌ Historical audit error:', e.message);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: e.message }));
         }
@@ -2960,7 +3282,7 @@ If premium is not explicitly stated, set it to null (we'll fetch live pricing).`
 }
 
 // Build prompt to analyze a Discord trade callout
-function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium) {
+function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternContext = null) {
     const t = tickerData;
     const isSpread = parsed.buyStrike || parsed.sellStrike;
     const strikeDisplay = isSpread 
@@ -3113,6 +3435,17 @@ ${showDiscrepancy ? '⚠️ LARGE DISCREPANCY between callout entry and current 
     } else if (calloutPremiumValid) {
         premiumSection = `\nCALLOUT ENTRY PRICE: $${parsed.premium}`;
     }
+    
+    // Build pattern context section if available
+    let patternSection = '';
+    if (patternContext) {
+        patternSection = `
+═══ YOUR HISTORICAL TRADING PATTERNS ═══
+⚠️ IMPORTANT: This data is from YOUR OWN past trades. Use it to inform your decision!
+
+${patternContext}
+`;
+    }
 
     return `You are evaluating a TRADE CALLOUT from a Discord trading group. Analyze whether this is a good trade.
 
@@ -3137,9 +3470,14 @@ ${t.sma50 ? `50-Day SMA: $${t.sma50}` : ''}
 Support Levels: $${t.recentSupport?.join(', $') || 'N/A'}
 ${t.earnings ? `⚠️ Earnings: ${t.earnings}` : 'No upcoming earnings'}
 ${premiumSection}
-
+${patternSection}
 ═══ YOUR ANALYSIS ═══
-
+${patternContext ? `
+**0. PATTERN CHECK** (IMPORTANT - Look at YOUR HISTORICAL TRADING PATTERNS above!)
+- Does this trade match a WINNING pattern from your history? Mention it!
+- Does this trade resemble a LOSING pattern? WARN about it!
+- If no history exists for this ticker/strategy, say so.
+` : ''}
 **1. TRADE SETUP REVIEW**
 - Is this a reasonable entry? Evaluate strike selection vs support/resistance.
 - Is the expiry sensible given any upcoming events?
@@ -3240,7 +3578,8 @@ async function buildTradePrompt(data, isLargeModel = false) {
         portfolioContext,  // Portfolio context from audit
         chainHistory,      // Array of previous positions in this chain
         totalPremiumCollected,  // Net premium across all rolls
-        skipWisdom         // NEW: Skip wisdom for "pure" analysis
+        skipWisdom,        // Skip wisdom for "pure" analysis
+        closedSummary      // Historical closed positions for pattern matching
     } = data;
     
     // Load relevant wisdom using semantic search (unless skipped)
@@ -3291,6 +3630,64 @@ At the END of your response, include:
     const isCall = isLongCall || positionType === 'buy_write' || positionType === 'covered_call' || positionType === 'short_call';
     const isCoveredCall = positionType === 'covered_call' || positionType === 'buy_write';
     const isShortPut = positionType === 'short_put';
+    
+    // Generate historical pattern context if closed summary is available
+    let patternContext = '';
+    if (closedSummary && closedSummary.length > 0) {
+        const tickerUpper = ticker?.toUpperCase();
+        const typeNormalized = positionType?.toLowerCase().replace(/\s+/g, '_') || '';
+        
+        // Find matching trades
+        const sameTickerType = closedSummary.filter(p => 
+            p.ticker?.toUpperCase() === tickerUpper && 
+            p.type?.toLowerCase().replace(/\s+/g, '_') === typeNormalized
+        );
+        const sameTicker = closedSummary.filter(p => p.ticker?.toUpperCase() === tickerUpper);
+        const sameType = closedSummary.filter(p => p.type?.toLowerCase().replace(/\s+/g, '_') === typeNormalized);
+        
+        const calcStats = (trades) => {
+            if (trades.length === 0) return null;
+            const totalPnL = trades.reduce((sum, p) => sum + (p.pnl || 0), 0);
+            const winners = trades.filter(p => (p.pnl || 0) >= 0);
+            return { count: trades.length, totalPnL, winRate: (winners.length / trades.length * 100), avgPnL: totalPnL / trades.length };
+        };
+        
+        const tickerTypeStats = calcStats(sameTickerType);
+        const tickerStats = calcStats(sameTicker);
+        const typeStats = calcStats(sameType);
+        
+        let patternText = '';
+        const warnings = [];
+        const encouragements = [];
+        
+        if (tickerTypeStats && tickerTypeStats.count >= 2) {
+            patternText += `• ${tickerUpper} ${typeNormalized.replace(/_/g,' ')}: ${tickerTypeStats.count} trades, ${tickerTypeStats.winRate.toFixed(0)}% win, $${tickerTypeStats.totalPnL.toFixed(0)} total\n`;
+            if (tickerTypeStats.winRate < 40) warnings.push(`LOW WIN RATE on ${tickerUpper} ${typeNormalized.replace(/_/g,' ')}`);
+            if (tickerTypeStats.totalPnL < -500) warnings.push(`NET LOSING on this exact setup (-$${Math.abs(tickerTypeStats.totalPnL).toFixed(0)})`);
+            if (tickerTypeStats.winRate >= 75) encouragements.push(`STRONG WIN RATE (${tickerTypeStats.winRate.toFixed(0)}%) on this setup`);
+            if (tickerTypeStats.avgPnL > 100) encouragements.push(`PROFITABLE pattern ($${tickerTypeStats.avgPnL.toFixed(0)} avg)`);
+        }
+        
+        if (tickerStats && tickerStats.count >= 3 && !tickerTypeStats) {
+            patternText += `• All ${tickerUpper}: ${tickerStats.count} trades, ${tickerStats.winRate.toFixed(0)}% win rate\n`;
+            if (tickerStats.winRate < 40) warnings.push(`${tickerUpper} HAS BEEN DIFFICULT overall`);
+            if (tickerStats.winRate >= 70) encouragements.push(`${tickerUpper} WORKS WELL for you`);
+        }
+        
+        if (typeStats && typeStats.count >= 5) {
+            patternText += `• All ${typeNormalized.replace(/_/g,' ')}: ${typeStats.count} trades, ${typeStats.winRate.toFixed(0)}% win rate\n`;
+            if (typeStats.winRate < 50 && typeNormalized.includes('long')) warnings.push(`${typeNormalized.replace(/_/g,' ')} UNDERPERFORMING`);
+            if (typeStats.winRate >= 70) encouragements.push(`${typeNormalized.replace(/_/g,' ')} IS YOUR STRENGTH`);
+        }
+        
+        if (patternText || warnings.length > 0 || encouragements.length > 0) {
+            patternContext = `
+═══ YOUR HISTORICAL PATTERNS ═══
+${patternText}${warnings.length > 0 ? '⚠️ WARNINGS: ' + warnings.join(', ') + '\n' : ''}${encouragements.length > 0 ? '✅ POSITIVE: ' + encouragements.join(', ') + '\n' : ''}
+**Use this history to inform your recommendation!**
+`;
+        }
+    }
     
     // Calculate assignment scenario for covered calls
     let assignmentProfit = null;
@@ -3531,7 +3928,7 @@ ${riskLabel}: ${riskPercent ? riskPercent.toFixed(1) + '%' : 'N/A'}
 Win probability: ${winProbability ? winProbability.toFixed(1) + '%' : 'N/A'}
 IV: ${iv ? iv.toFixed(0) + '%' : 'N/A'}
 ${isLong ? (dte >= 365 ? 'Note: LEAPS have minimal daily theta. Focus on directional thesis and IV changes (vega exposure).' : dte >= 180 ? 'Note: Long-dated options have slow theta decay. IV changes matter more than daily time decay.' : 'Note: Time decay (theta) works AGAINST long options. You lose value daily.') : (dte >= 365 ? 'Note: LEAPS covered calls provide consistent income. Assignment is not imminent - focus on cost basis reduction.' : '')}
-${chainContext}${assignmentAnalysis}${alternativeStrategies}
+${chainContext}${patternContext}${assignmentAnalysis}${alternativeStrategies}
 ═══ AVAILABLE ROLL OPTIONS ═══
 ${rollInstructions}
 
@@ -3683,6 +4080,168 @@ Provide a thoughtful critique in this format:
 4. **Grade** - Rate this trade: A (excellent), B (good), C (acceptable), D (poor), F (disaster)
 
 Be honest but constructive. Focus on the PROCESS, not just the outcome. A losing trade can still have good process, and a winning trade can have poor process.`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BUILD STRATEGY ADVISOR PROMPT - Analyzes all strategies and recommends best
+// ═══════════════════════════════════════════════════════════════════════════
+function buildStrategyAdvisorPrompt(context) {
+    const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, riskTolerance, existingPositions, dataSource } = context;
+    
+    // Format sample options for context
+    let optionsContext = '';
+    if (sampleOptions && sampleOptions.length > 0) {
+        optionsContext = sampleOptions.map(o => {
+            const type = o.option_type === 'C' ? 'Call' : 'Put';
+            const strike = parseFloat(o.strike);
+            const bid = parseFloat(o.bid) || 0;
+            const ask = parseFloat(o.ask) || 0;
+            const mid = ((bid + ask) / 2).toFixed(2);
+            const delta = o.delta ? parseFloat(o.delta).toFixed(2) : 'N/A';
+            const exp = o.expiration_date;
+            const dte = Math.ceil((new Date(exp) - new Date()) / (1000 * 60 * 60 * 24));
+            return `  ${type} $${strike} exp ${exp} (${dte} DTE): Bid $${bid.toFixed(2)} / Ask $${ask.toFixed(2)} (mid $${mid}), Delta: ${delta}`;
+        }).join('\n');
+    }
+    
+    // Format existing positions
+    let positionsContext = 'None';
+    if (existingPositions && existingPositions.length > 0) {
+        const tickerPositions = existingPositions.filter(p => p.ticker?.toUpperCase() === ticker.toUpperCase());
+        if (tickerPositions.length > 0) {
+            positionsContext = tickerPositions.map(p => `  - ${p.type}: $${p.strike} exp ${p.expiry}`).join('\n');
+        } else {
+            positionsContext = 'None for this ticker (but user has other positions)';
+        }
+    }
+    
+    // Calculate range position description
+    let rangeDesc = '';
+    if (stockData.rangePosition !== undefined) {
+        if (stockData.rangePosition < 25) rangeDesc = 'Near 3-month LOW (potentially oversold)';
+        else if (stockData.rangePosition < 50) rangeDesc = 'Lower half of 3-month range';
+        else if (stockData.rangePosition < 75) rangeDesc = 'Upper half of 3-month range';
+        else rangeDesc = 'Near 3-month HIGH (potentially overbought)';
+    }
+    
+    // IV context
+    let ivDesc = 'Unknown';
+    if (ivRank !== null) {
+        if (ivRank < 20) ivDesc = `Low (${ivRank}%) - options are cheap, favor BUYING strategies`;
+        else if (ivRank < 40) ivDesc = `Below average (${ivRank}%) - slightly favors buying`;
+        else if (ivRank < 60) ivDesc = `Moderate (${ivRank}%) - neutral`;
+        else if (ivRank < 80) ivDesc = `Elevated (${ivRank}%) - favors SELLING strategies`;
+        else ivDesc = `High (${ivRank}%) - options are expensive, strongly favor SELLING`;
+    }
+    
+    return `You are an expert options strategist helping a trader who is NEW to complex strategies beyond basic puts and calls.
+
+═══════════════════════════════════════════════════════════════════════════
+TICKER: ${ticker}
+CURRENT PRICE: $${spot.toFixed(2)}
+DATA SOURCE: ${dataSource}
+═══════════════════════════════════════════════════════════════════════════
+
+MARKET CONTEXT:
+• 3-Month Range: $${stockData.low3mo?.toFixed(2) || '?'} - $${stockData.high3mo?.toFixed(2) || '?'}
+• Position in Range: ${stockData.rangePosition || '?'}% (${rangeDesc})
+• IV Rank: ${ivDesc}
+• Available Expirations: ${expirations?.slice(0, 4).join(', ') || 'Unknown'}
+
+SAMPLE OPTIONS CHAIN:
+${optionsContext || 'Options data not available'}
+
+USER PROFILE:
+• Buying Power: $${buyingPower.toLocaleString()}
+• Risk Tolerance: ${riskTolerance}
+• Existing ${ticker} Positions:
+${positionsContext}
+
+═══════════════════════════════════════════════════════════════════════════
+STRATEGIES TO EVALUATE (analyze ALL of these):
+═══════════════════════════════════════════════════════════════════════════
+
+1. SHORT PUT (Cash-Secured Put)
+   - Sell a put, collect premium, may get assigned stock
+   - Bullish strategy, unlimited risk if stock crashes
+
+2. COVERED CALL (if user owns shares)
+   - Sell a call against shares you own
+   - Neutral/slightly bullish, caps upside
+
+3. LONG CALL
+   - Buy a call for leveraged upside
+   - Very bullish, lose entire premium if wrong
+
+4. PUT CREDIT SPREAD (Bull Put Spread)
+   - Sell higher put, buy lower put for protection
+   - Bullish with DEFINED RISK (max loss = width - credit)
+
+5. CALL DEBIT SPREAD (Bull Call Spread)
+   - Buy lower call, sell higher call to reduce cost
+   - Bullish with defined risk/reward
+
+6. CALL CREDIT SPREAD (Bear Call Spread)
+   - Sell lower call, buy higher call for protection
+   - Bearish with defined risk
+
+7. PUT DEBIT SPREAD (Bear Put Spread)
+   - Buy higher put, sell lower put
+   - Bearish with defined risk
+
+8. IRON CONDOR
+   - Sell put spread + call spread
+   - Neutral - profits if stock stays in range
+
+9. SKIP™ (Long LEAPS + Short-term Call)
+   - Buy long-dated call (12+ months) + shorter call (3-6 months)
+   - Long-term bullish with reduced cost basis
+
+═══════════════════════════════════════════════════════════════════════════
+YOUR TASK: Recommend THE BEST strategy for this situation
+═══════════════════════════════════════════════════════════════════════════
+
+Respond with this EXACT format:
+
+## 🏆 RECOMMENDED STRATEGY: [Strategy Name]
+
+### THE TRADE
+• Action: [Exactly what to do - e.g., "Sell $95 Put / Buy $90 Put"]
+• Expiration: [Specific date from available expirations]
+• Credit/Debit: $X.XX [per share]
+• Contracts: [Suggest based on buying power and risk]
+
+### WHY THIS STRATEGY
+Explain in plain English why THIS strategy beats the others for THIS situation:
+• [Reason 1 - tie to market conditions]
+• [Reason 2 - tie to IV level]
+• [Reason 3 - tie to user's risk tolerance/buying power]
+
+### THE RISKS (Be honest and specific!)
+• ⚠️ [Risk 1 - what could go wrong]
+• ⚠️ [Risk 2 - worst case scenario]
+• ⚠️ [Risk 3 - any upcoming events like earnings]
+
+### THE NUMBERS
+• Max Profit: $X
+• Max Loss: $X (or "Unlimited" for naked options)
+• Breakeven: $X
+• Win Probability: ~X% (based on delta or estimate)
+• Risk/Reward Ratio: X:X
+
+### PORTFOLIO IMPACT
+• Buying Power Used: $X (X% of available)
+• Delta Exposure: [+/- X delta, bullish/bearish]
+• If you have existing positions, note any concentration risk
+
+### 📚 OTHER OPTIONS CONSIDERED
+Briefly explain why you DIDN'T choose these:
+1. [Strategy 2]: [One-line reason it's not ideal]
+2. [Strategy 3]: [One-line reason]
+3. [Strategy 4]: [One-line reason]
+
+### 💡 EDUCATIONAL NOTE
+Write 2-3 sentences explaining this strategy type for someone who has never done it before. What makes it different from just buying/selling a put or call?`;
 }
 
 // Build a prompt for generating trade ideas (with real prices!)

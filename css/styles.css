@@ -799,3 +799,52 @@ td button {
 .ticker-group-trades tr {
     background: rgba(0, 0, 0, 0.2);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AI STRATEGY ADVISOR STYLES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#strategyAdvisorTicker {
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#strategyAdvisorTicker:focus {
+    border-color: #a78bfa;
+    box-shadow: 0 0 10px rgba(147, 51, 234, 0.3);
+    outline: none;
+}
+
+#strategyAdvisorContent h3 {
+    color: #a78bfa !important;
+    margin: 20px 0 10px 0 !important;
+    border-bottom: 1px solid #333 !important;
+    padding-bottom: 5px !important;
+}
+
+#strategyAdvisorContent h4 {
+    color: #00d9ff !important;
+    margin: 15px 0 8px 0 !important;
+}
+
+#strategyAdvisorContent strong {
+    color: #fff !important;
+}
+
+/* Loading spinner animation */
+@keyframes strategyPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.1); opacity: 0.7; }
+}
+
+#strategyAdvisorLoading > div:first-child {
+    animation: strategyPulse 1.5s ease-in-out infinite;
+}
+
+/* Result card hover effect */
+#strategyAdvisorResult {
+    transition: box-shadow 0.3s;
+}
+
+#strategyAdvisorResult:hover {
+    box-shadow: 0 0 20px rgba(147, 51, 234, 0.2);
+}

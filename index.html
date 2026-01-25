@@ -41,6 +41,65 @@
                         🎮 Detecting GPU...
                     </div>
                     
+                    <!-- 🎓 AI Strategy Advisor - Recommends best strategy for any ticker -->
+                    <div style="background:linear-gradient(135deg, rgba(147,51,234,0.15) 0%, rgba(79,70,229,0.1) 100%); border:1px solid rgba(147,51,234,0.4); border-radius:10px; padding:18px; margin-bottom:20px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <div>
+                                <span style="color:#a78bfa; font-weight:bold; font-size:15px;">🎓 AI Strategy Advisor</span>
+                                <div style="font-size:11px; color:#8b5cf6; margin-top:2px;">Analyzes ALL strategies • Recommends the best one • Explains risks</div>
+                            </div>
+                            <select id="strategyAdvisorModel" style="font-size:11px; padding:4px 8px; background:#1a1a2e; color:#ddd; border:1px solid #6d28d9; border-radius:4px;">
+                                <option value="deepseek-r1:32b" selected>DeepSeek-R1 🧮</option>
+                                <option value="qwen2.5:32b">Qwen 32B</option>
+                                <option value="grok-3">🚀 Grok-3</option>
+                                <option value="grok-4">🧠 Grok-4</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; gap:10px; margin-bottom:12px;">
+                            <input type="text" id="strategyAdvisorTicker" placeholder="Enter ticker (e.g., PLTR, TSLA, NVDA)" 
+                                style="flex:1; padding:10px 14px; background:#0d0d1a; border:1px solid #6d28d9; border-radius:6px; color:#fff; font-size:14px; text-transform:uppercase;"
+                                onkeypress="if(event.key==='Enter') window.runStrategyAdvisor()">
+                            <button onclick="window.runStrategyAdvisor()" class="btn-primary" style="padding:10px 20px; background:linear-gradient(135deg, #9333ea 0%, #6d28d9 100%); border:none; border-radius:6px; color:#fff; font-weight:bold; cursor:pointer;">
+                                🔮 Analyze All Strategies
+                            </button>
+                        </div>
+                        <div style="display:flex; gap:15px; font-size:11px; color:#888;">
+                            <label style="display:flex; align-items:center; gap:4px;">
+                                <span>Buying Power: $</span>
+                                <input type="number" id="strategyAdvisorBP" value="25000" style="width:70px; background:#0d0d1a; border:1px solid #444; border-radius:4px; color:#ddd; padding:3px 6px;">
+                            </label>
+                            <label style="display:flex; align-items:center; gap:4px;">
+                                <span>Risk:</span>
+                                <select id="strategyAdvisorRisk" style="background:#0d0d1a; border:1px solid #444; border-radius:4px; color:#ddd; padding:3px 6px;">
+                                    <option value="conservative">Conservative</option>
+                                    <option value="moderate" selected>Moderate</option>
+                                    <option value="aggressive">Aggressive</option>
+                                </select>
+                            </label>
+                        </div>
+                        <!-- Results Container -->
+                        <div id="strategyAdvisorLoading" style="display:none; margin-top:15px; padding:20px; background:rgba(147,51,234,0.1); border-radius:8px; text-align:center;">
+                            <div style="font-size:24px; margin-bottom:8px;">🔮</div>
+                            <div style="color:#a78bfa; font-weight:bold;">Analyzing all strategies...</div>
+                            <div id="strategyAdvisorProgress" style="font-size:11px; color:#888; margin-top:4px;">Fetching market data...</div>
+                        </div>
+                        <div id="strategyAdvisorResult" style="display:none; margin-top:15px; background:#0d0d1a; border-radius:8px; border:1px solid #6d28d9; overflow:hidden;">
+                            <div style="background:rgba(147,51,234,0.2); padding:12px 15px; border-bottom:1px solid #6d28d9;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span id="strategyAdvisorHeader" style="color:#a78bfa; font-weight:bold; font-size:14px;">📊 Strategy Recommendation</span>
+                                    <div style="display:flex; gap:8px;">
+                                        <button onclick="window.stageStrategyAdvisorTrade()" class="btn-primary" style="padding:6px 12px; background:#22c55e; font-size:11px; border:none; border-radius:4px; color:#fff; cursor:pointer;">
+                                            ➕ Stage Trade
+                                        </button>
+                                        <button onclick="document.getElementById('strategyAdvisorResult').style.display='none'" style="background:none; border:none; color:#888; cursor:pointer;">✕</button>
+                                    </div>
+                                </div>
+                                <div id="strategyAdvisorMeta" style="font-size:10px; color:#666; margin-top:4px;"></div>
+                            </div>
+                            <div id="strategyAdvisorContent" style="padding:15px; color:#ddd; font-size:13px; line-height:1.6; max-height:500px; overflow-y:auto;"></div>
+                        </div>
+                    </div>
+                    
                     <!-- Image Drop Zone for Broker Screenshots -->
                     <div id="imageDropZone" style="background:rgba(0,217,255,0.05); border:2px dashed rgba(0,217,255,0.3); border-radius:8px; padding:20px; margin-bottom:20px; text-align:center; cursor:pointer; transition:all 0.2s;"
                          ondragover="event.preventDefault(); this.style.borderColor='#00d9ff'; this.style.background='rgba(0,217,255,0.15)';"

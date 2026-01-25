@@ -217,7 +217,71 @@ window.state = {
 
 ---
 
-## 🔌 API Endpoints (server.js)
+## � MarketDataService - SINGLE SOURCE OF TRUTH
+
+**CRITICAL: All new features that need stock/options data MUST use MarketDataService!**
+
+Location: `src/services/MarketDataService.js`
+
+### Why This Exists
+We kept having bugs where every new AI feature (Strategy Advisor, Discord Analyzer, Trade Ideas, etc.) 
+wrote its own fetch code for Schwab/CBOE/Yahoo, often getting it wrong. This centralized service:
+1. Handles the fallback chain automatically (Schwab → CBOE → Yahoo)
+2. Normalizes the response format regardless of source
+3. Handles token refresh via `schwabApiCall()`
+4. Returns `source` field so you know where data came from
+
+### Available Functions
+
+```javascript
+const MarketDataService = require('./src/services/MarketDataService');
+
+// Get stock quote
+const quote = await MarketDataService.getQuote('AAPL');
+// Returns: { ticker, price, change, changePercent, high52, low52, volume, rangePosition, source }
+
+// Get options chain
+const chain = await MarketDataService.getOptionsChain('AAPL', { strikeCount: 20 });
+// Returns: { ticker, spotPrice, calls[], puts[], expirations[], ivRank, source }
+
+// Get specific option premium
+const premium = await MarketDataService.getOptionPremium('AAPL', 200, '2026-02-21', 'P');
+// Returns: { bid, ask, mid, iv, delta, theta, source }
+
+// Batch quotes
+const quotes = await MarketDataService.getQuotes(['AAPL', 'NVDA', 'AMD']);
+// Returns: { AAPL: {...}, NVDA: {...}, AMD: {...} }
+
+// Find option by delta
+const opt = await MarketDataService.findOptionByDelta('AAPL', 'P', 0.30, 30);
+// Returns best matching ~30 delta put with ~30 DTE
+```
+
+### Data Source Priority
+1. **Schwab** (real-time, requires auth) - Best quality, includes Greeks
+2. **CBOE** (15-min delayed, no auth) - Good for options, free
+3. **Yahoo** (real-time spot, no auth) - Fallback for quotes only
+
+### ⚠️ NEVER Do This Again
+```javascript
+// ❌ WRONG - Writing custom fetch logic in every feature
+const schwabToken = process.env.SCHWAB_ACCESS_TOKEN;
+const res = await fetch(`https://api.schwabapi.com/...`, { headers: { 'Authorization': `Bearer ${schwabToken}` }});
+
+// ❌ WRONG - Duplicating fallback logic
+if (!schwabWorked) {
+    const cboeRes = await fetch(`https://cdn.cboe.com/...`);
+    // ... 50 lines of parsing code ...
+}
+
+// ✅ CORRECT - Use MarketDataService
+const quote = await MarketDataService.getQuote(ticker);
+const chain = await MarketDataService.getOptionsChain(ticker);
+```
+
+---
+
+## �🔌 API Endpoints (server.js)
 
 ### CBOE Options Pricing
 ```javascript

@@ -330,6 +330,209 @@ function saveClosedPositions() {
 }
 
 /**
+ * Analyze historical patterns to provide context for a new trade
+ * Returns insights about past performance with similar trades
+ * @param {string} ticker - Stock ticker symbol
+ * @param {string} type - Strategy type (short_put, covered_call, etc.)
+ * @param {number} strike - Strike price
+ * @param {number} spot - Current stock price
+ * @param {number} dte - Days to expiration
+ * @returns {object} Pattern analysis with warnings and encouragements
+ */
+export function analyzeHistoricalPattern(ticker, type, strike, spot, dte) {
+    const closed = state.closedPositions || [];
+    if (closed.length === 0) {
+        return { hasHistory: false, message: 'No historical trades to analyze.' };
+    }
+    
+    // Normalize type for comparison
+    const normalizedType = type?.toLowerCase().replace(/\s+/g, '_') || '';
+    
+    // 1. Find all trades with this exact ticker + type combo
+    const sameTickerType = closed.filter(p => 
+        p.ticker?.toUpperCase() === ticker?.toUpperCase() && 
+        p.type?.toLowerCase().replace(/\s+/g, '_') === normalizedType
+    );
+    
+    // 2. Find all trades with just this ticker (any strategy)
+    const sameTicker = closed.filter(p => 
+        p.ticker?.toUpperCase() === ticker?.toUpperCase()
+    );
+    
+    // 3. Find all trades with same strategy type (any ticker)
+    const sameType = closed.filter(p => 
+        p.type?.toLowerCase().replace(/\s+/g, '_') === normalizedType
+    );
+    
+    // Calculate stats for each group
+    const calcStats = (trades) => {
+        if (trades.length === 0) return null;
+        const totalPnL = trades.reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
+        const winners = trades.filter(p => (p.realizedPnL ?? p.closePnL ?? 0) >= 0);
+        const losers = trades.filter(p => (p.realizedPnL ?? p.closePnL ?? 0) < 0);
+        const avgPnL = totalPnL / trades.length;
+        const winRate = (winners.length / trades.length * 100);
+        
+        // Find biggest win and loss
+        const sorted = [...trades].sort((a, b) => (b.realizedPnL ?? b.closePnL ?? 0) - (a.realizedPnL ?? a.closePnL ?? 0));
+        const biggestWin = sorted[0];
+        const biggestLoss = sorted[sorted.length - 1];
+        
+        return {
+            count: trades.length,
+            totalPnL,
+            avgPnL,
+            winRate,
+            winnersCount: winners.length,
+            losersCount: losers.length,
+            biggestWin: biggestWin ? (biggestWin.realizedPnL ?? biggestWin.closePnL ?? 0) : 0,
+            biggestLoss: biggestLoss ? (biggestLoss.realizedPnL ?? biggestLoss.closePnL ?? 0) : 0
+        };
+    };
+    
+    const tickerTypeStats = calcStats(sameTickerType);
+    const tickerStats = calcStats(sameTicker);
+    const typeStats = calcStats(sameType);
+    
+    // Calculate OTM % for pattern matching
+    const otmPercent = spot > 0 ? ((spot - strike) / spot * 100) : 0;
+    const isOTM = type?.includes('put') ? strike < spot : strike > spot;
+    
+    // Build analysis result
+    const result = {
+        hasHistory: true,
+        ticker,
+        type,
+        strike,
+        spot,
+        dte,
+        otmPercent: Math.abs(otmPercent).toFixed(1),
+        isOTM,
+        
+        // Stats by category
+        tickerTypeStats,  // Same ticker + same strategy
+        tickerStats,      // Same ticker, any strategy  
+        typeStats,        // Same strategy, any ticker
+        
+        // Warnings and encouragements
+        warnings: [],
+        encouragements: [],
+        summary: ''
+    };
+    
+    // Generate warnings based on patterns
+    if (tickerTypeStats && tickerTypeStats.count >= 2) {
+        // We have history with this exact combo
+        if (tickerTypeStats.winRate < 40) {
+            result.warnings.push(`⚠️ LOW WIN RATE: You have a ${tickerTypeStats.winRate.toFixed(0)}% win rate on ${ticker} ${type.replace('_',' ')} (${tickerTypeStats.count} trades, avg $${tickerTypeStats.avgPnL.toFixed(0)})`);
+        }
+        if (tickerTypeStats.totalPnL < -500) {
+            result.warnings.push(`🚨 LOSING PATTERN: You've lost $${Math.abs(tickerTypeStats.totalPnL).toFixed(0)} total on ${ticker} ${type.replace('_',' ')} positions`);
+        }
+        if (tickerTypeStats.biggestLoss < -500) {
+            result.warnings.push(`⚠️ BIG LOSS HISTORY: Your biggest loss on ${ticker} ${type.replace('_',' ')} was $${tickerTypeStats.biggestLoss.toFixed(0)}`);
+        }
+        
+        // Encouragements
+        if (tickerTypeStats.winRate >= 75) {
+            result.encouragements.push(`✅ STRONG PATTERN: ${tickerTypeStats.winRate.toFixed(0)}% win rate on ${ticker} ${type.replace('_',' ')} (${tickerTypeStats.count} trades)`);
+        }
+        if (tickerTypeStats.avgPnL > 100) {
+            result.encouragements.push(`💰 PROFITABLE: Average $${tickerTypeStats.avgPnL.toFixed(0)} profit on ${ticker} ${type.replace('_',' ')}`);
+        }
+    }
+    
+    // Check ticker-level patterns (any strategy)
+    if (tickerStats && tickerStats.count >= 3 && !tickerTypeStats) {
+        if (tickerStats.winRate < 40) {
+            result.warnings.push(`⚠️ ${ticker} HAS BEEN DIFFICULT: ${tickerStats.winRate.toFixed(0)}% win rate across ${tickerStats.count} trades`);
+        }
+        if (tickerStats.winRate >= 70) {
+            result.encouragements.push(`✅ ${ticker} WORKS FOR YOU: ${tickerStats.winRate.toFixed(0)}% win rate across ${tickerStats.count} trades`);
+        }
+    }
+    
+    // Check strategy-level patterns
+    if (typeStats && typeStats.count >= 5) {
+        if (typeStats.winRate < 50 && type?.includes('long')) {
+            result.warnings.push(`⚠️ ${type.replace('_',' ')} UNDERPERFORMING: Only ${typeStats.winRate.toFixed(0)}% win rate on this strategy`);
+        }
+        if (typeStats.winRate >= 70) {
+            result.encouragements.push(`✅ ${type.replace('_',' ')} IS YOUR STRENGTH: ${typeStats.winRate.toFixed(0)}% win rate (${typeStats.count} trades)`);
+        }
+    }
+    
+    // Build summary
+    if (result.warnings.length > 0 && result.encouragements.length === 0) {
+        result.summary = `⚠️ CAUTION: Historical patterns suggest this may be a risky trade for you.`;
+    } else if (result.encouragements.length > 0 && result.warnings.length === 0) {
+        result.summary = `✅ FAVORABLE: This trade matches patterns that have worked well for you.`;
+    } else if (result.warnings.length > 0 && result.encouragements.length > 0) {
+        result.summary = `⚖️ MIXED SIGNALS: Some patterns are favorable, others concerning.`;
+    } else if (tickerTypeStats || tickerStats || typeStats) {
+        result.summary = `📊 NEUTRAL: Limited historical pattern data, but some trade history exists.`;
+    } else {
+        result.summary = `🆕 NEW TERRITORY: No similar trades in your history.`;
+    }
+    
+    return result;
+}
+window.analyzeHistoricalPattern = analyzeHistoricalPattern;
+
+/**
+ * Format pattern analysis for AI consumption
+ * @param {object} pattern - Result from analyzeHistoricalPattern
+ * @returns {string} Formatted string for AI prompt
+ */
+export function formatPatternForAI(pattern) {
+    if (!pattern || !pattern.hasHistory) {
+        return 'No historical trade data available for pattern matching.';
+    }
+    
+    let text = `## HISTORICAL PATTERN ANALYSIS FOR THIS TRADER\n`;
+    text += `Analyzing: ${pattern.ticker} ${pattern.type?.replace('_',' ')} at $${pattern.strike}\n\n`;
+    
+    if (pattern.tickerTypeStats) {
+        const s = pattern.tickerTypeStats;
+        text += `### Same Ticker + Same Strategy (${pattern.ticker} ${pattern.type?.replace('_',' ')})\n`;
+        text += `- ${s.count} historical trades\n`;
+        text += `- Win rate: ${s.winRate.toFixed(0)}%\n`;
+        text += `- Total P&L: $${s.totalPnL.toFixed(0)}\n`;
+        text += `- Average P&L: $${s.avgPnL.toFixed(0)}\n`;
+        text += `- Biggest win: $${s.biggestWin.toFixed(0)}, Biggest loss: $${s.biggestLoss.toFixed(0)}\n\n`;
+    }
+    
+    if (pattern.tickerStats) {
+        const s = pattern.tickerStats;
+        text += `### All ${pattern.ticker} Trades (any strategy)\n`;
+        text += `- ${s.count} historical trades, ${s.winRate.toFixed(0)}% win rate, $${s.totalPnL.toFixed(0)} total P&L\n\n`;
+    }
+    
+    if (pattern.typeStats) {
+        const s = pattern.typeStats;
+        text += `### All ${pattern.type?.replace('_',' ')} Trades (any ticker)\n`;
+        text += `- ${s.count} historical trades, ${s.winRate.toFixed(0)}% win rate, $${s.avgPnL.toFixed(0)} avg P&L\n\n`;
+    }
+    
+    if (pattern.warnings.length > 0) {
+        text += `### ⚠️ WARNINGS FROM HISTORY\n`;
+        pattern.warnings.forEach(w => text += `${w}\n`);
+        text += '\n';
+    }
+    
+    if (pattern.encouragements.length > 0) {
+        text += `### ✅ POSITIVE PATTERNS\n`;
+        pattern.encouragements.forEach(e => text += `${e}\n`);
+        text += '\n';
+    }
+    
+    text += `### SUMMARY: ${pattern.summary}\n`;
+    
+    return text;
+}
+window.formatPatternForAI = formatPatternForAI;
+
+/**
  * Refresh prices for ALL open positions from Schwab (or CBOE fallback)
  * Updates lastOptionPrice and markedPrice on each position
  */
@@ -1070,42 +1273,97 @@ function renderClosedPositions() {
         state.closedYearFilter = hasCurrentYearPositions ? currentYear : 'all';
     }
     
-    if (state.closedYearFilter !== 'all' && !years.includes(state.closedYearFilter)) {
+    if (state.closedYearFilter !== 'all' && state.closedYearFilter !== 'custom' && !years.includes(state.closedYearFilter)) {
         state.closedYearFilter = 'all';
     }
     
-    const closed = state.closedYearFilter === 'all' 
-        ? allClosed 
-        : allClosed.filter(p => {
+    // Filter closed positions based on selection
+    let closed;
+    if (state.closedYearFilter === 'all') {
+        closed = allClosed;
+    } else if (state.closedYearFilter === 'custom' && state.closedDateFrom && state.closedDateTo) {
+        // Custom date range filtering
+        const fromDate = new Date(state.closedDateFrom);
+        const toDate = new Date(state.closedDateTo);
+        toDate.setHours(23, 59, 59, 999); // Include full end day
+        closed = allClosed.filter(p => {
+            const closeDate = p.closeDate ? new Date(p.closeDate) : null;
+            if (!closeDate) return false;
+            return closeDate >= fromDate && closeDate <= toDate;
+        });
+    } else if (state.closedYearFilter === 'custom') {
+        // Custom selected but no dates yet - show empty
+        closed = [];
+    } else {
+        // Year filter
+        closed = allClosed.filter(p => {
             const closeDate = p.closeDate || '';
             const match = closeDate.match(/^(\d{4})/);
             return match && match[1] === state.closedYearFilter;
         });
+    }
     
     const ytdPnL = allClosed
         .filter(p => (p.closeDate || '').startsWith(currentYear))
         .reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
     
     let filterHtml = `
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <div style="display:flex; align-items:center; gap:10px;">
-                <label style="color:#888; font-size:12px;">Tax Year:</label>
-                <select id="closedYearFilter" style="padding:4px 8px; font-size:12px;">
-                    <option value="all" ${state.closedYearFilter === 'all' ? 'selected' : ''}>All Years</option>
-                    ${years.map(y => `<option value="${y}" ${state.closedYearFilter === y ? 'selected' : ''}>${y}</option>`).join('')}
-                </select>
-                <span style="color:#888; font-size:11px;">(${closed.length} trades)</span>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:12px; padding:10px; background:rgba(0,0,0,0.2); border-radius:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <label style="color:#888; font-size:12px;">Filter:</label>
+                    <select id="closedYearFilter" style="padding:4px 8px; font-size:12px; background:#1a1a2e; color:#ddd; border:1px solid #444; border-radius:4px;">
+                        <option value="all" ${state.closedYearFilter === 'all' ? 'selected' : ''}>All Years</option>
+                        ${years.map(y => `<option value="${y}" ${state.closedYearFilter === y ? 'selected' : ''}>${y}</option>`).join('')}
+                        <option value="custom" ${state.closedYearFilter === 'custom' ? 'selected' : ''}>📅 Custom Range</option>
+                    </select>
+                    <span style="color:#888; font-size:11px;">(${closed.length} trades)</span>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <span style="color:#888; font-size:11px;">YTD ${currentYear}:</span>
+                    <span style="font-weight:bold; color:${ytdPnL >= 0 ? '#00ff88' : '#ff5252'};">
+                        ${ytdPnL >= 0 ? '+' : ''}$${ytdPnL.toFixed(0)}
+                    </span>
+                </div>
             </div>
-            <div style="display:flex; gap:8px; align-items:center;">
-                <span style="color:#888; font-size:11px;">YTD ${currentYear}:</span>
-                <span style="font-weight:bold; color:${ytdPnL >= 0 ? '#00ff88' : '#ff5252'};">
-                    ${ytdPnL >= 0 ? '+' : ''}$${ytdPnL.toFixed(0)}
-                </span>
-                <button onclick="window.exportClosedForTax()" 
-                        style="padding:4px 8px; font-size:11px; background:#2a2a4e; border:1px solid #444; color:#aaa; border-radius:4px; cursor:pointer;"
-                        title="Export filtered trades as CSV for tax records">
-                    📥 Export CSV
+            
+            <!-- Custom Date Range Row (hidden unless custom selected) -->
+            <div id="customDateRangeRow" style="display:${state.closedYearFilter === 'custom' ? 'flex' : 'none'}; align-items:center; gap:10px; flex-wrap:wrap;">
+                <label style="color:#888; font-size:11px;">From:</label>
+                <input type="date" id="closedDateFrom" value="${state.closedDateFrom || ''}" 
+                    style="padding:4px 8px; font-size:11px; background:#1a1a2e; color:#ddd; border:1px solid #444; border-radius:4px;">
+                <label style="color:#888; font-size:11px;">To:</label>
+                <input type="date" id="closedDateTo" value="${state.closedDateTo || ''}" 
+                    style="padding:4px 8px; font-size:11px; background:#1a1a2e; color:#ddd; border:1px solid #444; border-radius:4px;">
+                <button onclick="window.applyCustomDateRange()" 
+                    style="padding:4px 12px; font-size:11px; background:#00d9ff; color:#000; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">
+                    Apply
                 </button>
+                <button onclick="window.clearCustomDateRange()" 
+                    style="padding:4px 8px; font-size:11px; background:#333; color:#888; border:1px solid #444; border-radius:4px; cursor:pointer;">
+                    Clear
+                </button>
+            </div>
+            
+            <!-- Action Buttons Row -->
+            <div style="display:flex; gap:8px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+                <div style="display:flex; gap:8px;">
+                    <button onclick="window.runHistoricalAudit()" 
+                            style="padding:6px 12px; font-size:11px; background:rgba(139,92,246,0.3); border:1px solid rgba(139,92,246,0.5); color:#a78bfa; border-radius:4px; cursor:pointer;"
+                            title="AI analyzes trading patterns and performance in the filtered date range">
+                        🤖 AI Historical Audit
+                    </button>
+                    <button onclick="window.exportClosedForTax()" 
+                            style="padding:6px 12px; font-size:11px; background:#2a2a4e; border:1px solid #444; color:#aaa; border-radius:4px; cursor:pointer;"
+                            title="Export filtered trades as CSV for tax records">
+                        📥 Export CSV
+                    </button>
+                </div>
+                <div style="font-size:10px; color:#666;">
+                    ${state.closedYearFilter === 'custom' && state.closedDateFrom && state.closedDateTo 
+                        ? `📅 ${state.closedDateFrom} to ${state.closedDateTo}` 
+                        : ''}
+                </div>
             </div>
         </div>
     `;
@@ -1303,7 +1561,19 @@ function renderClosedPositions() {
     
     const grandTotal = closed.reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
     const totalColor = grandTotal >= 0 ? '#00ff88' : '#ff5252';
-    const yearLabel = state.closedYearFilter === 'all' ? 'All Time' : state.closedYearFilter;
+    
+    // Build label based on filter type
+    let yearLabel;
+    if (state.closedYearFilter === 'all') {
+        yearLabel = 'All Time';
+    } else if (state.closedYearFilter === 'custom' && state.closedDateFrom && state.closedDateTo) {
+        yearLabel = `${state.closedDateFrom} to ${state.closedDateTo}`;
+    } else if (state.closedYearFilter === 'custom') {
+        yearLabel = 'Custom Range (select dates)';
+    } else {
+        yearLabel = state.closedYearFilter;
+    }
+    
     html += `
         <div style="margin-top:12px; padding:10px; background:rgba(255,255,255,0.03); border-radius:6px; text-align:right;">
             <span style="color:#888;">${yearLabel} Realized P&L:</span>
@@ -1323,15 +1593,237 @@ function renderClosedPositions() {
  */
 function attachYearFilterListener() {
     const filterEl = document.getElementById('closedYearFilter');
+    const customRow = document.getElementById('customDateRangeRow');
+    
     if (filterEl) {
+        // Show/hide custom date row based on selection
+        if (customRow) {
+            customRow.style.display = filterEl.value === 'custom' ? 'flex' : 'none';
+        }
+        
         filterEl.onchange = (e) => {
             state.closedYearFilter = e.target.value;
-            renderClosedPositions();
-            // Also update Portfolio Summary to reflect filtered stats
-            renderPortfolio(false);
+            
+            // Show/hide custom date range row
+            if (customRow) {
+                customRow.style.display = e.target.value === 'custom' ? 'flex' : 'none';
+            }
+            
+            // If not custom, clear custom dates and re-render
+            if (e.target.value !== 'custom') {
+                state.closedDateFrom = null;
+                state.closedDateTo = null;
+                renderClosedPositions();
+                renderPortfolio(false);
+            }
         };
     }
 }
+
+/**
+ * Apply custom date range filter
+ */
+window.applyCustomDateRange = function() {
+    const fromEl = document.getElementById('closedDateFrom');
+    const toEl = document.getElementById('closedDateTo');
+    
+    if (!fromEl?.value || !toEl?.value) {
+        showNotification('Please select both From and To dates', 'warning');
+        return;
+    }
+    
+    const fromDate = new Date(fromEl.value);
+    const toDate = new Date(toEl.value);
+    
+    if (fromDate > toDate) {
+        showNotification('From date must be before To date', 'error');
+        return;
+    }
+    
+    state.closedDateFrom = fromEl.value;
+    state.closedDateTo = toEl.value;
+    state.closedYearFilter = 'custom';
+    
+    renderClosedPositions();
+    renderPortfolio(false);
+    
+    showNotification(`Showing trades from ${fromEl.value} to ${toEl.value}`, 'success');
+};
+
+/**
+ * Clear custom date range and reset to all
+ */
+window.clearCustomDateRange = function() {
+    state.closedDateFrom = null;
+    state.closedDateTo = null;
+    state.closedYearFilter = 'all';
+    
+    const filterEl = document.getElementById('closedYearFilter');
+    if (filterEl) filterEl.value = 'all';
+    
+    const customRow = document.getElementById('customDateRangeRow');
+    if (customRow) customRow.style.display = 'none';
+    
+    renderClosedPositions();
+    renderPortfolio(false);
+};
+
+/**
+ * Run AI Historical Audit on the currently filtered closed positions
+ */
+window.runHistoricalAudit = async function() {
+    const allClosed = state.closedPositions || [];
+    const currentFilter = state.closedYearFilter || 'all';
+    
+    // Get filtered positions matching current view
+    let filtered;
+    if (currentFilter === 'all') {
+        filtered = allClosed;
+    } else if (currentFilter === 'custom' && state.closedDateFrom && state.closedDateTo) {
+        const fromDate = new Date(state.closedDateFrom);
+        const toDate = new Date(state.closedDateTo);
+        toDate.setHours(23, 59, 59, 999);
+        filtered = allClosed.filter(p => {
+            const closeDate = p.closeDate ? new Date(p.closeDate) : null;
+            if (!closeDate) return false;
+            return closeDate >= fromDate && closeDate <= toDate;
+        });
+    } else {
+        // Year filter
+        filtered = allClosed.filter(p => (p.closeDate || '').startsWith(currentFilter));
+    }
+    
+    if (filtered.length === 0) {
+        showNotification('No trades in selected range to analyze', 'warning');
+        return;
+    }
+    
+    // Build period label
+    let periodLabel;
+    if (currentFilter === 'all') {
+        periodLabel = 'All Time';
+    } else if (currentFilter === 'custom' && state.closedDateFrom && state.closedDateTo) {
+        periodLabel = `${state.closedDateFrom} to ${state.closedDateTo}`;
+    } else {
+        periodLabel = currentFilter;
+    }
+    
+    // Calculate summary stats for the AI
+    const totalPnL = filtered.reduce((sum, p) => sum + (p.realizedPnL ?? p.closePnL ?? 0), 0);
+    const winners = filtered.filter(p => (p.realizedPnL ?? p.closePnL ?? 0) >= 0);
+    const losers = filtered.filter(p => (p.realizedPnL ?? p.closePnL ?? 0) < 0);
+    const winRate = (winners.length / filtered.length * 100).toFixed(1);
+    
+    // Group by ticker
+    const byTicker = {};
+    filtered.forEach(p => {
+        if (!byTicker[p.ticker]) byTicker[p.ticker] = { trades: 0, pnl: 0 };
+        byTicker[p.ticker].trades++;
+        byTicker[p.ticker].pnl += (p.realizedPnL ?? p.closePnL ?? 0);
+    });
+    
+    // Sort tickers by P&L
+    const tickerSummary = Object.entries(byTicker)
+        .sort((a, b) => b[1].pnl - a[1].pnl)
+        .slice(0, 10)
+        .map(([t, d]) => `${t}: ${d.trades} trades, $${d.pnl.toFixed(0)}`);
+    
+    // Group by type
+    const byType = {};
+    filtered.forEach(p => {
+        const type = p.type || 'unknown';
+        if (!byType[type]) byType[type] = { trades: 0, pnl: 0 };
+        byType[type].trades++;
+        byType[type].pnl += (p.realizedPnL ?? p.closePnL ?? 0);
+    });
+    
+    const typeSummary = Object.entries(byType)
+        .sort((a, b) => b[1].pnl - a[1].pnl)
+        .map(([t, d]) => `${t.replace('_', ' ')}: ${d.trades} trades, $${d.pnl.toFixed(0)}`);
+    
+    // Find biggest winners and losers
+    const sortedByPnL = [...filtered].sort((a, b) => (b.realizedPnL ?? b.closePnL ?? 0) - (a.realizedPnL ?? a.closePnL ?? 0));
+    const topWinners = sortedByPnL.slice(0, 5).map(p => 
+        `${p.ticker} ${p.type?.replace('_',' ')} $${p.strike}: +$${(p.realizedPnL ?? p.closePnL ?? 0).toFixed(0)}`
+    );
+    const topLosers = sortedByPnL.slice(-5).reverse().filter(p => (p.realizedPnL ?? p.closePnL ?? 0) < 0).map(p =>
+        `${p.ticker} ${p.type?.replace('_',' ')} $${p.strike}: $${(p.realizedPnL ?? p.closePnL ?? 0).toFixed(0)}`
+    );
+    
+    // Show loading modal
+    const modalHtml = `
+        <div id="historicalAuditModal" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:10001;">
+            <div style="background:#1a1a2e; border:1px solid #333; border-radius:12px; width:90%; max-width:800px; max-height:90vh; overflow:auto; padding:25px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h2 style="margin:0; color:#00d9ff;">📊 AI Historical Audit: ${periodLabel}</h2>
+                    <button onclick="document.getElementById('historicalAuditModal').remove()" style="background:transparent; border:none; color:#888; font-size:24px; cursor:pointer;">×</button>
+                </div>
+                <div style="margin-bottom:15px; padding:10px; background:rgba(255,255,255,0.05); border-radius:8px;">
+                    <span style="color:#888;">Period:</span> <span style="color:#fff;">${periodLabel}</span> &nbsp;|&nbsp;
+                    <span style="color:#888;">Trades:</span> <span style="color:#fff;">${filtered.length}</span> &nbsp;|&nbsp;
+                    <span style="color:#888;">Win Rate:</span> <span style="color:${parseFloat(winRate) >= 50 ? '#00ff88' : '#ff5252'};">${winRate}%</span> &nbsp;|&nbsp;
+                    <span style="color:#888;">Total P&L:</span> <span style="color:${totalPnL >= 0 ? '#00ff88' : '#ff5252'};">${totalPnL >= 0 ? '+' : ''}$${totalPnL.toFixed(0)}</span>
+                </div>
+                <div id="historicalAuditContent" style="min-height:200px; display:flex; align-items:center; justify-content:center;">
+                    <div style="text-align:center;">
+                        <div style="font-size:32px; margin-bottom:10px;">🤖</div>
+                        <div style="color:#00d9ff;">Analyzing ${filtered.length} trades...</div>
+                        <div style="color:#888; font-size:12px; margin-top:5px;">This may take a moment</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    try {
+        const response = await fetch('/api/ai/historical-audit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                periodLabel,
+                totalTrades: filtered.length,
+                totalPnL,
+                winRate,
+                winnersCount: winners.length,
+                losersCount: losers.length,
+                tickerSummary,
+                typeSummary,
+                topWinners,
+                topLosers,
+                trades: filtered.slice(0, 50) // Send up to 50 trades for context
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        const contentEl = document.getElementById('historicalAuditContent');
+        if (contentEl) {
+            contentEl.innerHTML = `
+                <div style="white-space:pre-wrap; line-height:1.6; color:#e0e0e0; font-size:14px;">
+                    ${data.analysis || data.insight || 'No analysis available'}
+                </div>
+            `;
+        }
+    } catch (err) {
+        console.error('Historical audit error:', err);
+        const contentEl = document.getElementById('historicalAuditContent');
+        if (contentEl) {
+            contentEl.innerHTML = `
+                <div style="color:#ff5252; text-align:center;">
+                    <div style="font-size:32px; margin-bottom:10px;">❌</div>
+                    <div>Failed to get AI analysis</div>
+                    <div style="color:#888; font-size:12px; margin-top:5px;">${err.message}</div>
+                </div>
+            `;
+        }
+    }
+};
 
 /**
  * Export closed positions as CSV for tax records
@@ -1340,10 +1832,27 @@ export function exportClosedForTax() {
     const allClosed = state.closedPositions || [];
     const currentFilter = state.closedYearFilter || 'all';
     
-    // Filter by selected year
-    const toExport = currentFilter === 'all' 
-        ? allClosed 
-        : allClosed.filter(p => (p.closeDate || '').startsWith(currentFilter));
+    // Filter by selected filter type
+    let toExport;
+    let filterLabel;
+    
+    if (currentFilter === 'all') {
+        toExport = allClosed;
+        filterLabel = 'all_time';
+    } else if (currentFilter === 'custom' && state.closedDateFrom && state.closedDateTo) {
+        const fromDate = new Date(state.closedDateFrom);
+        const toDate = new Date(state.closedDateTo);
+        toDate.setHours(23, 59, 59, 999);
+        toExport = allClosed.filter(p => {
+            const closeDate = p.closeDate ? new Date(p.closeDate) : null;
+            if (!closeDate) return false;
+            return closeDate >= fromDate && closeDate <= toDate;
+        });
+        filterLabel = `${state.closedDateFrom}_to_${state.closedDateTo}`;
+    } else {
+        toExport = allClosed.filter(p => (p.closeDate || '').startsWith(currentFilter));
+        filterLabel = currentFilter;
+    }
     
     if (toExport.length === 0) {
         showNotification('No trades to export', 'warning');
@@ -1372,11 +1881,11 @@ export function exportClosedForTax() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `wheelhouse_trades_${currentFilter}.csv`;
+    a.download = `wheelhouse_trades_${filterLabel}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     
-    showNotification(`Exported ${toExport.length} trades for ${currentFilter}`, 'success');
+    showNotification(`Exported ${toExport.length} trades for ${filterLabel.replace(/_/g, ' ')}`, 'success');
 }
 window.exportClosedForTax = exportClosedForTax;
 

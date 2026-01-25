@@ -1312,6 +1312,8 @@ window.stageFromXSentiment = function(ticker, price, strike, expiry, analysis, c
         expiry: expiry,
         currentPrice: parseFloat(price),
         premium: cboPremium ? parseFloat(cboPremium) : 0,  // Use CBOE premium if available
+        isCall: false,  // Short put
+        isDebit: false, // Sold = credit
         stagedAt: new Date().toISOString(),
         source: 'x-sentiment',
         // Store thesis if analysis provided
@@ -1711,6 +1713,17 @@ window.analyzeDiscordTrade = async function() {
     };
     
     try {
+        // Gather closed positions summary for pattern matching
+        // The server will use this to provide historical context
+        const closedPositions = state.closedPositions || [];
+        const closedSummary = closedPositions.length > 0 ? closedPositions.map(p => ({
+            ticker: p.ticker,
+            type: p.type,
+            strike: p.strike,
+            pnl: p.realizedPnL ?? p.closePnL ?? 0,
+            closeDate: p.closeDate
+        })) : null;
+        
         // Use SSE for real-time progress
         const response = await fetch('/api/ai/parse-trade', {
             method: 'POST',
@@ -1718,7 +1731,7 @@ window.analyzeDiscordTrade = async function() {
                 'Content-Type': 'application/json',
                 'Accept': 'text/event-stream'
             },
-            body: JSON.stringify({ tradeText, model })
+            body: JSON.stringify({ tradeText, model, closedSummary })
         });
         
         // Handle SSE stream
@@ -1947,6 +1960,10 @@ window.stageDiscordTrade = function() {
         else if (strat.includes('short_put') || strat.includes('cash')) posType = 'short_put';
     }
     
+    // Determine if call or put, debit or credit
+    const isCallType = posType.includes('call');
+    const isDebitType = posType.includes('long') || posType.includes('debit');
+    
     // Create pending trade with thesis
     const pendingTrade = {
         id: Date.now(),
@@ -1955,9 +1972,12 @@ window.stageDiscordTrade = function() {
         strike: trade.strike,
         buyStrike: trade.buyStrike,
         sellStrike: trade.sellStrike,
+        upperStrike: trade.buyStrike || trade.sellStrike,  // For spread display
         expiry: trade.expiry,
         currentPrice: trade.priceAtAnalysis,
         premium: trade.premium?.mid || 0,
+        isCall: isCallType,
+        isDebit: isDebitType,
         stagedAt: new Date().toISOString(),
         source: 'discord', // Mark as Discord import
         // THESIS DATA
@@ -2166,10 +2186,13 @@ window.stageTradeWithThesis = function() {
     const trade = {
         id: Date.now(),
         ticker: thesis.ticker,
+        type: 'short_put',  // Deep dive is typically for puts
         strike: thesis.strike,
         expiry: thesis.expiry,
         currentPrice: thesis.priceAtAnalysis,
         premium: thesis.premium?.mid || 0,
+        isCall: false,
+        isDebit: false,  // Short put = credit
         stagedAt: new Date().toISOString(),
         // THESIS DATA - for checkup later
         openingThesis: {
@@ -2278,10 +2301,13 @@ window.stageTrade = function(ticker, strike, expiry, currentPrice, premium) {
     const trade = {
         id: Date.now(),
         ticker,
+        type: 'short_put',  // Default staging is for puts
         strike: parseFloat(strike),
         expiry,
         currentPrice: parseFloat(currentPrice),
         premium: parseFloat(premium) || 0,
+        isCall: false,
+        isDebit: false,  // Short put = credit
         stagedAt: new Date().toISOString()
     };
     
@@ -2351,7 +2377,7 @@ window.renderPendingTrades = function() {
                         <th style="padding:6px;">Strike</th>
                         <th style="padding:6px;">Expiry</th>
                         <th style="padding:6px;">DTE</th>
-                        <th style="padding:6px;">Credit</th>
+                        <th style="padding:6px;">Cr/Dr</th>
                         <th style="padding:6px;">Ann%</th>
                         <th style="padding:6px;">Staged</th>
                         <th style="padding:6px; min-width:180px;">Actions</th>
@@ -2359,22 +2385,67 @@ window.renderPendingTrades = function() {
                 </thead>
                 <tbody>
                     ${pendingWithCalcs.map(p => {
-                        const optionType = p.isCall ? 'C' : 'P';
-                        const typeColor = p.isCall ? '#ffaa00' : '#00d9ff';
+                        // Determine option type - SKIP is always calls
+                        const isCall = p.isCall || p.type === 'skip_call' || p.type === 'long_call' || p.type?.includes('call');
+                        const optionType = isCall ? 'C' : 'P';
+                        const typeColor = isCall ? '#ffaa00' : '#00d9ff';
+                        // Spreads and long positions are debits, short positions are credits
+                        const isSpread = p.type?.includes('_spread') || p.upperStrike;
+                        const isDebit = p.isDebit || p.type === 'skip_call' || p.type === 'long_call' || p.type?.includes('debit');
+                        const crDrLabel = isDebit ? 'Dr' : 'Cr';
+                        const crDrColor = isDebit ? '#ff9800' : '#00d9ff';  // Orange for debit, cyan for credit
                         const rollBadge = p.isRoll ? '<span style="background:#7a8a94;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">ROLL</span>' : '';
+                        const skipBadge = p.isSkip ? '<span style="background:#8b5cf6;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">SKIP™</span>' : '';
+                        const spreadBadge = isSpread && !p.isSkip ? '<span style="background:#00bcd4;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">SPREAD</span>' : '';
+                        
+                        // Determine strike display based on trade type
+                        let strikeDisplay, expiryDisplay, dteDisplay;
+                        
+                        if (p.isSkip && p.leapsStrike && p.skipStrike) {
+                            // SKIP trades show both LEAPS and SKIP legs
+                            strikeDisplay = `<div style="line-height:1.3;">
+                                <div style="color:#ffaa00;">$${p.leapsStrike}<span style="color:#888;font-size:10px;">C</span> <span style="color:#888;font-size:9px;">LEAPS</span></div>
+                                <div style="color:#ffaa00;">$${p.skipStrike}<span style="color:#888;font-size:10px;">C</span> <span style="color:#888;font-size:9px;">SKIP</span></div>
+                            </div>`;
+                            expiryDisplay = `<div style="line-height:1.3;">
+                                <div>${p.leapsExpiry}</div>
+                                <div>${p.skipExpiry}</div>
+                            </div>`;
+                            dteDisplay = `<div style="line-height:1.3;">
+                                <div style="color:#888;">${p.leapsDte ?? '-'}</div>
+                                <div style="color:#888;">${p.skipDte ?? '-'}</div>
+                            </div>`;
+                        } else if (isSpread && p.upperStrike) {
+                            // Spread trades show buy/sell legs
+                            const isBullSpread = p.type?.includes('debit') || (isCall && p.strike < p.upperStrike);
+                            const buyStrike = isBullSpread ? p.strike : p.upperStrike;
+                            const sellStrike = isBullSpread ? p.upperStrike : p.strike;
+                            strikeDisplay = `<div style="line-height:1.3;">
+                                <div style="color:#00ff88;">Buy $${buyStrike}<span style="color:#888;font-size:10px;">${optionType}</span></div>
+                                <div style="color:#ff5252;">Sell $${sellStrike}<span style="color:#888;font-size:10px;">${optionType}</span></div>
+                            </div>`;
+                            expiryDisplay = p.expiry;
+                            dteDisplay = p.dte ?? '-';
+                        } else {
+                            // Single leg trades
+                            strikeDisplay = `<span style="color:${typeColor};">$${p.strike}<span style="color:#888;font-size:10px;">${optionType}</span></span>`;
+                            expiryDisplay = p.expiry;
+                            dteDisplay = p.dte ?? '-';
+                        }
+                        
                         return `
                         <tr style="border-top:1px solid #333;">
-                            <td style="padding:8px; color:#00ff88; font-weight:bold;">${p.ticker}${rollBadge}</td>
-                            <td style="padding:8px; color:${typeColor};">$${p.strike}<span style="color:#888;font-size:10px;">${optionType}</span></td>
-                            <td style="padding:8px;">${p.expiry}</td>
-                            <td style="padding:8px; color:#888;">${p.dte ?? '-'}</td>
-                            <td style="padding:8px; color:#00d9ff;">${p.credit ? '$' + p.credit.toFixed(0) : '-'}</td>
+                            <td style="padding:8px; color:#00ff88; font-weight:bold;">${p.ticker}${rollBadge}${skipBadge}${spreadBadge}</td>
+                            <td style="padding:8px;">${strikeDisplay}</td>
+                            <td style="padding:8px;">${expiryDisplay}</td>
+                            <td style="padding:8px;">${dteDisplay}</td>
+                            <td style="padding:8px; color:${crDrColor};">${p.credit ? '$' + p.credit.toFixed(0) + ' ' + crDrLabel : '-'}</td>
                             <td style="padding:8px; color:${p.annReturn && parseFloat(p.annReturn) >= 25 ? '#00ff88' : '#ffaa00'};">${p.annReturn ? p.annReturn + '%' : '-'}</td>
                             <td style="padding:8px; color:#888;">${new Date(p.stagedAt).toLocaleDateString()}</td>
                             <td style="padding:8px;">
                                 <div style="display:flex; flex-wrap:nowrap; gap:4px; justify-content:flex-start;">
-                                    <button onclick="window.checkMarginForTrade('${p.ticker}', ${p.strike}, ${p.premium || 0}, ${p.isCall || false}, ${p.isRoll || false})" 
-                                            title="Check margin requirement"
+                                    <button onclick="window.checkMarginForTrade('${p.ticker}', ${p.strike}, ${p.premium || 0}, ${p.isCall || false}, ${p.isRoll || false}, ${p.isDebit || false}, ${p.credit || 0}, ${p.isSkip || false}, '${p.type || ''}', ${p.upperStrike || 0})" 
+                                            title="Check margin/cost"
                                             style="background:#ffaa00; color:#000; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:11px; white-space:nowrap;">
                                         💳
                                     </button>
@@ -2617,7 +2688,118 @@ window.removeStagedTrade = function(id) {
 /**
  * Check margin requirement for a pending trade
  */
-window.checkMarginForTrade = async function(ticker, strike, premium, isCall = false, isRoll = false) {
+window.checkMarginForTrade = async function(ticker, strike, premium, isCall = false, isRoll = false, isDebit = false, totalCost = 0, isSkip = false, tradeType = '', upperStrike = 0) {
+    // Detect debit trades from type if flag not set (for backwards compatibility)
+    const isDebitTrade = isDebit || 
+        tradeType.includes('debit') || 
+        tradeType.includes('long_') || 
+        tradeType === 'skip_call';
+    
+    const isSpread = tradeType.includes('_spread') || upperStrike > 0;
+    
+    // DEBIT TRADES (long calls, debit spreads, SKIP) - no margin, just need cash
+    if (isDebitTrade) {
+        // Fetch buying power
+        let buyingPower = null;
+        try {
+            const res = await fetch('/api/schwab/accounts');
+            if (res.ok) {
+                const accounts = await res.json();
+                const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
+                buyingPower = marginAccount?.securitiesAccount?.currentBalances?.buyingPower;
+            }
+        } catch (e) {
+            console.log('[MARGIN] Account fetch error:', e);
+        }
+        
+        const cost = totalCost || (premium * 100);  // Use totalCost if provided, else premium × 100
+        const fmt = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        
+        let verdict, verdictColor, verdictBg;
+        if (buyingPower !== null) {
+            const afterTrade = buyingPower - cost;
+            if (afterTrade < 0) {
+                verdict = `❌ INSUFFICIENT - Need ${fmt(Math.abs(afterTrade))} more`;
+                verdictColor = '#ff5252';
+                verdictBg = 'rgba(255,82,82,0.2)';
+            } else {
+                verdict = `✅ OK - ${fmt(afterTrade)} remaining after purchase`;
+                verdictColor = '#00ff88';
+                verdictBg = 'rgba(0,255,136,0.2)';
+            }
+        } else {
+            verdict = '💡 Connect Schwab to check buying power';
+            verdictColor = '#888';
+            verdictBg = 'rgba(255,255,255,0.1)';
+        }
+        
+        // Show debit modal
+        document.getElementById('marginCheckModal')?.remove();
+        const modal = document.createElement('div');
+        modal.id = 'marginCheckModal';
+        modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:10000;';
+        modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+        
+        const tradeType = isSkip ? 'SKIP™ (LEAPS + Call)' : 
+                          isSpread ? (isCall ? 'Call Debit Spread' : 'Put Debit Spread') :
+                          isCall ? 'Long Call' : 'Long Put';
+        const badgeColor = isSkip ? '#8b5cf6' : isSpread ? '#00bcd4' : '#ff9800';
+        const strikeDisplay = isSpread && upperStrike ? `$${strike} / $${upperStrike}` : `$${strike}`;
+        
+        modal.innerHTML = `
+            <div style="background:#1a1a2e; border-radius:12px; padding:24px; border:2px solid ${badgeColor}; max-width:400px; width:90%;">
+                <h3 style="color:${badgeColor}; margin:0 0 16px 0;">
+                    💳 Cost Check: ${ticker} <span style="background:${badgeColor};color:#fff;padding:2px 6px;border-radius:4px;font-size:12px;margin-left:6px;">DEBIT</span>
+                </h3>
+                
+                <div style="background:#0d0d1a; border-radius:8px; padding:12px; margin-bottom:16px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <span style="color:#888;">Trade Type:</span>
+                        <span style="color:#fff;">${tradeType}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <span style="color:#888;">Strike(s):</span>
+                        <span style="color:#ffaa00;">${strikeDisplay}</span>
+                    </div>
+                    ${isSpread ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <span style="color:#888;">Max Loss:</span>
+                        <span style="color:#ff9800;">${fmt(cost)} (the debit paid)</span>
+                    </div>
+                    ` : ''}
+                    <div style="border-top:1px solid #333; padding-top:8px; margin-top:8px;">
+                        <div style="display:flex; justify-content:space-between;">
+                            <span style="color:#888;">Total Cost (Debit):</span>
+                            <span style="color:#ff9800; font-weight:bold; font-size:16px;">${fmt(cost)}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="font-size:12px; color:#888; margin-bottom:12px;">${isSpread ? '💡 Spread - long leg covers short leg. No shares needed, no margin!' : '💡 Debit trade - you pay upfront, no margin required'}</div>
+                
+                ${buyingPower !== null ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+                        <span style="color:#888;">Your Buying Power:</span>
+                        <span style="color:#00d9ff;">${fmt(buyingPower)}</span>
+                    </div>
+                ` : ''}
+                
+                <div style="background:${verdictBg}; border:1px solid ${verdictColor}; border-radius:8px; padding:12px; text-align:center; margin-bottom:16px;">
+                    <span style="color:${verdictColor}; font-weight:bold;">${verdict}</span>
+                </div>
+                
+                <button onclick="document.getElementById('marginCheckModal').remove()" 
+                        style="width:100%; padding:12px; background:#333; color:#fff; border:none; border-radius:8px; cursor:pointer;">
+                    Close
+                </button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        return;
+    }
+    
+    // CREDIT TRADES (short puts, covered calls) - margin calculation
+    // CREDIT TRADES (short puts, covered calls) - margin calculation
     // First fetch current stock price
     let spot = null;
     try {
@@ -3050,20 +3232,90 @@ ${pos.openingThesis.aiSummary.fullAnalysis}
 };
 
 /**
- * Format AI response with proper styling
+ * Format AI response with proper styling - converts markdown to beautiful HTML
  */
 function formatAIResponse(text) {
     if (!text) return '';
-    return text
-        .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#00d9ff;">$1</strong>')
-        .replace(/✅/g, '<span style="color:#00ff88;">✅</span>')
-        .replace(/⚠️/g, '<span style="color:#ffaa00;">⚠️</span>')
-        .replace(/❌/g, '<span style="color:#ff5252;">❌</span>')
-        .replace(/🟢/g, '<span style="color:#00ff88;">🟢</span>')
-        .replace(/🟡/g, '<span style="color:#ffaa00;">🟡</span>')
-        .replace(/🔴/g, '<span style="color:#ff5252;">🔴</span>')
-        .replace(/📈/g, '<span style="color:#00ff88;">📈</span>')
-        .replace(/📉/g, '<span style="color:#ff5252;">📉</span>');
+    
+    let html = text;
+    
+    // First, escape any existing HTML to prevent XSS
+    html = html
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    
+    // Convert ## headers (main sections) - with colored background
+    html = html.replace(/^## 🏆 (.*?)$/gm, 
+        '<div style="background:linear-gradient(135deg, rgba(34,197,94,0.2) 0%, rgba(34,197,94,0.1) 100%); border:1px solid rgba(34,197,94,0.4); border-radius:8px; padding:12px 16px; margin:20px 0 15px 0;"><span style="font-size:18px; font-weight:bold; color:#22c55e;">🏆 $1</span></div>');
+    
+    html = html.replace(/^## (.*?)$/gm, 
+        '<div style="background:rgba(147,51,234,0.15); border-left:4px solid #9333ea; padding:10px 15px; margin:20px 0 12px 0; font-size:16px; font-weight:bold; color:#a78bfa;">$1</div>');
+    
+    // Convert ### headers (subsections) - cyan accent
+    html = html.replace(/^### (.*?)$/gm, 
+        '<div style="color:#00d9ff; font-weight:bold; font-size:14px; margin:18px 0 8px 0; padding-bottom:5px; border-bottom:1px solid rgba(0,217,255,0.3);">$1</div>');
+    
+    // Convert bullet points with • or -
+    html = html.replace(/^• (.*?)$/gm, 
+        '<div style="margin:6px 0 6px 20px; padding-left:12px; border-left:2px solid #444;">$1</div>');
+    html = html.replace(/^- (.*?)$/gm, 
+        '<div style="margin:6px 0 6px 20px; padding-left:12px; border-left:2px solid #444;">$1</div>');
+    
+    // Convert numbered lists (1. 2. 3. etc)
+    html = html.replace(/^(\d+)\. (.*?)$/gm, 
+        '<div style="margin:8px 0 8px 20px; display:flex; gap:8px;"><span style="color:#8b5cf6; font-weight:bold; min-width:20px;">$1.</span><span style="flex:1;">$2</span></div>');
+    
+    // Convert warning lines (⚠️)
+    html = html.replace(/(⚠️[^<\n]*)/g, 
+        '<div style="background:rgba(255,170,0,0.1); border-left:3px solid #ffaa00; padding:8px 12px; margin:6px 0; color:#ffcc00;">$1</div>');
+    
+    // Convert bold **text** - make it stand out
+    html = html.replace(/\*\*([^*]+)\*\*/g, 
+        '<strong style="color:#fff; background:rgba(255,255,255,0.1); padding:1px 4px; border-radius:3px;">$1</strong>');
+    
+    // Style specific keywords/values
+    html = html.replace(/Max Profit:/g, '<span style="color:#22c55e; font-weight:bold;">Max Profit:</span>');
+    html = html.replace(/Max Loss:/g, '<span style="color:#ff5252; font-weight:bold;">Max Loss:</span>');
+    html = html.replace(/Breakeven:/g, '<span style="color:#ffaa00; font-weight:bold;">Breakeven:</span>');
+    html = html.replace(/Win Probability:/g, '<span style="color:#00d9ff; font-weight:bold;">Win Probability:</span>');
+    html = html.replace(/Risk\/Reward Ratio:/g, '<span style="color:#a78bfa; font-weight:bold;">Risk/Reward Ratio:</span>');
+    html = html.replace(/Buying Power Used:/g, '<span style="color:#8b5cf6; font-weight:bold;">Buying Power Used:</span>');
+    html = html.replace(/Delta Exposure:/g, '<span style="color:#00d9ff; font-weight:bold;">Delta Exposure:</span>');
+    html = html.replace(/Action:/g, '<span style="color:#22c55e; font-weight:bold;">Action:</span>');
+    html = html.replace(/Expiration:/g, '<span style="color:#ffaa00; font-weight:bold;">Expiration:</span>');
+    html = html.replace(/Credit\/Debit:/g, '<span style="color:#00d9ff; font-weight:bold;">Credit/Debit:</span>');
+    html = html.replace(/Contracts:/g, '<span style="color:#a78bfa; font-weight:bold;">Contracts:</span>');
+    
+    // Style dollar amounts - green for positive context, show them clearly
+    html = html.replace(/\$(\d+(?:,\d{3})*(?:\.\d{2})?)/g, 
+        '<span style="color:#00ff88; font-weight:bold;">$$1</span>');
+    
+    // Style percentages
+    html = html.replace(/(\d+(?:\.\d+)?%)/g, 
+        '<span style="color:#00d9ff; font-weight:bold;">$1</span>');
+    
+    // Convert emoji colors
+    html = html.replace(/✅/g, '<span style="color:#00ff88;">✅</span>');
+    html = html.replace(/❌/g, '<span style="color:#ff5252;">❌</span>');
+    html = html.replace(/🟢/g, '<span style="color:#00ff88;">🟢</span>');
+    html = html.replace(/🟡/g, '<span style="color:#ffaa00;">🟡</span>');
+    html = html.replace(/🔴/g, '<span style="color:#ff5252;">🔴</span>');
+    html = html.replace(/📈/g, '<span style="color:#00ff88;">📈</span>');
+    html = html.replace(/📉/g, '<span style="color:#ff5252;">📉</span>');
+    html = html.replace(/💡/g, '<span style="color:#ffaa00;">💡</span>');
+    html = html.replace(/📚/g, '<span style="color:#a78bfa;">📚</span>');
+    
+    // Convert line breaks to proper spacing (but not inside already-styled divs)
+    // Double line breaks = paragraph break
+    html = html.replace(/\n\n/g, '</p><p style="margin:12px 0;">');
+    // Single line breaks that aren't already handled
+    html = html.replace(/\n/g, '<br>');
+    
+    // Wrap in container
+    html = '<div style="line-height:1.6;">' + html + '</div>';
+    
+    return html;
 }
 
 /**
@@ -3618,6 +3870,243 @@ if (document.readyState === 'loading') {
 } else {
     init();
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * AI STRATEGY ADVISOR
+ * Analyzes ALL option strategies for a ticker and recommends the best one
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+// Store the last analysis result for staging
+let lastStrategyAdvisorResult = null;
+
+window.runStrategyAdvisor = async function() {
+    const tickerInput = document.getElementById('strategyAdvisorTicker');
+    const modelSelect = document.getElementById('strategyAdvisorModel');
+    const bpInput = document.getElementById('strategyAdvisorBP');
+    const riskSelect = document.getElementById('strategyAdvisorRisk');
+    const loadingDiv = document.getElementById('strategyAdvisorLoading');
+    const progressDiv = document.getElementById('strategyAdvisorProgress');
+    const resultDiv = document.getElementById('strategyAdvisorResult');
+    const contentDiv = document.getElementById('strategyAdvisorContent');
+    const headerSpan = document.getElementById('strategyAdvisorHeader');
+    const metaDiv = document.getElementById('strategyAdvisorMeta');
+    
+    const ticker = tickerInput?.value?.trim().toUpperCase();
+    if (!ticker) {
+        showNotification('Enter a ticker symbol', 'error');
+        tickerInput?.focus();
+        return;
+    }
+    
+    const model = modelSelect?.value || 'deepseek-r1:32b';
+    const buyingPower = parseFloat(bpInput?.value) || 25000;
+    const riskTolerance = riskSelect?.value || 'moderate';
+    
+    // Show loading state
+    loadingDiv.style.display = 'block';
+    resultDiv.style.display = 'none';
+    progressDiv.textContent = 'Fetching market data from Schwab...';
+    
+    try {
+        // Get existing positions for context
+        const existingPositions = state.positions || [];
+        
+        console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker}...`);
+        progressDiv.textContent = `Analyzing ${ticker} with ${model}...`;
+        
+        const response = await fetch('/api/ai/strategy-advisor', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ticker,
+                model,
+                buyingPower,
+                riskTolerance,
+                existingPositions
+            })
+        });
+        
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Strategy analysis failed');
+        }
+        
+        const data = await response.json();
+        console.log('[STRATEGY-ADVISOR] Response:', data);
+        
+        // Store for staging
+        lastStrategyAdvisorResult = data;
+        
+        // Hide loading, show result
+        loadingDiv.style.display = 'none';
+        resultDiv.style.display = 'block';
+        
+        // Update header with ticker and price
+        headerSpan.textContent = `📊 ${ticker} Strategy Recommendation`;
+        
+        // Build meta info
+        let metaHtml = `<span>Spot: $${data.spot?.toFixed(2) || '?'}</span>`;
+        if (data.ivRank !== null && data.ivRank !== undefined) {
+            const ivColor = data.ivRank > 60 ? '#ff5252' : (data.ivRank < 30 ? '#22c55e' : '#ffaa00');
+            metaHtml += ` • <span style="color:${ivColor}">IV Rank: ${data.ivRank}%</span>`;
+        }
+        metaHtml += ` • <span>Data: ${data.dataSource || 'Unknown'}</span>`;
+        metaHtml += ` • <span>Model: ${data.model}</span>`;
+        metaDiv.innerHTML = metaHtml;
+        
+        // Format the AI response (convert markdown to HTML)
+        contentDiv.innerHTML = formatAIResponse(data.recommendation);
+        
+        showNotification(`✅ Strategy analysis complete for ${ticker}`, 'success');
+        
+    } catch (e) {
+        console.error('[STRATEGY-ADVISOR] Error:', e);
+        loadingDiv.style.display = 'none';
+        showNotification(`❌ ${e.message}`, 'error');
+    }
+};
+
+// Stage the recommended trade from Strategy Advisor
+window.stageStrategyAdvisorTrade = function() {
+    if (!lastStrategyAdvisorResult) {
+        showNotification('No strategy analysis to stage', 'error');
+        return;
+    }
+    
+    const { ticker, spot, recommendation } = lastStrategyAdvisorResult;
+    
+    // Try to parse the recommendation to extract trade details
+    // Look for patterns like "Sell $95 Put", "Buy $100 Call / Sell $110 Call", etc.
+    let tradeType = 'short_put';
+    let strike = Math.round(spot * 0.95); // Default: 5% OTM put
+    let upperStrike = null;
+    let premium = null;
+    let expiry = null;
+    let isCall = false;
+    let isDebit = false;
+    
+    // Try to extract from "THE TRADE" section
+    const tradeMatch = recommendation?.match(/Action:\s*([^\n]+)/i);
+    if (tradeMatch) {
+        const action = tradeMatch[1];
+        console.log('[STRATEGY-ADVISOR] Parsed action:', action);
+        
+        // Detect spread
+        if (action.match(/sell.*buy|buy.*sell/i) && action.match(/\$\d+.*\$\d+/)) {
+            const strikes = action.match(/\$(\d+(?:\.\d+)?)/g)?.map(s => parseFloat(s.replace('$', '')));
+            if (strikes && strikes.length >= 2) {
+                strike = Math.min(...strikes);
+                upperStrike = Math.max(...strikes);
+                
+                if (action.match(/put/i)) {
+                    if (action.match(/sell.*\$.*put.*buy/i) || action.match(/bull put/i)) {
+                        tradeType = 'put_credit_spread';
+                        strike = Math.min(...strikes);
+                        upperStrike = Math.max(...strikes);
+                    } else {
+                        tradeType = 'put_debit_spread';
+                        isDebit = true;
+                        strike = Math.max(...strikes);
+                        upperStrike = Math.min(...strikes);
+                    }
+                } else if (action.match(/call/i)) {
+                    if (action.match(/buy.*\$.*call.*sell/i) || action.match(/bull call/i)) {
+                        tradeType = 'call_debit_spread';
+                        isDebit = true;
+                        isCall = true;
+                        strike = Math.min(...strikes);
+                        upperStrike = Math.max(...strikes);
+                    } else {
+                        tradeType = 'call_credit_spread';
+                        isCall = true;
+                        strike = Math.max(...strikes);
+                        upperStrike = Math.min(...strikes);
+                    }
+                }
+            }
+        }
+        // Single leg detection
+        else {
+            const strikeMatch = action.match(/\$(\d+(?:\.\d+)?)/);
+            if (strikeMatch) strike = parseFloat(strikeMatch[1]);
+            
+            if (action.match(/sell.*put/i) || action.match(/short.*put/i)) {
+                tradeType = 'short_put';
+            } else if (action.match(/buy.*put/i) || action.match(/long.*put/i)) {
+                tradeType = 'long_put';
+                isDebit = true;
+            } else if (action.match(/sell.*call/i) || action.match(/short.*call/i)) {
+                tradeType = 'covered_call';
+                isCall = true;
+            } else if (action.match(/buy.*call/i) || action.match(/long.*call/i)) {
+                tradeType = 'long_call';
+                isCall = true;
+                isDebit = true;
+            }
+        }
+    }
+    
+    // Try to extract expiration
+    const expMatch = recommendation?.match(/Expiration:\s*([^\n]+)/i);
+    if (expMatch) {
+        // Parse various date formats
+        const dateStr = expMatch[1].trim();
+        try {
+            // Try common formats like "2026-02-21", "Feb 21", "February 21, 2026"
+            const parsed = new Date(dateStr);
+            if (!isNaN(parsed)) {
+                expiry = parsed.toISOString().split('T')[0];
+            }
+        } catch (e) {
+            console.log('[STRATEGY-ADVISOR] Could not parse expiry:', dateStr);
+        }
+    }
+    
+    // Try to extract premium
+    const premMatch = recommendation?.match(/Credit\/Debit:\s*\$?(\d+(?:\.\d+)?)/i);
+    if (premMatch) {
+        premium = parseFloat(premMatch[1]);
+    }
+    
+    // Default expiry to ~45 days out if not found
+    if (!expiry) {
+        const defaultExpiry = new Date();
+        defaultExpiry.setDate(defaultExpiry.getDate() + 45);
+        // Find next Friday
+        while (defaultExpiry.getDay() !== 5) {
+            defaultExpiry.setDate(defaultExpiry.getDate() + 1);
+        }
+        expiry = defaultExpiry.toISOString().split('T')[0];
+    }
+    
+    // Stage the trade
+    const stagedTrade = {
+        ticker,
+        type: tradeType,
+        strike,
+        upperStrike,
+        premium: premium || null,
+        expiry,
+        contracts: 1,
+        isCall,
+        isDebit,
+        source: 'Strategy Advisor',
+        timestamp: Date.now(),
+        thesis: {
+            priceAtAnalysis: spot,
+            aiRecommendation: recommendation?.substring(0, 500) + '...'
+        }
+    };
+    
+    // Add to pending trades
+    if (!window.pendingTrades) window.pendingTrades = [];
+    window.pendingTrades.push(stagedTrade);
+    
+    renderPendingTrades();
+    showNotification(`✅ Staged ${ticker} ${tradeType.replace(/_/g, ' ')} from Strategy Advisor`, 'success');
+};
 
 /**
  * Ideas Tab: Discord Trade Analyzer (uses Ideas tab element IDs)

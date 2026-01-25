@@ -35,3 +35,4 @@ dist/
 
 # Secure credential storage
 .secure-store
+server_output.txt

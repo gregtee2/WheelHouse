@@ -2,6 +2,64 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.14.0] - 2026-01-24
+
+### Added
+- **🎓 AI Strategy Advisor** - Comprehensive strategy analysis for any ticker!
+  - Enter any ticker and AI analyzes ALL option strategies:
+    - Short Puts, Covered Calls, Long Calls
+    - Bull/Bear Put Spreads, Bull/Bear Call Spreads
+    - Iron Condors, SKIP™ Strategy
+  - Recommends the BEST strategy based on:
+    - Current IV rank (high = sell premium, low = buy premium)
+    - Stock's position in 3-month range
+    - Your buying power and risk tolerance
+    - Your existing positions (avoids concentration risk)
+  - Shows complete trade setup: strikes, expiration, credit/debit
+  - Explains risks, max profit/loss, breakeven, win probability
+  - Educational notes help you understand why each strategy fits
+  - One-click staging to add recommended trade to pending
+  - Data hierarchy: Schwab (real-time) → CBOE → Yahoo fallback
+
+- **🧠 Trading Pattern Memory** - AI remembers your past wins and losses!
+  - When analyzing a new trade, AI checks your closed positions for similar patterns
+  - Warns you about losing patterns: "TSLA short puts burned you before - 35% win rate"
+  - Encourages winning patterns: "MSTX short puts have 80% win rate for you!"
+  - Works in both Discord Analyzer and 💡 Get Insight
+  - Pattern matching: same ticker+type, same ticker, same strategy type
+
+- **📅 Custom Date Range Filtering** - Filter closed positions by any date range
+  - Year dropdown now includes "📅 Custom Range" option
+  - Pick From and To dates to analyze specific periods
+  - Perfect for monthly reviews, tax periods, or market event analysis
+  - Filter applies to table view, CSV export, and AI Historical Audit
+
+- **📊 AI Historical Audit** - AI analyzes your filtered closed trades
+  - New "🤖 AI Historical Audit" button in Portfolio tab
+  - Grades your trading period (A/B/C/D/F)
+  - Identifies what worked well and areas for improvement
+  - Finds patterns in your trading (concentrations, preferences)
+  - Provides actionable recommendations and key lessons
+  - Model selector: choose 7B/14B/32B/DeepSeek-R1/Grok
+
+- **📚 Comprehensive Feature Documentation** - New `docs/FEATURES.md`
+  - Detailed "How It Works" explanations for all major features
+  - Architecture diagrams and data flow explanations
+  - Thresholds, formulas, and decision logic documented
+  - Perfect for understanding the system and future maintenance
+
+### Changed
+- **Pattern Analysis Thresholds** - Tuned for meaningful insights
+  - Warning: <40% win rate OR <-$500 total P&L
+  - Encouragement: >=75% win rate AND >$100 avg P&L
+  - Minimum trade counts: 2 (ticker+type), 3 (ticker), 5 (type)
+
+### Technical Notes
+- Pattern data sent as lightweight `closedSummary` (ticker, type, strike, pnl only)
+- Pattern analysis runs server-side for consistent calculations
+- AI prompt includes `═══ YOUR HISTORICAL PATTERNS ═══` section when patterns exist
+- New functions: `analyzeHistoricalPattern()`, `formatPatternForAI()` in portfolio.js
+
 ## [1.13.0] - 2026-01-24
 
 ### Added

@@ -1580,6 +1580,7 @@ window.stageRollSuggestion = function(data) {
         premium: parseFloat(premium) || 0,
         delta: parseFloat(delta) || null,
         iv: parseFloat(iv) || null,
+        type: isCall ? 'short_call' : 'short_put',  // Rolls are typically short options
         isCall: isCall || false,
         isRoll: true,  // Flag that this came from roll suggestions
         stagedAt: new Date().toISOString()
@@ -1619,28 +1620,50 @@ window.stageAlternativeStrategy = function(ticker, strategyType, strike, current
     }
     
     // Determine trade details based on strategy type
-    let tradeDescription, tradeType, isCall;
+    let tradeDescription, tradeType, isCall, isDebit;
     
     switch (strategyType) {
         case 'long_call':
             tradeDescription = `Long Call $${strike}`;
             tradeType = 'long_call';
             isCall = true;
+            isDebit = true;  // Bought option
+            break;
+        case 'long_put':
+            tradeDescription = `Long Put $${strike}`;
+            tradeType = 'long_put';
+            isCall = false;
+            isDebit = true;  // Bought option
             break;
         case 'call_spread':
             tradeDescription = `Call Spread $${strike}/$${upperStrike}`;
             tradeType = 'call_debit_spread';
             isCall = true;
+            isDebit = true;  // Bull call spread is a debit
+            break;
+        case 'put_spread':
+            tradeDescription = `Put Spread $${strike}/$${upperStrike}`;
+            tradeType = 'put_debit_spread';
+            isCall = false;
+            isDebit = true;  // Bear put spread is a debit
             break;
         case 'short_put':
             tradeDescription = `Short Put $${strike}`;
             tradeType = 'short_put';
             isCall = false;
+            isDebit = false;  // Sold option = credit
+            break;
+        case 'short_call':
+            tradeDescription = `Short Call $${strike}`;
+            tradeType = 'short_call';
+            isCall = true;
+            isDebit = false;  // Sold option = credit
             break;
         default:
             tradeDescription = `${strategyType} $${strike}`;
             tradeType = strategyType;
             isCall = strategyType.includes('call');
+            isDebit = strategyType.includes('long') || strategyType.includes('debit');
     }
     
     // Check for duplicates
@@ -1663,6 +1686,7 @@ window.stageAlternativeStrategy = function(ticker, strategyType, strike, current
         iv: iv ? parseFloat(iv) : null,
         type: tradeType,
         isCall,
+        isDebit,  // Whether this is a debit (bought) vs credit (sold) position
         isAlternative: true,  // Flag that this came from alternative strategies
         description: tradeDescription,
         stagedAt: new Date().toISOString()
@@ -1724,6 +1748,8 @@ window.stageSkipStrategy = function(ticker, leapsStrike, leapsExpiry, leapsPrice
         totalInvestment: (parseFloat(leapsPrice) + parseFloat(skipPrice)) * 100,
         // Metadata
         isSkip: true,
+        isCall: true,  // SKIP strategies use CALLS
+        isDebit: true,  // SKIP strategies are bought (debit), not sold (credit)
         isAlternative: true,
         description: `SKIP™ $${leapsStrike}/${skipStrike}`,
         stagedAt: new Date().toISOString()
@@ -2606,6 +2632,16 @@ async function getAIInsight() {
         // Get chain history and total premium for rolled positions
         const { chainHistory, totalPremiumCollected } = getChainData(positionId);
         
+        // Gather closed positions summary for historical pattern matching
+        const closedPositions = state.closedPositions || [];
+        const closedSummary = closedPositions.length > 0 ? closedPositions.map(p => ({
+            ticker: p.ticker,
+            type: p.type,
+            strike: p.strike,
+            pnl: p.realizedPnL ?? p.closePnL ?? 0,
+            closeDate: p.closeDate
+        })) : null;
+        
         // Build request payload
         const requestData = {
             ticker: ticker,
@@ -2634,7 +2670,8 @@ async function getAIInsight() {
             portfolioContext: formatPortfolioContextForAI(),  // Include portfolio context from audit
             chainHistory: chainHistory.length > 1 ? chainHistory : null,  // Only include if rolled
             totalPremiumCollected: totalPremiumCollected,  // Net premium across all rolls
-            skipWisdom: !document.getElementById('aiWisdomToggle')?.checked  // True = pure mode (no wisdom)
+            skipWisdom: !document.getElementById('aiWisdomToggle')?.checked,  // True = pure mode (no wisdom)
+            closedSummary: closedSummary  // Historical trades for pattern matching
         };
         
         // Call our server endpoint
