@@ -84,13 +84,39 @@ function deleteSecureData(key) {
 // SERVER MANAGEMENT
 // ============================================
 
+function getOrCreateEncryptionKey() {
+    // Try to get existing key from secure storage
+    let key = getSecureData('encryption-master-key');
+    
+    if (!key) {
+        // Generate new 256-bit key
+        const crypto = require('crypto');
+        key = crypto.randomBytes(32).toString('hex');
+        saveSecureData('encryption-master-key', key);
+        console.log('[Security] Generated new encryption master key');
+    }
+    
+    return key;
+}
+
 function startServer() {
     const { spawn } = require('child_process');
     const serverPath = path.join(__dirname, '..', 'server.js');
     
+    // Get encryption key for secure storage
+    const encryptionKey = getOrCreateEncryptionKey();
+    
+    // Pass encryption key to server via environment
+    const env = {
+        ...process.env,
+        WHEELHOUSE_ENCRYPTION_KEY: encryptionKey,
+        WHEELHOUSE_ELECTRON_MODE: 'true'
+    };
+    
     serverProcess = spawn('node', [serverPath], {
         cwd: path.join(__dirname, '..'),
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: env
     });
     
     serverProcess.stdout.on('data', (data) => {

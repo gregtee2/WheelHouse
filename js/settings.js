@@ -55,8 +55,40 @@ async function loadSettings() {
         }
         
         console.log('[SETTINGS] Loaded from server');
+        
+        // Check security status
+        await checkSecurityStatus();
     } catch (error) {
         console.error('[SETTINGS] Load error:', error);
+    }
+}
+
+// ============================================================================
+// SECURITY STATUS
+// ============================================================================
+
+async function checkSecurityStatus() {
+    try {
+        const response = await fetch('/api/settings/security');
+        const data = await response.json();
+        
+        const banner = document.getElementById('securityBanner');
+        const icon = document.getElementById('securityIcon');
+        const status = document.getElementById('securityStatus');
+        
+        if (data.secureMode) {
+            banner.style.borderColor = '#6b9b7a';
+            banner.style.background = 'rgba(107, 155, 122, 0.1)';
+            icon.textContent = '🔒';
+            status.innerHTML = `<strong style="color:#6b9b7a;">Secure Mode Active</strong><br><span style="color:#888; font-size:11px;">Secrets encrypted with Windows Credential Manager (${data.securedKeys?.length || 0} keys secured)</span>`;
+        } else {
+            banner.style.borderColor = '#a89060';
+            banner.style.background = 'rgba(168, 144, 96, 0.1)';
+            icon.textContent = '⚠️';
+            status.innerHTML = `<strong style="color:#a89060;">Standard Mode</strong><br><span style="color:#888; font-size:11px;">Secrets stored in .env file. Use the Electron app for encrypted storage.</span>`;
+        }
+    } catch (error) {
+        console.error('[SETTINGS] Security check error:', error);
     }
 }
 

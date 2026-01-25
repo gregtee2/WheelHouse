@@ -5,12 +5,14 @@
  * - Allowlist of permitted keys
  * - Secret masking (never expose tokens to frontend)
  * - Localhost-only access for security
+ * - Secure storage integration when in Electron mode
  */
 
 const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs').promises;
+const secureStore = require('../secureStore');
 
 // ============================================================================
 // SECURITY CONFIGURATION
@@ -143,6 +145,7 @@ router.post('/', requireLocalhost, express.json(), async (req, res) => {
         }
         
         let updatedCount = 0;
+        let secureCount = 0;
         
         // Process each setting update
         for (const [key, value] of Object.entries(newSettings)) {
@@ -162,14 +165,21 @@ router.post('/', requireLocalhost, express.json(), async (req, res) => {
             // Sanitize value (prevent newline injection)
             const sanitizedValue = String(value).replace(/[\r\n]/g, '');
             
-            // Check if key exists in file
-            const regex = new RegExp(`^${key}=.*$`, 'm');
-            if (regex.test(envContent)) {
-                // Update existing key
-                envContent = envContent.replace(regex, `${key}=${sanitizedValue}`);
+            // Use secure storage for secrets when in Electron mode
+            if (secureStore.isSecure() && secureStore.SECURE_KEYS.has(key)) {
+                secureStore.set(key, sanitizedValue);
+                secureCount++;
+                console.log(`[SETTINGS] Stored ${key} in secure storage`);
             } else {
-                // Append new key
-                envContent = envContent.trimEnd() + `\n${key}=${sanitizedValue}\n`;
+                // Check if key exists in file
+                const regex = new RegExp(`^${key}=.*$`, 'm');
+                if (regex.test(envContent)) {
+                    // Update existing key
+                    envContent = envContent.replace(regex, `${key}=${sanitizedValue}`);
+                } else {
+                    // Append new key
+                    envContent = envContent.trimEnd() + `\n${key}=${sanitizedValue}\n`;
+                }
             }
             
             // Update process.env for immediate effect
@@ -177,14 +187,16 @@ router.post('/', requireLocalhost, express.json(), async (req, res) => {
             updatedCount++;
         }
         
-        // Write back to .env file
+        // Write back to .env file (even if some went to secure storage)
         await fs.writeFile(envPath, envContent, 'utf-8');
         
+        const secureMsg = secureCount > 0 ? ` (${secureCount} secured)` : '';
         res.json({ 
             success: true, 
-            message: `Settings saved successfully (${updatedCount} updated)` 
+            message: `Settings saved successfully (${updatedCount} updated${secureMsg})`,
+            secureMode: secureStore.isSecure()
         });
-        console.log(`[SETTINGS] Updated ${updatedCount} settings via API`);
+        console.log(`[SETTINGS] Updated ${updatedCount} settings via API${secureMsg}`);
     } catch (error) {
         console.error('[SETTINGS] Failed to save settings:', error.message);
         res.status(500).json({ success: false, error: error.message });
@@ -370,9 +382,24 @@ router.get('/schwab/status', requireLocalhost, async (req, res) => {
     res.json({
         configured: !!(appKey && refreshToken),
         hasAccessToken: !!accessToken,
+        hasRefreshToken: !!refreshToken,
         // Don't expose actual values
         appKeySet: !!appKey,
         refreshTokenSet: !!refreshToken
+    });
+});
+
+// ============================================================================
+// GET /api/settings/security - Check security status
+// ============================================================================
+router.get('/security', requireLocalhost, async (req, res) => {
+    res.json({
+        secureMode: secureStore.isSecure(),
+        electronMode: process.env.WHEELHOUSE_ELECTRON_MODE === 'true',
+        securedKeys: secureStore.isSecure() ? secureStore.getKeys() : [],
+        message: secureStore.isSecure() 
+            ? '🔒 Secrets encrypted with Windows Credential Manager' 
+            : '⚠️ Secrets stored in .env file (use Electron app for secure storage)'
     });
 });
 

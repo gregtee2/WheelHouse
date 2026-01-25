@@ -11,6 +11,14 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
 
+// Initialize secure storage if running in Electron mode
+const secureStore = require('./src/secureStore');
+if (process.env.WHEELHOUSE_ENCRYPTION_KEY) {
+    secureStore.initialize(process.env.WHEELHOUSE_ENCRYPTION_KEY);
+    // Migrate any secrets from .env to secure storage (one-time)
+    secureStore.migrateFromEnv();
+}
+
 // Import settings routes
 const settingsRoutes = require('./src/routes/settingsRoutes');
 const schwabRoutes = require('./src/routes/schwabRoutes');
