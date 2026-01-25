@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WheelHouse - Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0d0d1a 0%, #1a1a2e 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            color: #e0e0e0;
+        }
+        
+        .login-container {
+            background: rgba(20, 20, 35, 0.95);
+            border: 1px solid rgba(123, 163, 176, 0.3);
+            border-radius: 8px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 48px;
+        }
+        
+        h1 {
+            text-align: center;
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #7ba3b0;
+        }
+        
+        .subtitle {
+            text-align: center;
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 30px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .pin-input {
+            width: 100%;
+            padding: 12px;
+            background: rgba(50, 50, 70, 0.5);
+            border: 1px solid rgba(123, 163, 176, 0.3);
+            border-radius: 4px;
+            color: #7ba3b0;
+            font-size: 24px;
+            letter-spacing: 4px;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+            transition: border-color 0.3s;
+        }
+        
+        .pin-input:focus {
+            outline: none;
+            border-color: rgba(123, 163, 176, 0.6);
+            background: rgba(50, 50, 70, 0.8);
+        }
+        
+        .pin-dots {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        
+        .pin-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(123, 163, 176, 0.2);
+            transition: background-color 0.2s;
+        }
+        
+        .pin-dot.filled {
+            background: #7ba3b0;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+        
+        button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .btn-login {
+            background: rgba(107, 155, 122, 0.4);
+            color: #6b9b7a;
+            border: 1px solid rgba(107, 155, 122, 0.5);
+        }
+        
+        .btn-login:hover {
+            background: rgba(107, 155, 122, 0.6);
+            border-color: rgba(107, 155, 122, 0.8);
+        }
+        
+        .btn-login:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-setup {
+            background: rgba(123, 163, 176, 0.3);
+            color: #7ba3b0;
+            border: 1px solid rgba(123, 163, 176, 0.5);
+        }
+        
+        .btn-setup:hover {
+            background: rgba(123, 163, 176, 0.5);
+            border-color: rgba(123, 163, 176, 0.8);
+        }
+        
+        .message {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            text-align: center;
+            display: none;
+        }
+        
+        .message.error {
+            background: rgba(184, 122, 117, 0.2);
+            color: #b87a75;
+            border: 1px solid rgba(184, 122, 117, 0.3);
+        }
+        
+        .message.success {
+            background: rgba(107, 155, 122, 0.2);
+            color: #6b9b7a;
+            border: 1px solid rgba(107, 155, 122, 0.3);
+        }
+        
+        .message.show {
+            display: block;
+        }
+        
+        .setup-form {
+            display: none;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(123, 163, 176, 0.2);
+        }
+        
+        .setup-form.show {
+            display: block;
+        }
+        
+        .setup-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 11px;
+            color: #888;
+        }
+        
+        .version {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            font-size: 10px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">💰</div>
+        <h1>WheelHouse</h1>
+        <p class="subtitle">Wheel Strategy Analyzer</p>
+        
+        <div id="loginView">
+            <div class="form-group">
+                <label>Enter PIN</label>
+                <input 
+                    type="password" 
+                    id="pinInput" 
+                    class="pin-input" 
+                    placeholder="••••" 
+                    maxlength="6"
+                    inputmode="numeric"
+                >
+                <div class="pin-dots" id="pinDots"></div>
+            </div>
+            
+            <div class="message" id="message"></div>
+            
+            <div class="button-group">
+                <button class="btn-login" id="loginBtn" onclick="login()">Login</button>
+                <button class="btn-setup" onclick="toggleSetup()">Setup</button>
+            </div>
+            
+            <div class="setup-form" id="setupForm">
+                <div class="form-group">
+                    <label class="setup-label">Create New PIN (4-6 digits)</label>
+                    <input 
+                        type="password" 
+                        id="newPinInput" 
+                        class="pin-input" 
+                        placeholder="••••" 
+                        maxlength="6"
+                        inputmode="numeric"
+                    >
+                </div>
+                
+                <div class="form-group">
+                    <label class="setup-label">Confirm PIN</label>
+                    <input 
+                        type="password" 
+                        id="confirmPinInput" 
+                        class="pin-input" 
+                        placeholder="••••" 
+                        maxlength="6"
+                        inputmode="numeric"
+                    >
+                </div>
+                
+                <div class="button-group">
+                    <button class="btn-login" onclick="setupPin()">Create PIN</button>
+                    <button class="btn-setup" onclick="toggleSetup()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="version" id="version"></div>
+    
+    <script>
+        // Initialize
+        document.getElementById('version').textContent = 'v1.11.0';
+        updatePinDots();
+        
+        // Event listeners
+        document.getElementById('pinInput').addEventListener('input', updatePinDots);
+        document.getElementById('pinInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') login();
+        });
+        
+        document.getElementById('newPinInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') setupPin();
+        });
+        
+        document.getElementById('confirmPinInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') setupPin();
+        });
+        
+        function updatePinDots() {
+            const pin = document.getElementById('pinInput').value;
+            const dotsContainer = document.getElementById('pinDots');
+            dotsContainer.innerHTML = '';
+            
+            for (let i = 0; i < 6; i++) {
+                const dot = document.createElement('div');
+                dot.className = 'pin-dot';
+                if (i < pin.length) {
+                    dot.classList.add('filled');
+                }
+                dotsContainer.appendChild(dot);
+            }
+        }
+        
+        function toggleSetup() {
+            const setupForm = document.getElementById('setupForm');
+            setupForm.classList.toggle('show');
+            
+            if (setupForm.classList.contains('show')) {
+                document.getElementById('newPinInput').focus();
+            }
+        }
+        
+        async function login() {
+            const pin = document.getElementById('pinInput').value;
+            
+            if (!pin) {
+                showMessage('Please enter your PIN', 'error');
+                return;
+            }
+            
+            try {
+                // Request stored PIN hash from main process
+                const result = await window.electronAPI.secureStorage.get('pin-hash');
+                
+                if (!result) {
+                    showMessage('PIN not set. Use Setup to create one.', 'error');
+                    return;
+                }
+                
+                // Hash the entered PIN and compare
+                const enteredHash = await hashPin(pin);
+                
+                if (enteredHash === result) {
+                    showMessage('Login successful!', 'success');
+                    setTimeout(() => {
+                        // Send success to main process
+                        window.location.href = 'http://localhost:8888';
+                    }, 500);
+                } else {
+                    showMessage('Invalid PIN', 'error');
+                    document.getElementById('pinInput').value = '';
+                    updatePinDots();
+                }
+            } catch (err) {
+                console.error('Login error:', err);
+                showMessage('Login error: ' + err.message, 'error');
+            }
+        }
+        
+        async function setupPin() {
+            const newPin = document.getElementById('newPinInput').value;
+            const confirmPin = document.getElementById('confirmPinInput').value;
+            
+            if (!newPin || !confirmPin) {
+                showMessage('Please enter both PINs', 'error');
+                return;
+            }
+            
+            if (newPin.length < 4 || newPin.length > 6) {
+                showMessage('PIN must be 4-6 digits', 'error');
+                return;
+            }
+            
+            if (newPin !== confirmPin) {
+                showMessage('PINs do not match', 'error');
+                return;
+            }
+            
+            if (!/^\d+$/.test(newPin)) {
+                showMessage('PIN must contain only digits', 'error');
+                return;
+            }
+            
+            try {
+                // Hash and store PIN
+                const pinHash = await hashPin(newPin);
+                const success = await window.electronAPI.secureStorage.set('pin-hash', pinHash);
+                
+                if (success) {
+                    showMessage('PIN created successfully!', 'success');
+                    
+                    // Reset form
+                    setTimeout(() => {
+                        document.getElementById('newPinInput').value = '';
+                        document.getElementById('confirmPinInput').value = '';
+                        document.getElementById('setupForm').classList.remove('show');
+                        document.getElementById('pinInput').focus();
+                    }, 500);
+                } else {
+                    showMessage('Failed to save PIN', 'error');
+                }
+            } catch (err) {
+                console.error('Setup error:', err);
+                showMessage('Setup error: ' + err.message, 'error');
+            }
+        }
+        
+        function showMessage(text, type) {
+            const msg = document.getElementById('message');
+            msg.textContent = text;
+            msg.className = 'message ' + type + ' show';
+            
+            setTimeout(() => {
+                msg.classList.remove('show');
+            }, 4000);
+        }
+        
+        // Simple PIN hashing (for local storage - not cryptographic)
+        async function hashPin(pin) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(pin);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+    </script>
+</body>
+</html>
