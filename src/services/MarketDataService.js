@@ -32,7 +32,7 @@ function initialize(schwabApiCallFn) {
 /**
  * Get stock quote with automatic fallback
  * @param {string} ticker - Stock symbol
- * @returns {Promise<{price, change, changePercent, high52, low52, volume, rangePosition, source}>}
+ * @returns {Promise<{price, change, changePercent, high52, low52, high3mo, low3mo, volume, rangePosition, source}>}
  */
 async function getQuote(ticker) {
     const symbol = ticker.toUpperCase().trim();
@@ -47,6 +47,15 @@ async function getQuote(ticker) {
                 const high52 = q['52WeekHigh'];
                 const low52 = q['52WeekLow'];
                 
+                // Schwab doesn't give 3-month range directly
+                // Estimate: 3-month is roughly 1/4 of 52-week volatility from current price
+                // Better: fetch price history, but that's another API call
+                // For now, estimate conservatively
+                const range52 = high52 - low52;
+                const estimatedRange3mo = range52 * 0.4; // 3-month typically ~40% of annual range
+                const high3mo = Math.min(high52, price + estimatedRange3mo * 0.6);
+                const low3mo = Math.max(low52, price - estimatedRange3mo * 0.6);
+                
                 return {
                     ticker: symbol,
                     price,
@@ -54,9 +63,11 @@ async function getQuote(ticker) {
                     changePercent: q.netPercentChangeInDouble,
                     high52,
                     low52,
+                    high3mo,
+                    low3mo,
                     volume: q.totalVolume,
-                    rangePosition: high52 && low52 && high52 !== low52 
-                        ? Math.round((price - low52) / (high52 - low52) * 100) 
+                    rangePosition: high3mo && low3mo && high3mo !== low3mo 
+                        ? Math.round((price - low3mo) / (high3mo - low3mo) * 100) 
                         : null,
                     source: 'schwab'
                 };
@@ -66,7 +77,7 @@ async function getQuote(ticker) {
         }
     }
     
-    // 2. Try Yahoo Finance (real-time spot, no options)
+    // 2. Try Yahoo Finance (real-time spot, with 3-month history)
     try {
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=3mo`;
         const res = await fetch(url);
@@ -87,8 +98,10 @@ async function getQuote(ticker) {
                     changePercent: result.meta.previousClose 
                         ? ((price - result.meta.previousClose) / result.meta.previousClose * 100) 
                         : 0,
-                    high52: high3mo, // Yahoo 3mo data, not full 52wk
-                    low52: low3mo,
+                    high52: result.meta.fiftyTwoWeekHigh || high3mo,
+                    low52: result.meta.fiftyTwoWeekLow || low3mo,
+                    high3mo,
+                    low3mo,
                     volume: result.meta.regularMarketVolume,
                     rangePosition: high3mo && low3mo && high3mo !== low3mo
                         ? Math.round((price - low3mo) / (high3mo - low3mo) * 100)

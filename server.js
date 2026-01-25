@@ -761,6 +761,8 @@ const mainHandler = async (req, res, next) => {
                 changePercent: quote.changePercent,
                 high52: quote.high52,
                 low52: quote.low52,
+                high3mo: quote.high3mo,
+                low3mo: quote.low3mo,
                 volume: quote.volume,
                 rangePosition: quote.rangePosition
             };
