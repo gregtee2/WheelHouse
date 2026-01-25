@@ -3234,34 +3234,37 @@ function formatAIResponse(text) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
     
-    // Convert ## headers (main sections) - with colored background
-    html = html.replace(/^## 🏆 (.*?)$/gm, 
-        '<div style="background:linear-gradient(135deg, rgba(34,197,94,0.2) 0%, rgba(34,197,94,0.1) 100%); border:1px solid rgba(34,197,94,0.4); border-radius:8px; padding:12px 16px; margin:20px 0 15px 0;"><span style="font-size:18px; font-weight:bold; color:#22c55e;">🏆 $1</span></div>');
+    // IMPORTANT: Use function replacements to prevent $94 being interpreted as capture group 94
+    // When replacement string contains $N, JavaScript interprets it as backreference!
     
-    html = html.replace(/^## (.*?)$/gm, 
-        '<div style="background:rgba(147,51,234,0.15); border-left:4px solid #9333ea; padding:10px 15px; margin:20px 0 12px 0; font-size:16px; font-weight:bold; color:#a78bfa;">$1</div>');
+    // Convert ## headers (main sections) - with colored background
+    html = html.replace(/^## 🏆 (.*?)$/gm, (match, p1) =>
+        `<div style="background:linear-gradient(135deg, rgba(34,197,94,0.2) 0%, rgba(34,197,94,0.1) 100%); border:1px solid rgba(34,197,94,0.4); border-radius:8px; padding:12px 16px; margin:20px 0 15px 0;"><span style="font-size:18px; font-weight:bold; color:#22c55e;">🏆 ${p1}</span></div>`);
+    
+    html = html.replace(/^## (.*?)$/gm, (match, p1) =>
+        `<div style="background:rgba(147,51,234,0.15); border-left:4px solid #9333ea; padding:10px 15px; margin:20px 0 12px 0; font-size:16px; font-weight:bold; color:#a78bfa;">${p1}</div>`);
     
     // Convert ### headers (subsections) - cyan accent
-    html = html.replace(/^### (.*?)$/gm, 
-        '<div style="color:#00d9ff; font-weight:bold; font-size:14px; margin:18px 0 8px 0; padding-bottom:5px; border-bottom:1px solid rgba(0,217,255,0.3);">$1</div>');
+    html = html.replace(/^### (.*?)$/gm, (match, p1) =>
+        `<div style="color:#00d9ff; font-weight:bold; font-size:14px; margin:18px 0 8px 0; padding-bottom:5px; border-bottom:1px solid rgba(0,217,255,0.3);">${p1}</div>`);
     
     // Convert bullet points with • or -
-    html = html.replace(/^• (.*?)$/gm, 
-        '<div style="margin:6px 0 6px 20px; padding-left:12px; border-left:2px solid #444;">$1</div>');
-    html = html.replace(/^- (.*?)$/gm, 
-        '<div style="margin:6px 0 6px 20px; padding-left:12px; border-left:2px solid #444;">$1</div>');
+    html = html.replace(/^• (.*?)$/gm, (match, p1) =>
+        `<div style="margin:6px 0 6px 20px; padding-left:12px; border-left:2px solid #444;">${p1}</div>`);
+    html = html.replace(/^- (.*?)$/gm, (match, p1) =>
+        `<div style="margin:6px 0 6px 20px; padding-left:12px; border-left:2px solid #444;">${p1}</div>`);
     
     // Convert numbered lists (1. 2. 3. etc)
-    html = html.replace(/^(\d+)\. (.*?)$/gm, 
-        '<div style="margin:8px 0 8px 20px; display:flex; gap:8px;"><span style="color:#8b5cf6; font-weight:bold; min-width:20px;">$1.</span><span style="flex:1;">$2</span></div>');
+    html = html.replace(/^(\d+)\. (.*?)$/gm, (match, p1, p2) =>
+        `<div style="margin:8px 0 8px 20px; display:flex; gap:8px;"><span style="color:#8b5cf6; font-weight:bold; min-width:20px;">${p1}.</span><span style="flex:1;">${p2}</span></div>`);
     
     // Convert warning lines (⚠️)
-    html = html.replace(/(⚠️[^<\n]*)/g, 
-        '<div style="background:rgba(255,170,0,0.1); border-left:3px solid #ffaa00; padding:8px 12px; margin:6px 0; color:#ffcc00;">$1</div>');
+    html = html.replace(/(⚠️[^<\n]*)/g, (match, p1) =>
+        `<div style="background:rgba(255,170,0,0.1); border-left:3px solid #ffaa00; padding:8px 12px; margin:6px 0; color:#ffcc00;">${p1}</div>`);
     
     // Convert bold **text** - make it stand out
-    html = html.replace(/\*\*([^*]+)\*\*/g, 
-        '<strong style="color:#fff; background:rgba(255,255,255,0.1); padding:1px 4px; border-radius:3px;">$1</strong>');
+    html = html.replace(/\*\*([^*]+)\*\*/g, (match, p1) =>
+        `<strong style="color:#fff; background:rgba(255,255,255,0.1); padding:1px 4px; border-radius:3px;">${p1}</strong>`);
     
     // Style specific keywords/values
     html = html.replace(/Max Profit:/g, '<span style="color:#22c55e; font-weight:bold;">Max Profit:</span>');
@@ -3277,12 +3280,13 @@ function formatAIResponse(text) {
     html = html.replace(/Contracts:/g, '<span style="color:#a78bfa; font-weight:bold;">Contracts:</span>');
     
     // Style dollar amounts - green for positive context, show them clearly
-    html = html.replace(/\$(\d+(?:,\d{3})*(?:\.\d{2})?)/g, 
-        '<span style="color:#00ff88; font-weight:bold;">$$1</span>');
+    // Use function to prevent $94 being interpreted as capture group 94
+    html = html.replace(/\$(\d+(?:,\d{3})*(?:\.\d{2})?)/g, (match, p1) =>
+        `<span style="color:#00ff88; font-weight:bold;">$${p1}</span>`);
     
     // Style percentages
-    html = html.replace(/(\d+(?:\.\d+)?%)/g, 
-        '<span style="color:#00d9ff; font-weight:bold;">$1</span>');
+    html = html.replace(/(\d+(?:\.\d+)?%)/g, (match, p1) =>
+        `<span style="color:#00d9ff; font-weight:bold;">${p1}</span>`);
     
     // Convert emoji colors
     html = html.replace(/✅/g, '<span style="color:#00ff88;">✅</span>');

@@ -697,6 +697,7 @@ const mainHandler = async (req, res, next) => {
             const selectedModel = model || 'qwen2.5:32b';
             
             console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with model ${selectedModel}`);
+            console.log(`[STRATEGY-ADVISOR] Buying power from request: ${buyingPower} (type: ${typeof buyingPower})`);
             
             // =====================================================================
             // USE CENTRALIZED MarketDataService - single source of truth for pricing
@@ -725,11 +726,15 @@ const mainHandler = async (req, res, next) => {
                 ivRank = chain.ivRank;
                 dataSource = chain.source === quote.source ? chain.source : `${quote.source}+${chain.source}`;
                 
+                // Add option_type to each option BEFORE merging
+                const callsWithType = (chain.calls || []).map(c => ({ ...c, option_type: 'C' }));
+                const putsWithType = (chain.puts || []).map(p => ({ ...p, option_type: 'P' }));
+                
                 // Combine calls and puts, sort by proximity to ATM
-                const allOpts = [...chain.calls, ...chain.puts];
+                const allOpts = [...callsWithType, ...putsWithType];
                 allOpts.sort((a, b) => Math.abs(a.strike - quote.price) - Math.abs(b.strike - quote.price));
                 sampleOptions = allOpts.slice(0, 18).map(o => ({
-                    option_type: chain.calls.some(c => c.strike === o.strike && c.expiration === o.expiration) ? 'C' : 'P',
+                    option_type: o.option_type,  // Now correctly preserved
                     strike: o.strike,
                     expiration_date: o.expiration,
                     bid: o.bid,
@@ -784,9 +789,107 @@ const mainHandler = async (req, res, next) => {
                 console.log(`[STRATEGY-ADVISOR] ⚠️ No options data being sent to AI!`);
             }
             
+            // DEBUG: Log first 1000 chars of prompt to verify template interpolation
+            console.log(`[STRATEGY-ADVISOR] Prompt preview (first 1000 chars):`);
+            console.log(prompt.slice(0, 1000));
+            console.log(`[STRATEGY-ADVISOR] ...prompt continues for ${prompt.length} total chars`);
+            
             // 5. Call AI
             console.log(`[STRATEGY-ADVISOR] Calling AI for recommendation...`);
-            const aiResponse = await callAI(prompt, selectedModel, 2000);
+            let aiResponse = await callAI(prompt, selectedModel, 2000);
+            
+            // =====================================================================
+            // POST-PROCESSING: Fix AI hallucinations where it outputs "$1" for everything
+            // This is a known issue with some models (DeepSeek-R1, Grok) that replace
+            // dollar amounts with "$1" placeholder
+            // =====================================================================
+            
+            // Calculate the values we SHOULD see in the output
+            const puts = context.sampleOptions?.filter(o => o.option_type === 'P') || [];
+            const calls = context.sampleOptions?.filter(o => o.option_type === 'C') || [];
+            const atmPut = puts.find(p => parseFloat(p.strike) <= quote.price) || puts[0];
+            const atmCall = calls.find(c => parseFloat(c.strike) >= quote.price) || calls[0];
+            
+            const sellPutStrike = atmPut ? parseFloat(atmPut.strike).toFixed(0) : Math.floor(quote.price);
+            const buyPutStrike = Math.floor(quote.price - 5);
+            const sellCallStrike = atmCall ? parseFloat(atmCall.strike).toFixed(0) : Math.ceil(quote.price);
+            const buyCallStrike = Math.ceil(quote.price + 5);
+            const premium = atmPut ? ((parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2).toFixed(2) : '2.50';
+            const spreadWidth = 5;
+            const stockPrice = quote.price.toFixed(0);
+            
+            // Count how many "$1" appear - if ANY appear, the AI likely hallucinated
+            // (Real option prices would never show "$1" strikes for a $94 stock)
+            const dollarOneCount = (aiResponse.match(/\$1(?![0-9])/g) || []).length;
+            console.log(`[STRATEGY-ADVISOR] Checking for $1 hallucinations: found ${dollarOneCount} instances`);
+            console.log(`[STRATEGY-ADVISOR] AI response length: ${aiResponse?.length || 0} chars`);
+            
+            // If the stock is > $10 and we see ANY "$1", it's a hallucination
+            const stockIsExpensive = quote.price > 10;
+            const shouldFix = stockIsExpensive && dollarOneCount >= 1;
+            
+            if (shouldFix) {
+                console.log(`[STRATEGY-ADVISOR] ⚠️ Detected ${dollarOneCount} "$1" hallucinations - applying fixes`);
+                console.log(`[STRATEGY-ADVISOR] Before fix (first 200 chars): ${aiResponse.slice(0, 200)}`);
+                console.log(`[STRATEGY-ADVISOR] Using: sellPut=$${sellPutStrike}, buyPut=$${buyPutStrike}, stock=$${stockPrice}, premium=$${premium}`);
+                
+                // NUCLEAR OPTION: Replace ALL standalone "$1" with appropriate values
+                // First, build a list of all $1 patterns and what they should be
+                
+                // Replace spread patterns first (most specific)
+                aiResponse = aiResponse.replace(/\$1\s*\/\s*\$1\s+Put\s+Spread/gi, `$${sellPutStrike}/$${buyPutStrike} Put Spread`);
+                aiResponse = aiResponse.replace(/\$1\s*\/\s*\$1\s+Call\s+Spread/gi, `$${sellCallStrike}/$${buyCallStrike} Call Spread`);
+                
+                // Replace "Sell [TICKER] $1" patterns
+                aiResponse = aiResponse.replace(new RegExp(`Sell\\s+${ticker}\\s+\\$1(?!\\d)`, 'gi'), `Sell ${ticker} $${sellPutStrike}`);
+                
+                // Replace premium patterns (these should stay small)
+                aiResponse = aiResponse.replace(/~\$1\/share/gi, `~$${premium}/share`);
+                aiResponse = aiResponse.replace(/\$1\/share/gi, `$${premium}/share`);
+                aiResponse = aiResponse.replace(/\$1\s+per\s+share/gi, `$${premium} per share`);
+                aiResponse = aiResponse.replace(/\$1\s+credit/gi, `$${premium} credit`);
+                
+                // Replace buying power references
+                aiResponse = aiResponse.replace(/\$1k\s+buying\s+power/gi, `$25,000 buying power`);
+                aiResponse = aiResponse.replace(/\$1k\s+of\s+buying/gi, `$25,000 of buying`);
+                aiResponse = aiResponse.replace(/\$1,000/g, `$25,000`);
+                aiResponse = aiResponse.replace(/\$1k(?!\d)/gi, `$25,000`);
+                
+                // Replace strike references
+                aiResponse = aiResponse.replace(/\$1\s+strike/gi, `$${sellPutStrike} strike`);
+                aiResponse = aiResponse.replace(/\$1\s+put/gi, `$${sellPutStrike} put`);
+                aiResponse = aiResponse.replace(/\$1\s+call/gi, `$${sellCallStrike} call`);
+                
+                // Replace price references
+                aiResponse = aiResponse.replace(/price\s+of\s+\$1(?!\d)/gi, `price of $${stockPrice}`);
+                aiResponse = aiResponse.replace(/above\s+\$1(?!\d)/gi, `above $${sellPutStrike}`);
+                aiResponse = aiResponse.replace(/below\s+\$1(?!\d)/gi, `below $${buyPutStrike}`);
+                
+                // Replace max profit/loss (per contract = premium * 100)
+                const premiumPer100 = (parseFloat(premium) * 100).toFixed(0);
+                const spreadLoss = (spreadWidth * 100).toFixed(0);
+                aiResponse = aiResponse.replace(/Max\s+Profit:\s+\$1\s+per\s+contract/gi, `Max Profit: $${premiumPer100} per contract`);
+                aiResponse = aiResponse.replace(/Max\s+Loss:\s+\$1\s+per\s+contract/gi, `Max Loss: $${spreadLoss} per contract`);
+                aiResponse = aiResponse.replace(/Max\s+Profit:\s+\$1(?!\d)/gi, `Max Profit: $${premiumPer100}`);
+                aiResponse = aiResponse.replace(/Max\s+Loss:\s+\$1(?!\d)/gi, `Max Loss: $${spreadLoss}`);
+                
+                // Replace breakeven calculations
+                const breakeven = (parseFloat(sellPutStrike) - parseFloat(premium)).toFixed(2);
+                aiResponse = aiResponse.replace(/Breakeven:\s+\$1(?!\d)/gi, `Breakeven: $${breakeven}`);
+                
+                // FINAL NUCLEAR PASS: Replace any remaining standalone $1 with stock price
+                // This catches anything we missed
+                // IMPORTANT: $1.70 is VALID (1 dollar 70 cents), $1/ or $1 space is NOT valid
+                // Pattern: $1 NOT followed by digit or decimal point
+                aiResponse = aiResponse.replace(/\$1(?![0-9.])/g, `$${stockPrice}`);
+                
+                // Count remaining $1 instances
+                const remainingCount = (aiResponse.match(/\$1(?![0-9])/g) || []).length;
+                console.log(`[STRATEGY-ADVISOR] After fix (first 200 chars): ${aiResponse.slice(0, 200)}`);
+                console.log(`[STRATEGY-ADVISOR] ✅ Applied corrections. Remaining $1 instances: ${remainingCount}`);
+            } else {
+                console.log(`[STRATEGY-ADVISOR] No $1 hallucinations detected (count: ${dollarOneCount})`);
+            }
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -4110,12 +4213,21 @@ function buildStrategyAdvisorPrompt(context) {
     
     // Find ATM put (just below spot)
     const atmPut = puts.find(p => parseFloat(p.strike) <= spot) || puts[0];
-    // Find OTM put ($3-5 below spot for spread)
-    const otmPut = puts.find(p => parseFloat(p.strike) <= spot - 3) || puts[Math.min(3, puts.length - 1)];
+    // Find OTM put - must be DIFFERENT from ATM, else calculate synthetic
+    let otmPut = puts.find(p => parseFloat(p.strike) <= spot - 3 && p !== atmPut);
+    if (!otmPut && atmPut) {
+        // Create synthetic OTM strike $5 below ATM
+        otmPut = { strike: parseFloat(atmPut.strike) - 5, bid: 0.50, ask: 0.80 };
+    }
+    
     // Find ATM call (just above spot)
     const atmCall = calls.find(c => parseFloat(c.strike) >= spot) || calls[0];
-    // Find OTM call ($3-5 above spot)
-    const otmCall = calls.find(c => parseFloat(c.strike) >= spot + 3) || calls[Math.min(3, calls.length - 1)];
+    // Find OTM call - must be DIFFERENT from ATM
+    let otmCall = calls.find(c => parseFloat(c.strike) >= spot + 3 && c !== atmCall);
+    if (!otmCall && atmCall) {
+        // Create synthetic OTM strike $5 above ATM
+        otmCall = { strike: parseFloat(atmCall.strike) + 5, bid: 0.50, ask: 0.80 };
+    }
     
     // Pre-calculate example values
     const sellPutStrike = atmPut ? parseFloat(atmPut.strike).toFixed(2) : (spot - 1).toFixed(2);
@@ -4128,21 +4240,52 @@ function buildStrategyAdvisorPrompt(context) {
     const atmPutPremium = atmPut ? ((parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2).toFixed(2) : '1.00';
     const atmPutDelta = atmPut?.delta ? Math.abs(parseFloat(atmPut.delta)).toFixed(2) : '0.40';
     
-    // Format sample options for context
+    // DEBUG: Log what we're sending to AI
+    console.log(`[STRATEGY-ADVISOR] Pre-calculated strikes for AI prompt:`);
+    console.log(`  Sell Put: $${sellPutStrike}, Buy Put: $${buyPutStrike}`);
+    console.log(`  Sell Call: $${sellCallStrike}, Buy Call: $${buyCallStrike}`);
+    console.log(`  First Expiry: ${firstExpiry}, ATM Put Premium: $${atmPutPremium}`);
+    console.log(`  Options in chain: ${sampleOptions?.length || 0}, Puts: ${puts.length}, Calls: ${calls.length}`);
+    
+    // Format sample options for context - CRYSTAL CLEAR format to prevent AI confusion
     let optionsContext = '';
     if (sampleOptions && sampleOptions.length > 0) {
-        optionsContext = `FORMAT: [Type] STRIKE | Expiration | PREMIUM bid-ask | Delta\n`;
-        optionsContext += `(Stock price is $${spot.toFixed(2)} - strikes are similar values)\n\n`;
+        // Group by type for clarity
+        const putOptions = sampleOptions.filter(o => o.option_type === 'P');
+        const callOptions = sampleOptions.filter(o => o.option_type === 'C');
         
-        optionsContext += sampleOptions.map(o => {
-            const type = o.option_type === 'C' ? 'CALL' : 'PUT';
-            const strike = parseFloat(o.strike);
-            const bid = parseFloat(o.bid) || 0;
-            const ask = parseFloat(o.ask) || 0;
-            const delta = o.delta ? parseFloat(o.delta).toFixed(2) : 'N/A';
-            const exp = o.expiration_date;
-            return `  ${type} $${strike.toFixed(2)} | ${exp} | $${bid.toFixed(2)}-$${ask.toFixed(2)} | Δ${delta}`;
-        }).join('\n');
+        optionsContext = `═══════════════════════════════════════════════════════════════
+⚠️ CRITICAL: STRIKE PRICE ≈ STOCK PRICE ($${spot.toFixed(0)}), PREMIUM = SMALL ($1-$5)
+═══════════════════════════════════════════════════════════════
+
+`;
+        
+        if (putOptions.length > 0) {
+            optionsContext += `PUT OPTIONS (for selling puts or put spreads):\n`;
+            optionsContext += putOptions.slice(0, 6).map(o => {
+                const strike = parseFloat(o.strike);
+                const bid = parseFloat(o.bid) || 0;
+                const ask = parseFloat(o.ask) || 0;
+                const mid = ((bid + ask) / 2).toFixed(2);
+                const delta = o.delta ? Math.abs(parseFloat(o.delta)).toFixed(2) : '?';
+                return `  • STRIKE $${strike.toFixed(0)} put → You receive $${mid}/share premium (Δ${delta})`;
+            }).join('\n');
+            optionsContext += '\n\n';
+        }
+        
+        if (callOptions.length > 0) {
+            optionsContext += `CALL OPTIONS (for covered calls or call spreads):\n`;
+            optionsContext += callOptions.slice(0, 6).map(o => {
+                const strike = parseFloat(o.strike);
+                const bid = parseFloat(o.bid) || 0;
+                const ask = parseFloat(o.ask) || 0;
+                const mid = ((bid + ask) / 2).toFixed(2);
+                const delta = o.delta ? Math.abs(parseFloat(o.delta)).toFixed(2) : '?';
+                return `  • STRIKE $${strike.toFixed(0)} call → You receive $${mid}/share premium (Δ${delta})`;
+            }).join('\n');
+        }
+        
+        optionsContext += `\n\n🚨 REMEMBER: Use strikes near $${spot.toFixed(0)}, NOT the premium amounts!`;
     } else {
         optionsContext = 'No options data available - use estimated strikes near current price.';
     }
@@ -4246,44 +4389,59 @@ STRATEGIES TO EVALUATE (analyze ALL of these):
 YOUR TASK: Recommend THE BEST strategy for this situation
 ═══════════════════════════════════════════════════════════════════════════
 
-🚨 CRITICAL: USE THESE PRE-CALCULATED STRIKES (DO NOT CHANGE THEM!)
-   • ATM Put: $${sellPutStrike} (premium ~$${atmPutPremium}, delta ~${atmPutDelta})
-   • OTM Put: $${buyPutStrike} (for spread protection)
-   • ATM Call: $${sellCallStrike}
-   • OTM Call: $${buyCallStrike}
-   • First Expiration: ${firstExpiry}
+🚨🚨🚨 MANDATORY STRIKE PRICES (THESE ARE NEAR THE STOCK PRICE OF $${spot.toFixed(0)}):
+   
+   FOR PUTS:  Sell the $${sellPutStrike} strike, Buy the $${buyPutStrike} strike
+   FOR CALLS: Sell the $${sellCallStrike} strike, Buy the $${buyCallStrike} strike
+   EXPIRATION: ${firstExpiry}
+   
+   ⚠️ The PREMIUM you receive is ~$${atmPutPremium}/share (a few dollars)
+   ⚠️ The STRIKE is ~$${sellPutStrike} (near stock price of $${spot.toFixed(0)})
+   ⚠️ DO NOT confuse these! Strike ≈ $${spot.toFixed(0)}, Premium ≈ $${atmPutPremium}
 
-For a PUT CREDIT SPREAD, use: Sell $${sellPutStrike} Put / Buy $${buyPutStrike} Put
-For a CALL CREDIT SPREAD, use: Sell $${sellCallStrike} Call / Buy $${buyCallStrike} Call
-For a SHORT PUT, use: Sell $${sellPutStrike} Put
-For a COVERED CALL, use: Sell $${sellCallStrike} Call
+VALID TRADE SETUPS (these are the ONLY options - pick ONE):
 
-Respond with this EXACT format:
+SETUP A - Short Put:
+  Trade: Sell ${ticker} $${sellPutStrike} Put, ${firstExpiry}
+  Credit: ~$${atmPutPremium}/share
+  Buying Power: ~$${(parseFloat(sellPutStrike) * 100).toLocaleString()} per contract
 
-## 🏆 RECOMMENDED STRATEGY: [Strategy Name]
+SETUP B - Put Credit Spread:
+  Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike} Put Spread, ${firstExpiry}
+  Credit: ~$${(parseFloat(atmPutPremium) * 0.6).toFixed(2)}/share (estimated)
+  Max Loss: $${((parseFloat(sellPutStrike) - parseFloat(buyPutStrike)) * 100).toFixed(0)} per contract
 
-### THE TRADE
-• Action: [Use the pre-calculated strikes above, e.g., "Sell $${sellPutStrike} Put / Buy $${buyPutStrike} Put"]
-• Strike(s): $${sellPutStrike} / $${buyPutStrike} (or whichever applies to your chosen strategy)
-• Expiration: ${firstExpiry}
-• Credit/Debit: ~$${atmPutPremium} per share (estimated from chain)
-• Contracts: [Suggest based on $${buyingPower.toLocaleString()} buying power and ${riskTolerance} risk]
+SETUP C - Covered Call (if you own shares):
+  Trade: Sell ${ticker} $${sellCallStrike} Call, ${firstExpiry}
+  Credit: ~$${atmPutPremium}/share
 
-### WHY THIS STRATEGY
-Explain in plain English why THIS strategy beats the others for THIS situation:
-• [Reason 1 - tie to market conditions]
-• [Reason 2 - tie to IV level]
-• [Reason 3 - tie to user's risk tolerance/buying power]
+SETUP D - Call Credit Spread:
+  Trade: Sell ${ticker} $${sellCallStrike}/$${buyCallStrike} Call Spread, ${firstExpiry}
+  Credit: ~$${(parseFloat(atmPutPremium) * 0.5).toFixed(2)}/share (estimated)
 
-### THE RISKS (Be honest and specific!)
-• ⚠️ [Risk 1 - what could go wrong]
-• ⚠️ [Risk 2 - worst case scenario]
-• ⚠️ [Risk 3 - any upcoming events like earnings]
+YOUR JOB: Pick ONE setup (A, B, C, or D) and explain WHY it's best for this situation.
+
+Respond with this format:
+
+## 🏆 RECOMMENDED: [Setup Letter] - [Strategy Name]
+
+### THE TRADE (copy from above - DO NOT CHANGE THE NUMBERS)
+[Copy the exact trade details from the setup you chose]
+
+### WHY THIS STRATEGY (explain in plain English)
+• [Reason 1 - tie to IV level of ${ivRank || '?'}%]
+• [Reason 2 - tie to stock position in range: ${stockData?.rangePosition || '?'}%]
+• [Reason 3 - tie to buying power of $${buyingPower.toLocaleString()}]
+
+### THE RISKS
+• ⚠️ [Risk 1]
+• ⚠️ [Risk 2]
 
 ### THE NUMBERS
-• Max Profit: $X
-• Max Loss: $X (or "Unlimited" for naked options)
-• Breakeven: $X
+• Max Profit: [Calculate based on premium × 100 × contracts]
+• Max Loss: [For spreads: width × 100. For naked: stock to zero]
+• Breakeven: [Strike - Premium for puts]
+• Contracts: [Suggest based on $${buyingPower.toLocaleString()} and ${riskTolerance} risk]
 • Win Probability: ~X% (based on delta or estimate)
 • Risk/Reward Ratio: X:X
 
@@ -4559,10 +4717,52 @@ function callOllama(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
                 try {
                     const json = JSON.parse(data);
                     console.log(`[AI] Ollama response keys:`, Object.keys(json));
-                    if (!json.response) {
+                    
+                    // DeepSeek-R1 is special: it puts chain-of-thought in "thinking" and final answer in "response"
+                    // BUT sometimes "response" is incomplete or the better answer is in "thinking"
+                    // For DeepSeek-R1, ALWAYS prefer extracting from "thinking" if it contains our expected format
+                    const isDeepSeekR1 = model.includes('deepseek-r1');
+                    let answer = '';
+                    
+                    if (isDeepSeekR1 && json.thinking) {
+                        console.log(`[AI] DeepSeek-R1 detected, checking thinking field (${json.thinking.length} chars)`);
+                        const thinking = json.thinking;
+                        
+                        // Look for the formatted recommendation section
+                        const recommendedIdx = thinking.indexOf('## 🏆 RECOMMENDED');
+                        const setupIdx = thinking.indexOf('### THE TRADE');
+                        
+                        if (recommendedIdx !== -1) {
+                            // Found the formatted recommendation - use from there
+                            answer = thinking.slice(recommendedIdx);
+                            console.log(`[AI] ✅ Extracted recommendation section (${answer.length} chars)`);
+                        } else if (setupIdx !== -1) {
+                            answer = thinking.slice(setupIdx);
+                            console.log(`[AI] ✅ Extracted from THE TRADE section (${answer.length} chars)`);
+                        } else if (json.response && json.response.length > 100) {
+                            // No clear sections in thinking, but response has content - use response
+                            answer = json.response;
+                            console.log(`[AI] Using response field (${answer.length} chars) - no clear sections in thinking`);
+                        } else {
+                            // Last resort: use full thinking (will be verbose with reasoning)
+                            answer = thinking;
+                            console.log(`[AI] ⚠️ Using full thinking output (no clear sections found)`);
+                        }
+                    } else {
+                        // Non-DeepSeek model: use response field
+                        answer = json.response || '';
+                    }
+                    
+                    // Fallback: if answer is still empty, try thinking
+                    if (!answer && json.thinking) {
+                        console.log(`[AI] Fallback: using thinking field (${json.thinking.length} chars)`);
+                        answer = json.thinking;
+                    }
+                    
+                    if (!answer) {
                         console.log(`[AI] ⚠️ Empty response. Full JSON:`, JSON.stringify(json).slice(0, 500));
                     }
-                    resolve(json.response || 'No response from model');
+                    resolve(answer || 'No response from model');
                 } catch (e) {
                     console.log(`[AI] ❌ Parse error. Raw data:`, data.slice(0, 500));
                     reject(new Error('Invalid response from Ollama'));

@@ -74,7 +74,10 @@ function schwabFetch(url, options = {}) {
             }
         };
 
-        console.log(`[SCHWAB] ${reqOptions.method} ${url}`);
+        // Only log API calls if VERBOSE mode is enabled
+        if (process.env.VERBOSE_LOGGING === 'true') {
+            console.log(`[SCHWAB] ${reqOptions.method} ${url}`);
+        }
 
         const req = https.request(reqOptions, (res) => {
             let chunks = [];
@@ -99,7 +102,9 @@ function schwabFetch(url, options = {}) {
                 }
                 
                 const data = buffer.toString('utf8');
-                console.log(`[SCHWAB] Response ${res.statusCode}: ${data.substring(0, 300)}`);
+                if (process.env.VERBOSE_LOGGING === 'true') {
+                    console.log(`[SCHWAB] Response ${res.statusCode}: ${data.substring(0, 300)}`);
+                }
                 
                 try {
                     const json = JSON.parse(data);
