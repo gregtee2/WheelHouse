@@ -27,11 +27,14 @@
     "files": [
       "**/*",
       "!dist/**",
-      "!node_modules/.cache/**"
+      "!node_modules/.cache/**",
+      "!.git/**",
+      "!.env"
     ],
     "win": {
       "target": "nsis",
-      "icon": "electron/icon.ico"
+      "icon": "electron/icon.ico",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,

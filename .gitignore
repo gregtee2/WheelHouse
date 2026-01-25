@@ -28,4 +28,5 @@ saved_positions/
 
 # Any exported data
 exports/
-backups/
+backups/dist/
+.secure-store
