@@ -5,6 +5,7 @@ import { state } from './state.js';
 import { getPositionType } from './pricing.js';
 import { randomNormal, showNotification } from './utils.js';
 import { formatPortfolioContextForAI } from './portfolio.js';
+import AccountService from './services/AccountService.js';
 
 /**
  * Get chain history and calculate total premium for a position
@@ -519,17 +520,11 @@ async function calculateMarginImpactLong(premium, contracts, isPut) {
     const coveredNote = document.getElementById('marginCoveredNote');
     if (coveredNote) coveredNote.style.display = 'none';
     
-    // Fetch current buying power from Schwab
-    let buyingPower = null;
-    try {
-        const res = await fetch('/api/schwab/accounts');
-        if (res.ok) {
-            const accounts = await res.json();
-            const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
-            buyingPower = marginAccount?.securitiesAccount?.currentBalances?.buyingPower;
-        }
-    } catch (e) {
-        console.log('[MARGIN] Could not fetch buying power:', e.message);
+    // Get buying power from AccountService (single source of truth)
+    let buyingPower = AccountService.getBuyingPower();
+    if (!buyingPower) {
+        await AccountService.refresh();
+        buyingPower = AccountService.getBuyingPower();
     }
     
     // Format helper
@@ -629,17 +624,11 @@ async function calculateMarginImpact(spot, strike, premium, contracts, isPut) {
     const coveredNote = document.getElementById('marginCoveredNote');
     if (coveredNote) coveredNote.style.display = isPut ? 'none' : 'block';
     
-    // Fetch current buying power from Schwab
-    let buyingPower = null;
-    try {
-        const res = await fetch('/api/schwab/accounts');
-        if (res.ok) {
-            const accounts = await res.json();
-            const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
-            buyingPower = marginAccount?.securitiesAccount?.currentBalances?.buyingPower;
-        }
-    } catch (e) {
-        console.log('[MARGIN] Could not fetch buying power:', e.message);
+    // Get buying power from AccountService (single source of truth)
+    let buyingPower = AccountService.getBuyingPower();
+    if (!buyingPower) {
+        await AccountService.refresh();
+        buyingPower = AccountService.getBuyingPower();
     }
     
     // Format helper

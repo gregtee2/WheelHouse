@@ -12,6 +12,7 @@ import { loadClosedPositions, renderPortfolio, renderHoldings, formatPortfolioCo
 import { initChallenges, renderChallenges } from './challenges.js';
 import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from './ui.js';
 import { showNotification } from './utils.js';
+import AccountService from './services/AccountService.js';
 
 /**
  * Get the next 3rd Friday of the month (standard options expiry)
@@ -2699,17 +2700,11 @@ window.checkMarginForTrade = async function(ticker, strike, premium, isCall = fa
     
     // DEBIT TRADES (long calls, debit spreads, SKIP) - no margin, just need cash
     if (isDebitTrade) {
-        // Fetch buying power
-        let buyingPower = null;
-        try {
-            const res = await fetch('/api/schwab/accounts');
-            if (res.ok) {
-                const accounts = await res.json();
-                const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
-                buyingPower = marginAccount?.securitiesAccount?.currentBalances?.buyingPower;
-            }
-        } catch (e) {
-            console.log('[MARGIN] Account fetch error:', e);
+        // Get buying power from AccountService (single source of truth)
+        let buyingPower = AccountService.getBuyingPower();
+        if (!buyingPower) {
+            await AccountService.refresh();
+            buyingPower = AccountService.getBuyingPower();
         }
         
         const cost = totalCost || (premium * 100);  // Use totalCost if provided, else premium × 100
@@ -2870,17 +2865,11 @@ window.checkMarginForTrade = async function(ticker, strike, premium, isCall = fa
         }
     }
     
-    // Fetch buying power
-    let buyingPower = null;
-    try {
-        const res = await fetch('/api/schwab/accounts');
-        if (res.ok) {
-            const accounts = await res.json();
-            const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
-            buyingPower = marginAccount?.securitiesAccount?.currentBalances?.buyingPower;
-        }
-    } catch (e) {
-        console.log('[MARGIN] Account fetch error:', e);
+    // Get buying power from AccountService (single source of truth)
+    let buyingPower = AccountService.getBuyingPower();
+    if (!buyingPower) {
+        await AccountService.refresh();
+        buyingPower = AccountService.getBuyingPower();
     }
     
     // Format helper
@@ -3903,18 +3892,13 @@ window.runStrategyAdvisor = async function() {
     const model = modelSelect?.value || 'deepseek-r1:32b';
     const riskTolerance = riskSelect?.value || 'moderate';
     
-    // Get buying power from Schwab account (or fallback to input/default)
-    let buyingPower = parseFloat(bpInput?.value) || 25000;
+    // Get buying power from AccountService (single source of truth)
+    // Falls back to manual input field, then default
+    let buyingPower = AccountService.getBuyingPower() 
+        || parseFloat(bpInput?.value) 
+        || 25000;
     
-    // Try to get real buying power from Schwab (use balBuyingPower from Portfolio tab if available)
-    const balBuyingPowerEl = document.getElementById('balBuyingPower');
-    if (balBuyingPowerEl && balBuyingPowerEl.textContent) {
-        const schwabBP = parseFloat(balBuyingPowerEl.textContent.replace(/[^0-9.]/g, ''));
-        if (schwabBP > 0) {
-            buyingPower = schwabBP;
-            console.log(`[STRATEGY-ADVISOR] Using Schwab buying power: $${buyingPower.toLocaleString()}`);
-        }
-    }
+    console.log(`[STRATEGY-ADVISOR] Using buying power: $${buyingPower.toLocaleString()} (source: ${AccountService.getBuyingPower() ? 'Schwab' : 'fallback'})`);
     
     // Show loading state
     loadingDiv.style.display = 'block';

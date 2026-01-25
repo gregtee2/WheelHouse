@@ -54,7 +54,10 @@ WheelHouse/
     ├── analysis.js     # Recommendations, EV calculations, roll calculator
     ├── broker-import.js# Schwab CSV import
     ├── settings.js     # Settings tab logic, security status check
-    └── ui.js           # Sliders, date pickers, UI bindings
+    ├── ui.js           # Sliders, date pickers, UI bindings
+    └── services/
+        ├── AccountService.js   # Schwab account balances (single source of truth)
+        └── MarketDataService.js # Stock/options data (Schwab→CBOE→Yahoo)
 ```
 
 ### Module Dependencies
@@ -65,11 +68,64 @@ main.js (entry point)
   ├── simulation.js → state.js, charts.js
   ├── pricing.js → state.js
   ├── positions.js → state.js, api.js, portfolio.js
-  ├── portfolio.js → state.js, positions.js
+  ├── portfolio.js → state.js, positions.js, AccountService
   ├── challenges.js → state.js, positions.js
   ├── charts.js → state.js, pricing.js
-  ├── analysis.js → state.js, pricing.js
+  ├── analysis.js → state.js, pricing.js, AccountService
   └── ui.js → state.js, charts.js, pricing.js, simulation.js
+```
+
+---
+
+## 💰 AccountService - SINGLE SOURCE OF TRUTH FOR BALANCES
+
+**CRITICAL: All new features that need account balances MUST use AccountService!**
+
+Location: `js/services/AccountService.js`
+
+### Why This Exists
+We kept having bugs where every feature either:
+1. Made its own `/api/schwab/accounts` fetch (wasteful, slow)
+2. Scraped DOM elements like `balBuyingPower` (fragile, breaks if element not visible)
+
+### Available Functions
+
+```javascript
+import AccountService from './services/AccountService.js';
+
+// Get cached balances (populated by Portfolio page on load)
+const balances = AccountService.getBalances();
+// Returns: { buyingPower, accountValue, cashAvailable, marginUsed, dayTradeBP, accountType, accountNumber, lastUpdated }
+
+// Get just buying power (with fallback)
+const bp = AccountService.getBuyingPower() || 25000;
+
+// Get account value (equity/liquidation value)
+const equity = AccountService.getAccountValue();
+
+// Force refresh from Schwab (use sparingly!)
+await AccountService.refresh();
+```
+
+### How It Works
+1. **Portfolio page loads** → `fetchAccountBalances()` runs
+2. **Portfolio calls `AccountService.updateCache()`** with balance data
+3. **Other features call `AccountService.getBuyingPower()`** to get cached value
+4. If cache is empty, they can call `await AccountService.refresh()` (but this is rare)
+
+### ⚠️ NEVER Do This Again
+```javascript
+// ❌ WRONG - Fetching separately in every feature
+const res = await fetch('/api/schwab/accounts');
+const accounts = await res.json();
+const marginAccount = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
+const buyingPower = marginAccount?.securitiesAccount?.currentBalances?.buyingPower;
+
+// ❌ WRONG - Scraping DOM elements
+const buyingPower = parseFloat(document.getElementById('balBuyingPower').textContent);
+
+// ✅ CORRECT - Use AccountService
+const buyingPower = AccountService.getBuyingPower();
 ```
 
 ---

@@ -5,6 +5,7 @@ import { state } from './state.js';
 import { showNotification, isDebitPosition, calculateRealizedPnL, colors, createModal, modalHeader, calculatePortfolioGreeks } from './utils.js';
 import { fetchStockPrice, fetchStockPricesBatch, fetchOptionsChain, findOption } from './api.js';
 import { saveHoldingsToStorage, renderPositions } from './positions.js';
+import AccountService from './services/AccountService.js';
 
 const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
@@ -184,6 +185,17 @@ export async function fetchAccountBalances() {
         
         // Store accounts for switcher
         window._schwabAccounts = accounts;
+        
+        // Update AccountService cache (single source of truth)
+        AccountService.updateCache({
+            buyingPower: bal.buyingPower,
+            accountValue: bal.equity || bal.liquidationValue,
+            cashAvailable: bal.availableFunds || bal.cashBalance,
+            marginUsed: bal.marginBalance,
+            dayTradeBP: bal.dayTradingBuyingPower,
+            accountType: accountType,
+            accountNumber: accountNumber
+        });
         
         // Show the banner
         banner.style.display = 'block';
@@ -4361,8 +4373,9 @@ export function updateAdvancedAnalytics() {
     // This uses margin sparingly while acknowledging it exists as a tool
     const halfKellyEl = document.getElementById('portHalfKelly');
     if (halfKellyEl) {
-        const buyingPower = parseFloat(document.getElementById('balBuyingPower')?.textContent?.replace(/[^0-9.]/g, '')) || 0;
-        const accountValue = parseFloat(document.getElementById('balAccountValue')?.textContent?.replace(/[^0-9.]/g, '')) || 0;
+        // Get balances from AccountService (single source of truth)
+        const buyingPower = AccountService.getBuyingPower() || 0;
+        const accountValue = AccountService.getAccountValue() || 0;
         
         // Calculate conservative Kelly Base
         let kellyBase = 0;
