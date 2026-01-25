@@ -729,7 +729,7 @@ const mainHandler = async (req, res, next) => {
                 const allOpts = [...chain.calls, ...chain.puts];
                 allOpts.sort((a, b) => Math.abs(a.strike - quote.price) - Math.abs(b.strike - quote.price));
                 sampleOptions = allOpts.slice(0, 18).map(o => ({
-                    option_type: chain.calls.includes(o) ? 'C' : 'P',
+                    option_type: chain.calls.some(c => c.strike === o.strike && c.expiration === o.expiration) ? 'C' : 'P',
                     strike: o.strike,
                     expiration_date: o.expiration,
                     bid: o.bid,
@@ -737,6 +737,12 @@ const mainHandler = async (req, res, next) => {
                     delta: o.delta,
                     iv: o.iv
                 }));
+                
+                // Debug: show sample of what we're sending to AI
+                if (sampleOptions.length > 0) {
+                    const sample = sampleOptions[0];
+                    console.log(`[STRATEGY-ADVISOR] Sample option: ${sample.option_type} $${sample.strike} @ $${sample.bid}/$${sample.ask}`);
+                }
                 
                 console.log(`[STRATEGY-ADVISOR] ✅ Options from ${chain.source}: ${sampleOptions.length} contracts, IV ~${ivRank}%`);
             } else {
@@ -4088,11 +4094,14 @@ Be honest but constructive. Focus on the PROCESS, not just the outcome. A losing
 function buildStrategyAdvisorPrompt(context) {
     const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, riskTolerance, existingPositions, dataSource } = context;
     
-    // Format sample options for context
+    // Format sample options for context - BE VERY CLEAR about what's a STRIKE vs PREMIUM
     let optionsContext = '';
     if (sampleOptions && sampleOptions.length > 0) {
-        optionsContext = sampleOptions.map(o => {
-            const type = o.option_type === 'C' ? 'Call' : 'Put';
+        optionsContext = `FORMAT: [Type] STRIKE PRICE | Expiration | PREMIUM (bid/ask) | Delta
+NOTE: Strike prices are near $${spot.toFixed(0)}. Premium is what you pay/receive per share.\n\n`;
+        
+        optionsContext += sampleOptions.map(o => {
+            const type = o.option_type === 'C' ? 'CALL' : 'PUT';
             const strike = parseFloat(o.strike);
             const bid = parseFloat(o.bid) || 0;
             const ask = parseFloat(o.ask) || 0;
@@ -4100,7 +4109,8 @@ function buildStrategyAdvisorPrompt(context) {
             const delta = o.delta ? parseFloat(o.delta).toFixed(2) : 'N/A';
             const exp = o.expiration_date;
             const dte = Math.ceil((new Date(exp) - new Date()) / (1000 * 60 * 60 * 24));
-            return `  ${type} $${strike} exp ${exp} (${dte} DTE): Bid $${bid.toFixed(2)} / Ask $${ask.toFixed(2)} (mid $${mid}), Delta: ${delta}`;
+            // Make it VERY clear: STRIKE is the price level, PREMIUM is bid/ask
+            return `  ${type} STRIKE $${strike.toFixed(2)} | ${exp} (${dte}d) | PREMIUM $${bid.toFixed(2)}-$${ask.toFixed(2)} (mid $${mid}) | Δ ${delta}`;
         }).join('\n');
     }
     
@@ -4148,7 +4158,9 @@ MARKET CONTEXT:
 • IV Rank: ${ivDesc}
 • Available Expirations: ${expirations?.slice(0, 4).join(', ') || 'Unknown'}
 
-SAMPLE OPTIONS CHAIN:
+REAL OPTIONS CHAIN DATA (USE THESE EXACT STRIKES AND PREMIUMS!):
+⚠️ STRIKE = the price level where option activates (near current price of $${spot.toFixed(2)})
+⚠️ PREMIUM = what you pay/receive for the option (the bid/ask prices below)
 ${optionsContext || 'Options data not available'}
 
 USER PROFILE:
@@ -4201,14 +4213,19 @@ STRATEGIES TO EVALUATE (analyze ALL of these):
 YOUR TASK: Recommend THE BEST strategy for this situation
 ═══════════════════════════════════════════════════════════════════════════
 
+⚠️ CRITICAL: Use the REAL strike prices from the options chain above!
+   - Strikes should be near the current stock price of $${spot.toFixed(2)}
+   - DO NOT confuse premium ($1-5 range) with strike price ($${spot.toFixed(0)} range)
+   - Example: "Sell $${(Math.floor(spot / 5) * 5).toFixed(0)} Put" is a STRIKE price
+
 Respond with this EXACT format:
 
 ## 🏆 RECOMMENDED STRATEGY: [Strategy Name]
 
 ### THE TRADE
-• Action: [Exactly what to do - e.g., "Sell $95 Put / Buy $90 Put"]
+• Action: [Use REAL strikes from chain - e.g., "Sell $${(Math.floor(spot) - 2).toFixed(0)} Put / Buy $${(Math.floor(spot) - 7).toFixed(0)} Put"]
 • Expiration: [Specific date from available expirations]
-• Credit/Debit: $X.XX [per share]
+• Credit/Debit: $X.XX [the PREMIUM per share from the chain]
 • Contracts: [Suggest based on buying power and risk]
 
 ### WHY THIS STRATEGY
