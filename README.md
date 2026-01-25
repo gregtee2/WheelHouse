@@ -5,12 +5,44 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.12.0-blue)
+![Version](https://img.shields.io/badge/version-1.13.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
-## 🆕 What's New in v1.12.0
+## 🆕 What's New in v1.13.0
+
+### 🧠 Vector RAG Wisdom System
+- **Semantic search for trading rules** - AI finds the most relevant wisdom entries using vector embeddings
+- Uses `nomic-embed-text` model for embedding generation
+- Relevance indicators: 🎯 (>70%), 📌 (>50%), 📚 (lower)
+- AI must **CITE rules** and **EXPLAIN any overrides**
+- New endpoint: `/api/wisdom/regenerate-embeddings`
+
+### ⚡ Pure Mode Toggle
+- **New "📚 Apply Wisdom" checkbox** in AI Trade Advisor panel
+- When unchecked, get raw AI analysis without your trading rules
+- Visual indicators: "✓ Rules active" (green) or "⚡ Pure mode" (yellow)
+- Great for comparing rule-influenced vs pure AI opinions
+
+### 🤖 Portfolio Audit Model Selector
+- **Choose any AI model** directly in the audit modal
+- Dropdown includes Qwen, DeepSeek-R1, Grok-3/4, and more
+- **🔄 Re-run button** to compare models side-by-side
+- Consistent emoji-structured output across all models
+
+### 📊 Standardized Audit Format
+- All models now produce the same scannable format:
+  - 📊 PORTFOLIO GRADE: A/B/C/D/F
+  - 🚨 PROBLEM POSITIONS
+  - ⚠️ CONCENTRATION RISKS
+  - 📊 GREEKS ASSESSMENT
+  - 💡 OPTIMIZATION IDEAS
+  - ✅ WHAT'S WORKING
+
+---
+
+## 📦 Previous: v1.12.0
 
 ### 🖥️ Electron Desktop App
 - **Standalone Windows application** - No more browser tabs

@@ -1279,22 +1279,37 @@ After the grade, explain in ONE sentence why you gave that grade.
 
 ---
 
-Then provide the detailed analysis:
+Then provide the detailed analysis using this EXACT format with emojis and bullet points:
 
-1. **🚨 PROBLEM POSITIONS** - List positions that need attention:
-   - For SHORT positions: High ITM risk, poor theta/risk ratio, about to be assigned
-   - For LONG positions: Thesis failing (stock moving AGAINST you), about to expire worthless, far OTM with little time left
-   - **NOT a problem**: Long options with negative theta (that's normal!) or LEAPS with tiny daily theta
+1. 🚨 PROBLEM POSITIONS
+List positions needing attention, or "None" if all healthy.
+- For SHORT positions: High ITM risk, poor theta/risk ratio, about to be assigned
+- For LONG positions: Thesis failing (stock moving AGAINST you), about to expire worthless
+- **NOT a problem**: Long options with negative theta (that's normal!)
 
-2. **⚠️ CONCENTRATION RISKS** - Flag if too much exposure to one ticker or sector
+2. ⚠️ CONCENTRATION RISKS
+Flag if too much exposure to one ticker or sector. List ticker counts.
 
-3. **📊 GREEKS ASSESSMENT** - Is the portfolio balanced? Consider that long calls ADD to bullish delta intentionally
+3. 📊 GREEKS ASSESSMENT
+One paragraph on portfolio balance. Include net delta interpretation, theta quality, vega exposure.
 
-4. **💡 OPTIMIZATION IDEAS** - Specific actionable suggestions (rolls, closes, adjustments)
+4. 💡 OPTIMIZATION IDEAS
+Use bullet points (•) for specific actionable suggestions:
+• [Suggestion 1 with specific ticker/strike]
+• [Suggestion 2]
+• [Suggestion 3]
 
-5. **✅ WHAT'S WORKING** - Highlight well-positioned trades (including profitable long positions!)
+5. ✅ WHAT'S WORKING
+Use bullet points (•) to highlight well-positioned trades:
+• [What's working 1 with specific ticker/strike and why]
+• [What's working 2]
 
-Be specific. Reference actual ticker symbols and strikes. Keep it actionable.`;
+IMPORTANT FORMATTING RULES:
+- Use the section headers EXACTLY as shown (with emojis and numbers)
+- Use bullet points (•) not dashes for lists
+- Keep each section concise but specific
+- Reference actual ticker symbols and strikes
+- Do NOT use markdown headers (##) except for the grade`;
 
             const response = await callAI(prompt, selectedModel, 1200);
             

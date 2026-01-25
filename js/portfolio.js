@@ -4851,10 +4851,26 @@ function showAuditModal(audit, model) {
         <div style="background:#1a1a2e; border:1px solid rgba(139,92,246,0.5); border-radius:10px; max-width:700px; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">
             ${modalHeader('🤖 AI Portfolio Audit', 'portfolioAuditModal')}
             <div style="padding:20px; overflow-y:auto; flex:1;">
-                <div style="background:rgba(139,92,246,0.1); padding:8px 12px; border-radius:6px; font-size:11px; color:#888; margin-bottom:15px;">
-                    Model: <span style="color:#8b5cf6;">${model}</span>
+                <div style="background:rgba(139,92,246,0.1); padding:10px 12px; border-radius:6px; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <label style="font-size:11px; color:#888;">Model:</label>
+                        <select id="auditModelSelect" style="font-size:11px; padding:4px 8px; background:#0d0d1a; color:#ddd; border:1px solid #444; border-radius:4px;">
+                            <option value="qwen2.5:7b">Qwen 7B ⭐</option>
+                            <option value="qwen2.5:14b">Qwen 14B</option>
+                            <option value="qwen2.5:32b">Qwen 32B</option>
+                            <option value="deepseek-r1:32b">DeepSeek-R1 32B 🧮</option>
+                            <option value="llama3.1:8b">Llama 3.1 8B</option>
+                            <option value="mistral:7b">Mistral 7B</option>
+                            <option value="grok-3">🚀 Grok-3 (Cloud)</option>
+                            <option value="grok-4">🧠 Grok-4 (Reasoning)</option>
+                            <option value="grok-4-1-fast">⚡ Grok 4.1 Fast</option>
+                            <option value="grok-3-mini">🚀 Grok-3 Mini</option>
+                        </select>
+                        <button id="rerunAuditBtn" onclick="window.rerunAuditWithModel()" style="font-size:10px; padding:4px 10px; background:#8b5cf6; color:#fff; border:none; border-radius:4px; cursor:pointer;">🔄 Re-run</button>
+                    </div>
+                    <span style="font-size:10px; color:#666;">Last run: <span style="color:#8b5cf6;">${model}</span></span>
                 </div>
-                <div style="color:#ddd; line-height:1.6; font-size:13px;">
+                <div id="auditContent" style="color:#ddd; line-height:1.6; font-size:13px;">
                     ${formatAudit(audit)}
                 </div>
             </div>
@@ -4864,7 +4880,113 @@ function showAuditModal(audit, model) {
         </div>
     `;
     document.body.appendChild(modal);
+    
+    // Set the dropdown to the model that was used
+    const select = document.getElementById('auditModelSelect');
+    if (select) {
+        select.value = model;
+    }
 }
+
+/**
+ * Re-run portfolio audit with selected model from the modal dropdown
+ */
+window.rerunAuditWithModel = async function() {
+    const select = document.getElementById('auditModelSelect');
+    const btn = document.getElementById('rerunAuditBtn');
+    const content = document.getElementById('auditContent');
+    
+    if (!select || !content) return;
+    
+    const selectedModel = select.value;
+    
+    // Show loading state
+    if (btn) {
+        btn.textContent = '⏳ Running...';
+        btn.disabled = true;
+    }
+    content.innerHTML = '<div style="text-align:center; padding:40px; color:#888;">🔄 Running audit with ' + selectedModel + '...</div>';
+    
+    try {
+        // Get current Greeks
+        const greeks = window._lastPortfolioGreeks || { delta: 0, theta: 0, gamma: 0, vega: 0 };
+        
+        // Get positions
+        const positions = (state.positions || []).filter(p => p.status === 'open').map(p => ({
+            ticker: p.ticker,
+            type: p.type,
+            strike: p.strike,
+            expiry: p.expiry,
+            dte: p.dte,
+            contracts: p.contracts,
+            premium: p.premium,
+            delta: p._delta || 0,
+            theta: p._theta || 0
+        }));
+        
+        // Get closed stats
+        const closed = state.closedPositions || [];
+        const getPnL = (p) => p.realizedPnL ?? p.closePnL ?? 0;
+        const wins = closed.filter(p => getPnL(p) > 0);
+        const losses = closed.filter(p => getPnL(p) < 0);
+        const totalWins = wins.reduce((sum, p) => sum + getPnL(p), 0);
+        const totalLosses = Math.abs(losses.reduce((sum, p) => sum + getPnL(p), 0));
+        
+        const res = await fetch('/api/ai/portfolio-audit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: selectedModel,
+                positions,
+                greeks,
+                closedStats: {
+                    winRate: closed.length > 0 ? (wins.length / closed.length) * 100 : 0,
+                    profitFactor: totalLosses > 0 ? totalWins / totalLosses : 0,
+                    avgWin: wins.length > 0 ? totalWins / wins.length : 0,
+                    avgLoss: losses.length > 0 ? totalLosses / losses.length : 0,
+                    totalTrades: closed.length
+                }
+            })
+        });
+        
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'AI audit failed');
+        }
+        
+        const result = await res.json();
+        
+        // Format and display
+        const formatAudit = (text) => {
+            return text
+                .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#00d9ff;">$1</strong>')
+                .replace(/^### (.*?)$/gm, '<h3 style="color:#8b5cf6;margin:15px 0 8px 0;">$1</h3>')
+                .replace(/^## (.*?)$/gm, '<h2 style="color:#ffaa00;margin:18px 0 10px 0;">$1</h2>')
+                .replace(/^# (.*?)$/gm, '<h1 style="color:#fff;margin:20px 0 12px 0;">$1</h1>')
+                .replace(/^- (.*?)$/gm, '<div style="margin-left:15px;margin-bottom:4px;">• $1</div>')
+                .replace(/^(\d+)\. (.*?)$/gm, '<div style="margin-left:15px;margin-bottom:4px;">$1. $2</div>')
+                .replace(/\n\n/g, '<br><br>')
+                .replace(/\n/g, '<br>');
+        };
+        
+        content.innerHTML = formatAudit(result.audit);
+        
+        // Update the "Last run" label
+        const modal = document.getElementById('portfolioAuditModal');
+        if (modal) {
+            const lastRunSpan = modal.querySelector('span[style*="color:#8b5cf6"]');
+            if (lastRunSpan) lastRunSpan.textContent = result.model;
+        }
+        
+    } catch (err) {
+        content.innerHTML = `<div style="color:#ff5252;">❌ Error: ${err.message}</div>`;
+    } finally {
+        if (btn) {
+            btn.textContent = '🔄 Re-run';
+            btn.disabled = false;
+        }
+    }
+};
 
 /**
  * Extract key points from audit for storage
