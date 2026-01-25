@@ -829,9 +829,7 @@ const mainHandler = async (req, res, next) => {
             const shouldFix = stockIsExpensive && dollarOneCount >= 1;
             
             if (shouldFix) {
-                console.log(`[STRATEGY-ADVISOR] ⚠️ Detected ${dollarOneCount} "$1" hallucinations - applying fixes`);
-                console.log(`[STRATEGY-ADVISOR] Before fix (first 200 chars): ${aiResponse.slice(0, 200)}`);
-                console.log(`[STRATEGY-ADVISOR] Using: sellPut=$${sellPutStrike}, buyPut=$${buyPutStrike}, stock=$${stockPrice}, premium=$${premium}`);
+                console.log(`[STRATEGY-ADVISOR] ⚠️ Detected ${dollarOneCount} "$1" hallucinations - applying fixes (using $${sellPutStrike}/$${buyPutStrike} spreads)`);
                 
                 // NUCLEAR OPTION: Replace ALL standalone "$1" with appropriate values
                 // First, build a list of all $1 patterns and what they should be
@@ -883,10 +881,13 @@ const mainHandler = async (req, res, next) => {
                 // Pattern: $1 NOT followed by digit or decimal point
                 aiResponse = aiResponse.replace(/\$1(?![0-9.])/g, `$${stockPrice}`);
                 
-                // Count remaining $1 instances
+                // Count remaining $1 instances (for sanity check)
                 const remainingCount = (aiResponse.match(/\$1(?![0-9])/g) || []).length;
-                console.log(`[STRATEGY-ADVISOR] After fix (first 200 chars): ${aiResponse.slice(0, 200)}`);
-                console.log(`[STRATEGY-ADVISOR] ✅ Applied corrections. Remaining $1 instances: ${remainingCount}`);
+                if (remainingCount > 0) {
+                    console.log(`[STRATEGY-ADVISOR] ⚠️ ${remainingCount} "$1" instances remain after fixes`);
+                } else {
+                    console.log(`[STRATEGY-ADVISOR] ✅ All "$1" hallucinations corrected`);
+                }
             } else {
                 console.log(`[STRATEGY-ADVISOR] No $1 hallucinations detected (count: ${dollarOneCount})`);
             }
