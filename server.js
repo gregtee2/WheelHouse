@@ -4468,14 +4468,15 @@ Respond with this format:
 • Win Probability: ~X% (based on delta or estimate)
 • Risk/Reward Ratio: X:X
 
-### 📊 PROFIT/LOSS SCENARIOS (at expiration)
-Show P&L at these price points for your recommended # of contracts:
-| Stock Price | P&L | Notes |
-|-------------|-----|-------|
-| $${(parseFloat(sellPutStrike) * 1.05).toFixed(0)} (+5%) | $X | [Max profit if above strike] |
-| $${sellPutStrike} (at strike) | $X | [Breakeven point or near it] |
-| $${(parseFloat(sellPutStrike) * 0.95).toFixed(0)} (-5%) | $X | [Partial or full loss] |
-| $${buyPutStrike} (lower strike) | $X | [Max loss point for spreads] |
+### 📊 PROFIT/LOSS AT EXPIRATION
+For your recommended # of contracts, show outcome at each price:
+| If Stock Ends At | You Make/Lose | Result |
+|------------------|---------------|--------|
+| $${(parseFloat(sellPutStrike) * 1.05).toFixed(0)} or higher | +$X | ✅ Max profit |
+| $${sellPutStrike} | +$X | ✅ Full profit |
+| Breakeven ($X) | $0 | ➖ Break even |
+| $${(parseFloat(sellPutStrike) * 0.95).toFixed(0)} | -$X | ⚠️ Partial loss |
+| $${buyPutStrike} or lower | -$X | ❌ Max loss |
 
 ### PORTFOLIO IMPACT
 • Buying Power Used: $X (X% of available)
