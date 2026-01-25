@@ -551,7 +551,33 @@ git push origin main:stable
 
 ## 📋 Recent Features (January 2026)
 
-### v1.11.0 (Current)
+### v1.13.0 (Current)
+- **🧠 Vector RAG Wisdom System**: AI uses semantic search for trading rules
+  - Wisdom entries converted to vector embeddings via `nomic-embed-text` model
+  - `generateEmbedding(text)` - Calls Ollama embedding API
+  - `searchWisdom(query, positionType, topK)` - Semantic search with relevance scores
+  - AI MUST cite rules and explain any overrides
+  - Relevance indicators: 🎯 (>70%), 📌 (>50%), 📚 (lower)
+  - New endpoint: `POST /api/wisdom/regenerate-embeddings`
+
+- **⚡ Pure Mode Toggle**: Get raw AI analysis without wisdom influence
+  - New "📚 Apply Wisdom" checkbox in AI Trade Advisor panel
+  - `skipWisdom: true` in request bypasses wisdom injection
+  - Visual indicators: "✓ Rules active" (green) or "⚡ Pure mode" (yellow)
+  - Preference saved to localStorage as `wheelhouse_wisdom_enabled`
+
+- **AI Prompt Strengthening**: Changed from "consider" to "MANDATORY"
+  - AI must explicitly CITE rule numbers
+  - AI must EXPLAIN why if disagreeing with a rule
+  - Modal shows matched wisdom entries with relevance scores
+
+### v1.12.0
+- **🖥️ Electron Desktop App**: Standalone Windows application
+  - Embedded Node.js server, no browser needed
+  - Password-protected login (6-12 chars)
+  - Secure credential storage via Windows Credential Manager + AES-256-GCM
+
+### v1.11.0
 - **SKIP™ Strategy Support**: Full two-leg SKIP™ strategy now available
   - SKIP™ = "Safely Keep Increasing Profits" (trademarked strategy)
   - LEG 1: LEAPS call (12+ months out, ATM or slightly OTM)

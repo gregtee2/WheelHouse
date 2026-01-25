@@ -66,7 +66,7 @@ app.use('/api/settings', settingsRoutes);
 // Mount Schwab API routes
 app.use('/api/schwab', schwabRoutes);
 
-// ═══ TRADING WISDOM API ═══
+// ═══ TRADING WISDOM API (Vector RAG) ═══
 const WISDOM_FILE = path.join(__dirname, 'wisdom.json');
 
 function loadWisdom() {
@@ -77,11 +77,126 @@ function loadWisdom() {
     } catch (e) {
         console.log('[WISDOM] Error loading:', e.message);
     }
-    return { version: 1, entries: [] };
+    return { version: 2, entries: [] };
 }
 
 function saveWisdom(data) {
     fs.writeFileSync(WISDOM_FILE, JSON.stringify(data, null, 2));
+}
+
+/**
+ * Generate embedding for text using Ollama's nomic-embed-text model
+ */
+async function generateEmbedding(text) {
+    try {
+        const response = await fetch('http://localhost:11434/api/embeddings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: 'nomic-embed-text',
+                prompt: text
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Embedding API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        return data.embedding;
+    } catch (e) {
+        console.log('[WISDOM] Embedding error:', e.message);
+        return null;
+    }
+}
+
+/**
+ * Cosine similarity between two vectors
+ */
+function cosineSimilarity(a, b) {
+    if (!a || !b || a.length !== b.length) return 0;
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < a.length; i++) {
+        dotProduct += a[i] * b[i];
+        normA += a[i] * a[i];
+        normB += b[i] * b[i];
+    }
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+/**
+ * Semantic search for relevant wisdom entries
+ * Falls back to category matching if embeddings unavailable
+ */
+async function searchWisdom(query, positionType, topK = 5) {
+    const wisdomData = loadWisdom();
+    if (!wisdomData.entries || wisdomData.entries.length === 0) {
+        return [];
+    }
+    
+    // Try semantic search first
+    const queryEmbedding = await generateEmbedding(query);
+    
+    if (queryEmbedding) {
+        // Score each entry by semantic similarity + category bonus
+        const scored = wisdomData.entries.map(entry => {
+            let score = 0;
+            
+            // Semantic similarity (if embedding exists)
+            if (entry.embedding) {
+                score = cosineSimilarity(queryEmbedding, entry.embedding);
+            }
+            
+            // Category bonus (boost relevant categories)
+            if (entry.appliesTo?.includes('all') || entry.appliesTo?.includes(positionType)) {
+                score += 0.2; // 20% bonus for category match
+            }
+            if (positionType === 'buy_write' && entry.appliesTo?.includes('covered_call')) {
+                score += 0.2;
+            }
+            
+            return { entry, score };
+        });
+        
+        // Sort by score and return top K
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, topK).filter(s => s.score > 0.3); // Minimum threshold
+    }
+    
+    // Fallback: category matching (old behavior)
+    console.log('[WISDOM] Falling back to category matching (no embeddings)');
+    const relevant = wisdomData.entries.filter(w => 
+        w.appliesTo?.includes('all') || 
+        w.appliesTo?.includes(positionType) ||
+        (positionType === 'buy_write' && w.appliesTo?.includes('covered_call'))
+    );
+    return relevant.slice(0, topK).map(entry => ({ entry, score: 0.5 }));
+}
+
+/**
+ * Regenerate embeddings for all wisdom entries
+ */
+async function regenerateAllEmbeddings() {
+    const wisdomData = loadWisdom();
+    let updated = 0;
+    
+    for (const entry of wisdomData.entries) {
+        const embedding = await generateEmbedding(entry.wisdom);
+        if (embedding) {
+            entry.embedding = embedding;
+            updated++;
+        }
+    }
+    
+    if (updated > 0) {
+        wisdomData.version = 2;
+        saveWisdom(wisdomData);
+        console.log(`[WISDOM] ✅ Regenerated ${updated} embeddings`);
+    }
+    
+    return updated;
 }
 
 // Get all wisdom entries
@@ -90,7 +205,17 @@ app.get('/api/wisdom', (req, res) => {
     res.json(wisdom);
 });
 
-// Add new wisdom (AI processes the raw text)
+// Regenerate all embeddings endpoint
+app.post('/api/wisdom/regenerate-embeddings', async (req, res) => {
+    try {
+        const updated = await regenerateAllEmbeddings();
+        res.json({ success: true, updated });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Add new wisdom (AI processes the raw text + generates embedding)
 app.post('/api/wisdom', async (req, res) => {
     try {
         const { raw, model } = req.body;
@@ -127,6 +252,9 @@ Return JSON format:
             return res.status(500).json({ error: 'Failed to parse AI response', raw: response });
         }
         
+        // Generate embedding for semantic search
+        const embedding = await generateEmbedding(parsed.wisdom);
+        
         // Create entry
         const entry = {
             id: Date.now(),
@@ -135,16 +263,18 @@ Return JSON format:
             category: parsed.category || 'general',
             appliesTo: parsed.appliesTo || ['all'],
             source: 'User input',
-            added: new Date().toISOString().split('T')[0]
+            added: new Date().toISOString().split('T')[0],
+            embedding: embedding  // Store embedding for vector search
         };
         
         // Save to file
         const wisdom = loadWisdom();
         wisdom.entries.push(entry);
+        wisdom.version = 2;
         saveWisdom(wisdom);
         
-        console.log(`[WISDOM] ✅ Added: "${entry.wisdom}" (${entry.category})`);
-        res.json({ success: true, entry });
+        console.log(`[WISDOM] ✅ Added: "${entry.wisdom}" (${entry.category})${embedding ? ' [with embedding]' : ''}`);
+        res.json({ success: true, entry: { ...entry, embedding: undefined } }); // Don't send embedding to client
         
     } catch (e) {
         console.log('[WISDOM] ❌ Error:', e.message);
@@ -993,14 +1123,15 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
             const selectedModel = data.model || 'qwen2.5:7b';
             const isGrok = selectedModel.startsWith('grok');
             const useMoE = !isGrok && data.useMoE !== false; // Default to true for 32B, but never for Grok
-            console.log('[AI] Analyzing position:', data.ticker, 'with model:', selectedModel, 'MoE:', useMoE);
+            const skipWisdom = data.skipWisdom === true;  // NEW: Pure mode toggle
+            console.log('[AI] Analyzing position:', data.ticker, 'with model:', selectedModel, 'MoE:', useMoE, skipWisdom ? '(PURE MODE - no wisdom)' : '');
             
             // Scale token limit based on model size - scorecard format needs more tokens
             const isLargeModel = selectedModel.includes('32b') || selectedModel.includes('70b') || selectedModel.includes('72b') || isGrok;
             const tokenLimit = isLargeModel ? 1800 : 1000;  // Scorecard needs ~1500+ tokens
             
-            // Build structured prompt from pre-computed data
-            const prompt = buildTradePrompt(data, isLargeModel);
+            // Build structured prompt from pre-computed data (now async for semantic search)
+            const prompt = await buildTradePrompt({ ...data, skipWisdom }, isLargeModel);
             
             // Get the wisdom entries that were applied (stored by buildTradePrompt)
             const wisdomUsed = buildTradePrompt._lastWisdomUsed || [];
@@ -1032,13 +1163,14 @@ Focus on wheel-friendly stocks ($5-$200 range, liquid options, not meme garbage)
                 model: selectedModel,
                 took,
                 moe: moeDetails,
-                wisdomApplied: wisdomUsed.length > 0 ? {
+                pureMode: skipWisdom,
+                wisdomApplied: !skipWisdom && wisdomUsed.length > 0 ? {
                     count: wisdomUsed.length,
                     positionType: data.positionType,
-                    entries: wisdomUsed.map(w => ({ category: w.category, wisdom: w.wisdom }))
+                    entries: wisdomUsed.map(w => ({ category: w.category, wisdom: w.wisdom.substring(0, 100) + '...', relevance: w.relevance?.toFixed(2) }))
                 } : null
             }));
-            console.log('[AI] ✅ Analysis complete' + (wisdomUsed.length > 0 ? ` (${wisdomUsed.length} wisdom entries applied)` : ''));
+            console.log('[AI] ✅ Analysis complete' + (skipWisdom ? ' (PURE MODE)' : wisdomUsed.length > 0 ? ` (${wisdomUsed.length} wisdom entries applied)` : ''));
         } catch (e) {
             console.log('[AI] ❌ Error:', e.message);
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -3083,7 +3215,8 @@ function compareVersions(a, b) {
 }
 
 // Build a structured prompt for the AI trade advisor
-function buildTradePrompt(data, isLargeModel = false) {
+// Now supports semantic search for wisdom and skipWisdom parameter
+async function buildTradePrompt(data, isLargeModel = false) {
     const {
         ticker, positionType, strike, premium, dte, contracts,
         spot, costBasis, breakeven, maxProfit, maxLoss,
@@ -3091,28 +3224,46 @@ function buildTradePrompt(data, isLargeModel = false) {
         rollOptions, expertRecommendation, previousAnalysis,
         portfolioContext,  // Portfolio context from audit
         chainHistory,      // Array of previous positions in this chain
-        totalPremiumCollected  // Net premium across all rolls
+        totalPremiumCollected,  // Net premium across all rolls
+        skipWisdom         // NEW: Skip wisdom for "pure" analysis
     } = data;
     
-    // Load relevant wisdom for this position type
+    // Load relevant wisdom using semantic search (unless skipped)
     let wisdomSection = '';
-    let wisdomUsed = [];  // Track which wisdom entries were applied
-    try {
-        const wisdomData = loadWisdom();
-        const relevantWisdom = wisdomData.entries.filter(w => 
-            w.appliesTo.includes('all') || 
-            w.appliesTo.includes(positionType) ||
-            (positionType === 'buy_write' && w.appliesTo.includes('covered_call'))
-        );
-        if (relevantWisdom.length > 0) {
-            wisdomUsed = relevantWisdom.slice(0, 5);  // Store for return
-            const wisdomList = wisdomUsed.map(w => 
-                `• [${w.category}] ${w.wisdom}`
-            ).join('\n');
-            wisdomSection = `\n═══ TRADER'S WISDOM (from your knowledge base) ═══\nConsider these principles from experienced traders:\n${wisdomList}\n`;
+    let wisdomUsed = [];
+    
+    if (!skipWisdom) {
+        try {
+            // Build a query from the position context
+            const query = `${ticker} ${positionType?.replace(/_/g, ' ')} strike ${strike} ${dte} days to expiry ${riskPercent > 50 ? 'high risk' : 'low risk'} ${spot > strike ? 'ITM' : 'OTM'}`;
+            
+            // Use semantic search (with category fallback)
+            const searchResults = await searchWisdom(query, positionType, 5);
+            
+            if (searchResults.length > 0) {
+                wisdomUsed = searchResults.map(r => r.entry);
+                const wisdomList = searchResults.map(r => {
+                    const relevanceTag = r.score > 0.7 ? '🎯' : r.score > 0.5 ? '📌' : '📚';
+                    return `${relevanceTag} [${r.entry.category}] ${r.entry.wisdom}`;
+                }).join('\n');
+                
+                wisdomSection = `
+═══ YOUR TRADING RULES (MANDATORY) ═══
+These are YOUR personal rules from your knowledge base. You MUST:
+1. Follow these unless there's a COMPELLING reason not to
+2. CITE which rule(s) influenced your recommendation  
+3. If you contradict a rule, EXPLAIN WHY the situation warrants an exception
+
+${wisdomList}
+
+At the END of your response, include:
+📚 Rules Applied: [list which rules you followed]
+📚 Rules Overridden: [list any rules you deviated from and why]
+`;
+            }
+        } catch (e) {
+            console.log('[WISDOM] Search error:', e.message);
         }
-    } catch (e) {
-        // Wisdom not available, continue without it
     }
     
     // Store wisdom in function result metadata

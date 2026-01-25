@@ -2633,7 +2633,8 @@ async function getAIInsight() {
             previousAnalysis: previousAnalysis,  // Include previous analysis for comparison
             portfolioContext: formatPortfolioContextForAI(),  // Include portfolio context from audit
             chainHistory: chainHistory.length > 1 ? chainHistory : null,  // Only include if rolled
-            totalPremiumCollected: totalPremiumCollected  // Net premium across all rolls
+            totalPremiumCollected: totalPremiumCollected,  // Net premium across all rolls
+            skipWisdom: !document.getElementById('aiWisdomToggle')?.checked  // True = pure mode (no wisdom)
         };
         
         // Call our server endpoint
@@ -2703,6 +2704,14 @@ async function getAIInsight() {
         const moeIndicator = isMoE ? 
             `<span style="color:#7a8a94; margin-right:8px;" title="Mixture of Experts: 7B + 14B opinions synthesized by 32B">🧠 MoE</span>` : '';
         
+        // Build pure mode indicator
+        const pureModeIndicator = result.pureMode ?
+            `<span style="color:#fbbf24; margin-right:8px;" title="Analysis without wisdom/rules influence">⚡ Pure</span>` : '';
+        
+        // Build wisdom indicator
+        const wisdomIndicator = !result.pureMode && result.wisdomApplied?.count > 0 ?
+            `<span style="color:#4ade80; margin-right:8px;" title="${result.wisdomApplied.count} wisdom entries applied">📚 ${result.wisdomApplied.count}</span>` : '';
+        
         // Store MoE opinions for "View Opinions" button
         if (isMoE) {
             window._lastMoeOpinions = result.moe.opinions;
@@ -2728,7 +2737,7 @@ async function getAIInsight() {
         // Show a brief summary in the panel, with button to open full modal
         contentEl.innerHTML = `
             <div style="color:#7ba3b0; font-weight:bold; margin-bottom:6px;">✅ Analysis Complete</div>
-            <div style="color:#888; font-size:11px; margin-bottom:8px;">${moeIndicator}${selectedModel} • ${result.took || 'N/A'}</div>
+            <div style="color:#888; font-size:11px; margin-bottom:8px;">${moeIndicator}${pureModeIndicator}${wisdomIndicator}${selectedModel} • ${result.took || 'N/A'}</div>
             <button onclick="window.showAIInsightModal()" style="background:#7ba3b0; border:none; color:#000; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:bold; width:100%;">
                 📊 View Full Analysis
             </button>
@@ -2742,6 +2751,9 @@ async function getAIInsight() {
             took: result.took,
             isMoE,
             moeIndicator,
+            pureModeIndicator,
+            wisdomIndicator,
+            pureMode: result.pureMode,
             hasThesis,
             positionId,
             hasHistory,
@@ -3218,6 +3230,7 @@ function showAIInsightModal() {
             `<div style="margin:4px 0; padding:6px 10px; background:rgba(122,138,148,0.1); border-radius:4px; font-size:12px;">
                 <span style="color:#a78bfa; font-weight:bold;">[${w.category}]</span> 
                 <span style="color:#ccc;">${w.wisdom}</span>
+                ${w.relevance ? `<span style="color:#666; font-size:10px; float:right;">relevance: ${w.relevance}</span>` : ''}
             </div>`
         ).join('');
         
@@ -3227,6 +3240,17 @@ function showAIInsightModal() {
                     📚 WISDOM APPLIED (${data.wisdomApplied.count} entries matched "${posType}")
                 </div>
                 ${wisdomEntries}
+            </div>
+        `;
+    } else if (data.pureMode) {
+        wisdomSection = `
+            <div style="background:rgba(251,191,36,0.1); border:1px solid #fbbf24; border-radius:8px; padding:12px; margin-top:16px;">
+                <div style="color:#fbbf24; font-weight:bold; font-size:13px;">
+                    ⚡ PURE MODE - Analysis without wisdom/rules influence
+                </div>
+                <div style="color:#888; font-size:11px; margin-top:4px;">
+                    Enable "📚 Apply Wisdom" to include your trading rules in the analysis.
+                </div>
             </div>
         `;
     }
@@ -3249,7 +3273,7 @@ function showAIInsightModal() {
             
             <!-- Model info bar -->
             <div style="background:rgba(123,163,176,0.1); padding:10px 14px; border-radius:8px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
-                <span style="color:#7ba3b0;">${data.moeIndicator || ''}${data.selectedModel}</span>
+                <span style="color:#7ba3b0;">${data.moeIndicator || ''}${data.pureModeIndicator || ''}${data.wisdomIndicator || ''}${data.selectedModel}</span>
                 <span style="color:#888;">${data.took || ''}</span>
             </div>
             

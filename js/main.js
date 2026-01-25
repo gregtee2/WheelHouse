@@ -197,6 +197,9 @@ async function checkAIAvailability() {
         modelSelect.value = savedModel;
     }
     
+    // Restore wisdom toggle preference
+    loadWisdomPreference();
+    
     try {
         const res = await fetch('/api/ai/status');
         if (!res.ok) throw new Error('API error');
@@ -522,6 +525,44 @@ window.saveAIModelPreference = function() {
         console.log('AI model preference saved:', modelSelect.value);
         // Check if this model is loaded
         checkAIStatus();
+    }
+};
+
+/**
+ * Save wisdom toggle preference to localStorage and update UI
+ */
+window.saveWisdomPreference = function() {
+    const wisdomToggle = document.getElementById('aiWisdomToggle');
+    const wisdomStatus = document.getElementById('wisdomStatus');
+    if (wisdomToggle) {
+        const isEnabled = wisdomToggle.checked;
+        localStorage.setItem('wheelhouse_wisdom_enabled', isEnabled ? 'true' : 'false');
+        console.log('Wisdom preference saved:', isEnabled ? 'enabled' : 'disabled (pure mode)');
+        
+        // Update status indicator
+        if (wisdomStatus) {
+            if (isEnabled) {
+                wisdomStatus.textContent = '✓ Rules active';
+                wisdomStatus.style.color = '#4ade80';
+            } else {
+                wisdomStatus.textContent = '⚡ Pure mode';
+                wisdomStatus.style.color = '#fbbf24';
+            }
+        }
+    }
+};
+
+/**
+ * Load wisdom toggle preference from localStorage
+ */
+window.loadWisdomPreference = function() {
+    const wisdomToggle = document.getElementById('aiWisdomToggle');
+    if (wisdomToggle) {
+        const saved = localStorage.getItem('wheelhouse_wisdom_enabled');
+        // Default to enabled if not set
+        wisdomToggle.checked = saved !== 'false';
+        // Update status indicator
+        saveWisdomPreference();
     }
 };
 

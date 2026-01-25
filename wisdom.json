@@ -128,6 +128,20 @@
       ],
       "source": "User input",
       "added": "2026-01-24"
+    },
+    {
+      "id": 1769320891129,
+      "raw": "BEST PRACTICES:  for Selling Options Premiums @everyone\n\nUnderstand Option Fundamentals:\nFamiliarize yourself with key concepts like Calls, Puts, Strike prices, Expiration dates, Delta, Option chains, Bollinger Band,RSI,MACD, Intrinsic value, Extrinsic Value.\nLearn options common terms:  See common acronyms used in options trading under Ashley's Corner (#ashley-gems).\n\nSelect Appropriate Strategies:\nUse strategies like covered calls, cash-secured puts, credit spreads, or long calls depending on your risk tolerance.\nChoose the strategy that aligns with your investment objectives.\n\nAnalyze Market Conditions:\nLook for stocks or ETFs with stable or bullish trends when selling calls or bearish trends for puts.\nFocus on high implied volatility (IV) to maximize premium income, as options are typically priced higher when IV is high.\n\nFocus on Liquid Markets:\nTrade options on liquid stocks or ETFs to ensure tighter bid-ask spreads and easier execution.\nAvoid options with low trading volume, as this can lead to larger price swings and higher transaction costs.\n\nSet Realistic Profit Targets:\nDefine clear profit targets and potential exit points before entering a trade.\nAim for a target return that reflects the risk you are taking.\n\nManage Risk Effectively:\nLimit the size of individual positions to a small percentage of your portfolio (e.g., 1-5%).  Never greater than 10%.\nSelect a delta between 0.10 to 0.20.  The range is often considered less risky for selling options. Higher probability to profit\nUse stop-loss orders to protect against significant losses if the market moves against you.\nMonitor Implied Volatility:\nKeep an eye on changes in IV, as this can affect the premium you receive.\nConsider closing positions if IV decreases significantly after selling the option, as this could lock in profits.\n\nConsider Earnings and Events:\nAvoid selling options right before earnings reports or major news announcements, which can lead to unexpected volatility.\nIf holding a position through events, be prepared for potential price swings.\n\nBe Prepared to Adjust:\nHave a plan in place for managing trades if they move against you.\nConsider rolling options (closing the current position and opening a new one) to adjust your strike price or expiration date.\n\nReview and Learn:\nRegularly review your trades to identify what worked and what didn’t.  Keep a journal or spreadsheet of your trades.\nContinuously educate yourself through books, webinars, or trading communities to refine your skills.\n\nConclusion:\n\nSelling options premiums can be a profitable strategy, but it requires careful planning and risk management. By following these best practices, you can enhance your chances of success while minimizing potential pitfalls. Always trade within your risk tolerance and maintain a disciplined approach.",
+      "wisdom": "Carefully plan and manage risks when selling options premiums by selecting appropriate strategies, analyzing market conditions, setting realistic profit targets, and monitoring changes in implied volatility.",
+      "category": "general",
+      "appliesTo": [
+        "covered_call",
+        "cash-secured_put",
+        "credit_spread",
+        "long_call"
+      ],
+      "source": "User input",
+      "added": "2026-01-25"
     }
   ]
 }

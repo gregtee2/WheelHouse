@@ -2,6 +2,34 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.13.0] - 2026-01-24
+
+### Added
+- **🧠 Vector RAG Wisdom System** - AI now uses semantic search for trading rules!
+  - Wisdom entries are converted to vector embeddings using `nomic-embed-text` model
+  - AI finds the most semantically relevant rules for each trade (not just category matching)
+  - Relevance scores shown: 🎯 (>70%), 📌 (>50%), 📚 (lower)
+  - AI MUST cite which rules it followed and explain any overrides
+  - New endpoint: `/api/wisdom/regenerate-embeddings` to update all embeddings
+
+- **⚡ Pure Mode Toggle** - Get raw AI analysis without wisdom influence
+  - New "📚 Apply Wisdom" checkbox in AI Trade Advisor panel
+  - When unchecked, AI gives pure analysis without your trading rules
+  - Visual indicators: "✓ Rules active" (green) or "⚡ Pure mode" (yellow)
+  - Useful for comparing rule-influenced vs raw AI opinions
+  - Preference saved to localStorage
+
+### Changed
+- **AI Prompt Strengthening** - Rules changed from "consider" to "MANDATORY"
+  - AI must explicitly CITE rule numbers it's following
+  - AI must EXPLAIN why if it disagrees with any rule
+  - Better compliance with your personal trading philosophy
+
+- **Wisdom Display Improvements**
+  - Analysis modal shows which wisdom entries matched with relevance scores
+  - Pure mode shows yellow banner explaining wisdom was skipped
+  - Model info bar shows 📚 count or ⚡ Pure indicator
+
 ## [1.12.0] - 2026-01-24
 
 ### Added
