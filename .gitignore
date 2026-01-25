@@ -28,5 +28,10 @@ saved_positions/
 
 # Any exported data
 exports/
-backups/dist/
+backups/
+
+# Electron build output
+dist/
+
+# Secure credential storage
 .secure-store

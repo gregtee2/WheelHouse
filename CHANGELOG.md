@@ -2,6 +2,88 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.12.0] - 2026-01-24
+
+### Added
+- **🖥️ Electron Desktop App** - WheelHouse is now a standalone desktop application!
+  - No more browser tabs - runs as a native Windows application
+  - Embedded Node.js server starts automatically with the app
+  - Clean window with proper app icon and title
+  - DevTools available in dev mode for debugging
+
+- **🔐 Password-Protected Login** - Secure app access
+  - First launch prompts you to create a password (6-12 characters)
+  - Supports letters, numbers, and special characters: `!@#$%^&*?`
+  - Password stored securely using SHA-256 hashing
+  - Visual dot indicators show password length as you type
+  - Login screen appears before any data is accessible
+
+- **🔒 Secure Credential Storage** - Enterprise-grade security for API keys
+  - Uses Windows Credential Manager (via Electron's safeStorage API)
+  - AES-256-GCM encryption for all sensitive data
+  - Schwab tokens automatically migrated from .env to encrypted store
+  - Secured keys: SCHWAB_APP_KEY, SCHWAB_APP_SECRET, SCHWAB_REFRESH_TOKEN, 
+    SCHWAB_ACCESS_TOKEN, OPENAI_API_KEY, GROK_API_KEY, TELEGRAM_BOT_TOKEN
+  - `.secure-store` file is encrypted and unusable without Windows login
+
+- **🔰 Security Status Banner** - Know your security mode at a glance
+  - Green banner in Settings when running in secure (Electron) mode
+  - Yellow warning when running in legacy web mode
+  - Fetches status from `/api/settings/security` endpoint
+
+- **📦 Windows Installer** - Easy distribution
+  - One-click NSIS installer (`WheelHouse Setup 1.12.0.exe`)
+  - Installs to user's AppData folder (no admin required)
+  - Creates desktop shortcut
+  - Clean uninstaller included
+  - ~81MB installer size
+
+- **🚀 Launcher Batch Files** - Multiple ways to start
+  - `WheelHouse.bat` - Main launcher, clears ports, starts Electron app
+  - `WheelHouse-Dev.bat` - Dev mode with Chrome DevTools open
+  - `WheelHouse-WebOnly.bat` - Legacy mode, just the Node.js server
+
+### New Files
+- `electron/main.js` - Electron main process (app lifecycle, IPC, secure storage)
+- `electron/preload.js` - Context bridge for secure renderer communication
+- `login.html` - Password login/setup screen
+- `src/secureStore.js` - AES-256-GCM encrypted credential manager
+- `WheelHouse.bat`, `WheelHouse-Dev.bat`, `WheelHouse-WebOnly.bat` - Launchers
+
+### Changed
+- `package.json` - Now configured for Electron with build settings
+- `server.js` - Initializes secure store when encryption key present
+- `src/routes/settingsRoutes.js` - Uses secureStore for secrets, added `/security` endpoint
+- `index.html` - Added security status banner in Settings tab
+- `js/settings.js` - Added `checkSecurityStatus()` function
+- `.gitignore` - Added `dist/` and `.secure-store` exclusions
+
+### Security Architecture
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Electron Main Process                     │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │ safeStorage API → Windows Credential Manager            ││
+│  │ Stores: WHEELHOUSE_ENCRYPTION_KEY (256-bit)            ││
+│  └─────────────────────────────────────────────────────────┘│
+│                           │                                  │
+│                    passes key via env var                    │
+│                           ↓                                  │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │ Node.js Server (port 8888)                              ││
+│  │ secureStore.js ← AES-256-GCM encryption                 ││
+│  │ .secure-store file (encrypted JSON)                     ││
+│  └─────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Migration Notes
+- **Existing .env secrets**: Automatically migrated to encrypted store on first Electron launch
+- **Web mode still works**: Use `WheelHouse-WebOnly.bat` or `npm run start:web`
+- **Password reset**: Delete `wheelhouse_password` from localStorage to reset
+
+---
+
 ## [1.11.0] - 2026-01-24
 
 ### Added

@@ -4,7 +4,7 @@
 
 **WheelHouse** is a Wheel Strategy Options Analyzer & Position Tracker built with vanilla JavaScript (ES6 modules) and Node.js. It provides Monte Carlo-based options pricing, real-time CBOE quotes, position tracking, and portfolio analytics.
 
-**Version**: 1.11.0  
+**Version**: 1.12.0  
 **Repository**: https://github.com/gregtee2/WheelHouse  
 **Branches**: `main` (development), `stable` (releases)
 
@@ -15,19 +15,30 @@
 ### Tech Stack
 - **Frontend**: Pure JavaScript ES6 modules, Canvas API for charts
 - **Backend**: Node.js + Express (server.js)
+- **Desktop**: Electron v33 for native Windows app
+- **Security**: Windows Credential Manager + AES-256-GCM encryption
 - **Data Sources**: CBOE delayed quotes API, Yahoo Finance fallback
-- **Storage**: Browser localStorage (no database)
+- **Storage**: Browser localStorage (positions), encrypted .secure-store (secrets)
 - **Port**: 8888
 
 ### File Structure
 ```
 WheelHouse/
+├── electron/
+│   ├── main.js         # Electron main process, IPC handlers, secure storage
+│   └── preload.js      # Context bridge for renderer security
 ├── server.js           # Node.js server - CBOE/Yahoo proxy, static file serving
+├── login.html          # Password login screen (6-12 char, alphanumeric + symbols)
 ├── index.html          # Main HTML shell with all tabs
 ├── install.bat/.sh     # One-click installers (Windows/Mac)
-├── start.bat/.sh       # Launcher scripts
-├── package.json        # Version 1.1.0
+├── WheelHouse.bat      # Main Electron launcher (clears ports)
+├── WheelHouse-Dev.bat  # Dev mode with DevTools
+├── WheelHouse-WebOnly.bat # Legacy server-only mode
+├── package.json        # Electron + build config
 ├── CHANGELOG.md        # Release notes
+├── src/
+│   ├── secureStore.js  # AES-256-GCM encrypted credential storage
+│   └── routes/         # API route handlers
 ├── css/
 │   └── styles.css      # Dark theme styling
 └── js/
@@ -42,6 +53,7 @@ WheelHouse/
     ├── charts.js       # Canvas chart rendering (payoff, probability cone, etc.)
     ├── analysis.js     # Recommendations, EV calculations, roll calculator
     ├── broker-import.js# Schwab CSV import
+    ├── settings.js     # Settings tab logic, security status check
     └── ui.js           # Sliders, date pickers, UI bindings
 ```
 
@@ -644,20 +656,170 @@ git push origin main:stable
 3. **Chain linking is by `chainId`** - Not by position ID
 4. **Challenges filter by OPEN date** - Not close date
 5. **Test on port 8888** - `http://localhost:8888`
-6. **localStorage is the database** - No server-side storage
+6. **localStorage is the database** - No server-side storage for positions
 7. **Push to `main` first** - Only push to `stable` for releases
 8. **Discord Analyzer uses `discordModelSelect`** - Separate from main `aiModelSelect`
 9. **Premium validation: >$50 is stock price** - Option premiums are typically $0.50-$15
 10. **Range position: 0%=3-month low, 100%=high** - Provides entry context
 11. **openingThesis stores entry data** - IV, model, range, aiSummary with spectrum
 12. **analysisHistory tracks AI over time** - Array of { timestamp, recommendation, snapshot }
+13. **Secrets go in secureStore** - Never store API keys in .env when Electron is available
+14. **Use `WheelHouse.bat`** - Not `start.bat` or `npm start` for normal use
+
+---
+
+## 🔐 Electron & Security Architecture
+
+### Desktop App Mode (Default)
+
+WheelHouse runs as an Electron desktop app with password protection and encrypted credential storage.
+
+**Startup Flow:**
+```
+WheelHouse.bat
+    └── electron .
+        └── electron/main.js
+            ├── Load/create encryption key from Windows Credential Manager
+            ├── Spawn Node.js server (port 8888) with encryption key
+            ├── Show login.html (password prompt)
+            └── On success → load index.html
+```
+
+**Key Files:**
+| File | Purpose |
+|------|---------|
+| `electron/main.js` | Main process, secure storage IPC, server lifecycle |
+| `electron/preload.js` | Context bridge exposing `window.electronAPI` |
+| `login.html` | Password setup/login screen |
+| `src/secureStore.js` | AES-256-GCM encrypted credential storage |
+
+### Secure Storage System
+
+The secureStore uses Windows Credential Manager (via Electron's `safeStorage` API) to store an encryption key, which is then used to encrypt/decrypt a local `.secure-store` file.
+
+**Encryption Details:**
+- **Algorithm**: AES-256-GCM (authenticated encryption)
+- **Key Size**: 256 bits (32 bytes)
+- **IV**: Random 16 bytes per encryption
+- **Auth Tag**: 16 bytes appended to ciphertext
+
+**Secured Keys:**
+```javascript
+const SECURE_KEYS = [
+    'SCHWAB_APP_KEY',
+    'SCHWAB_APP_SECRET', 
+    'SCHWAB_REFRESH_TOKEN',
+    'SCHWAB_ACCESS_TOKEN',
+    'OPENAI_API_KEY',
+    'GROK_API_KEY',
+    'TELEGRAM_BOT_TOKEN'
+];
+```
+
+**Usage in Code:**
+```javascript
+// In server.js - Initialize on startup
+const secureStore = require('./src/secureStore');
+if (process.env.WHEELHOUSE_ENCRYPTION_KEY) {
+    secureStore.initialize(process.env.WHEELHOUSE_ENCRYPTION_KEY);
+}
+
+// In routes - Get/set secrets
+const value = secureStore.get('SCHWAB_APP_KEY');
+secureStore.set('SCHWAB_APP_KEY', newValue);
+```
+
+### Password System
+
+**Requirements:**
+- 6-12 characters
+- Alphanumeric plus `!@#$%^&*?`
+- Stored in localStorage as SHA-256 hash
+
+**Login Flow:**
+1. User enters password
+2. Hash with SHA-256
+3. Compare to stored hash in `localStorage['wheelhouse_password']`
+4. On match → redirect to `index.html`
+
+**Password Reset:** Delete `wheelhouse_password` from localStorage
+
+### IPC Handlers (electron/main.js)
+
+```javascript
+// Secure storage
+ipcMain.handle('secure-storage:save', (event, key, value) => {...})
+ipcMain.handle('secure-storage:get', (event, key) => {...})
+ipcMain.handle('secure-storage:delete', (event, key) => {...})
+
+// App info
+ipcMain.handle('app:getVersion', () => app.getVersion())
+
+// Server control
+ipcMain.handle('server:restart', () => {...})
+```
+
+### Context Bridge (electron/preload.js)
+
+Exposes to renderer:
+```javascript
+window.electronAPI = {
+    secureStorage: { save, get, delete },
+    app: { getVersion },
+    server: { restart }
+}
+```
+
+### Launcher Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `WheelHouse.bat` | Main launcher - kills existing node, starts Electron |
+| `WheelHouse-Dev.bat` | Dev mode with DevTools open |
+| `WheelHouse-WebOnly.bat` | Legacy mode - just Node.js server, no Electron |
+
+### Building the Installer
+
+```bash
+# Build Windows NSIS installer
+npm run dist
+
+# Output: dist/WheelHouse Setup X.X.X.exe (~81MB)
+```
+
+**Build Config (package.json):**
+```json
+{
+  "build": {
+    "appId": "com.wheelhouse.app",
+    "productName": "WheelHouse",
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
+```
 
 ---
 
 ## 🧪 Testing
 
 ```bash
-# Start server
+# Start Electron app (recommended)
+WheelHouse.bat
+
+# Or with DevTools
+WheelHouse-Dev.bat
+
+# Legacy web-only mode
+WheelHouse-WebOnly.bat
+
+# Or manually
 cd c:\WheelHouse
 node server.js
 
