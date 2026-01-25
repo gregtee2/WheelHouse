@@ -5,12 +5,63 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.9.0-blue)
+![Version](https://img.shields.io/badge/version-1.12.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
-## 🆕 What's New in v1.9.0
+## 🆕 What's New in v1.12.0
+
+### 🖥️ Electron Desktop App
+- **Standalone Windows application** - No more browser tabs
+- Embedded Node.js server starts automatically
+- Clean window with proper app title
+- DevTools available in dev mode
+
+### 🔐 Password-Protected Login
+- **First launch prompts you to create a password** (6-12 characters)
+- Supports letters, numbers, and special characters: `!@#$%^&*?`
+- Password stored securely using SHA-256 hashing
+- Login screen appears before any data is accessible
+
+### 🔒 Secure Credential Storage
+- **Windows Credential Manager** integration via Electron's safeStorage API
+- **AES-256-GCM encryption** for all sensitive data
+- Schwab tokens automatically migrated from .env to encrypted store
+- Secured: SCHWAB_APP_KEY, SCHWAB_APP_SECRET, SCHWAB_REFRESH_TOKEN, SCHWAB_ACCESS_TOKEN, OPENAI_API_KEY, GROK_API_KEY, TELEGRAM_BOT_TOKEN
+
+### 📦 Windows Installer
+- **One-click NSIS installer** (~81MB)
+- Installs to user's AppData folder (no admin required)
+- Creates desktop shortcut
+- Clean uninstaller included
+
+### 🚀 Launcher Batch Files
+- `WheelHouse.bat` - Main launcher, clears ports, starts Electron app
+- `WheelHouse-Dev.bat` - Dev mode with Chrome DevTools open
+- `WheelHouse-WebOnly.bat` - Legacy mode, just the Node.js server
+
+---
+
+## 📦 Previous: v1.11.0
+
+### 🎯 Alternative Strategies AI
+- When covered call is ITM, AI considers 5 strategies beyond just rolling
+- Assignment scenario calculator shows exactly what you'd make if called
+- Chain history context - AI sees full roll history
+
+---
+
+## 📦 Previous: v1.10.0
+
+### 🏆 Win Rate Dashboard
+- Win Rate percentage, Average DTE, Best/Worst ticker
+- Cumulative P&L Chart with visual line graph
+- Expiration Calendar with color-coded dots
+
+---
+
+## 📦 Previous: v1.9.0
 
 ### 📊 Per-Position Greeks
 - **Delta (Δ) and Theta (Θ/day)** columns in Positions table
