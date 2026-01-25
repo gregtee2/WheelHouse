@@ -3901,8 +3901,20 @@ window.runStrategyAdvisor = async function() {
     }
     
     const model = modelSelect?.value || 'deepseek-r1:32b';
-    const buyingPower = parseFloat(bpInput?.value) || 25000;
     const riskTolerance = riskSelect?.value || 'moderate';
+    
+    // Get buying power from Schwab account (or fallback to input/default)
+    let buyingPower = parseFloat(bpInput?.value) || 25000;
+    
+    // Try to get real buying power from Schwab (use balBuyingPower from Portfolio tab if available)
+    const balBuyingPowerEl = document.getElementById('balBuyingPower');
+    if (balBuyingPowerEl && balBuyingPowerEl.textContent) {
+        const schwabBP = parseFloat(balBuyingPowerEl.textContent.replace(/[^0-9.]/g, ''));
+        if (schwabBP > 0) {
+            buyingPower = schwabBP;
+            console.log(`[STRATEGY-ADVISOR] Using Schwab buying power: $${buyingPower.toLocaleString()}`);
+        }
+    }
     
     // Show loading state
     loadingDiv.style.display = 'block';
@@ -3913,7 +3925,7 @@ window.runStrategyAdvisor = async function() {
         // Get existing positions for context
         const existingPositions = state.positions || [];
         
-        console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker}...`);
+        console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with BP=$${buyingPower.toLocaleString()}...`);
         progressDiv.textContent = `Analyzing ${ticker} with ${model}...`;
         
         const response = await fetch('/api/ai/strategy-advisor', {

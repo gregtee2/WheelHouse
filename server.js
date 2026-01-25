@@ -776,6 +776,14 @@ const mainHandler = async (req, res, next) => {
             // 4. Build AI prompt
             const prompt = buildStrategyAdvisorPrompt(context);
             
+            // Debug: Show what strikes we're sending to AI
+            if (context.sampleOptions?.length > 0) {
+                const strikes = context.sampleOptions.map(o => `$${o.strike}`).slice(0, 5);
+                console.log(`[STRATEGY-ADVISOR] Sending strikes to AI: ${strikes.join(', ')}...`);
+            } else {
+                console.log(`[STRATEGY-ADVISOR] ⚠️ No options data being sent to AI!`);
+            }
+            
             // 5. Call AI
             console.log(`[STRATEGY-ADVISOR] Calling AI for recommendation...`);
             const aiResponse = await callAI(prompt, selectedModel, 2000);
@@ -4094,24 +4102,49 @@ Be honest but constructive. Focus on the PROCESS, not just the outcome. A losing
 function buildStrategyAdvisorPrompt(context) {
     const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, riskTolerance, existingPositions, dataSource } = context;
     
-    // Format sample options for context - BE VERY CLEAR about what's a STRIKE vs PREMIUM
+    // =========================================================================
+    // EXTRACT SPECIFIC STRIKES - Pre-calculate examples the AI MUST use
+    // =========================================================================
+    const puts = sampleOptions?.filter(o => o.option_type === 'P').sort((a, b) => parseFloat(b.strike) - parseFloat(a.strike)) || [];
+    const calls = sampleOptions?.filter(o => o.option_type === 'C').sort((a, b) => parseFloat(a.strike) - parseFloat(b.strike)) || [];
+    
+    // Find ATM put (just below spot)
+    const atmPut = puts.find(p => parseFloat(p.strike) <= spot) || puts[0];
+    // Find OTM put ($3-5 below spot for spread)
+    const otmPut = puts.find(p => parseFloat(p.strike) <= spot - 3) || puts[Math.min(3, puts.length - 1)];
+    // Find ATM call (just above spot)
+    const atmCall = calls.find(c => parseFloat(c.strike) >= spot) || calls[0];
+    // Find OTM call ($3-5 above spot)
+    const otmCall = calls.find(c => parseFloat(c.strike) >= spot + 3) || calls[Math.min(3, calls.length - 1)];
+    
+    // Pre-calculate example values
+    const sellPutStrike = atmPut ? parseFloat(atmPut.strike).toFixed(2) : (spot - 1).toFixed(2);
+    const buyPutStrike = otmPut ? parseFloat(otmPut.strike).toFixed(2) : (spot - 5).toFixed(2);
+    const sellCallStrike = atmCall ? parseFloat(atmCall.strike).toFixed(2) : (spot + 1).toFixed(2);
+    const buyCallStrike = otmCall ? parseFloat(otmCall.strike).toFixed(2) : (spot + 5).toFixed(2);
+    const firstExpiry = expirations?.[0] || 'next weekly';
+    
+    // Get premium for ATM put (what you'd receive)
+    const atmPutPremium = atmPut ? ((parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2).toFixed(2) : '1.00';
+    const atmPutDelta = atmPut?.delta ? Math.abs(parseFloat(atmPut.delta)).toFixed(2) : '0.40';
+    
+    // Format sample options for context
     let optionsContext = '';
     if (sampleOptions && sampleOptions.length > 0) {
-        optionsContext = `FORMAT: [Type] STRIKE PRICE | Expiration | PREMIUM (bid/ask) | Delta
-NOTE: Strike prices are near $${spot.toFixed(0)}. Premium is what you pay/receive per share.\n\n`;
+        optionsContext = `FORMAT: [Type] STRIKE | Expiration | PREMIUM bid-ask | Delta\n`;
+        optionsContext += `(Stock price is $${spot.toFixed(2)} - strikes are similar values)\n\n`;
         
         optionsContext += sampleOptions.map(o => {
             const type = o.option_type === 'C' ? 'CALL' : 'PUT';
             const strike = parseFloat(o.strike);
             const bid = parseFloat(o.bid) || 0;
             const ask = parseFloat(o.ask) || 0;
-            const mid = ((bid + ask) / 2).toFixed(2);
             const delta = o.delta ? parseFloat(o.delta).toFixed(2) : 'N/A';
             const exp = o.expiration_date;
-            const dte = Math.ceil((new Date(exp) - new Date()) / (1000 * 60 * 60 * 24));
-            // Make it VERY clear: STRIKE is the price level, PREMIUM is bid/ask
-            return `  ${type} STRIKE $${strike.toFixed(2)} | ${exp} (${dte}d) | PREMIUM $${bid.toFixed(2)}-$${ask.toFixed(2)} (mid $${mid}) | Δ ${delta}`;
+            return `  ${type} $${strike.toFixed(2)} | ${exp} | $${bid.toFixed(2)}-$${ask.toFixed(2)} | Δ${delta}`;
         }).join('\n');
+    } else {
+        optionsContext = 'No options data available - use estimated strikes near current price.';
     }
     
     // Format existing positions
@@ -4213,20 +4246,28 @@ STRATEGIES TO EVALUATE (analyze ALL of these):
 YOUR TASK: Recommend THE BEST strategy for this situation
 ═══════════════════════════════════════════════════════════════════════════
 
-⚠️ CRITICAL: Use the REAL strike prices from the options chain above!
-   - Strikes should be near the current stock price of $${spot.toFixed(2)}
-   - DO NOT confuse premium ($1-5 range) with strike price ($${spot.toFixed(0)} range)
-   - Example: "Sell $${(Math.floor(spot / 5) * 5).toFixed(0)} Put" is a STRIKE price
+🚨 CRITICAL: USE THESE PRE-CALCULATED STRIKES (DO NOT CHANGE THEM!)
+   • ATM Put: $${sellPutStrike} (premium ~$${atmPutPremium}, delta ~${atmPutDelta})
+   • OTM Put: $${buyPutStrike} (for spread protection)
+   • ATM Call: $${sellCallStrike}
+   • OTM Call: $${buyCallStrike}
+   • First Expiration: ${firstExpiry}
+
+For a PUT CREDIT SPREAD, use: Sell $${sellPutStrike} Put / Buy $${buyPutStrike} Put
+For a CALL CREDIT SPREAD, use: Sell $${sellCallStrike} Call / Buy $${buyCallStrike} Call
+For a SHORT PUT, use: Sell $${sellPutStrike} Put
+For a COVERED CALL, use: Sell $${sellCallStrike} Call
 
 Respond with this EXACT format:
 
 ## 🏆 RECOMMENDED STRATEGY: [Strategy Name]
 
 ### THE TRADE
-• Action: [Use REAL strikes from chain - e.g., "Sell $${(Math.floor(spot) - 2).toFixed(0)} Put / Buy $${(Math.floor(spot) - 7).toFixed(0)} Put"]
-• Expiration: [Specific date from available expirations]
-• Credit/Debit: $X.XX [the PREMIUM per share from the chain]
-• Contracts: [Suggest based on buying power and risk]
+• Action: [Use the pre-calculated strikes above, e.g., "Sell $${sellPutStrike} Put / Buy $${buyPutStrike} Put"]
+• Strike(s): $${sellPutStrike} / $${buyPutStrike} (or whichever applies to your chosen strategy)
+• Expiration: ${firstExpiry}
+• Credit/Debit: ~$${atmPutPremium} per share (estimated from chain)
+• Contracts: [Suggest based on $${buyingPower.toLocaleString()} buying power and ${riskTolerance} risk]
 
 ### WHY THIS STRATEGY
 Explain in plain English why THIS strategy beats the others for THIS situation:
@@ -4258,7 +4299,10 @@ Briefly explain why you DIDN'T choose these:
 3. [Strategy 4]: [One-line reason]
 
 ### 💡 EDUCATIONAL NOTE
-Write 2-3 sentences explaining this strategy type for someone who has never done it before. What makes it different from just buying/selling a put or call?`;
+Write 2-3 sentences explaining this strategy type for someone who has never done it before. What makes it different from just buying/selling a put or call?
+
+### ✅ SANITY CHECK
+Confirm: My recommended strikes are $${sellPutStrike} and/or $${buyPutStrike} (near ${ticker} price of $${spot.toFixed(2)})`;
 }
 
 // Build a prompt for generating trade ideas (with real prices!)
@@ -4385,7 +4429,7 @@ async function callAI(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
 
 /**
  * Call Grok API (xAI)
- * Model names: grok-3, grok-3-mini, grok-2, grok-2-mini (check xAI docs for latest)
+ * Model names: grok-4, grok-3, grok-3-mini, grok-2 (check xAI docs for latest)
  */
 async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
     const apiKey = process.env.GROK_API_KEY;
@@ -4394,14 +4438,18 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
         throw new Error('Grok API key not configured. Add GROK_API_KEY to Settings.');
     }
     
-    console.log(`[AI] Using Grok model: ${model}, maxTokens: ${maxTokens}`);
+    // Model-specific timeouts (grok-4 is slower but smarter)
+    const timeoutMs = model.includes('grok-4') ? 180000 : 90000;
+    const timeoutSec = timeoutMs / 1000;
     
-    // Create AbortController for timeout (90 seconds for large responses)
+    console.log(`[AI] Using Grok model: ${model}, maxTokens: ${maxTokens}, timeout: ${timeoutSec}s`);
+    
+    // Create AbortController for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-        console.log(`[AI] ⚠️ Grok request timed out after 90s`);
+        console.log(`[AI] ⚠️ Grok request timed out after ${timeoutSec}s`);
         controller.abort();
-    }, 90000);
+    }, timeoutMs);
     
     try {
         const response = await fetch('https://api.x.ai/v1/chat/completions', {
@@ -4455,7 +4503,7 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
         clearTimeout(timeoutId);
         
         if (e.name === 'AbortError') {
-            throw new Error('Grok request timed out after 90 seconds. Try a smaller model or shorter prompt.');
+            throw new Error(`Grok request timed out after ${timeoutSec} seconds. Try grok-3 for faster responses.`);
         }
         
         console.log(`[AI] ❌ Grok call failed: ${e.message}`);
