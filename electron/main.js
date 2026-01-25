@@ -139,10 +139,52 @@ function startServer() {
 }
 
 function stopServer() {
-    if (serverProcess) {
-        serverProcess.kill();
-        serverProcess = null;
-    }
+    return new Promise((resolve) => {
+        if (serverProcess) {
+            const pid = serverProcess.pid;
+            console.log(`[Server] Stopping server process (PID: ${pid})...`);
+            
+            // On Windows, use taskkill to force-kill the process tree
+            if (process.platform === 'win32') {
+                const { exec } = require('child_process');
+                
+                // Kill the specific process tree
+                exec(`taskkill /PID ${pid} /T /F`, (err) => {
+                    if (err) {
+                        console.log(`[Server] taskkill error (may be already dead): ${err.message}`);
+                    }
+                    
+                    // Also kill any orphaned node on port 8888
+                    exec('for /f "tokens=5" %a in (\'netstat -ano ^| findstr :8888 ^| findstr LISTENING\') do taskkill /PID %a /F', (err2) => {
+                        serverProcess = null;
+                        console.log('[Server] Server stopped, waiting for port to clear...');
+                        // Give port time to clear
+                        setTimeout(resolve, 1500);
+                    });
+                });
+            } else {
+                // On Unix, kill gracefully then forcefully
+                serverProcess.kill('SIGTERM');
+                setTimeout(() => {
+                    if (serverProcess) {
+                        serverProcess.kill('SIGKILL');
+                    }
+                    serverProcess = null;
+                    resolve();
+                }, 500);
+            }
+        } else {
+            // No process but still clear any orphaned port usage
+            if (process.platform === 'win32') {
+                const { exec } = require('child_process');
+                exec('for /f "tokens=5" %a in (\'netstat -ano ^| findstr :8888 ^| findstr LISTENING\') do taskkill /PID %a /F', () => {
+                    setTimeout(resolve, 500);
+                });
+            } else {
+                resolve();
+            }
+        }
+    });
 }
 
 // ============================================
@@ -228,8 +270,11 @@ ipcMain.handle('app:path', async (event, name) => {
 
 // Server control
 ipcMain.handle('server:restart', async () => {
-    stopServer();
+    console.log('[Server] Restart requested...');
+    await stopServer();
+    console.log('[Server] Starting fresh server...');
     await startServer();
+    console.log('[Server] Restart complete!');
     return true;
 });
 
@@ -239,8 +284,8 @@ ipcMain.handle('server:restart', async () => {
 
 app.whenReady().then(createWindow);
 
-app.on('window-all-closed', () => {
-    stopServer();
+app.on('window-all-closed', async () => {
+    await stopServer();
     if (process.platform !== 'darwin') {
         app.quit();
     }
@@ -252,8 +297,13 @@ app.on('activate', () => {
     }
 });
 
-app.on('before-quit', () => {
-    stopServer();
+app.on('before-quit', async (event) => {
+    // Prevent default quit, clean up, then quit
+    if (serverProcess) {
+        event.preventDefault();
+        await stopServer();
+        app.quit();
+    }
 });
 
 // Prevent multiple instances
