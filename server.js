@@ -773,7 +773,7 @@ const mainHandler = async (req, res, next) => {
                 stockData,
                 ivRank,
                 expirations,
-                sampleOptions: sampleOptions.slice(0, 12), // Limit to avoid token overflow
+                sampleOptions: sampleOptions.slice(0, 20), // Need more strikes for spread calculations
                 buyingPower: buyingPower || 25000,
                 riskTolerance: riskTolerance || 'moderate',
                 existingPositions: existingPositions || [],
@@ -4227,31 +4227,53 @@ function buildStrategyAdvisorPrompt(context) {
     const atmPut = puts.find(p => parseFloat(p.strike) <= spot) || puts[0];
     
     // For spreads, find a put ~$5 OTM (standard spread width)
+    // OTM put should be $5 below the ATM put strike, not below spot
     const spreadWidth = spot >= 100 ? 5 : (spot >= 50 ? 5 : 2.5);
+    const targetOtmStrike = atmPut ? parseFloat(atmPut.strike) - spreadWidth : spot - spreadWidth;
+    
+    // Find closest put to target OTM strike
     let otmPut = puts.find(p => {
         const strike = parseFloat(p.strike);
-        return strike <= spot - spreadWidth && p !== atmPut;
+        // Look for a put within $1 of our target OTM strike, and not the ATM put
+        return Math.abs(strike - targetOtmStrike) <= 1 && p !== atmPut && (p.bid > 0 || p.ask > 0);
     });
     
-    // If no OTM put in chain, create synthetic based on ATM
+    // If exact match not found, get the next lower strike put with valid pricing
+    if (!otmPut) {
+        otmPut = puts.find(p => {
+            const strike = parseFloat(p.strike);
+            return strike < parseFloat(atmPut?.strike || spot) - 2 && p !== atmPut && (p.bid > 0 || p.ask > 0);
+        });
+    }
+    
+    // If STILL no OTM put in chain, create synthetic based on ATM
     if (!otmPut && atmPut) {
         const otmStrike = roundStrike(parseFloat(atmPut.strike) - spreadWidth);
-        // Estimate OTM premium as ~40% of ATM premium (rough delta-based estimate)
+        // Estimate OTM premium as ~60% of ATM premium (better estimate for $5 OTM)
         const atmMid = (parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2;
-        otmPut = { strike: otmStrike, bid: atmMid * 0.35, ask: atmMid * 0.45 };
+        otmPut = { strike: otmStrike, bid: atmMid * 0.55, ask: atmMid * 0.65, synthetic: true };
+        console.log(`[STRATEGY-ADVISOR] ⚠️ Created synthetic OTM put: $${otmStrike} with estimated premium $${(atmMid * 0.6).toFixed(2)}`);
     }
     
     // Find ATM call (just above spot)
     const atmCall = calls.find(c => parseFloat(c.strike) >= spot) || calls[0];
-    // Find OTM call for spread
+    // Find OTM call for spread - look for strike $5 above ATM call
+    const targetOtmCallStrike = atmCall ? parseFloat(atmCall.strike) + spreadWidth : spot + spreadWidth;
     let otmCall = calls.find(c => {
         const strike = parseFloat(c.strike);
-        return strike >= spot + spreadWidth && c !== atmCall;
+        return Math.abs(strike - targetOtmCallStrike) <= 1 && c !== atmCall && (c.bid > 0 || c.ask > 0);
     });
+    if (!otmCall) {
+        otmCall = calls.find(c => {
+            const strike = parseFloat(c.strike);
+            return strike > parseFloat(atmCall?.strike || spot) + 2 && c !== atmCall && (c.bid > 0 || c.ask > 0);
+        });
+    }
     if (!otmCall && atmCall) {
         const otmStrike = roundStrike(parseFloat(atmCall.strike) + spreadWidth);
         const atmMid = (parseFloat(atmCall.bid) + parseFloat(atmCall.ask)) / 2;
-        otmCall = { strike: otmStrike, bid: atmMid * 0.35, ask: atmMid * 0.45 };
+        otmCall = { strike: otmStrike, bid: atmMid * 0.55, ask: atmMid * 0.65, synthetic: true };
+        console.log(`[STRATEGY-ADVISOR] ⚠️ Created synthetic OTM call: $${otmStrike}`);
     }
     
     // Pre-calculate strikes (rounded to valid increments)
@@ -4306,6 +4328,8 @@ function buildStrategyAdvisorPrompt(context) {
     
     // DEBUG: Log what we're sending to AI
     console.log(`[STRATEGY-ADVISOR] Pre-calculated values for AI prompt:`);
+    console.log(`  ATM Put: $${atmPut?.strike} bid=${atmPut?.bid} ask=${atmPut?.ask} → mid=$${atmPutMid.toFixed(2)}`);
+    console.log(`  OTM Put: $${otmPut?.strike} bid=${otmPut?.bid} ask=${otmPut?.ask} → mid=$${otmPutMid.toFixed(2)}`);
     console.log(`  Sell Put: $${sellPutStrike}, Buy Put: $${buyPutStrike}, Width: $${putSpreadWidth}`);
     console.log(`  Put Spread Credit: $${putSpreadCredit.toFixed(2)} (sell $${atmPutMid.toFixed(2)} - buy $${otmPutMid.toFixed(2)})`);
     console.log(`  Sell Call: $${sellCallStrike}, Buy Call: $${buyCallStrike}, Width: $${callSpreadWidth}`);
