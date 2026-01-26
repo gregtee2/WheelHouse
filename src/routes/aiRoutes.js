@@ -741,7 +741,9 @@ router.post('/portfolio-audit', async (req, res) => {
         positions.forEach(p => { tickerCounts[p.ticker] = (tickerCounts[p.ticker] || 0) + 1; });
         const concentrations = Object.entries(tickerCounts).sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t}: ${c}`);
         
-        const prompt = `You are a professional options portfolio manager auditing a wheel strategy portfolio.
+        const prompt = `You are a professional options portfolio manager providing a comprehensive audit.
+
+IMPORTANT: This portfolio may contain MULTIPLE STRATEGIES beyond just the wheel. LEAPs, long calls, spreads, and other directional trades are VALID profit-generating strategies. Do NOT penalize positions simply for not fitting the "wheel" pattern. Judge each position on its own merits: risk/reward, position sizing, and strategic intent.
 
 ## CURRENT POSITIONS (${positions.length} total)
 ${positionSummary || 'No open positions'}
@@ -760,7 +762,9 @@ ${concentrations.join('\n') || 'None'}
 
 Provide:
 ## 📊 PORTFOLIO GRADE: [A/B/C/D/F]
-Then: 1. 🚨 PROBLEM POSITIONS, 2. ⚠️ CONCENTRATION RISKS, 3. 📊 GREEKS ASSESSMENT, 4. 💡 OPTIMIZATION IDEAS, 5. ✅ WHAT'S WORKING`;
+Grade based on overall risk management, diversification, and profit potential - not adherence to any single strategy.
+
+Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy"), 2. ⚠️ CONCENTRATION RISKS, 3. 📊 GREEKS ASSESSMENT, 4. 💡 OPTIMIZATION IDEAS, 5. ✅ WHAT'S WORKING`;
 
         const response = await AIService.callAI(prompt, selectedModel, 1200);
         
