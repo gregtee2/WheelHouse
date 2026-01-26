@@ -1241,15 +1241,697 @@ USE ONLY the expiry dates listed above - they are valid Friday expirations.`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// STRATEGY ADVISOR PROMPT
-// Note: This is a very large function that builds a comprehensive strategy
-// analysis. Due to its size (~700 lines), it's imported from server.js
-// during the transition. Once server.js is fully refactored, it can be
-// moved here if needed.
+// STRATEGY ADVISOR PROMPT - Analyzes all strategies and recommends best
 // ═══════════════════════════════════════════════════════════════════════════
+function buildStrategyAdvisorPrompt(context) {
+    const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, dataSource } = context;
+    
+    // =========================================================================
+    // HELPER: Round strike to valid increment ($1 for stocks > $50, $0.50 for < $50)
+    // =========================================================================
+    const roundStrike = (price) => {
+        const increment = spot >= 50 ? 1 : 0.5;
+        return Math.round(price / increment) * increment;
+    };
+    
+    // =========================================================================
+    // EXTRACT SPECIFIC STRIKES - Use REAL chain data with proper rounding
+    // =========================================================================
+    const puts = sampleOptions?.filter(o => o.option_type === 'P').sort((a, b) => parseFloat(b.strike) - parseFloat(a.strike)) || [];
+    const calls = sampleOptions?.filter(o => o.option_type === 'C').sort((a, b) => parseFloat(a.strike) - parseFloat(b.strike)) || [];
+    
+    console.log(`[STRATEGY-ADVISOR] Processing ${puts.length} puts, ${calls.length} calls for spot $${spot.toFixed(2)}`);
+    // Debug: Show available put strikes
+    const putStrikes = puts.map(p => `$${p.strike}`).join(', ');
+    console.log(`[STRATEGY-ADVISOR] Available put strikes: ${putStrikes || 'NONE'}`);
+    
+    // Find ATM put (just below spot, rounded to valid strike)
+    const atmPut = puts.find(p => parseFloat(p.strike) <= spot) || puts[0];
+    if (atmPut) {
+        console.log(`[STRATEGY-ADVISOR] ATM put: $${atmPut.strike} @ $${atmPut.bid}/$${atmPut.ask}`);
+    }
+    
+    // For spreads, find a put ~$5 OTM (standard spread width)
+    // OTM put should be $5 below the ATM put strike, not below spot
+    const spreadWidth = spot >= 100 ? 5 : (spot >= 50 ? 5 : 2.5);
+    const targetOtmStrike = atmPut ? parseFloat(atmPut.strike) - spreadWidth : spot - spreadWidth;
+    console.log(`[STRATEGY-ADVISOR] Target OTM strike: $${targetOtmStrike} (ATM $${atmPut?.strike} - $${spreadWidth} spread)`);
+    
+    // Find closest put to target OTM strike
+    let otmPut = puts.find(p => {
+        const strike = parseFloat(p.strike);
+        // Look for a put within $1 of our target OTM strike, and not the ATM put
+        return Math.abs(strike - targetOtmStrike) <= 1 && p !== atmPut && (p.bid > 0 || p.ask > 0);
+    });
+    
+    // If exact match not found, get the next lower strike put with valid pricing
+    if (!otmPut) {
+        otmPut = puts.find(p => {
+            const strike = parseFloat(p.strike);
+            return strike < parseFloat(atmPut?.strike || spot) - 2 && p !== atmPut && (p.bid > 0 || p.ask > 0);
+        });
+    }
+    
+    // If STILL no OTM put in chain, create synthetic based on ATM
+    if (!otmPut && atmPut) {
+        const otmStrike = roundStrike(parseFloat(atmPut.strike) - spreadWidth);
+        // Estimate OTM premium as ~60% of ATM premium (better estimate for $5 OTM)
+        const atmMid = (parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2;
+        otmPut = { strike: otmStrike, bid: atmMid * 0.55, ask: atmMid * 0.65, synthetic: true };
+        console.log(`[STRATEGY-ADVISOR] ⚠️ Created SYNTHETIC OTM put: $${otmStrike} with estimated premium $${(atmMid * 0.6).toFixed(2)}`);
+    } else if (otmPut) {
+        console.log(`[STRATEGY-ADVISOR] ✅ Found REAL OTM put: $${otmPut.strike} @ $${otmPut.bid}/$${otmPut.ask}`);
+    }
+    
+    // Find ATM call (just above spot)
+    const atmCall = calls.find(c => parseFloat(c.strike) >= spot) || calls[0];
+    // Find OTM call for spread - look for strike $5 above ATM call
+    const targetOtmCallStrike = atmCall ? parseFloat(atmCall.strike) + spreadWidth : spot + spreadWidth;
+    let otmCall = calls.find(c => {
+        const strike = parseFloat(c.strike);
+        return Math.abs(strike - targetOtmCallStrike) <= 1 && c !== atmCall && (c.bid > 0 || c.ask > 0);
+    });
+    if (!otmCall) {
+        otmCall = calls.find(c => {
+            const strike = parseFloat(c.strike);
+            return strike > parseFloat(atmCall?.strike || spot) + 2 && c !== atmCall && (c.bid > 0 || c.ask > 0);
+        });
+    }
+    if (!otmCall && atmCall) {
+        const otmStrike = roundStrike(parseFloat(atmCall.strike) + spreadWidth);
+        const atmMid = (parseFloat(atmCall.bid) + parseFloat(atmCall.ask)) / 2;
+        otmCall = { strike: otmStrike, bid: atmMid * 0.55, ask: atmMid * 0.65, synthetic: true };
+        console.log(`[STRATEGY-ADVISOR] ⚠️ Created SYNTHETIC OTM call: $${otmStrike} with estimated premium $${(atmMid * 0.6).toFixed(2)}`);
+    } else if (otmCall) {
+        console.log(`[STRATEGY-ADVISOR] ✅ Found REAL OTM call: $${otmCall.strike} @ $${otmCall.bid}/$${otmCall.ask}`);
+    }
+    
+    // Pre-calculate strikes (rounded to valid increments)
+    const sellPutStrike = atmPut ? roundStrike(parseFloat(atmPut.strike)) : roundStrike(spot - 1);
+    const buyPutStrike = otmPut ? roundStrike(parseFloat(otmPut.strike)) : roundStrike(spot - spreadWidth - 1);
+    const sellCallStrike = atmCall ? roundStrike(parseFloat(atmCall.strike)) : roundStrike(spot + 1);
+    const buyCallStrike = otmCall ? roundStrike(parseFloat(otmCall.strike)) : roundStrike(spot + spreadWidth + 1);
+    
+    // Calculate ACTUAL spread width (may differ from target due to available strikes)
+    const putSpreadWidth = sellPutStrike - buyPutStrike;
+    const callSpreadWidth = buyCallStrike - sellCallStrike;
+    
+    // Calculate premiums for spreads (NET credit = sell premium - buy premium)
+    const atmPutMid = atmPut ? (parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2 : 2.00;
+    const otmPutMid = otmPut ? (parseFloat(otmPut.bid) + parseFloat(otmPut.ask)) / 2 : atmPutMid * 0.4;
+    const putSpreadCredit = Math.max(0.10, atmPutMid - otmPutMid); // Net credit received
+    
+    const atmCallMid = atmCall ? (parseFloat(atmCall.bid) + parseFloat(atmCall.ask)) / 2 : 2.00;
+    const otmCallMid = otmCall ? (parseFloat(otmCall.bid) + parseFloat(otmCall.ask)) / 2 : atmCallMid * 0.4;
+    const callSpreadCredit = Math.max(0.10, atmCallMid - otmCallMid); // Net credit received
+    
+    // =========================================================================
+    // NEW STRATEGIES: Additional strike calculations for E, F, G, H
+    // =========================================================================
+    
+    // For Long Put (E) and Long Call (F) - find slightly OTM options to buy
+    // Use strikes about 3-5% OTM for reasonable premium cost
+    const longPutStrike = roundStrike(spot * 0.97);  // 3% OTM put
+    const longCallStrike = roundStrike(spot * 1.03); // 3% OTM call
+    
+    // Find actual options near these strikes
+    const longPut = puts.find(p => Math.abs(parseFloat(p.strike) - longPutStrike) <= 2) || 
+                    { strike: longPutStrike, bid: atmPutMid * 0.6, ask: atmPutMid * 0.7 };
+    const longCall = calls.find(c => Math.abs(parseFloat(c.strike) - longCallStrike) <= 2) ||
+                     { strike: longCallStrike, bid: atmCallMid * 0.6, ask: atmCallMid * 0.7 };
+    
+    const longPutPremium = (parseFloat(longPut.bid) + parseFloat(longPut.ask)) / 2;
+    const longCallPremium = (parseFloat(longCall.bid) + parseFloat(longCall.ask)) / 2;
+    const longPutStrikeActual = parseFloat(longPut.strike);
+    const longCallStrikeActual = parseFloat(longCall.strike);
+    
+    // Find ideal expiration: target 30-45 DTE for wheel strategies
+    // Weeklies (< 7 days) have too much gamma risk and not enough premium
+    // IMPORTANT: Define this BEFORE LEAPS/SKIP calculations that use it as fallback
+    let targetExpiry = expirations?.[0] || 'next monthly';
+    if (expirations && expirations.length > 1) {
+        const today = new Date();
+        for (const exp of expirations) {
+            const expDate = new Date(exp);
+            const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+            if (dte >= 21) { // Prefer 21+ DTE for premium decay
+                targetExpiry = exp;
+                break;
+            }
+        }
+        // If no 21+ DTE found, use the furthest available
+        if (targetExpiry === expirations[0]) {
+            targetExpiry = expirations[expirations.length - 1];
+        }
+    }
+    const firstExpiry = targetExpiry;
+    
+    // For Iron Condor (G) - use same strikes as B and D combined
+    // Put side: sell ATM put, buy OTM put (same as B)
+    // Call side: sell ATM call, buy OTM call (same as D)
+    const ironCondorCredit = putSpreadCredit + callSpreadCredit;
+    const ironCondorMaxLoss = Math.max(putSpreadWidth, callSpreadWidth) - ironCondorCredit;
+    const ironCondorPutBreakeven = sellPutStrike - ironCondorCredit;
+    const ironCondorCallBreakeven = sellCallStrike + ironCondorCredit;
+    
+    // For SKIP™ (H) - find LEAPS (longest expiry) and shorter-term call
+    const leapsExpiry = expirations?.find(exp => {
+        const dte = Math.ceil((new Date(exp) - new Date()) / (1000 * 60 * 60 * 24));
+        return dte >= 180; // 6+ months
+    }) || expirations?.[expirations.length - 1] || firstExpiry;
+    
+    const skipCallExpiry = expirations?.find(exp => {
+        const dte = Math.ceil((new Date(exp) - new Date()) / (1000 * 60 * 60 * 24));
+        return dte >= 45 && dte <= 120; // 45-120 DTE for SKIP call
+    }) || firstExpiry;
+    
+    // LEAPS: ATM or slightly ITM call (better delta)
+    const leapsStrike = roundStrike(spot * 0.95); // 5% ITM for good delta
+    const leapsPremium = atmCallMid * 2.5; // LEAPS cost more (rough estimate)
+    
+    // SKIP call: OTM call (5-10% above spot)
+    const skipStrike = roundStrike(spot * 1.07); // 7% OTM
+    const skipPremium = atmCallMid * 0.4; // OTM shorter-term call
+    
+    // Calculate deltas (BULL PUT = POSITIVE delta, BEAR CALL = NEGATIVE delta)
+    const atmPutDelta = atmPut?.delta ? parseFloat(atmPut.delta) : -0.45; // ATM put delta ~-0.45
+    const otmPutDelta = otmPut?.delta ? parseFloat(otmPut.delta) : -0.25; // OTM put delta ~-0.25
+    // Bull put spread net delta = |short put delta| - |long put delta| = POSITIVE
+    const putSpreadDelta = Math.abs(atmPutDelta) - Math.abs(otmPutDelta); // ~+0.20 per contract
+    
+    const atmCallDelta = atmCall?.delta ? parseFloat(atmCall.delta) : 0.45;
+    const otmCallDelta = otmCall?.delta ? parseFloat(otmCall.delta) : 0.25;
+    // Bear call spread net delta = -(short call delta - long call delta) = NEGATIVE  
+    const callSpreadDelta = -(atmCallDelta - otmCallDelta); // ~-0.20 per contract
+    
+    // =========================================================================
+    // PROP DESK WARNINGS - Professional risk management checks
+    // =========================================================================
+    const propDeskWarnings = [];
+    
+    // 1. Calculate DTE for gamma warning
+    const today = new Date();
+    let targetDTE = 30;
+    if (firstExpiry && firstExpiry !== 'next monthly') {
+        const expDate = new Date(firstExpiry);
+        targetDTE = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+    }
+    
+    // Gamma alert: Short DTE + wide spread = high gamma risk
+    if (targetDTE < 14 && putSpreadWidth >= spot * 0.03) {
+        propDeskWarnings.push(`⚠️ HIGH GAMMA RISK: ${targetDTE} DTE with $${putSpreadWidth} spread. Short expiry amplifies losses on gaps.`);
+    }
+    
+    // 2. IV vs estimated HV check (rough approximation)
+    // High IV may persist in volatile assets
+    if (ivRank > 70) {
+        propDeskWarnings.push(`📊 IV ELEVATED (${ivRank}%): Good for selling, but vol could persist or spike on news. Set stops.`);
+    } else if (ivRank < 30) {
+        propDeskWarnings.push(`📉 IV LOW (${ivRank}%): Options are cheap. Favor buying strategies or wait for vol spike.`);
+    }
+    
+    // 3. Position sizing guidance
+    const marginPerSpread = putSpreadWidth * 100;
+    const maxContractsByKelly = buyingPower > 0 ? Math.floor(buyingPower / marginPerSpread) : 10;
+    const conservativeContracts = Math.max(1, Math.floor(maxContractsByKelly * 0.6)); // 60% of max
+    propDeskWarnings.push(`💰 POSITION SIZE: Max ${maxContractsByKelly} contracts by Kelly, recommend ${conservativeContracts} (60% for safety buffer).`);
+    
+    // 4. Liquidity check (approximate - we'd need OI data for real check)
+    // Flag if using very low-priced options
+    if (atmPutMid < 0.50 || otmPutMid < 0.20) {
+        propDeskWarnings.push(`💧 LIQUIDITY NOTE: Low premium options may have wide bid/ask spreads. Consider legging in.`);
+    }
+    
+    // 5. Win probability from delta
+    const winProbability = Math.round((1 - Math.abs(atmPutDelta)) * 100);
+    
+    // DEBUG: Log what we're sending to AI
+    console.log(`[STRATEGY-ADVISOR] Pre-calculated values for AI prompt:`);
+    console.log(`  ATM Put: $${atmPut?.strike} bid=${atmPut?.bid} ask=${atmPut?.ask} → mid=$${atmPutMid.toFixed(2)}`);
+    console.log(`  OTM Put: $${otmPut?.strike} bid=${otmPut?.bid} ask=${otmPut?.ask} → mid=$${otmPutMid.toFixed(2)}`);
+    console.log(`  Sell Put: $${sellPutStrike}, Buy Put: $${buyPutStrike}, Width: $${putSpreadWidth}`);
+    console.log(`  Put Spread Credit: $${putSpreadCredit.toFixed(2)} (sell $${atmPutMid.toFixed(2)} - buy $${otmPutMid.toFixed(2)})`);
+    console.log(`  Sell Call: $${sellCallStrike}, Buy Call: $${buyCallStrike}, Width: $${callSpreadWidth}`);
+    console.log(`  Call Spread Credit: $${callSpreadCredit.toFixed(2)}`);
+    console.log(`  Put Spread Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH)`);
+    console.log(`  First Expiry: ${firstExpiry}`);
+    console.log(`  Options in chain: ${sampleOptions?.length || 0}, Puts: ${puts.length}, Calls: ${calls.length}`);
+    
+    // DEBUG: Log the exact TOTALS being sent (to verify AI isn't hallucinating)
+    const totalMaxProfit = putSpreadCredit * 100 * conservativeContracts;
+    const totalMaxLoss = (putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts;
+    console.log(`[STRATEGY-ADVISOR] 💰 EXACT TOTALS BEING SENT TO AI:`);
+    console.log(`  Conservative contracts: ${conservativeContracts}`);
+    console.log(`  Max Profit per contract: $${(putSpreadCredit * 100).toFixed(0)}`);
+    console.log(`  Max Loss per contract: $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)}`);
+    console.log(`  TOTAL MAX PROFIT: $${totalMaxProfit.toLocaleString()} ← AI MUST output this EXACT number`);
+    console.log(`  TOTAL MAX LOSS: $${totalMaxLoss.toLocaleString()} ← AI MUST output this EXACT number`);
+    
+    // Format sample options for context - CRYSTAL CLEAR format to prevent AI confusion
+    let optionsContext = '';
+    if (sampleOptions && sampleOptions.length > 0) {
+        // Group by type for clarity
+        const putOptions = sampleOptions.filter(o => o.option_type === 'P');
+        const callOptions = sampleOptions.filter(o => o.option_type === 'C');
+        
+        optionsContext = `═══════════════════════════════════════════════════════════════
+⚠️ CRITICAL: STRIKE PRICE ≈ STOCK PRICE ($${spot.toFixed(0)}), PREMIUM = SMALL ($1-$5)
+═══════════════════════════════════════════════════════════════
 
-// buildStrategyAdvisorPrompt is currently in server.js due to its size
-// It will be migrated in a future refactoring phase
+`;
+        
+        if (putOptions.length > 0) {
+            optionsContext += `PUT OPTIONS (for selling puts or put spreads):\n`;
+            optionsContext += putOptions.slice(0, 6).map(o => {
+                const strike = parseFloat(o.strike);
+                const bid = parseFloat(o.bid) || 0;
+                const ask = parseFloat(o.ask) || 0;
+                const mid = ((bid + ask) / 2).toFixed(2);
+                const delta = o.delta ? Math.abs(parseFloat(o.delta)).toFixed(2) : '?';
+                return `  • STRIKE $${strike.toFixed(0)} put → You receive $${mid}/share premium (Δ${delta})`;
+            }).join('\n');
+            optionsContext += '\n\n';
+        }
+        
+        if (callOptions.length > 0) {
+            optionsContext += `CALL OPTIONS (for covered calls or call spreads):\n`;
+            optionsContext += callOptions.slice(0, 6).map(o => {
+                const strike = parseFloat(o.strike);
+                const bid = parseFloat(o.bid) || 0;
+                const ask = parseFloat(o.ask) || 0;
+                const mid = ((bid + ask) / 2).toFixed(2);
+                const delta = o.delta ? Math.abs(parseFloat(o.delta)).toFixed(2) : '?';
+                return `  • STRIKE $${strike.toFixed(0)} call → You receive $${mid}/share premium (Δ${delta})`;
+            }).join('\n');
+        }
+        
+        optionsContext += `\n\n🚨 REMEMBER: Use strikes near $${spot.toFixed(0)}, NOT the premium amounts!`;
+    } else {
+        optionsContext = 'No options data available - use estimated strikes near current price.';
+    }
+    
+    // Format existing positions
+    let positionsContext = 'None';
+    if (existingPositions && existingPositions.length > 0) {
+        const tickerPositions = existingPositions.filter(p => p.ticker?.toUpperCase() === ticker.toUpperCase());
+        if (tickerPositions.length > 0) {
+            positionsContext = tickerPositions.map(p => `  - ${p.type}: $${p.strike} exp ${p.expiry}`).join('\n');
+        } else {
+            positionsContext = 'None for this ticker (but user has other positions)';
+        }
+    }
+    
+    // Calculate range position description
+    let rangeDesc = '';
+    if (stockData.rangePosition !== undefined) {
+        if (stockData.rangePosition < 25) rangeDesc = 'Near 3-month LOW (potentially oversold)';
+        else if (stockData.rangePosition < 50) rangeDesc = 'Lower half of 3-month range';
+        else if (stockData.rangePosition < 75) rangeDesc = 'Upper half of 3-month range';
+        else rangeDesc = 'Near 3-month HIGH (potentially overbought)';
+    }
+    
+    // IV context
+    let ivDesc = 'Unknown';
+    if (ivRank !== null) {
+        if (ivRank < 20) ivDesc = `Low (${ivRank}%) - options are cheap, favor BUYING strategies`;
+        else if (ivRank < 40) ivDesc = `Below average (${ivRank}%) - slightly favors buying`;
+        else if (ivRank < 60) ivDesc = `Moderate (${ivRank}%) - neutral`;
+        else if (ivRank < 80) ivDesc = `Elevated (${ivRank}%) - favors SELLING strategies`;
+        else ivDesc = `High (${ivRank}%) - options are expensive, strongly favor SELLING`;
+    }
+    
+    const promptText = `You are an expert options strategist helping a trader who is NEW to complex strategies beyond basic puts and calls.
+
+═══════════════════════════════════════════════════════════════════════════
+TICKER: ${ticker}
+CURRENT PRICE: $${spot.toFixed(2)}
+DATA SOURCE: ${dataSource}
+═══════════════════════════════════════════════════════════════════════════
+
+MARKET CONTEXT:
+• 3-Month Range: $${stockData.low3mo?.toFixed(2) || '?'} - $${stockData.high3mo?.toFixed(2) || '?'}
+• Position in Range: ${stockData.rangePosition || '?'}% (${rangeDesc})
+• IV Rank: ${ivDesc}
+• Available Expirations: ${expirations?.slice(0, 4).join(', ') || 'Unknown'}
+
+REAL OPTIONS CHAIN DATA (USE THESE EXACT STRIKES AND PREMIUMS!):
+⚠️ STRIKE = the price level where option activates (near current price of $${spot.toFixed(2)})
+⚠️ PREMIUM = what you pay/receive for the option (the bid/ask prices below)
+${optionsContext || 'Options data not available'}
+
+USER PROFILE:
+• Available Capital: $${buyingPower.toLocaleString()} (Kelly-adjusted, Half-Kelly of account)${kellyBase ? `\n• Kelly Base: $${kellyBase.toLocaleString()} (Account Value + 25% margin)` : ''}${accountValue ? `\n• Account Value: $${accountValue.toLocaleString()}` : ''}
+• Risk Tolerance: ${riskTolerance}
+• Existing ${ticker} Positions:
+${positionsContext}
+
+═══════════════════════════════════════════════════════════════════════════
+🏦 PROP DESK RISK CHECKS:
+═══════════════════════════════════════════════════════════════════════════
+${propDeskWarnings.join('\n')}
+
+═══════════════════════════════════════════════════════════════════════════
+PRE-CALCULATED SPREAD VALUES (USE THESE EXACT NUMBERS!):
+═══════════════════════════════════════════════════════════════════════════
+PUT CREDIT SPREAD (Bull Put):
+• Sell: $${sellPutStrike} put @ $${atmPutMid.toFixed(2)}
+• Buy: $${buyPutStrike} put @ $${otmPutMid.toFixed(2)}
+• Net Credit: $${putSpreadCredit.toFixed(2)} per share ($${(putSpreadCredit * 100).toFixed(0)} per contract)
+• Spread Width: $${putSpreadWidth}
+• Max Loss: $${(putSpreadWidth - putSpreadCredit).toFixed(2)} per share
+• Breakeven: $${(sellPutStrike - putSpreadCredit).toFixed(2)}
+• Net Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH)
+• Win Probability: ~${winProbability}%
+• Recommended Contracts: ${conservativeContracts}
+
+CALL CREDIT SPREAD (Bear Call):
+• Sell: $${sellCallStrike} call
+• Buy: $${buyCallStrike} call
+• Net Credit: $${callSpreadCredit.toFixed(2)} per share
+• Net Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH)
+
+═══════════════════════════════════════════════════════════════════════════
+STRATEGIES TO EVALUATE (analyze ALL of these):
+═══════════════════════════════════════════════════════════════════════════
+
+1. SHORT PUT (Cash-Secured Put)
+   - Sell a put, collect premium, may get assigned stock
+   - Bullish strategy, unlimited risk if stock crashes
+
+2. COVERED CALL (if user owns shares)
+   - Sell a call against shares you own
+   - Neutral/slightly bullish, caps upside
+
+3. LONG CALL
+   - Buy a call for leveraged upside
+   - Very bullish, lose entire premium if wrong
+
+4. PUT CREDIT SPREAD (Bull Put Spread)
+   - Sell higher put, buy lower put for protection
+   - Bullish with DEFINED RISK (max loss = width - credit)
+
+5. CALL DEBIT SPREAD (Bull Call Spread)
+   - Buy lower call, sell higher call to reduce cost
+   - Bullish with defined risk/reward
+
+6. CALL CREDIT SPREAD (Bear Call Spread)
+   - Sell lower call, buy higher call for protection
+   - Bearish with defined risk
+
+7. PUT DEBIT SPREAD (Bear Put Spread)
+   - Buy higher put, sell lower put
+   - Bearish with defined risk
+
+8. IRON CONDOR
+   - Sell put spread + call spread
+   - Neutral - profits if stock stays in range
+
+9. SKIP™ (Long LEAPS + Short-term Call)
+   - Buy long-dated call (12+ months) + shorter call (3-6 months)
+   - Long-term bullish with reduced cost basis
+
+═══════════════════════════════════════════════════════════════════════════
+YOUR TASK: Recommend THE BEST strategy for this situation
+═══════════════════════════════════════════════════════════════════════════
+
+🚨🚨🚨 MANDATORY STRIKE PRICES (valid CBOE strikes near $${spot.toFixed(0)}):
+   
+   FOR PUTS:  Sell the $${sellPutStrike} strike, Buy the $${buyPutStrike} strike (${putSpreadWidth} point spread)
+   FOR CALLS: Sell the $${sellCallStrike} strike, Buy the $${buyCallStrike} strike (${callSpreadWidth} point spread)
+   EXPIRATION: ${firstExpiry}
+
+VALID TRADE SETUPS (these are the ONLY options - pick ONE):
+
+SETUP A - Short Put (Cash-Secured) - ALL MATH PRE-CALCULATED:
+  Trade: Sell ${ticker} $${sellPutStrike} Put, ${firstExpiry}
+  Credit Received: $${atmPutMid.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: $${(atmPutMid * 100).toFixed(0)} (keep all premium)
+  • Max Loss per contract: $${((sellPutStrike - atmPutMid) * 100).toFixed(0)} (assigned at $${sellPutStrike} minus premium)
+  • Breakeven: $${(sellPutStrike - atmPutMid).toFixed(2)}
+  • Buying Power per contract: $${(sellPutStrike * 100).toLocaleString()} (cash-secured)
+  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (sellPutStrike * 100))}
+  • Recommended contracts: ${Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))} (60% of max)
+  
+  💰 TOTALS FOR ${Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))} CONTRACTS (COPY EXACTLY):
+  • TOTAL MAX PROFIT: $${(atmPutMid * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))).toLocaleString()}
+  • TOTAL MAX LOSS: $${((sellPutStrike - atmPutMid) * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))).toLocaleString()} (if stock goes to $0)
+  • TOTAL BUYING POWER USED: $${(sellPutStrike * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))).toLocaleString()}
+  
+  • Delta: +${Math.abs(atmPutDelta * 100).toFixed(0)} per contract (BULLISH)
+  • Win Probability: ~${Math.round((1 - Math.abs(atmPutDelta)) * 100)}%
+  ⚠️ RISK: Unlimited loss if stock crashes. Requires significant buying power.
+
+SETUP B - Put Credit Spread (Bull Put) - ALL MATH PRE-CALCULATED:
+  Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike} Put Spread, ${firstExpiry}
+  Spread Width: $${putSpreadWidth.toFixed(2)}
+  Credit Received: $${putSpreadCredit.toFixed(2)}/share (= $${atmPutMid.toFixed(2)} sell - $${otmPutMid.toFixed(2)} buy)
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: $${(putSpreadCredit * 100).toFixed(0)}
+  • Max Loss per contract: $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)}
+  • Breakeven: $${(sellPutStrike - putSpreadCredit).toFixed(2)}
+  • Buying Power per contract: $${(putSpreadWidth * 100).toFixed(0)}
+  • Recommended contracts: ${conservativeContracts} (60% of Kelly)
+  
+  💰 TOTALS FOR ${conservativeContracts} CONTRACTS (COPY EXACTLY):
+  • TOTAL MAX PROFIT: $${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL MAX LOSS: $${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL BUYING POWER USED: $${(putSpreadWidth * 100 * conservativeContracts).toLocaleString()}
+  
+  • Risk/Reward Ratio: ${((putSpreadWidth - putSpreadCredit) / putSpreadCredit).toFixed(1)}:1
+  • Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH)
+  • Win Probability: ~${winProbability}%
+
+SETUP C - Covered Call (requires owning 100 shares per contract):
+  Trade: Sell ${ticker} $${sellCallStrike} Call, ${firstExpiry}
+  Credit: ~$${atmCallMid.toFixed(2)}/share
+  ⚠️ REQUIREMENT: Must own 100 shares of ${ticker} per contract
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: $${(atmCallMid * 100).toFixed(0)} premium + stock gains up to strike
+  • Max upside if called: $${((sellCallStrike - spot + atmCallMid) * 100).toFixed(0)} (stock at $${sellCallStrike} + premium)
+  • Breakeven: $${(spot - atmCallMid).toFixed(2)} (stock cost - premium)
+  • Stock ownership required: 100 shares at ~$${spot.toFixed(2)} = $${(spot * 100).toLocaleString()} per contract
+  
+  💰 FOR 1 CONTRACT (100 shares):
+  • PREMIUM COLLECTED: $${(atmCallMid * 100).toFixed(0)}
+  • MAX PROFIT IF CALLED: $${((sellCallStrike - spot + atmCallMid) * 100).toFixed(0)}
+  
+  • Delta: -${Math.abs(atmCallDelta * 100).toFixed(0)} per contract (reduces long delta from shares)
+  ⚠️ NOTE: Only valid if user OWNS ${ticker} shares. Caps upside above $${sellCallStrike}.
+
+SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
+  Trade: Sell ${ticker} $${sellCallStrike}/$${buyCallStrike} Call Spread, ${firstExpiry}
+  Spread Width: $${callSpreadWidth.toFixed(2)}
+  Credit Received: $${callSpreadCredit.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: $${(callSpreadCredit * 100).toFixed(0)}
+  • Max Loss per contract: $${((callSpreadWidth - callSpreadCredit) * 100).toFixed(0)}
+  • Breakeven: $${(sellCallStrike + callSpreadCredit).toFixed(2)}
+  • Buying Power per contract: $${(callSpreadWidth * 100).toFixed(0)}
+  • Recommended contracts: ${conservativeContracts} (60% of Kelly)
+  
+  💰 TOTALS FOR ${conservativeContracts} CONTRACTS (COPY EXACTLY):
+  • TOTAL MAX PROFIT: $${(callSpreadCredit * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL MAX LOSS: $${((callSpreadWidth - callSpreadCredit) * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL BUYING POWER USED: $${(callSpreadWidth * 100 * conservativeContracts).toLocaleString()}
+  
+  • Risk/Reward Ratio: ${((callSpreadWidth - callSpreadCredit) / callSpreadCredit).toFixed(1)}:1
+  • Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH)
+  • Win Probability: ~${Math.round((1 - Math.abs(atmCallDelta)) * 100)}%
+
+SETUP E - Long Put (Bearish, Defined Risk) - ALL MATH PRE-CALCULATED:
+  Trade: Buy ${ticker} $${longPutStrikeActual.toFixed(0)} Put, ${firstExpiry}
+  Debit Paid: $${longPutPremium.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: UNLIMITED (stock to $0 = $${(longPutStrikeActual * 100).toLocaleString()})
+  • Max Loss per contract: $${(longPutPremium * 100).toFixed(0)} (premium paid)
+  • Breakeven: $${(longPutStrikeActual - longPutPremium).toFixed(2)}
+  • Cost per contract: $${(longPutPremium * 100).toFixed(0)}
+  • Recommended contracts: ${Math.max(1, Math.floor(buyingPower / (longPutPremium * 100) * 0.3))} (30% of max - speculative)
+  
+  💰 TOTALS FOR ${Math.max(1, Math.floor(buyingPower / (longPutPremium * 100) * 0.3))} CONTRACTS:
+  • TOTAL COST: $${(longPutPremium * 100 * Math.max(1, Math.floor(buyingPower / (longPutPremium * 100) * 0.3))).toLocaleString()}
+  • TOTAL MAX LOSS: $${(longPutPremium * 100 * Math.max(1, Math.floor(buyingPower / (longPutPremium * 100) * 0.3))).toLocaleString()} (if stock stays above $${longPutStrikeActual.toFixed(0)})
+  
+  • Delta: ${(otmPutDelta * 100).toFixed(0)} per contract (BEARISH)
+  ⚠️ RISK: Lose entire premium if stock doesn't drop. Time decay works AGAINST you.
+  ✅ WHEN TO USE: Strong bearish conviction, expecting significant drop. Cheaper than shorting stock.
+
+SETUP F - Long Call (Bullish, Defined Risk) - ALL MATH PRE-CALCULATED:
+  Trade: Buy ${ticker} $${longCallStrikeActual.toFixed(0)} Call, ${firstExpiry}
+  Debit Paid: $${longCallPremium.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: UNLIMITED (stock to moon)
+  • Max Loss per contract: $${(longCallPremium * 100).toFixed(0)} (premium paid)
+  • Breakeven: $${(longCallStrikeActual + longCallPremium).toFixed(2)}
+  • Cost per contract: $${(longCallPremium * 100).toFixed(0)}
+  • Recommended contracts: ${Math.max(1, Math.floor(buyingPower / (longCallPremium * 100) * 0.3))} (30% of max - speculative)
+  
+  💰 TOTALS FOR ${Math.max(1, Math.floor(buyingPower / (longCallPremium * 100) * 0.3))} CONTRACTS:
+  • TOTAL COST: $${(longCallPremium * 100 * Math.max(1, Math.floor(buyingPower / (longCallPremium * 100) * 0.3))).toLocaleString()}
+  • TOTAL MAX LOSS: $${(longCallPremium * 100 * Math.max(1, Math.floor(buyingPower / (longCallPremium * 100) * 0.3))).toLocaleString()} (if stock stays below $${longCallStrikeActual.toFixed(0)})
+  
+  • Delta: +${(otmCallDelta * 100).toFixed(0)} per contract (BULLISH)
+  ⚠️ RISK: Lose entire premium if stock doesn't rise. Time decay works AGAINST you.
+  ✅ WHEN TO USE: Strong bullish conviction, expecting significant rise. Cheaper than buying stock.
+
+SETUP G - Iron Condor (Neutral, Range-Bound) - ALL MATH PRE-CALCULATED:
+  Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike}/$${sellCallStrike}/$${buyCallStrike} Iron Condor, ${firstExpiry}
+  Put Spread: $${sellPutStrike}/$${buyPutStrike} (Bull Put)
+  Call Spread: $${sellCallStrike}/$${buyCallStrike} (Bear Call)
+  Total Credit: $${ironCondorCredit.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: $${(ironCondorCredit * 100).toFixed(0)} (keep all premium if stock stays in range)
+  • Max Loss per contract: $${(ironCondorMaxLoss * 100).toFixed(0)} (if stock breaks through either spread)
+  • Breakeven Low: $${ironCondorPutBreakeven.toFixed(2)}
+  • Breakeven High: $${ironCondorCallBreakeven.toFixed(2)}
+  • Profit Zone: $${ironCondorPutBreakeven.toFixed(2)} to $${ironCondorCallBreakeven.toFixed(2)}
+  • Buying Power per contract: $${(Math.max(putSpreadWidth, callSpreadWidth) * 100).toFixed(0)}
+  • Recommended contracts: ${conservativeContracts} (60% of Kelly)
+  
+  💰 TOTALS FOR ${conservativeContracts} CONTRACTS:
+  • TOTAL MAX PROFIT: $${(ironCondorCredit * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL MAX LOSS: $${(ironCondorMaxLoss * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL BUYING POWER USED: $${(Math.max(putSpreadWidth, callSpreadWidth) * 100 * conservativeContracts).toLocaleString()}
+  
+  • Risk/Reward Ratio: ${(ironCondorMaxLoss / ironCondorCredit).toFixed(1)}:1
+  • Delta: ~0 (NEUTRAL - profits from time decay)
+  • Win Probability: ~${Math.round((1 - Math.abs(atmPutDelta)) * (1 - Math.abs(atmCallDelta)) * 100)}%
+  ⚠️ RISK: Lose on EITHER side if stock moves too much. Double exposure.
+  ✅ WHEN TO USE: Low IV, expecting stock to stay in tight range. Collect double premium.
+
+SETUP H - SKIP™ Strategy (Long-Term Bullish with Cost Reduction):
+  Trade: Buy ${ticker} $${leapsStrike.toFixed(0)} LEAPS Call (${leapsExpiry}) + Buy $${skipStrike.toFixed(0)} SKIP Call (${skipCallExpiry})
+  LEAPS Call: $${leapsStrike.toFixed(0)} strike, ~${leapsExpiry} expiry, ~$${leapsPremium.toFixed(2)}/share
+  SKIP Call: $${skipStrike.toFixed(0)} strike, ~${skipCallExpiry} expiry, ~$${skipPremium.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Total Investment per contract: $${((leapsPremium + skipPremium) * 100).toFixed(0)}
+  • LEAPS Cost: $${(leapsPremium * 100).toFixed(0)}
+  • SKIP Cost: $${(skipPremium * 100).toFixed(0)}
+  • Max Loss: $${((leapsPremium + skipPremium) * 100).toFixed(0)} (both expire worthless)
+  • Breakeven: $${(leapsStrike + leapsPremium + skipPremium).toFixed(2)} (at LEAPS expiry)
+  • Recommended contracts: ${Math.max(1, Math.floor(buyingPower / ((leapsPremium + skipPremium) * 100) * 0.5))} (50% allocation)
+  
+  💰 FOR ${Math.max(1, Math.floor(buyingPower / ((leapsPremium + skipPremium) * 100) * 0.5))} CONTRACTS:
+  • TOTAL INVESTMENT: $${((leapsPremium + skipPremium) * 100 * Math.max(1, Math.floor(buyingPower / ((leapsPremium + skipPremium) * 100) * 0.5))).toLocaleString()}
+  
+  • Combined Delta: High (LEAPS + SKIP = leveraged upside)
+  ⚠️ RISK: Both options can expire worthless. Complex exit strategy required.
+  ✅ WHEN TO USE: Long-term bullish on stock with 6+ month outlook. Exit SKIP at 45-60 DTE.
+  📚 SKIP = "Safely Keep Increasing Profits" - Exit the SKIP call early to lock in gains.
+
+YOUR JOB: Pick ONE setup (A through H) based on the market conditions below:
+
+⚠️ VARIETY INSTRUCTION: Consider ALL 8 strategies, not just B!
+   • A (Short Put): High conviction bullish + large buying power
+   • B (Put Credit Spread): Moderately bullish + defined risk
+   • C (Covered Call): Own shares + want income
+   • D (Call Credit Spread): Bearish or overbought stock
+   • E (Long Put): Strong bearish conviction, expecting big drop
+   • F (Long Call): Strong bullish conviction, expecting big move up
+   • G (Iron Condor): Neutral, expecting stock to stay in range
+   • H (SKIP™): Long-term bullish, 6+ month outlook
+
+🚨 DIRECTIONAL BIAS BASED ON RANGE POSITION (${stockData?.rangePosition || '?'}%):
+${stockData?.rangePosition > 70 ? `⬇️ BEARISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = EXTENDED/OVERBOUGHT.
+   → FAVOR D (Call Credit Spread) or E (Long Put) - bearish strategies.
+   → Consider G (Iron Condor) if expecting mean reversion but not sure of direction.
+   → Avoid A, B, F (bullish) unless you have strong contrarian thesis.` : 
+   stockData?.rangePosition < 30 ? `⬆️ BULLISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = OVERSOLD.
+   → FAVOR A, B, or F (bullish strategies) - profits if stock recovers.
+   → Consider H (SKIP™) for longer-term bullish play.
+   → Avoid D, E (bearish) unless fundamentals are deteriorating.` :
+   `↔️ NEUTRAL: Stock at ${stockData?.rangePosition}% = mid-range.
+   → Compare risk/reward: B vs D for directional, G for neutral.
+   → Consider IV: High IV = favor selling (A,B,C,D,G), Low IV = favor buying (E,F,H).
+   → Don't just default to B - explain why your choice beats the alternatives.`}
+
+🎯 ADDITIONAL DECISION CRITERIA:
+• IV Rank ${ivRank}%: ${ivRank > 50 ? 'ELEVATED - favors SELLING strategies (A, B, C, D)' : 'LOW - options are cheap, spreads help manage this'}
+• Risk Tolerance: ${riskTolerance} - ${riskTolerance === 'conservative' ? 'favor defined risk (B, D)' : riskTolerance === 'aggressive' ? 'A is fine if bullish' : 'B or D for balanced risk/reward'}
+• Buying Power: $${buyingPower.toLocaleString()} - ${buyingPower < sellPutStrike * 100 ? 'Too low for A, use spreads (B or D)' : 'Enough for any strategy'}
+
+🚨🚨🚨 CRITICAL MATH WARNING 🚨🚨🚨
+The dollar amounts for Max Profit, Max Loss, and P&L are ALREADY CALCULATED in each SETUP above.
+DO NOT DO ANY MULTIPLICATION - just COPY the exact numbers from the SETUP you chose.
+🚨🚨🚨 END MATH WARNING 🚨🚨🚨
+
+Respond with this format:
+
+## 🏆 RECOMMENDED: [Setup Letter] - [Strategy Name]
+
+### THE TRADE
+[Copy the EXACT trade line from the setup you chose, including strikes and expiry]
+
+### WHY THIS STRATEGY (explain in plain English)
+• [Reason 1 - tie to IV level of ${ivRank || '?'}%]
+• [Reason 2 - tie to stock position in range: ${stockData?.rangePosition || '?'}%]
+• [Reason 3 - tie to risk management]
+
+### THE RISKS
+• ⚠️ [Risk 1]
+• ⚠️ [Risk 2]
+${propDeskWarnings.length > 0 ? '\n### 🏦 PROP DESK RISK NOTES\n' + propDeskWarnings.map(w => `• ${w}`).join('\n') : ''}
+
+### THE NUMBERS (COPY FROM YOUR CHOSEN SETUP - do NOT calculate!)
+Copy the "📐 EXACT NUMBERS" and "💰 TOTALS" sections from the setup you chose.
+
+### 📊 PROFIT/LOSS AT EXPIRATION
+Create a simple P&L table for YOUR CHOSEN STRATEGY using the numbers from that setup.
+Use format: | If Stock Ends At | You Make/Lose | Result |
+
+### PORTFOLIO IMPACT
+• Buying Power Used: [from your chosen setup]
+• Delta Exposure: [from your chosen setup]
+
+### 📚 OTHER OPTIONS CONSIDERED
+Briefly explain why you DIDN'T choose these (1 line each):
+1. [Another setup letter]: [Why not ideal for THIS situation]
+2. [Another setup letter]: [Why not ideal]
+
+### 💡 EDUCATIONAL NOTE
+Write 2-3 sentences explaining your chosen strategy for someone new to options.
+
+### ✅ SANITY CHECK
+Confirm: My recommended strikes are valid and near ${ticker}'s price of $${spot.toFixed(2)}
+
+### 🔢 MATH VERIFICATION
+I confirm that my numbers are copied directly from the SETUP section, NOT calculated by me.`;
+    
+    // Return both the prompt AND the calculated values for post-processing
+    return {
+        prompt: promptText,
+        calculatedValues: {
+            conservativeContracts,
+            putSpreadCredit,
+            putSpreadWidth,
+            callSpreadCredit,
+            callSpreadWidth,
+            sellPutStrike,
+            buyPutStrike,
+            sellCallStrike,
+            buyCallStrike,
+            atmPutMid,
+            atmCallMid,
+            totalPutMaxProfit: Math.round(putSpreadCredit * 100 * conservativeContracts),
+            totalPutMaxLoss: Math.round((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts),
+            totalCallMaxProfit: Math.round(callSpreadCredit * 100 * conservativeContracts),
+            totalCallMaxLoss: Math.round((callSpreadWidth - callSpreadCredit) * 100 * conservativeContracts),
+            totalBuyingPower: Math.round(putSpreadWidth * 100 * conservativeContracts),
+            shortPutMaxProfit: Math.round(atmPutMid * 100),
+            shortPutBuyingPower: sellPutStrike * 100,
+            coveredCallCredit: Math.round(atmCallMid * 100)
+        }
+    };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // EXPORTS
@@ -1262,6 +1944,6 @@ module.exports = {
     buildDiscordTradeAnalysisPrompt,
     buildCritiquePrompt,
     buildTradePrompt,
-    buildIdeaPrompt
-    // buildStrategyAdvisorPrompt - still in server.js
+    buildIdeaPrompt,
+    buildStrategyAdvisorPrompt
 };
