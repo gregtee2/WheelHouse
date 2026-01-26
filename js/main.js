@@ -3930,8 +3930,8 @@ window.runStrategyAdvisor = async function() {
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
     modal.innerHTML = `
-        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #0d0d1a 100%); border-radius:16px; max-width:900px; width:100%; max-height:90vh; overflow:hidden; border:2px solid #6d28d9; box-shadow:0 0 40px rgba(147,51,234,0.3);">
-            <div style="background:linear-gradient(135deg, rgba(147,51,234,0.3) 0%, rgba(79,70,229,0.2) 100%); padding:16px 24px; border-bottom:1px solid #6d28d9;">
+        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #0d0d1a 100%); border-radius:16px; max-width:900px; width:100%; max-height:90vh; display:flex; flex-direction:column; border:2px solid #6d28d9; box-shadow:0 0 40px rgba(147,51,234,0.3);">
+            <div style="background:linear-gradient(135deg, rgba(147,51,234,0.3) 0%, rgba(79,70,229,0.2) 100%); padding:16px 24px; border-bottom:1px solid #6d28d9; flex-shrink:0;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <h2 style="margin:0; color:#a78bfa; font-size:20px;">🎓 Strategy Advisor: ${ticker}</h2>
@@ -3940,7 +3940,7 @@ window.runStrategyAdvisor = async function() {
                     <button onclick="document.getElementById('strategyAdvisorModal').remove()" style="background:none; border:none; color:#888; font-size:28px; cursor:pointer; line-height:1;">&times;</button>
                 </div>
             </div>
-            <div id="strategyAdvisorContent" style="padding:24px; color:#ddd; font-size:13px; line-height:1.7; max-height:calc(90vh - 140px); overflow-y:auto;">
+            <div id="strategyAdvisorContent" style="padding:24px; color:#ddd; font-size:13px; line-height:1.7; overflow-y:auto; flex:1;">
                 <div style="text-align:center; padding:60px 20px;">
                     <div style="font-size:48px; margin-bottom:16px;">🔮</div>
                     <div style="color:#a78bfa; font-weight:bold; font-size:16px;">Analyzing All Strategies for ${ticker}...</div>
@@ -3950,9 +3950,9 @@ window.runStrategyAdvisor = async function() {
                     </div>
                 </div>
             </div>
-            <div id="strategyAdvisorFooter" style="display:none; background:rgba(0,0,0,0.3); padding:16px 24px; border-top:1px solid #333;">
+            <div id="strategyAdvisorFooter" style="display:none; background:rgba(0,0,0,0.5); padding:16px 24px; border-top:1px solid #6d28d9; flex-shrink:0;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div style="font-size:11px; color:#666;">Click outside or press Escape to close</div>
+                    <div style="font-size:11px; color:#888;">Click outside or press Escape to close</div>
                     <div style="display:flex; gap:12px;">
                         <button onclick="document.getElementById('strategyAdvisorModal').remove()" style="padding:10px 20px; background:#333; border:1px solid #444; border-radius:8px; color:#ddd; font-size:13px; cursor:pointer;">
                             Close
