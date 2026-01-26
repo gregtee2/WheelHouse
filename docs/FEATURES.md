@@ -22,7 +22,8 @@ This document provides detailed "How It Works" explanations for all major WheelH
 
 ## AI Strategy Advisor
 
-**Added**: v1.14.0 (January 2026)
+**Added**: v1.14.0 (January 2026)  
+**Major Fix**: v1.15.0 - Real Schwab prices, proper strike/delta calculations
 
 ### What It Does
 
@@ -49,11 +50,18 @@ User enters "PLTR"
 ├─────────────────────────────────────────────────────────────────┤
 │  3. BUILD CONTEXT FOR AI                                         │
 │     • Spot price and range position                              │
-│     • Sample options chain (12 contracts with bids/asks)         │
+│     • 108 unique options (±$15 from spot, ~30 DTE preferred)     │
+│     • Real bid/ask from Schwab - no synthetic estimates          │
 │     • User's buying power and risk tolerance                     │
 │     • Existing positions in this ticker                          │
 ├─────────────────────────────────────────────────────────────────┤
-│  4. AI ANALYZES ALL 9 STRATEGIES                                 │
+│  4. PRE-CALCULATE SPREAD MATH (v1.15.0+)                         │
+│     • Round strikes to valid CBOE increments                     │
+│     • Find REAL ATM and OTM options from chain                   │
+│     • Calculate actual spread credits (sell - buy)               │
+│     • Compute correct delta direction                            │
+├─────────────────────────────────────────────────────────────────┤
+│  5. AI ANALYZES ALL 9 STRATEGIES                                 │
 │     Short Put, Covered Call, Long Call                           │
 │     Put Credit Spread, Call Debit Spread                         │
 │     Call Credit Spread, Put Debit Spread                         │
@@ -110,6 +118,32 @@ The Strategy Advisor tries data sources in order of quality:
 1. **Schwab API** (if token exists) - Real-time quotes
 2. **CBOE** - 15-minute delayed, free, reliable
 3. **Yahoo Finance** - Fallback for spot price only
+
+### v1.15.0 Pricing Fix
+
+Before v1.15.0, the Strategy Advisor had several bugs that caused incorrect pricing:
+
+| Issue | Before (v1.14.0) | After (v1.15.0) |
+|-------|-----------------|-----------------|
+| **Strikes** | AI hallucinated ($168.20) | Valid CBOE increments ($170) |
+| **OTM Prices** | Synthetic estimate (60% of ATM) | Real bid/ask from chain |
+| **Spread Credit** | $0.60 (fake) | $2.27 (real) |
+| **Delta Direction** | -5 (wrong for bull put) | +7 (correct - bullish!) |
+| **Options Used** | 18-20 near ATM only | 108 (full ±$15 range) |
+
+**How it works now:**
+
+```
+Schwab returns 1852 options (all expirations)
+        ↓
+Deduplicate by (strike, type) → 156 unique, prefer ~30 DTE
+        ↓
+Filter to spot ±$15 → 108 options ($79 to $109 for $94 stock)
+        ↓
+Find ATM put ($94 @ $9.07), OTM put ($90 @ $6.80) → BOTH REAL
+        ↓
+Calculate credit: $9.07 - $6.80 = $2.27 ✅
+```
 
 ### Key Files
 

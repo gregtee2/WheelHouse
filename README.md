@@ -5,12 +5,29 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.14.0-blue)
+![Version](https://img.shields.io/badge/version-1.15.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
-## 🆕 What's New in v1.14.0
+## 🆕 What's New in v1.15.0
+
+### 📊 Strategy Advisor - Real Schwab Prices
+- **Fixed critical pricing bug** - Now uses REAL bid/ask from Schwab, not synthetic estimates
+- **All 9 strategies** evaluated with actual market data
+- **Proper strike selection** - Uses valid CBOE strike increments ($1 for stocks >$50)
+- **Correct delta direction** - Bull put spreads show POSITIVE delta (bullish!)
+- **108 strikes analyzed** - Full range ±$15 from spot price
+- See [docs/FEATURES.md](docs/FEATURES.md) for "How It Works"
+
+### Technical Improvements
+- Deduplicate options by (strike, type), prefer ~30 DTE
+- Filter by strike RANGE not "closest N to ATM"
+- Detailed server logging for debugging
+
+---
+
+## 📦 Previous: v1.14.0
 
 ### 🧠 Trading Pattern Memory
 - **AI remembers your history!** When analyzing a new trade, AI checks your closed positions
