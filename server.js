@@ -856,32 +856,51 @@ const mainHandler = async (req, res, next) => {
             console.log(`  Total Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
             console.log(`  Total Buying Power: $${cv.totalBuyingPower.toLocaleString()}`);
             
-            // Fix profit/loss totals that are way too high (hallucinated)
-            // Pattern: Any dollar amount > $50,000 in profit/loss context is wrong
-            // (For a $4,687 buying power account, max loss can't be >$50k)
-            const wrongProfitPattern = /Max\s+Profit[:\s]*\$[\d,]+,[\d,]+/gi; // e.g. "$94,365" or "$199,365"
-            const wrongLossPattern = /Max\s+Loss[:\s]*\$[\d,]+,[\d,]+/gi;
+            // =====================================================================
+            // NUCLEAR MATH FIX: Replace ANY 5+ digit dollar amount in profit/loss context
+            // The AI hallucinates numbers like $94,365, $199,365, $500,035
+            // Our actual totals are always < $10,000 for this account size
+            // =====================================================================
             
-            // Replace hallucinated large numbers with correct values
-            // First, fix "Max Profit: $X" patterns
-            aiResponse = aiResponse.replace(/Total\s+Max\s+Profit[:\s]*\$[\d,]+/gi, 
-                `Total Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
-            aiResponse = aiResponse.replace(/Max\s+Profit[:\s]*\$[\d]{2,3},[\d]{3}/gi, 
+            // Pattern: $XXX,XXX or $XX,XXX (any 5-6 digit amount with comma)
+            // These are ALWAYS wrong for a ~$5k buying power account
+            const fiveOrSixDigitDollar = /\$\d{2,3},\d{3}/g;
+            
+            // Count hallucinations before fixing
+            const hallucinationCount = (aiResponse.match(fiveOrSixDigitDollar) || []).length;
+            if (hallucinationCount > 0) {
+                console.log(`[STRATEGY-ADVISOR] ⚠️ Found ${hallucinationCount} hallucinated large dollar amounts`);
+            }
+            
+            // Fix "Max Profit:" lines - replace any 5+ digit number
+            aiResponse = aiResponse.replace(/Max Profit[:\s]+\$\d{2,3},\d{3}/gi, 
                 `Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
             
-            // Fix "Max Loss: $X" patterns  
-            aiResponse = aiResponse.replace(/Total\s+Max\s+Loss[:\s]*\$[\d,]+/gi,
-                `Total Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
-            aiResponse = aiResponse.replace(/Max\s+Loss[:\s]*\$[\d]{2,3},[\d]{3}/gi,
+            // Fix "Max Loss:" lines - replace any 5+ digit number  
+            aiResponse = aiResponse.replace(/Max Loss[:\s]+\$\d{2,3},\d{3}/gi,
                 `Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
             
-            // Fix P&L table values (these show up as +$XX,XXX or -$XX,XXX)
-            aiResponse = aiResponse.replace(/\+\$[\d]{2,3},[\d]{3}/g, 
+            // Fix P&L table: +$XX,XXX patterns
+            aiResponse = aiResponse.replace(/\+\$\d{2,3},\d{3}/g, 
                 `+$${cv.totalPutMaxProfit.toLocaleString()}`);
-            aiResponse = aiResponse.replace(/-\$[\d]{2,3},[\d]{3}/g,
+            
+            // Fix P&L table: -$XX,XXX patterns
+            aiResponse = aiResponse.replace(/-\$\d{2,3},\d{3}/g,
                 `-$${cv.totalPutMaxLoss.toLocaleString()}`);
-                
-            console.log(`[STRATEGY-ADVISOR] ✅ Math hallucination post-processing complete`);
+            
+            // Fix standalone $XX,XXX or $XXX,XXX that appear elsewhere
+            // Only replace if it's NOT a strike price context (strike prices are $XX not $XX,XXX)
+            // But we need to be careful not to replace valid buying power amounts
+            
+            // Count remaining after fix
+            const remainingCount = (aiResponse.match(fiveOrSixDigitDollar) || []).length;
+            if (remainingCount > 0) {
+                console.log(`[STRATEGY-ADVISOR] ⚠️ ${remainingCount} large dollar amounts remain (may be valid)`);
+            } else if (hallucinationCount > 0) {
+                console.log(`[STRATEGY-ADVISOR] ✅ Fixed ${hallucinationCount} hallucinated dollar amounts`);
+            }
+            
+            console.log(`[STRATEGY-ADVISOR] ✅ Math post-processing complete`);
             
             // =====================================================================
             // POST-PROCESSING #2: Fix AI hallucinations where it outputs "$1" for everything
