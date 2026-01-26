@@ -902,28 +902,32 @@ const mainHandler = async (req, res, next) => {
             });
             
             // STEP 1: Fix "Total Max Profit:" and "Max Profit:" - handle both patterns
-            // IMPORTANT: Use $$ to output a literal $ in regex replacement
+            // CRITICAL: Use callback function, NOT string replacement!
+            // String replacement interprets $1 in "$1,365" as a backreference!
+            const maxProfitStr = `$${cv.totalPutMaxProfit.toLocaleString()}`;
+            const maxLossStr = `$${cv.totalPutMaxLoss.toLocaleString()}`;
+            
             aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Profit[:\s]*\$?[\d,]+/gi, 
-                `Max Profit: $$${cv.totalPutMaxProfit.toLocaleString()}`);
+                () => `Max Profit: ${maxProfitStr}`);
             
             // STEP 2: Fix "Total Max Loss:" and "Max Loss:"
             aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Loss[:\s]*\$?[\d,]+/gi,
-                `Max Loss: $$${cv.totalPutMaxLoss.toLocaleString()}`);
+                () => `Max Loss: ${maxLossStr}`);
             
             // STEP 3: Fix "TOTAL Max Profit:" (all caps variant)
             aiResponse = aiResponse.replace(/TOTAL\s+Max\s*Profit[:\s]*\$?[\d,]+/gi, 
-                `TOTAL Max Profit: $$${cv.totalPutMaxProfit.toLocaleString()}`);
+                () => `TOTAL Max Profit: ${maxProfitStr}`);
             aiResponse = aiResponse.replace(/TOTAL\s+Max\s*Loss[:\s]*\$?[\d,]+/gi,
-                `TOTAL Max Loss: $$${cv.totalPutMaxLoss.toLocaleString()}`);
+                () => `TOTAL Max Loss: ${maxLossStr}`);
             
             // STEP 4: Fix P&L table rows with + prefix (any large number = total)
-            // IMPORTANT: Use $$$ to escape the $ sign in replacement ($ has special meaning in regex replace)
-            const profitReplacement = `+$$${cv.totalPutMaxProfit.toLocaleString()}`;
-            aiResponse = aiResponse.replace(/\+\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g, profitReplacement);
+            // CRITICAL: Use callback function to avoid $1 backreference interpretation
+            aiResponse = aiResponse.replace(/\+\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g, 
+                () => `+${maxProfitStr}`);
             
             // STEP 5: Fix P&L table rows with - prefix  
-            const lossReplacement = `-$$${cv.totalPutMaxLoss.toLocaleString()}`;
-            aiResponse = aiResponse.replace(/-\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g, lossReplacement);
+            aiResponse = aiResponse.replace(/-\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g, 
+                () => `-${maxLossStr}`);
             
             // STEP 6: Fix the "(X contracts × $Y)" parenthetical - recalculate total
             aiResponse = aiResponse.replace(
