@@ -3879,12 +3879,6 @@ window.runStrategyAdvisor = async function() {
     const modelSelect = document.getElementById('strategyAdvisorModel');
     const bpInput = document.getElementById('strategyAdvisorBP');
     const riskSelect = document.getElementById('strategyAdvisorRisk');
-    const loadingDiv = document.getElementById('strategyAdvisorLoading');
-    const progressDiv = document.getElementById('strategyAdvisorProgress');
-    const resultDiv = document.getElementById('strategyAdvisorResult');
-    const contentDiv = document.getElementById('strategyAdvisorContent');
-    const headerSpan = document.getElementById('strategyAdvisorHeader');
-    const metaDiv = document.getElementById('strategyAdvisorMeta');
     
     const ticker = tickerInput?.value?.trim().toUpperCase();
     if (!ticker) {
@@ -3926,17 +3920,67 @@ window.runStrategyAdvisor = async function() {
     console.log(`  Half-Kelly Max: $${maxPositionSize.toLocaleString()}`);
     console.log(`  Per-Trade Cap (60%): $${perTradeCap.toLocaleString()}`);
     
-    // Show loading state
-    loadingDiv.style.display = 'block';
-    resultDiv.style.display = 'none';
-    progressDiv.textContent = 'Fetching market data from Schwab...';
+    // Create and show loading modal
+    const existingModal = document.getElementById('strategyAdvisorModal');
+    if (existingModal) existingModal.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'strategyAdvisorModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:10000; padding:20px;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #0d0d1a 100%); border-radius:16px; max-width:900px; width:100%; max-height:90vh; overflow:hidden; border:2px solid #6d28d9; box-shadow:0 0 40px rgba(147,51,234,0.3);">
+            <div style="background:linear-gradient(135deg, rgba(147,51,234,0.3) 0%, rgba(79,70,229,0.2) 100%); padding:16px 24px; border-bottom:1px solid #6d28d9;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h2 style="margin:0; color:#a78bfa; font-size:20px;">🎓 Strategy Advisor: ${ticker}</h2>
+                        <div id="strategyAdvisorMeta" style="font-size:11px; color:#888; margin-top:4px;">Analyzing with ${model}...</div>
+                    </div>
+                    <button onclick="document.getElementById('strategyAdvisorModal').remove()" style="background:none; border:none; color:#888; font-size:28px; cursor:pointer; line-height:1;">&times;</button>
+                </div>
+            </div>
+            <div id="strategyAdvisorContent" style="padding:24px; color:#ddd; font-size:13px; line-height:1.7; max-height:calc(90vh - 140px); overflow-y:auto;">
+                <div style="text-align:center; padding:60px 20px;">
+                    <div style="font-size:48px; margin-bottom:16px;">🔮</div>
+                    <div style="color:#a78bfa; font-weight:bold; font-size:16px;">Analyzing All Strategies for ${ticker}...</div>
+                    <div style="color:#666; font-size:12px; margin-top:8px;">Fetching real-time data from Schwab • Calculating optimal position size</div>
+                    <div style="margin-top:20px; height:4px; background:#333; border-radius:2px; overflow:hidden;">
+                        <div style="height:100%; width:30%; background:linear-gradient(90deg, #9333ea, #6d28d9); animation:pulse 1.5s ease-in-out infinite;"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="strategyAdvisorFooter" style="display:none; background:rgba(0,0,0,0.3); padding:16px 24px; border-top:1px solid #333;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="font-size:11px; color:#666;">Click outside or press Escape to close</div>
+                    <div style="display:flex; gap:12px;">
+                        <button onclick="document.getElementById('strategyAdvisorModal').remove()" style="padding:10px 20px; background:#333; border:1px solid #444; border-radius:8px; color:#ddd; font-size:13px; cursor:pointer;">
+                            Close
+                        </button>
+                        <button onclick="window.stageStrategyAdvisorTrade(); document.getElementById('strategyAdvisorModal').remove();" style="padding:10px 24px; background:linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border:none; border-radius:8px; color:#fff; font-weight:bold; font-size:13px; cursor:pointer; box-shadow:0 4px 12px rgba(34,197,94,0.3);">
+                            ➕ Stage This Trade
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Handle Escape key
+    const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+            modal.remove();
+            document.removeEventListener('keydown', handleEscape);
+        }
+    };
+    document.addEventListener('keydown', handleEscape);
     
     try {
         // Get existing positions for context
         const existingPositions = state.positions || [];
         
         console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with Kelly-capped BP=$${perTradeCap.toLocaleString()}...`);
-        progressDiv.textContent = `Analyzing ${ticker} with ${model}...`;
         
         const response = await fetch('/api/ai/strategy-advisor', {
             method: 'POST',
@@ -3963,12 +4007,10 @@ window.runStrategyAdvisor = async function() {
         // Store for staging
         lastStrategyAdvisorResult = data;
         
-        // Hide loading, show result
-        loadingDiv.style.display = 'none';
-        resultDiv.style.display = 'block';
-        
-        // Update header with ticker and price
-        headerSpan.textContent = `📊 ${ticker} Strategy Recommendation`;
+        // Update modal with results
+        const contentDiv = document.getElementById('strategyAdvisorContent');
+        const metaDiv = document.getElementById('strategyAdvisorMeta');
+        const footerDiv = document.getElementById('strategyAdvisorFooter');
         
         // Build meta info
         let metaHtml = `<span>Spot: $${data.spot?.toFixed(2) || '?'}</span>`;
@@ -3978,16 +4020,29 @@ window.runStrategyAdvisor = async function() {
         }
         metaHtml += ` • <span>Data: ${data.dataSource || 'Unknown'}</span>`;
         metaHtml += ` • <span>Model: ${data.model}</span>`;
-        metaDiv.innerHTML = metaHtml;
+        if (metaDiv) metaDiv.innerHTML = metaHtml;
         
         // Format the AI response (convert markdown to HTML)
-        contentDiv.innerHTML = formatAIResponse(data.recommendation);
+        if (contentDiv) contentDiv.innerHTML = formatAIResponse(data.recommendation);
+        
+        // Show the footer with Stage Trade button
+        if (footerDiv) footerDiv.style.display = 'block';
         
         showNotification(`✅ Strategy analysis complete for ${ticker}`, 'success');
         
     } catch (e) {
         console.error('[STRATEGY-ADVISOR] Error:', e);
-        loadingDiv.style.display = 'none';
+        // Update modal with error
+        const contentDiv = document.getElementById('strategyAdvisorContent');
+        if (contentDiv) {
+            contentDiv.innerHTML = `
+                <div style="text-align:center; padding:40px;">
+                    <div style="font-size:48px; margin-bottom:16px;">❌</div>
+                    <div style="color:#ff5252; font-weight:bold; font-size:16px;">Analysis Failed</div>
+                    <div style="color:#888; margin-top:8px;">${e.message}</div>
+                </div>
+            `;
+        }
         showNotification(`❌ ${e.message}`, 'error');
     }
 };
