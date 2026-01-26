@@ -987,14 +987,14 @@ const mainHandler = async (req, res, next) => {
                 console.log(`[STRATEGY-ADVISOR] ⚠️ Detected ${dollarOneCount} "$1" hallucinations - applying fixes (using $${sellPutStrike}/$${buyPutStrike} spreads)`);
                 
                 // NUCLEAR OPTION: Replace ALL standalone "$1" with appropriate values
-                // First, build a list of all $1 patterns and what they should be
+                // CRITICAL: All patterns must use (?![0-9.,]) to NOT match $1,365 or $1.50!
                 
                 // Replace spread patterns first (most specific)
                 aiResponse = aiResponse.replace(/\$1\s*\/\s*\$1\s+Put\s+Spread/gi, `$${sellPutStrike}/$${buyPutStrike} Put Spread`);
                 aiResponse = aiResponse.replace(/\$1\s*\/\s*\$1\s+Call\s+Spread/gi, `$${sellCallStrike}/$${buyCallStrike} Call Spread`);
                 
-                // Replace "Sell [TICKER] $1" patterns
-                aiResponse = aiResponse.replace(new RegExp(`Sell\\s+${ticker}\\s+\\$1(?!\\d)`, 'gi'), `Sell ${ticker} $${sellPutStrike}`);
+                // Replace "Sell [TICKER] $1" patterns - use (?![0-9.,]) to protect $1,xxx
+                aiResponse = aiResponse.replace(new RegExp(`Sell\\s+${ticker}\\s+\\$1(?![0-9.,])`, 'gi'), `Sell ${ticker} $${sellPutStrike}`);
                 
                 // Replace premium patterns (these should stay small)
                 aiResponse = aiResponse.replace(/~\$1\/share/gi, `~$${premium}/share`);
@@ -1005,36 +1005,29 @@ const mainHandler = async (req, res, next) => {
                 // Replace buying power references
                 aiResponse = aiResponse.replace(/\$1k\s+buying\s+power/gi, `$25,000 buying power`);
                 aiResponse = aiResponse.replace(/\$1k\s+of\s+buying/gi, `$25,000 of buying`);
-                aiResponse = aiResponse.replace(/\$1,000/g, `$25,000`);
-                aiResponse = aiResponse.replace(/\$1k(?!\d)/gi, `$25,000`);
+                // REMOVED: /\$1,000/g pattern - it was matching valid amounts like $1,365!
+                aiResponse = aiResponse.replace(/\$1k(?![0-9.,])/gi, `$25,000`);
                 
-                // Replace strike references
+                // Replace strike references - use (?![0-9.,]) to protect $1,xxx
                 aiResponse = aiResponse.replace(/\$1\s+strike/gi, `$${sellPutStrike} strike`);
-                aiResponse = aiResponse.replace(/\$1\s+put/gi, `$${sellPutStrike} put`);
-                aiResponse = aiResponse.replace(/\$1\s+call/gi, `$${sellCallStrike} call`);
+                aiResponse = aiResponse.replace(/\$1\s+put(?![0-9.,])/gi, `$${sellPutStrike} put`);
+                aiResponse = aiResponse.replace(/\$1\s+call(?![0-9.,])/gi, `$${sellCallStrike} call`);
                 
-                // Replace price references
-                aiResponse = aiResponse.replace(/price\s+of\s+\$1(?!\d)/gi, `price of $${stockPrice}`);
-                aiResponse = aiResponse.replace(/above\s+\$1(?!\d)/gi, `above $${sellPutStrike}`);
-                aiResponse = aiResponse.replace(/below\s+\$1(?!\d)/gi, `below $${buyPutStrike}`);
+                // Replace price references - use (?![0-9.,]) to protect $1,xxx
+                aiResponse = aiResponse.replace(/price\s+of\s+\$1(?![0-9.,])/gi, `price of $${stockPrice}`);
+                aiResponse = aiResponse.replace(/above\s+\$1(?![0-9.,])/gi, `above $${sellPutStrike}`);
+                aiResponse = aiResponse.replace(/below\s+\$1(?![0-9.,])/gi, `below $${buyPutStrike}`);
                 
-                // Replace max profit/loss (per contract = premium * 100)
-                const premiumPer100 = (parseFloat(premium) * 100).toFixed(0);
-                const spreadLoss = (spreadWidth * 100).toFixed(0);
-                aiResponse = aiResponse.replace(/Max\s+Profit:\s+\$1\s+per\s+contract/gi, `Max Profit: $${premiumPer100} per contract`);
-                aiResponse = aiResponse.replace(/Max\s+Loss:\s+\$1\s+per\s+contract/gi, `Max Loss: $${spreadLoss} per contract`);
-                aiResponse = aiResponse.replace(/Max\s+Profit:\s+\$1(?!\d)/gi, `Max Profit: $${premiumPer100}`);
-                aiResponse = aiResponse.replace(/Max\s+Loss:\s+\$1(?!\d)/gi, `Max Loss: $${spreadLoss}`);
+                // REMOVED: Max Profit/Loss patterns - STEP 1-3 already fixed these correctly!
+                // These patterns were matching $1,365 and corrupting it because (?!\d) 
+                // doesn't exclude commas!
                 
-                // Replace breakeven calculations
+                // Replace breakeven calculations - use (?![0-9.,]) to protect $1,xxx
                 const breakeven = (parseFloat(sellPutStrike) - parseFloat(premium)).toFixed(2);
-                aiResponse = aiResponse.replace(/Breakeven:\s+\$1(?!\d)/gi, `Breakeven: $${breakeven}`);
+                aiResponse = aiResponse.replace(/Breakeven:\s+\$1(?![0-9.,])/gi, `Breakeven: $${breakeven}`);
                 
                 // FINAL NUCLEAR PASS: Replace any remaining standalone $1 with stock price
-                // This catches anything we missed
-                // IMPORTANT: $1.70 is VALID (1 dollar 70 cents), $1,365 is VALID too!
                 // Pattern: $1 NOT followed by digit, decimal point, OR COMMA
-                // Without the comma, $1,365 would become $94,365 (BAD!)
                 aiResponse = aiResponse.replace(/\$1(?![0-9.,])/g, `$${stockPrice}`);
                 
                 // Count remaining standalone $1 instances (for sanity check)
