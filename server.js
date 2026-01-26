@@ -4805,15 +4805,22 @@ SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
 
 YOUR JOB: Pick ONE setup (A, B, C, or D) based on the market conditions below:
 
+⚠️ VARIETY INSTRUCTION: Don't default to B just because it's familiar. Compare B vs D explicitly:
+   • If B has better risk/reward AND bullish thesis makes sense → pick B
+   • If D has better risk/reward OR stock is extended → pick D
+   • If user has shares and wants income → consider C
+   • Only pick A if buying power is large AND you're very bullish
+
 🚨 DIRECTIONAL BIAS BASED ON RANGE POSITION (${stockData?.rangePosition || '?'}%):
-${stockData?.rangePosition > 80 ? `⬇️ BEARISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = OVERBOUGHT.
-   → STRONGLY FAVOR SETUP D (Call Credit Spread) - profits if stock pulls back or stays flat.
-   → Avoid A and B (bullish) unless you have a strong contrarian reason.` : 
-   stockData?.rangePosition < 20 ? `⬆️ BULLISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = OVERSOLD.
+${stockData?.rangePosition > 70 ? `⬇️ BEARISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = EXTENDED/OVERBOUGHT.
+   → FAVOR SETUP D (Call Credit Spread) - profits if stock pulls back or stays flat.
+   → Only pick B if risk/reward is significantly better (>1.5:1 vs D's ratio).` : 
+   stockData?.rangePosition < 30 ? `⬆️ BULLISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = OVERSOLD.
    → FAVOR SETUP A or B (bullish) - profits if stock recovers.
    → Avoid D (bearish) unless fundamentals are deteriorating.` :
    `↔️ NEUTRAL: Stock at ${stockData?.rangePosition}% = mid-range.
-   → Either B (bullish) or D (bearish) reasonable based on your thesis.`}
+   → COMPARE B vs D risk/reward ratios and pick the better one.
+   → Don't just default to B - explain why B beats D (or vice versa).`}
 
 🎯 ADDITIONAL DECISION CRITERIA:
 • IV Rank ${ivRank}%: ${ivRank > 50 ? 'ELEVATED - favors SELLING strategies (A, B, C, D)' : 'LOW - options are cheap, spreads help manage this'}
