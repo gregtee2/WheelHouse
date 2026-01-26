@@ -4069,75 +4069,81 @@ window.stageStrategyAdvisorTrade = function() {
     
     console.log('[STAGE] Parsing recommendation...');
     
-    // Method 1: Look for "Sell: $XX put @ $X.XX" pattern (spread format)
-    const sellPutMatch = recommendation?.match(/Sell:\s*\$(\d+(?:\.\d+)?)\s*put\s*@\s*\$(\d+(?:\.\d+)?)/i);
-    const buyPutMatch = recommendation?.match(/Buy:\s*\$(\d+(?:\.\d+)?)\s*put\s*@\s*\$(\d+(?:\.\d+)?)/i);
-    const sellCallMatch = recommendation?.match(/Sell:\s*\$(\d+(?:\.\d+)?)\s*call\s*@\s*\$(\d+(?:\.\d+)?)/i);
-    const buyCallMatch = recommendation?.match(/Buy:\s*\$(\d+(?:\.\d+)?)\s*call\s*@\s*\$(\d+(?:\.\d+)?)/i);
-    
-    if (sellPutMatch && buyPutMatch) {
-        // Put credit spread (bull put)
-        tradeType = 'put_credit_spread';
-        strike = parseFloat(sellPutMatch[1]);  // Sell higher strike
-        upperStrike = parseFloat(buyPutMatch[1]);  // Buy lower strike
-        const sellPrem = parseFloat(sellPutMatch[2]);
-        const buyPrem = parseFloat(buyPutMatch[2]);
-        premium = Math.max(0.01, sellPrem - buyPrem);  // Net credit
-        console.log('[STAGE] Detected put credit spread: Sell $' + strike + ', Buy $' + upperStrike + ', Net: $' + premium.toFixed(2));
-    } else if (sellCallMatch && buyCallMatch) {
-        // Call credit spread (bear call)
-        tradeType = 'call_credit_spread';
-        isCall = true;
-        strike = parseFloat(sellCallMatch[1]);  // Sell lower strike
-        upperStrike = parseFloat(buyCallMatch[1]);  // Buy higher strike
-        const sellPrem = parseFloat(sellCallMatch[2]);
-        const buyPrem = parseFloat(buyCallMatch[2]);
-        premium = Math.max(0.01, sellPrem - buyPrem);  // Net credit
-        console.log('[STAGE] Detected call credit spread: Sell $' + strike + ', Buy $' + upperStrike + ', Net: $' + premium.toFixed(2));
-    } else if (sellPutMatch) {
-        // Simple short put
-        tradeType = 'short_put';
-        strike = parseFloat(sellPutMatch[1]);
-        premium = parseFloat(sellPutMatch[2]);
-        console.log('[STAGE] Detected short put: $' + strike + ' @ $' + premium);
-    } else if (sellCallMatch) {
-        // Covered call
-        tradeType = 'covered_call';
-        isCall = true;
-        strike = parseFloat(sellCallMatch[1]);
-        premium = parseFloat(sellCallMatch[2]);
-        console.log('[STAGE] Detected covered call: $' + strike + ' @ $' + premium);
-    } else if (buyCallMatch) {
-        // Long call
-        tradeType = 'long_call';
-        isCall = true;
-        isDebit = true;
-        strike = parseFloat(buyCallMatch[1]);
-        premium = parseFloat(buyCallMatch[2]);
-        console.log('[STAGE] Detected long call: $' + strike + ' @ $' + premium);
-    } else if (buyPutMatch) {
-        // Long put
-        tradeType = 'long_put';
-        isDebit = true;
-        strike = parseFloat(buyPutMatch[1]);
-        premium = parseFloat(buyPutMatch[2]);
-        console.log('[STAGE] Detected long put: $' + strike + ' @ $' + premium);
-    }
-    
-    // Method 2: Try alternate patterns if above didn't work
-    if (!premium) {
-        // Look for "Net Credit: $X.XX" or "Net Premium: $X.XX"
-        const netCreditMatch = recommendation?.match(/Net\s+Credit:\s*\$?(\d+(?:\.\d+)?)/i);
-        if (netCreditMatch) {
-            premium = parseFloat(netCreditMatch[1]);
-            console.log('[STAGE] Found net credit: $' + premium);
+    // Method 1: Look for "Sell TICKER $XX/$XX Put Spread, DATE" format
+    const spreadMatch = recommendation?.match(/Sell\s+\w+\s+\$(\d+)\/\$(\d+)\s+(Put|Call)\s+Spread,?\s*(\d{4}-\d{2}-\d{2})?/i);
+    if (spreadMatch) {
+        const upperStrikeVal = parseFloat(spreadMatch[1]);
+        const lowerStrikeVal = parseFloat(spreadMatch[2]);
+        const optType = spreadMatch[3].toLowerCase();
+        const expDate = spreadMatch[4];
+        
+        if (optType === 'put') {
+            tradeType = 'put_credit_spread';
+            strike = upperStrikeVal;  // Sell higher strike
+            upperStrike = lowerStrikeVal;  // Buy lower strike
+        } else {
+            tradeType = 'call_credit_spread';
+            isCall = true;
+            strike = lowerStrikeVal;  // Sell lower strike
+            upperStrike = upperStrikeVal;  // Buy higher strike
         }
         
-        // Look for "collect $X.XX" or "receive $X.XX"
-        const collectMatch = recommendation?.match(/(?:collect|receive)\s*\$?(\d+(?:\.\d+)?)/i);
-        if (collectMatch && !premium) {
-            premium = parseFloat(collectMatch[1]);
-            console.log('[STAGE] Found collect/receive: $' + premium);
+        if (expDate) expiry = expDate;
+        console.log('[STAGE] Detected spread from header: ' + tradeType + ' $' + strike + '/$' + upperStrike);
+    }
+    
+    // Method 2: Look for "Credit Received: $X.XX/share" or "Credit Received: $X.XX"
+    const creditMatch = recommendation?.match(/Credit\s+Received:\s*\$(\d+(?:\.\d+)?)(?:\/share)?/i);
+    if (creditMatch) {
+        premium = parseFloat(creditMatch[1]);
+        console.log('[STAGE] Found credit received: $' + premium);
+    }
+    
+    // Method 3: Look for "Sell: $XX put @ $X.XX" pattern (alternate format)
+    if (!premium) {
+        const sellPutMatch = recommendation?.match(/Sell:\s*\$(\d+(?:\.\d+)?)\s*put\s*@\s*\$(\d+(?:\.\d+)?)/i);
+        const buyPutMatch = recommendation?.match(/Buy:\s*\$(\d+(?:\.\d+)?)\s*put\s*@\s*\$(\d+(?:\.\d+)?)/i);
+        
+        if (sellPutMatch && buyPutMatch) {
+            tradeType = 'put_credit_spread';
+            strike = parseFloat(sellPutMatch[1]);
+            upperStrike = parseFloat(buyPutMatch[1]);
+            const sellPrem = parseFloat(sellPutMatch[2]);
+            const buyPrem = parseFloat(buyPutMatch[2]);
+            premium = Math.max(0.01, sellPrem - buyPrem);
+            console.log('[STAGE] Detected put spread from Sell/Buy lines: $' + strike + '/$' + upperStrike);
+        } else if (sellPutMatch) {
+            tradeType = 'short_put';
+            strike = parseFloat(sellPutMatch[1]);
+            premium = parseFloat(sellPutMatch[2]);
+            console.log('[STAGE] Detected short put: $' + strike + ' @ $' + premium);
+        }
+    }
+    
+    // Method 4: Look for single leg patterns "Sell $XX Put" without spread
+    if (!spreadMatch && !premium) {
+        const singlePutMatch = recommendation?.match(/Sell\s+(?:\w+\s+)?\$(\d+)\s+Put/i);
+        const singleCallMatch = recommendation?.match(/Sell\s+(?:\w+\s+)?\$(\d+)\s+Call/i);
+        
+        if (singlePutMatch) {
+            tradeType = 'short_put';
+            strike = parseFloat(singlePutMatch[1]);
+            console.log('[STAGE] Detected single short put: $' + strike);
+        } else if (singleCallMatch) {
+            tradeType = 'covered_call';
+            isCall = true;
+            strike = parseFloat(singleCallMatch[1]);
+            console.log('[STAGE] Detected single covered call: $' + strike);
+        }
+    }
+    
+    // Try to find premium from other patterns if still missing
+    if (!premium) {
+        // "Net Credit: $X.XX" or "Premium: $X.XX"
+        const altPremMatch = recommendation?.match(/(?:Net\s+Credit|Premium|Credit):\s*\$?(\d+(?:\.\d+)?)/i);
+        if (altPremMatch) {
+            premium = parseFloat(altPremMatch[1]);
+            console.log('[STAGE] Found premium from alt pattern: $' + premium);
         }
     }
     
