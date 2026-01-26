@@ -38,7 +38,21 @@ WheelHouse/
 ├── CHANGELOG.md        # Release notes
 ├── src/
 │   ├── secureStore.js  # AES-256-GCM encrypted credential storage
-│   └── routes/         # API route handlers
+│   ├── routes/         # API route handlers
+│   │   ├── settingsRoutes.js  # Settings API
+│   │   ├── schwabRoutes.js    # Schwab broker API
+│   │   └── wisdomRoutes.js    # Trading wisdom RAG API
+│   ├── utils/          # Utility modules
+│   │   ├── dateHelpers.js     # Date formatting utilities
+│   │   └── serverHelpers.js   # Version, GPU detection, MIME types
+│   └── services/       # Business logic services
+│       ├── CacheService.js    # Centralized caching
+│       ├── DiscoveryService.js # Stock discovery/screening
+│       ├── AIService.js       # AI model calling (Ollama, Grok)
+│       ├── WisdomService.js   # Trading wisdom + embeddings
+│       ├── promptBuilders.js  # AI prompt templates (~1100 lines)
+│       ├── DataService.js     # Market data fetching
+│       └── MarketDataService.js # Schwab→CBOE→Yahoo fallback
 ├── css/
 │   └── styles.css      # Dark theme styling
 └── js/
@@ -59,6 +73,77 @@ WheelHouse/
         ├── AccountService.js   # Schwab account balances (single source of truth)
         └── MarketDataService.js # Stock/options data (Schwab→CBOE→Yahoo)
 ```
+
+---
+
+## 🚀 ACTIVE PROJECT: Server.js Modularization (January 2026)
+
+**Status**: ✅ PHASE 4 COMPLETE - Ready for Phase 5  
+**Branch**: `refactor/modularize-server`  
+**Goal**: Reduce server.js from 5247 → ~500 lines
+
+### Progress Summary
+
+| Phase | Before | After | Lines Removed | New Files |
+|-------|--------|-------|---------------|-----------|
+| Phase 1 (Utilities) | 5247 | 5092 | ~155 | `dateHelpers.js`, `serverHelpers.js` |
+| Phase 2 (Services) | 5092 | 4640 | ~450 | `CacheService.js`, `DiscoveryService.js`, `AIService.js`, `WisdomService.js` |
+| Phase 3 (Prompts) | 4640 | 3490 | ~1150 | `promptBuilders.js` |
+| Phase 4 (Routes) | 3490 | 2813 | ~677 | `wisdomRoutes.js`, `DataService.js` |
+| **Total** | **5247** | **2813** | **~2434 (46%)** | **9 new files** |
+
+### Git Commits (Branch: refactor/modularize-server)
+1. `b507a9b` - Phase 1: Extract dateHelpers and serverHelpers
+2. `446c9da` - Phase 2: Extract CacheService, DiscoveryService, AIService, WisdomService
+3. `111b5f5` - Phase 3: Extract promptBuilders (~1150 lines)
+4. `e03fa5b` - Phase 4: Extract wisdomRoutes and DataService (~677 lines)
+
+### What Remains in server.js (~2813 lines)
+- `mainHandler` middleware (~1600 lines) - All `/api/*` endpoints
+- `buildStrategyAdvisorPrompt` function (~700 lines) - Strategy advisor prompt
+- Express app setup, middleware, static file serving (~500 lines)
+
+### Next Steps (Phase 5+)
+1. **Move `buildStrategyAdvisorPrompt`** to `promptBuilders.js` (~700 lines, easy)
+2. **Convert `mainHandler` to Express routers**:
+   - `cboeRoutes.js` - CBOE/Yahoo proxy endpoints
+   - `aiRoutes.js` - All `/api/ai/*` endpoints (~1200 lines)
+   - `updateRoutes.js` - Version check/apply
+3. **Final server.js** should be ~500 lines (imports, middleware, router mounts)
+
+### New Files Created (src/ directory)
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `src/utils/dateHelpers.js` | ~80 | `formatExpiryForCBOE`, `parseExpiryDate`, `calculateDTE` |
+| `src/utils/serverHelpers.js` | ~75 | `getLocalVersion`, `detectGPU`, `MIME_TYPES`, `compareVersions` |
+| `src/services/CacheService.js` | ~40 | `tickerDataCache`, `optionPremiumCache`, `CACHE_TTL` |
+| `src/services/DiscoveryService.js` | ~100 | `fetchMostActiveStocks`, `fetchTrendingStocks`, `fetchWheelCandidatePrices` |
+| `src/services/AIService.js` | ~200 | `callAI`, `callGrok`, `callOllama`, `callMoE` |
+| `src/services/WisdomService.js` | ~150 | `loadWisdom`, `saveWisdom`, `generateEmbedding`, `searchWisdom` |
+| `src/services/promptBuilders.js` | ~1100 | `buildDeepDivePrompt`, `buildCheckupPrompt`, `buildTradeParsePrompt`, etc. |
+| `src/services/DataService.js` | ~350 | `fetchJson`, `fetchTickerIVData`, `fetchOptionPremium`, `fetchDeepDiveData` |
+| `src/routes/wisdomRoutes.js` | ~150 | GET/POST/DELETE `/api/wisdom/*` endpoints |
+
+### How Modules Are Imported in server.js
+```javascript
+// Utilities
+const { formatExpiryForCBOE, parseExpiryDate, calculateDTE } = require('./src/utils/dateHelpers');
+const { getLocalVersion, detectGPU, MIME_TYPES, compareVersions } = require('./src/utils/serverHelpers');
+
+// Services
+const CacheService = require('./src/services/CacheService');
+const AIService = require('./src/services/AIService');
+const WisdomService = require('./src/services/WisdomService');
+const promptBuilders = require('./src/services/promptBuilders');
+const DataService = require('./src/services/DataService');
+
+// Routes
+const wisdomRoutes = require('./src/routes/wisdomRoutes');
+app.use('/api/wisdom', wisdomRoutes);
+```
+
+---
 
 ### Module Dependencies
 ```
