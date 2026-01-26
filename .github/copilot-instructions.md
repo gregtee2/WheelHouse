@@ -323,7 +323,99 @@ const buyingPower = AccountService.getBuyingPower();
 
 ---
 
-## 📊 Key Data Structures
+## � TradeCardService - SHARED TRADE CARD UI
+
+**CRITICAL: All AI features that suggest trades MUST use TradeCardService!**
+
+Location: `js/services/TradeCardService.js`
+
+### Why This Exists
+We had 4+ places with duplicated trade card HTML and staging logic:
+- Position Checkup (main.js)
+- AI Holding Suggestion (portfolio.js)
+- Roll Calculator (analysis.js)
+- Discord Analyzer (main.js)
+
+Each had slightly different styling, field names, and staging code. Now consolidated.
+
+### Available Functions
+
+```javascript
+import TradeCardService from './services/TradeCardService.js';
+
+// Parse ===SUGGESTED_TRADE=== block from AI response
+const trade = TradeCardService.parseSuggestedTrade(aiResponse);
+// Returns: { action, closeStrike, closeExpiry, newStrike, newExpiry, netCost, rationale, ... }
+
+// Strip trade block from AI response for display
+const cleanText = TradeCardService.stripTradeBlock(aiResponse);
+
+// Render trade card HTML
+const cardHtml = TradeCardService.renderTradeCard(trade, {
+    ticker: 'AAPL',
+    onStageClick: 'window.stageThisTrade()',  // onclick handler
+    showStageButton: true,
+    stageButtonText: '📥 Stage Roll'
+});
+
+// Stage trade to pending (localStorage)
+TradeCardService.stageToPending(trade, {
+    ticker: 'AAPL',
+    source: 'ai_checkup',     // ai_checkup, ai_holding, roll_calc, discord
+    badge: 'ROLL',            // ROLL, NEW, SKIP
+    originalPositionId: 123   // Optional
+});
+
+// Utility functions
+const pending = TradeCardService.getPendingTrades();
+TradeCardService.removePendingTrade(tradeId);
+TradeCardService.clearPendingTrades();
+```
+
+### AI Prompt Format for Suggested Trades
+
+When building AI prompts that should return actionable trades, include this instruction:
+
+```
+If recommending a ROLL or trade action, include a structured block:
+
+===SUGGESTED_TRADE===
+ACTION: ROLL (or BUY_BACK, CLOSE, etc.)
+CLOSE_STRIKE: 95
+CLOSE_EXPIRY: 2026-02-21
+CLOSE_TYPE: PUT
+NEW_STRIKE: 90
+NEW_EXPIRY: 2026-03-21
+NEW_TYPE: PUT
+ESTIMATED_DEBIT: $1.20
+ESTIMATED_CREDIT: $2.50
+NET_COST: $1.30 credit
+RATIONALE: Rolling down and out for credit while stock recovers
+===END_TRADE===
+```
+
+### ⚠️ NEVER Do This Again
+```javascript
+// ❌ WRONG - Duplicating trade card HTML in each file
+const html = `<div style="background:linear-gradient...">
+    <h4>📋 Suggested Trade</h4>
+    ... 50 lines of HTML ...
+</div>`;
+
+// ❌ WRONG - Duplicating staging logic
+let pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+pending.push({ ... });
+localStorage.setItem('wheelhouse_pending', JSON.stringify(pending));
+
+// ✅ CORRECT - Use TradeCardService
+const trade = TradeCardService.parseSuggestedTrade(aiResponse);
+const html = TradeCardService.renderTradeCard(trade, { ticker });
+TradeCardService.stageToPending(trade, { ticker, source: 'ai_checkup' });
+```
+
+---
+
+## �📊 Key Data Structures
 
 ### Position Object
 ```javascript
