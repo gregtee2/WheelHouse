@@ -4160,8 +4160,10 @@ window.stageStrategyAdvisorTrade = function() {
         expiry = defaultExpiry.toISOString().split('T')[0];
     }
     
-    // Stage the trade
+    // Stage the trade - use same field names as other staging functions
+    const now = Date.now();
     const stagedTrade = {
+        id: now,
         ticker,
         type: tradeType,
         strike,
@@ -4172,19 +4174,38 @@ window.stageStrategyAdvisorTrade = function() {
         isCall,
         isDebit,
         source: 'Strategy Advisor',
-        timestamp: Date.now(),
+        stagedAt: now,  // For display in render
         thesis: {
             priceAtAnalysis: spot,
             aiRecommendation: recommendation?.substring(0, 500) + '...'
         }
     };
     
-    // Add to pending trades
-    if (!window.pendingTrades) window.pendingTrades = [];
-    window.pendingTrades.push(stagedTrade);
+    // Add to pending trades in localStorage (not just window.pendingTrades)
+    let pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+    
+    // Check for duplicates
+    const isDuplicate = pending.some(p => 
+        p.ticker === stagedTrade.ticker && 
+        p.strike === stagedTrade.strike && 
+        p.type === stagedTrade.type
+    );
+    
+    if (isDuplicate) {
+        showNotification(`${ticker} already staged with same strike/type`, 'info');
+        return;
+    }
+    
+    pending.unshift(stagedTrade);  // Add to front of array
+    localStorage.setItem('wheelhouse_pending', JSON.stringify(pending));
     
     renderPendingTrades();
     showNotification(`✅ Staged ${ticker} ${tradeType.replace(/_/g, ' ')} from Strategy Advisor`, 'success');
+    
+    // Switch to Ideas tab so user sees the staged trade
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        if (btn.dataset.tab === 'ideas') btn.click();
+    });
 };
 
 /**
