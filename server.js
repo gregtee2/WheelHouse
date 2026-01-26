@@ -4722,12 +4722,26 @@ YOUR TASK: Recommend THE BEST strategy for this situation
 
 VALID TRADE SETUPS (these are the ONLY options - pick ONE):
 
-SETUP A - Short Put (Cash-Secured):
+SETUP A - Short Put (Cash-Secured) - ALL MATH PRE-CALCULATED:
   Trade: Sell ${ticker} $${sellPutStrike} Put, ${firstExpiry}
-  Credit: ~$${atmPutMid.toFixed(2)}/share
-  Buying Power Required: ~$${(sellPutStrike * 100).toLocaleString()} per contract
-  Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (sellPutStrike * 100))} contracts
-  Delta: +${Math.abs(atmPutDelta * 100).toFixed(0)} per contract (BULLISH)
+  Credit Received: $${atmPutMid.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: $${(atmPutMid * 100).toFixed(0)} (keep all premium)
+  • Max Loss per contract: $${((sellPutStrike - atmPutMid) * 100).toFixed(0)} (assigned at $${sellPutStrike} minus premium)
+  • Breakeven: $${(sellPutStrike - atmPutMid).toFixed(2)}
+  • Buying Power per contract: $${(sellPutStrike * 100).toLocaleString()} (cash-secured)
+  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (sellPutStrike * 100))}
+  • Recommended contracts: ${Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))} (60% of max)
+  
+  💰 TOTALS FOR ${Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))} CONTRACTS (COPY EXACTLY):
+  • TOTAL MAX PROFIT: $${(atmPutMid * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))).toLocaleString()}
+  • TOTAL MAX LOSS: $${((sellPutStrike - atmPutMid) * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))).toLocaleString()} (if stock goes to $0)
+  • TOTAL BUYING POWER USED: $${(sellPutStrike * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))).toLocaleString()}
+  
+  • Delta: +${Math.abs(atmPutDelta * 100).toFixed(0)} per contract (BULLISH)
+  • Win Probability: ~${Math.round((1 - Math.abs(atmPutDelta)) * 100)}%
+  ⚠️ RISK: Unlimited loss if stock crashes. Requires significant buying power.
 
 SETUP B - Put Credit Spread (Bull Put) - ALL MATH PRE-CALCULATED:
   Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike} Put Spread, ${firstExpiry}
@@ -4753,7 +4767,20 @@ SETUP B - Put Credit Spread (Bull Put) - ALL MATH PRE-CALCULATED:
 SETUP C - Covered Call (requires owning 100 shares per contract):
   Trade: Sell ${ticker} $${sellCallStrike} Call, ${firstExpiry}
   Credit: ~$${atmCallMid.toFixed(2)}/share
-  Requires: Own ${ticker} shares (100 per contract)
+  ⚠️ REQUIREMENT: Must own 100 shares of ${ticker} per contract
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: $${(atmCallMid * 100).toFixed(0)} premium + stock gains up to strike
+  • Max upside if called: $${((sellCallStrike - spot + atmCallMid) * 100).toFixed(0)} (stock at $${sellCallStrike} + premium)
+  • Breakeven: $${(spot - atmCallMid).toFixed(2)} (stock cost - premium)
+  • Stock ownership required: 100 shares at ~$${spot.toFixed(2)} = $${(spot * 100).toLocaleString()} per contract
+  
+  💰 FOR 1 CONTRACT (100 shares):
+  • PREMIUM COLLECTED: $${(atmCallMid * 100).toFixed(0)}
+  • MAX PROFIT IF CALLED: $${((sellCallStrike - spot + atmCallMid) * 100).toFixed(0)}
+  
+  • Delta: -${Math.abs(atmCallDelta * 100).toFixed(0)} per contract (reduces long delta from shares)
+  ⚠️ NOTE: Only valid if user OWNS ${ticker} shares. Caps upside above $${sellCallStrike}.
 
 SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
   Trade: Sell ${ticker} $${sellCallStrike}/$${buyCallStrike} Call Spread, ${firstExpiry}
@@ -4774,28 +4801,28 @@ SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
   
   • Risk/Reward Ratio: ${((callSpreadWidth - callSpreadCredit) / callSpreadCredit).toFixed(1)}:1
   • Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH)
+  • Win Probability: ~${Math.round((1 - Math.abs(atmCallDelta)) * 100)}%
 
-YOUR JOB: Pick ONE setup (A, B, C, or D) and explain WHY it's best for this situation.
+YOUR JOB: Pick ONE setup (A, B, C, or D) based on the market conditions below:
+
+🎯 DECISION CRITERIA (use these to make your choice):
+• IV Rank ${ivRank}%: ${ivRank > 50 ? 'ELEVATED - favors SELLING strategies (A, B, C, D)' : 'LOW - consider waiting for higher IV or buying strategies'}
+• Range Position ${stockData?.rangePosition || '?'}%: ${stockData?.rangePosition > 70 ? 'Near highs - BEARISH bias, D is attractive' : stockData?.rangePosition < 30 ? 'Near lows - BULLISH bias, A or B make sense' : 'Mid-range - neutral, spreads (B, D) balance risk'}
+• Range Position ${stockData?.rangePosition || '?'}%: ${stockData?.rangePosition > 50 ? 'Upper half - more bearish risk, consider D or lower strikes' : 'Lower half - bullish bias, A or B make sense'}
+• Risk Tolerance: ${riskTolerance} - ${riskTolerance === 'conservative' ? 'favor defined risk (B, D)' : riskTolerance === 'aggressive' ? 'A is fine if bullish' : 'B or D for balanced risk/reward'}
+• Buying Power: $${buyingPower.toLocaleString()} - ${buyingPower < sellPutStrike * 100 ? 'Too low for A, use spreads (B or D)' : 'Enough for any strategy'}
 
 🚨🚨🚨 CRITICAL MATH WARNING 🚨🚨🚨
-The dollar amounts for Max Profit, Max Loss, and P&L are ALREADY CALCULATED above.
+The dollar amounts for Max Profit, Max Loss, and P&L are ALREADY CALCULATED in each SETUP above.
 DO NOT DO ANY MULTIPLICATION - just COPY the exact numbers from the SETUP you chose.
-
-Example of CORRECT output:
-  "Total Max Profit: $1,362 (6 contracts × $227)" ✅
-  
-Example of WRONG output (DO NOT DO THIS):
-  "Total Max Profit: $94,362" ❌ (This is WRONG - you made up a number)
-  
-The TOTALS are already computed for you. COPY THEM EXACTLY.
 🚨🚨🚨 END MATH WARNING 🚨🚨🚨
 
 Respond with this format:
 
 ## 🏆 RECOMMENDED: [Setup Letter] - [Strategy Name]
 
-### THE TRADE (copy from above - DO NOT CHANGE THE NUMBERS)
-[Copy the exact trade details from the setup you chose]
+### THE TRADE
+[Copy the EXACT trade line from the setup you chose, including strikes and expiry]
 
 ### WHY THIS STRATEGY (explain in plain English)
 • [Reason 1 - tie to IV level of ${ivRank || '?'}%]
@@ -4807,41 +4834,30 @@ Respond with this format:
 • ⚠️ [Risk 2]
 ${propDeskWarnings.length > 0 ? '\n### 🏦 PROP DESK RISK NOTES\n' + propDeskWarnings.map(w => `• ${w}`).join('\n') : ''}
 
-### THE NUMBERS (COPY THE "TOTALS FOR X CONTRACTS" SECTION EXACTLY!)
-• Max Profit: $${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()} (${conservativeContracts} contracts × $${(putSpreadCredit * 100).toFixed(0)})
-• Max Loss: $${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()} (${conservativeContracts} contracts × $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)})
-• Breakeven: $${(sellPutStrike - putSpreadCredit).toFixed(2)}
-• Contracts: ${conservativeContracts} (60% of Kelly max - prop desk sizing)
-• Win Probability: ~${winProbability}%
-• Reward/Risk Ratio: ${(putSpreadCredit / (putSpreadWidth - putSpreadCredit)).toFixed(1)}:1
+### THE NUMBERS (COPY FROM YOUR CHOSEN SETUP - do NOT calculate!)
+Copy the "📐 EXACT NUMBERS" and "💰 TOTALS" sections from the setup you chose.
 
-### 📊 PROFIT/LOSS AT EXPIRATION (for ${conservativeContracts} contracts)
-| If Stock Ends At | You Make/Lose | Result |
-|------------------|---------------|--------|
-| $${Math.round(sellPutStrike * 1.05)} or higher | +$${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()} | ✅ Max profit |
-| $${sellPutStrike} | +$${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()} | ✅ Full profit |
-| $${(sellPutStrike - putSpreadCredit).toFixed(2)} (breakeven) | $0 | ➖ Break even |
-| $${(buyPutStrike + (sellPutStrike - buyPutStrike) / 2).toFixed(0)} | -$${(((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts) / 2).toFixed(0)} | ⚠️ Partial loss |
-| $${buyPutStrike} or lower | -$${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()} | ❌ Max loss |
+### 📊 PROFIT/LOSS AT EXPIRATION
+Create a simple P&L table for YOUR CHOSEN STRATEGY using the numbers from that setup.
+Use format: | If Stock Ends At | You Make/Lose | Result |
 
 ### PORTFOLIO IMPACT
-• Buying Power Used: $${(conservativeContracts * putSpreadWidth * 100).toLocaleString()} (${((conservativeContracts * putSpreadWidth * 100) / buyingPower * 100).toFixed(0)}% of Kelly-adjusted capital)
-• Delta Exposure: +${(putSpreadDelta * 100 * conservativeContracts).toFixed(0)} total delta
+• Buying Power Used: [from your chosen setup]
+• Delta Exposure: [from your chosen setup]
 
 ### 📚 OTHER OPTIONS CONSIDERED
-Briefly explain why you DIDN'T choose these:
-1. [Strategy 2]: [One-line reason it's not ideal]
-2. [Strategy 3]: [One-line reason]
-3. [Strategy 4]: [One-line reason]
+Briefly explain why you DIDN'T choose these (1 line each):
+1. [Another setup letter]: [Why not ideal for THIS situation]
+2. [Another setup letter]: [Why not ideal]
 
 ### 💡 EDUCATIONAL NOTE
-Write 2-3 sentences explaining this strategy type for someone who has never done it before. What makes it different from just buying/selling a put or call?
+Write 2-3 sentences explaining your chosen strategy for someone new to options.
 
 ### ✅ SANITY CHECK
-Confirm: My recommended strikes ($${sellPutStrike}/$${buyPutStrike}) are valid round-number strikes near ${ticker}'s price of $${spot.toFixed(2)}
+Confirm: My recommended strikes are valid and near ${ticker}'s price of $${spot.toFixed(2)}
 
-### 🔢 MATH VERIFICATION (required)
-I confirm that my Max Profit total ($${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()}) and Max Loss total ($${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()}) are copied directly from the SETUP section above, NOT calculated by me.`;
+### 🔢 MATH VERIFICATION
+I confirm that my numbers are copied directly from the SETUP section, NOT calculated by me.`;
     
     // Return both the prompt AND the calculated values for post-processing
     return {
@@ -4856,11 +4872,16 @@ I confirm that my Max Profit total ($${(putSpreadCredit * 100 * conservativeCont
             buyPutStrike,
             sellCallStrike,
             buyCallStrike,
+            atmPutMid,
+            atmCallMid,
             totalPutMaxProfit: Math.round(putSpreadCredit * 100 * conservativeContracts),
             totalPutMaxLoss: Math.round((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts),
             totalCallMaxProfit: Math.round(callSpreadCredit * 100 * conservativeContracts),
             totalCallMaxLoss: Math.round((callSpreadWidth - callSpreadCredit) * 100 * conservativeContracts),
-            totalBuyingPower: Math.round(putSpreadWidth * 100 * conservativeContracts)
+            totalBuyingPower: Math.round(putSpreadWidth * 100 * conservativeContracts),
+            shortPutMaxProfit: Math.round(atmPutMid * 100),
+            shortPutBuyingPower: sellPutStrike * 100,
+            coveredCallCredit: Math.round(atmCallMid * 100)
         }
     };
 }
