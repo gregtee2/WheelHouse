@@ -863,8 +863,8 @@ const mainHandler = async (req, res, next) => {
             // =====================================================================
             
             // Debug: Log a sample of the AI response to see what we're working with
-            const profitLine = aiResponse.match(/Max Profit[^\n]{0,50}/gi);
-            const lossLine = aiResponse.match(/Max Loss[^\n]{0,50}/gi);
+            const profitLine = aiResponse.match(/(Total\s+)?Max Profit[^\n]{0,80}/gi);
+            const lossLine = aiResponse.match(/(Total\s+)?Max Loss[^\n]{0,80}/gi);
             console.log(`[STRATEGY-ADVISOR] 🔍 Found profit lines: ${JSON.stringify(profitLine)}`);
             console.log(`[STRATEGY-ADVISOR] 🔍 Found loss lines: ${JSON.stringify(lossLine)}`);
             
@@ -876,26 +876,44 @@ const mainHandler = async (req, res, next) => {
             const allLargeNumbers = aiResponse.match(largeNumber) || [];
             console.log(`[STRATEGY-ADVISOR] 🔍 Large numbers found: ${JSON.stringify(allLargeNumbers)}`);
             
-            // NUCLEAR OPTION: Replace ANY dollar amount after "Max Profit:" that isn't our expected value
-            // Pattern: Max Profit: $XXX OR $X,XXX OR $XX,XXX OR $XXX,XXX - any amount!
-            aiResponse = aiResponse.replace(/Max\s*Profit[:\s]*\$[\d,]+(?=\s|\)|$)/gi, 
+            // =====================================================================
+            // TRULY NUCLEAR: Fix ALL profit/loss amounts regardless of format
+            // =====================================================================
+            
+            // 1. Fix "Total Max Profit:" and "Max Profit:" - handle both patterns
+            aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Profit[:\s]*\$[\d,]+/gi, 
                 `Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
             
-            // Same for Max Loss - replace ANY dollar amount  
-            aiResponse = aiResponse.replace(/Max\s*Loss[:\s]*\$[\d,]+(?=\s|\)|$)/gi,
+            // 2. Fix "Total Max Loss:" and "Max Loss:"
+            aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Loss[:\s]*\$[\d,]+/gi,
                 `Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
             
-            // Fix P&L table: +$ANYTHING patterns (but not small per-contract amounts like +$227)
-            // Only replace if it's 4+ digits (indicating a total, not per-contract)
+            // 3. Fix "TOTAL Max Profit:" (all caps variant)
+            aiResponse = aiResponse.replace(/TOTAL\s+Max\s*Profit[:\s]*\$[\d,]+/gi, 
+                `TOTAL Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
+            aiResponse = aiResponse.replace(/TOTAL\s+Max\s*Loss[:\s]*\$[\d,]+/gi,
+                `TOTAL Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
+            
+            // 4. Fix P&L table rows - patterns WITH $ sign (4+ digits = totals)
             aiResponse = aiResponse.replace(/\+\s*\$(\d{1,3},\d{3}|\d{4,})/g, 
                 `+$${cv.totalPutMaxProfit.toLocaleString()}`);
-            
-            // Fix P&L table: -$ANYTHING patterns (4+ digits = totals)
             aiResponse = aiResponse.replace(/-\s*\$(\d{1,3},\d{3}|\d{4,})/g,
                 `-$${cv.totalPutMaxLoss.toLocaleString()}`);
             
-            // Also fix the "(X contracts × $Y)" parenthetical if the total before it is wrong
-            // Pattern: $WRONG_TOTAL (6 contracts × $227) → $1,365 (6 contracts × $227)
+            // 5. Fix P&L table rows - patterns WITHOUT $ sign (like +1,365,365)
+            // Match: +X,XXX,XXX or +XXXXXXX (7+ digits is definitely wrong)
+            aiResponse = aiResponse.replace(/\+\s*(\d{1,3},\d{3},\d{3}|\d{7,})/g, 
+                `+$${cv.totalPutMaxProfit.toLocaleString()}`);
+            aiResponse = aiResponse.replace(/-\s*(\d{1,3},\d{3},\d{3}|\d{7,})/g,
+                `-$${cv.totalPutMaxLoss.toLocaleString()}`);
+            
+            // 6. Fix doubled numbers like "1,365,365" → "$1,365"
+            // Pattern: X,XXX,XXX where first and last parts are same
+            aiResponse = aiResponse.replace(/(\d{1,3}),(\d{3}),\2/g, (match, first, second) => {
+                return `$${first},${second}`;
+            });
+            
+            // 7. Fix the "(X contracts × $Y)" parenthetical - recalculate total from components
             aiResponse = aiResponse.replace(
                 /\$[\d,]+\s*\((\d+)\s*contracts\s*×\s*\$(\d+)\)/gi,
                 (match, contracts, perContract) => {
