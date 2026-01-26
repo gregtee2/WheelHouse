@@ -4771,7 +4771,7 @@ ${propDeskWarnings.length > 0 ? '\n### 🏦 PROP DESK RISK NOTES\n' + propDeskWa
 • Breakeven: $${(sellPutStrike - putSpreadCredit).toFixed(2)}
 • Contracts: ${conservativeContracts} (60% of Kelly max - prop desk sizing)
 • Win Probability: ~${winProbability}%
-• Risk/Reward Ratio: ${((putSpreadWidth - putSpreadCredit) / putSpreadCredit).toFixed(1)}:1
+• Reward/Risk Ratio: ${(putSpreadCredit / (putSpreadWidth - putSpreadCredit)).toFixed(1)}:1
 
 ### 📊 PROFIT/LOSS AT EXPIRATION (for ${conservativeContracts} contracts)
 | If Stock Ends At | You Make/Lose | Result |
@@ -4779,6 +4779,7 @@ ${propDeskWarnings.length > 0 ? '\n### 🏦 PROP DESK RISK NOTES\n' + propDeskWa
 | $${Math.round(sellPutStrike * 1.05)} or higher | +$${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()} | ✅ Max profit |
 | $${sellPutStrike} | +$${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()} | ✅ Full profit |
 | $${(sellPutStrike - putSpreadCredit).toFixed(2)} (breakeven) | $0 | ➖ Break even |
+| $${(buyPutStrike + (sellPutStrike - buyPutStrike) / 2).toFixed(0)} | -$${(((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts) / 2).toFixed(0)} | ⚠️ Partial loss |
 | $${buyPutStrike} or lower | -$${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()} | ❌ Max loss |
 
 ### PORTFOLIO IMPACT
@@ -4795,7 +4796,7 @@ Briefly explain why you DIDN'T choose these:
 Write 2-3 sentences explaining this strategy type for someone who has never done it before. What makes it different from just buying/selling a put or call?
 
 ### ✅ SANITY CHECK
-Confirm: My recommended strikes ($${sellPutStrike}/$${buyPutStrike} for puts, $${sellCallStrike}/$${buyCallStrike} for calls) are valid round-number strikes near ${ticker}'s price of $${spot.toFixed(2)}
+Confirm: My recommended strikes ($${sellPutStrike}/$${buyPutStrike}) are valid round-number strikes near ${ticker}'s price of $${spot.toFixed(2)}
 
 ### 🔢 MATH VERIFICATION (required)
 I confirm that my Max Profit total ($${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()}) and Max Loss total ($${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()}) are copied directly from the SETUP section above, NOT calculated by me.`;
