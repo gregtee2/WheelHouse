@@ -4473,6 +4473,27 @@ function buildStrategyAdvisorPrompt(context) {
     const longPutStrikeActual = parseFloat(longPut.strike);
     const longCallStrikeActual = parseFloat(longCall.strike);
     
+    // Find ideal expiration: target 30-45 DTE for wheel strategies
+    // Weeklies (< 7 days) have too much gamma risk and not enough premium
+    // IMPORTANT: Define this BEFORE LEAPS/SKIP calculations that use it as fallback
+    let targetExpiry = expirations?.[0] || 'next monthly';
+    if (expirations && expirations.length > 1) {
+        const today = new Date();
+        for (const exp of expirations) {
+            const expDate = new Date(exp);
+            const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+            if (dte >= 21) { // Prefer 21+ DTE for premium decay
+                targetExpiry = exp;
+                break;
+            }
+        }
+        // If no 21+ DTE found, use the furthest available
+        if (targetExpiry === expirations[0]) {
+            targetExpiry = expirations[expirations.length - 1];
+        }
+    }
+    const firstExpiry = targetExpiry;
+    
     // For Iron Condor (G) - use same strikes as B and D combined
     // Put side: sell ATM put, buy OTM put (same as B)
     // Call side: sell ATM call, buy OTM call (same as D)
@@ -4510,26 +4531,6 @@ function buildStrategyAdvisorPrompt(context) {
     const otmCallDelta = otmCall?.delta ? parseFloat(otmCall.delta) : 0.25;
     // Bear call spread net delta = -(short call delta - long call delta) = NEGATIVE  
     const callSpreadDelta = -(atmCallDelta - otmCallDelta); // ~-0.20 per contract
-    
-    // Find ideal expiration: target 30-45 DTE for wheel strategies
-    // Weeklies (< 7 days) have too much gamma risk and not enough premium
-    let targetExpiry = expirations?.[0] || 'next monthly';
-    if (expirations && expirations.length > 1) {
-        const today = new Date();
-        for (const exp of expirations) {
-            const expDate = new Date(exp);
-            const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
-            if (dte >= 21) { // Prefer 21+ DTE for premium decay
-                targetExpiry = exp;
-                break;
-            }
-        }
-        // If no 21+ DTE found, use the furthest available
-        if (targetExpiry === expirations[0]) {
-            targetExpiry = expirations[expirations.length - 1];
-        }
-    }
-    const firstExpiry = targetExpiry;
     
     // =========================================================================
     // PROP DESK WARNINGS - Professional risk management checks
