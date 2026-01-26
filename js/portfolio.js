@@ -2922,6 +2922,26 @@ If letting call: Explain what to expect at expiration.
 **KEY RISK**
 One important risk or thing to watch.
 
+**SUGGESTED TRADE (REQUIRED if recommending ROLL or BUY BACK)**
+If you recommend ROLL UP, ROLL OUT, ROLL UP & OUT, or BUY BACK, you MUST provide specific trade details.
+Format EXACTLY like this (we will parse it to create a stageable trade):
+
+===SUGGESTED_TRADE===
+ACTION: ROLL|CLOSE|HOLD
+CLOSE_STRIKE: ${strike.toFixed(0)}
+CLOSE_EXPIRY: ${expiry}
+CLOSE_TYPE: CALL
+NEW_STRIKE: [new strike price, e.g. 105]
+NEW_EXPIRY: [new expiry YYYY-MM-DD, e.g. 2026-05-15]
+NEW_TYPE: CALL
+ESTIMATED_DEBIT: [cost to buy back current call, e.g. $14.00]
+ESTIMATED_CREDIT: [credit from selling new call, e.g. $4.00]
+NET_COST: [net result, e.g. "-$10.00 debit" or "+$2.00 credit"]
+RATIONALE: [One sentence explaining why this specific trade]
+===END_TRADE===
+
+If you recommend HOLD or LET IT GET CALLED, use ACTION: HOLD and leave the other fields as N/A.
+
 Be specific with dollar amounts and percentages. Don't be vague.`;
 
     // Store context for retry with different model
@@ -2985,7 +3005,7 @@ async function runHoldingAnalysis(modelType) {
             response = await fetch('/api/ai/grok', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt, maxTokens: 800 })
+                body: JSON.stringify({ prompt, maxTokens: 1200 })
             });
         } else {
             response = await fetch('/api/ai/analyze', {
@@ -3004,13 +3024,42 @@ async function runHoldingAnalysis(modelType) {
         result = await response.json();
         analysis = result.insight || result.analysis || 'No analysis returned';
         
+        // Parse suggested trade from AI response
+        let suggestedTrade = null;
+        const tradeMatch = analysis.match(/===SUGGESTED_TRADE===([\s\S]*?)===END_TRADE===/);
+        if (tradeMatch) {
+            const tradeBlock = tradeMatch[1];
+            suggestedTrade = {
+                action: tradeBlock.match(/ACTION:\s*(\S+)/)?.[1] || 'HOLD',
+                closeStrike: parseFloat(tradeBlock.match(/CLOSE_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
+                closeExpiry: tradeBlock.match(/CLOSE_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
+                closeType: tradeBlock.match(/CLOSE_TYPE:\s*(\S+)/)?.[1] || null,
+                newStrike: parseFloat(tradeBlock.match(/NEW_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
+                newExpiry: tradeBlock.match(/NEW_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
+                newType: tradeBlock.match(/NEW_TYPE:\s*(\S+)/)?.[1] || null,
+                estimatedDebit: tradeBlock.match(/ESTIMATED_DEBIT:\s*(.+)/)?.[1]?.trim() || null,
+                estimatedCredit: tradeBlock.match(/ESTIMATED_CREDIT:\s*(.+)/)?.[1]?.trim() || null,
+                netCost: tradeBlock.match(/NET_COST:\s*(.+)/)?.[1]?.trim() || null,
+                rationale: tradeBlock.match(/RATIONALE:\s*(.+)/)?.[1]?.trim() || null,
+                ticker: holding.ticker,
+                originalPositionId: position?.id,
+                holdingId: holding.id
+            };
+            console.log('[AI-HOLDING] Parsed suggested trade:', suggestedTrade);
+            window._lastHoldingSuggestedTrade = suggestedTrade;
+        }
+        
         // Store the raw analysis for saving
         window._aiHoldingContext.lastAnalysis = analysis;
         window._aiHoldingContext.lastModel = modelType;
         window._aiHoldingContext.lastAnalyzedAt = new Date().toISOString();
+        window._aiHoldingContext.suggestedTrade = suggestedTrade;
+        
+        // Remove the raw trade block from display, format the rest
+        const displayAnalysis = analysis.replace(/===SUGGESTED_TRADE===[\s\S]*?===END_TRADE===/g, '');
         
         // Better formatting for section headers
-        const formatted = analysis
+        const formatted = displayAnalysis
             // Bold text
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#ffaa00;">$1</strong>')
             // Section headers like "**SITUATION SUMMARY**" or "SITUATION SUMMARY"
@@ -3095,7 +3144,49 @@ async function runHoldingAnalysis(modelType) {
                 ${formatted}
             </div>
             
+            ${suggestedTrade && suggestedTrade.action !== 'HOLD' && suggestedTrade.newStrike ? `
+            <!-- Suggested Trade Card -->
+            <div style="background:linear-gradient(135deg, #1a2a3a 0%, #0d1a2a 100%);padding:16px;border-radius:8px;margin-top:16px;border:1px solid #00d9ff;">
+                <h4 style="margin:0 0 12px;color:#00d9ff;font-size:13px;">📋 Suggested Trade</h4>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div style="background:#0d0d1a;padding:10px;border-radius:6px;">
+                        <div style="font-size:10px;color:#888;margin-bottom:4px;">CLOSE (Buy Back)</div>
+                        <div style="font-size:14px;font-weight:bold;color:#ff5252;">
+                            ${holding.ticker} $${suggestedTrade.closeStrike} ${suggestedTrade.closeType}
+                        </div>
+                        <div style="font-size:11px;color:#888;">Exp: ${suggestedTrade.closeExpiry}</div>
+                        <div style="font-size:11px;color:#ffaa00;margin-top:4px;">Est: ${suggestedTrade.estimatedDebit || 'N/A'}</div>
+                    </div>
+                    <div style="background:#0d0d1a;padding:10px;border-radius:6px;">
+                        <div style="font-size:10px;color:#888;margin-bottom:4px;">OPEN (Sell New)</div>
+                        <div style="font-size:14px;font-weight:bold;color:#00ff88;">
+                            ${holding.ticker} $${suggestedTrade.newStrike} ${suggestedTrade.newType}
+                        </div>
+                        <div style="font-size:11px;color:#888;">Exp: ${suggestedTrade.newExpiry}</div>
+                        <div style="font-size:11px;color:#00ff88;margin-top:4px;">Est: ${suggestedTrade.estimatedCredit || 'N/A'}</div>
+                    </div>
+                </div>
+                <div style="margin-top:10px;padding:10px;background:#0d0d1a;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <span style="font-size:11px;color:#888;">Net Cost:</span>
+                        <span style="font-size:16px;font-weight:bold;color:${suggestedTrade.netCost?.includes('credit') ? '#00ff88' : '#ffaa00'};margin-left:8px;">
+                            ${suggestedTrade.netCost || 'N/A'}
+                        </span>
+                    </div>
+                </div>
+                <div style="font-size:11px;color:#aaa;margin-top:8px;">
+                    💡 ${suggestedTrade.rationale || 'AI-suggested trade based on current conditions'}
+                </div>
+            </div>
+            ` : ''}
+            
             <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;">
+                ${suggestedTrade && suggestedTrade.action !== 'HOLD' && suggestedTrade.newStrike ? `
+                <button onclick="window.stageHoldingSuggestedTrade()" 
+                    style="padding:10px 16px;background:linear-gradient(135deg, #00d9ff 0%, #0099cc 100%);border:none;border-radius:6px;color:#000;font-weight:bold;cursor:pointer;">
+                    📥 Stage Roll
+                </button>
+                ` : ''}
                 <button onclick="window.saveHoldingStrategy(${holding.id})" 
                     style="padding:10px 16px;background:rgba(0,217,255,0.2);border:1px solid #00d9ff;border-radius:6px;color:#00d9ff;font-weight:bold;cursor:pointer;">
                     💾 Save Strategy
@@ -3139,6 +3230,73 @@ async function runHoldingAnalysis(modelType) {
     }
 }
 window.runHoldingAnalysis = runHoldingAnalysis;
+
+/**
+ * Stage the AI-suggested trade from holding analysis to pending trades
+ */
+window.stageHoldingSuggestedTrade = function() {
+    const ctx = window._aiHoldingContext;
+    if (!ctx || !ctx.suggestedTrade) {
+        showNotification('No suggested trade to stage', 'warning');
+        return;
+    }
+    
+    const { suggestedTrade, position } = ctx;
+    
+    // Format the pending trade - use the position context
+    const holding = position || ctx.holding;
+    
+    const pendingTrade = {
+        id: Date.now(),
+        ticker: holding?.ticker || 'UNKNOWN',
+        strike: parseFloat(suggestedTrade.newStrike),
+        expiry: suggestedTrade.newExpiry,
+        type: suggestedTrade.newType?.toLowerCase().includes('call') ? 'covered_call' : 'short_put',
+        premium: null, // Will need to fetch real premium
+        source: 'ai_holding_suggestion',
+        stagedAt: new Date().toISOString(),
+        rollFrom: {
+            strike: parseFloat(suggestedTrade.closeStrike),
+            expiry: suggestedTrade.closeExpiry,
+            estimatedDebit: suggestedTrade.estimatedDebit
+        },
+        aiRationale: suggestedTrade.rationale,
+        badge: 'ROLL'
+    };
+    
+    // Load existing pending trades
+    let pendingTrades = [];
+    try {
+        pendingTrades = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+    } catch (e) {
+        pendingTrades = [];
+    }
+    
+    // Check for duplicate
+    const exists = pendingTrades.some(t => 
+        t.ticker === pendingTrade.ticker && 
+        t.strike === pendingTrade.strike && 
+        t.expiry === pendingTrade.expiry
+    );
+    
+    if (exists) {
+        showNotification('This trade is already staged', 'warning');
+        return;
+    }
+    
+    pendingTrades.push(pendingTrade);
+    localStorage.setItem('wheelhouse_pending', JSON.stringify(pendingTrades));
+    
+    showNotification(`📥 Staged: ${pendingTrade.ticker} $${pendingTrade.strike} ${pendingTrade.expiry}`, 'success');
+    
+    // Close the modal
+    document.getElementById('aiHoldingModal')?.remove();
+    
+    // Refresh Ideas tab if it has a render function
+    if (typeof window.renderPendingTrades === 'function') {
+        window.renderPendingTrades();
+    }
+};
 
 /**
  * Save the current AI strategy to the holding for future reference
