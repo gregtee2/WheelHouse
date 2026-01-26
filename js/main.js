@@ -2366,8 +2366,8 @@ window.renderPendingTrades = function() {
     });
     
     container.innerHTML = `
-        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #2d1f3d 100%); border:1px solid #7a8a94; border-radius:8px; padding:16px; margin-bottom:20px;">
-            <h3 style="color:#7a8a94; margin:0 0 12px 0; font-size:14px;">📋 Pending Trades (${pending.length})</h3>
+        <div style="background:rgba(0,217,255,0.05); border:1px solid rgba(0,217,255,0.3); border-radius:8px; padding:16px; margin-bottom:20px;">
+            <h3 style="color:#00d9ff; margin:0 0 12px 0; font-size:14px;">📋 Pending Trades (${pending.length})</h3>
             <div style="font-size:11px; color:#888; margin-bottom:12px;">
                 Staged from AI analysis - confirm when you execute with your broker
             </div>
