@@ -764,6 +764,19 @@ router.post('/analyze', async (req, res) => {
         const skipWisdom = data.skipWisdom === true;
         console.log('[AI] Analyzing position:', data.ticker, 'with model:', selectedModel, skipWisdom ? '(PURE MODE)' : '');
         
+        // DEBUG: Log key data being sent to prompt builder
+        console.log('[AI] Position data:', {
+            ticker: data.ticker,
+            positionType: data.positionType,
+            strike: data.strike,
+            spot: data.spot,
+            isITM: data.positionType === 'covered_call' ? data.spot > data.strike : data.spot < data.strike,
+            rollOptions: {
+                riskReduction: data.rollOptions?.riskReduction?.length || 0,
+                creditRolls: data.rollOptions?.creditRolls?.length || 0
+            }
+        });
+        
         const isLargeModel = selectedModel.includes('32b') || selectedModel.includes('70b') || selectedModel.includes('72b') || isGrok;
         const tokenLimit = isLargeModel ? 1800 : 1000;
         

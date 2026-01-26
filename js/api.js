@@ -4,6 +4,9 @@
 import { state } from './state.js';
 import { showNotification } from './utils.js';
 
+// Set to true for verbose price update logging
+const VERBOSE_PRICE_LOGS = false;
+
 const YAHOO_CHART_BASE = 'https://query2.finance.yahoo.com/v8/finance/chart/';
 const CBOE_OPTIONS_BASE = 'https://cdn.cboe.com/api/global/delayed_quotes/options/';
 
@@ -37,7 +40,7 @@ export async function fetchStockPricesBatch(tickers) {
         if (window.SchwabAPI) {
             const status = await window.SchwabAPI.getStatus();
             if (status.hasRefreshToken) {
-                console.log(`[BATCH] Fetching ${uniqueTickers.length} quotes from Schwab...`);
+                if (VERBOSE_PRICE_LOGS) console.log(`[BATCH] Fetching ${uniqueTickers.length} quotes from Schwab...`);
                 const startTime = Date.now();
                 const quotes = await window.SchwabAPI.getQuotes(uniqueTickers);
                 const elapsed = Date.now() - startTime;
@@ -50,7 +53,7 @@ export async function fetchStockPricesBatch(tickers) {
                     }
                 }
                 
-                console.log(`[BATCH] Got ${Object.keys(prices).length}/${uniqueTickers.length} prices from Schwab in ${elapsed}ms`);
+                if (VERBOSE_PRICE_LOGS) console.log(`[BATCH] Got ${Object.keys(prices).length}/${uniqueTickers.length} prices from Schwab in ${elapsed}ms`);
             }
         }
     } catch (e) {
@@ -60,7 +63,7 @@ export async function fetchStockPricesBatch(tickers) {
     
     // Fallback: fetch missing tickers individually from CBOE/Yahoo
     if (missingTickers.length > 0) {
-        console.log(`[BATCH] Fetching ${missingTickers.length} missing tickers from CBOE/Yahoo...`);
+        if (VERBOSE_PRICE_LOGS) console.log(`[BATCH] Fetching ${missingTickers.length} missing tickers from CBOE/Yahoo...`);
         await Promise.all(missingTickers.map(async (ticker) => {
             try {
                 const price = await fetchStockPriceFallback(ticker);
@@ -162,13 +165,13 @@ export async function fetchStockPrice(ticker) {
             if (status.hasRefreshToken) {
                 const quote = await window.SchwabAPI.getQuote(tickerUpper);
                 if (quote && quote.price > 0) {
-                    console.log(`[PRICE] ${tickerUpper}: $${quote.price.toFixed(2)} (Schwab real-time)`);
+                    if (VERBOSE_PRICE_LOGS) console.log(`[PRICE] ${tickerUpper}: $${quote.price.toFixed(2)} (Schwab real-time)`);
                     return quote.price;
                 }
             }
         }
     } catch (e) {
-        console.log(`[PRICE] Schwab failed for ${tickerUpper}, trying CBOE...`);
+        if (VERBOSE_PRICE_LOGS) console.log(`[PRICE] Schwab failed for ${tickerUpper}, trying CBOE...`);
     }
     
     // Try CBOE second (includes stock price in options data, 15-min delay)
@@ -177,12 +180,12 @@ export async function fetchStockPrice(ticker) {
         if (cboeRes.ok) {
             const cboeData = await cboeRes.json();
             if (cboeData.data?.current_price) {
-                console.log(`[PRICE] ${tickerUpper}: $${cboeData.data.current_price.toFixed(2)} (CBOE delayed)`);
+                if (VERBOSE_PRICE_LOGS) console.log(`[PRICE] ${tickerUpper}: $${cboeData.data.current_price.toFixed(2)} (CBOE delayed)`);
                 return cboeData.data.current_price;
             }
         }
     } catch (e) {
-        console.log(`[PRICE] CBOE failed for ${tickerUpper}, trying Yahoo...`);
+        if (VERBOSE_PRICE_LOGS) console.log(`[PRICE] CBOE failed for ${tickerUpper}, trying Yahoo...`);
     }
     
     // Fallback to Yahoo
@@ -190,7 +193,7 @@ export async function fetchStockPrice(ticker) {
         const result = await fetchFromYahoo(tickerUpper);
         const price = result.meta?.regularMarketPrice;
         if (price) {
-            console.log(`[PRICE] ${tickerUpper}: $${price.toFixed(2)} (Yahoo)`);
+            if (VERBOSE_PRICE_LOGS) console.log(`[PRICE] ${tickerUpper}: $${price.toFixed(2)} (Yahoo)`);
             return price;
         }
     } catch (e) {
@@ -246,19 +249,19 @@ export async function fetchOptionsChain(ticker) {
         if (window.SchwabAPI) {
             const status = await window.SchwabAPI.getStatus();
             if (status.hasRefreshToken) {
-                console.log(`[OPTIONS] Trying Schwab real-time for ${tickerUpper}...`);
+                if (VERBOSE_PRICE_LOGS) console.log(`[OPTIONS] Trying Schwab real-time for ${tickerUpper}...`);
                 const schwabChain = await window.SchwabAPI.getOptionsChain(tickerUpper);
                 
                 if (schwabChain && (schwabChain.callExpDateMap || schwabChain.putExpDateMap)) {
                     // Parse Schwab format into our standard format
                     const parsed = parseSchwabOptionsChain(schwabChain, tickerUpper);
-                    console.log(`  ✅ Schwab: ${parsed.calls.length} calls, ${parsed.puts.length} puts (real-time)`);
+                    if (VERBOSE_PRICE_LOGS) console.log(`  ✅ Schwab: ${parsed.calls.length} calls, ${parsed.puts.length} puts (real-time)`);
                     return parsed;
                 }
             }
         }
     } catch (e) {
-        console.log(`[OPTIONS] Schwab failed for ${tickerUpper}, trying CBOE: ${e.message}`);
+        if (VERBOSE_PRICE_LOGS) console.log(`[OPTIONS] Schwab failed for ${tickerUpper}, trying CBOE: ${e.message}`);
     }
     
     // Fall back to CBOE (delayed quotes)

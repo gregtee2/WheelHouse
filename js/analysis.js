@@ -2602,6 +2602,11 @@ async function getAIInsight() {
         // Gather ALL roll options from the Roll Suggestions panel
         const rollOptions = gatherRollOptions();
         
+        // DEBUG: Log what we gathered
+        console.log('[getAIInsight] Roll options gathered:', JSON.stringify(rollOptions, null, 2));
+        console.log('[getAIInsight] Risk reduction count:', rollOptions?.riskReduction?.length || 0);
+        console.log('[getAIInsight] Credit rolls count:', rollOptions?.creditRolls?.length || 0);
+        
         // Get cost to close current position
         const closeInfoEl = document.querySelector('#rollSuggestionsList > div:first-child');
         let costToClose = null;
@@ -2662,6 +2667,20 @@ async function getAIInsight() {
             skipWisdom: !document.getElementById('aiWisdomToggle')?.checked,  // True = pure mode (no wisdom)
             closedSummary: closedSummary  // Historical trades for pattern matching
         };
+        
+        // DEBUG: Log what we're sending to AI
+        console.log('[getAIInsight] Sending to AI:', {
+            ticker: requestData.ticker,
+            positionType: requestData.positionType,
+            strike: requestData.strike,
+            spot: requestData.spot,
+            dte: requestData.dte,
+            isITM: requestData.positionType === 'covered_call' ? requestData.spot > requestData.strike : requestData.spot < requestData.strike,
+            rollOptionsCount: {
+                riskReduction: requestData.rollOptions?.riskReduction?.length || 0,
+                creditRolls: requestData.rollOptions?.creditRolls?.length || 0
+            }
+        });
         
         // Call our server endpoint
         const response = await fetch('/api/ai/analyze', {
@@ -2821,37 +2840,88 @@ function gatherRollOptions() {
     };
     
     const listEl = document.getElementById('rollSuggestionsList');
-    if (!listEl) return options;
+    if (!listEl) {
+        console.log('[gatherRollOptions] No rollSuggestionsList element found');
+        return options;
+    }
     
-    // Find section headers and their options
-    let currentSection = null;
+    // Find card containers: we look for the clickable div and get its parent (the card)
+    const clickables = listEl.querySelectorAll('div[onclick*="applyRollSuggestion"]');
+    console.log(`[gatherRollOptions] Found ${clickables.length} clickable roll suggestion elements`);
     
-    listEl.querySelectorAll('div').forEach(el => {
-        const text = el.textContent.trim();
-        
-        // Detect section headers
-        if (text.includes('Best Risk Reduction') || text.includes('Best Roll Up')) {
-            currentSection = 'riskReduction';
-            return;
+    // Get unique parent cards (the card container wraps the clickable div)
+    const cards = new Set();
+    clickables.forEach(el => {
+        // The card is the grandparent: card > inner-wrapper > clickable
+        // Or the card is just the parent in some formats
+        const parent = el.parentElement;
+        if (parent && parent !== listEl) {
+            cards.add(parent);
         }
-        if (text.includes('Credit Rolls')) {
-            currentSection = 'creditRolls';
-            return;
+    });
+    
+    console.log(`[gatherRollOptions] Found ${cards.size} unique roll card containers`);
+    
+    // Also find section headers to know which section we're in
+    const allHtml = listEl.innerHTML;
+    const riskReductionMatch = allHtml.match(/Best Risk Reduction|Best Roll Up/);
+    const creditRollsMatch = allHtml.match(/Credit Rolls/);
+    
+    // Parse each card
+    let cardIndex = 0;
+    cards.forEach(card => {
+        const fullText = card.textContent.trim();
+        console.log(`[gatherRollOptions] Card ${cardIndex}: "${fullText.substring(0, 100)}..."`);
+        
+        // Determine section based on what headers appear BEFORE this card in the DOM
+        // We'll use the order: first cards are risk reduction, later ones are credit rolls
+        let section = 'unknown';
+        
+        // Check for section markers in ancestors or previous siblings
+        let el = card;
+        while (el && el !== listEl) {
+            const prev = el.previousElementSibling;
+            if (prev) {
+                const prevText = prev.textContent || '';
+                if (prevText.includes('Best Risk Reduction') || prevText.includes('Best Roll Up')) {
+                    section = 'riskReduction';
+                    break;
+                }
+                if (prevText.includes('Credit Rolls')) {
+                    section = 'creditRolls';
+                    break;
+                }
+            }
+            el = el.parentElement;
         }
         
-        // Parse roll option cards
-        // Format: "$17  ↓12%  Feb 20 · $141 cr  Δ-0.50 IV91%"
-        const strikeMatch = text.match(/\$(\d+(?:\.\d+)?)/);
-        const riskMatch = text.match(/[↓↑](\d+)%/);
-        const dateMatch = text.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d+/i);
-        const creditMatch = text.match(/\$(\d+)\s*(cr|deb)/i);
-        const deltaMatch = text.match(/Δ(-?\d+\.?\d*)/);
-        const ivMatch = text.match(/IV(\d+)%/);
+        // Fallback: check parent grid's previous sibling
+        if (section === 'unknown' && card.parentElement) {
+            const gridPrev = card.parentElement.previousElementSibling;
+            if (gridPrev) {
+                const gridPrevText = gridPrev.textContent || '';
+                if (gridPrevText.includes('Best Risk Reduction') || gridPrevText.includes('Best Roll Up')) {
+                    section = 'riskReduction';
+                } else if (gridPrevText.includes('Credit Rolls')) {
+                    section = 'creditRolls';
+                }
+            }
+        }
         
-        if (strikeMatch && (creditMatch || riskMatch)) {
+        console.log(`[gatherRollOptions] Detected section: ${section}`);
+        
+        // Parse the card text
+        const strikeMatch = fullText.match(/\$(\d+(?:\.\d+)?)/);
+        const riskMatch = fullText.match(/[↓↑](\d+(?:\.\d+)?)%\s*risk/i);
+        const dateMatch = fullText.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d+/i);
+        const creditMatch = fullText.match(/\$(\d+)\s*(cr|deb)/i);
+        const deltaMatch = fullText.match(/Δ(-?\d+\.?\d*)/);
+        const ivMatch = fullText.match(/IV(\d+)%/);
+        
+        if (strikeMatch) {
             const option = {
                 strike: parseFloat(strikeMatch[1]),
-                riskChange: riskMatch ? parseInt(riskMatch[1]) : null,
+                riskChange: riskMatch ? parseFloat(riskMatch[1]) : null,
                 expiry: dateMatch ? dateMatch[0] : null,
                 amount: creditMatch ? parseInt(creditMatch[1]) : null,
                 isCredit: creditMatch ? creditMatch[2].toLowerCase() === 'cr' : null,
@@ -2859,14 +2929,26 @@ function gatherRollOptions() {
                 iv: ivMatch ? parseInt(ivMatch[1]) : null
             };
             
-            if (currentSection === 'riskReduction') {
+            console.log(`[gatherRollOptions] Parsed:`, option, `→ section: ${section}`);
+            
+            if (section === 'riskReduction') {
                 options.riskReduction.push(option);
-            } else if (currentSection === 'creditRolls') {
+            } else if (section === 'creditRolls') {
                 options.creditRolls.push(option);
+            } else {
+                // Fallback heuristic: credit vs debit
+                if (option.isCredit === true) {
+                    options.creditRolls.push(option);
+                } else {
+                    options.riskReduction.push(option);
+                }
             }
         }
+        
+        cardIndex++;
     });
     
+    console.log(`[gatherRollOptions] Final: ${options.riskReduction.length} risk reduction, ${options.creditRolls.length} credit rolls`);
     return options;
 }
 

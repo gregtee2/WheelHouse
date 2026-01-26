@@ -11,6 +11,9 @@ const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
 const AI_LOG_KEY = 'wheelhouse_ai_predictions';
 
+// Set to true for verbose price refresh logging
+const VERBOSE_PRICE_LOGS = false;
+
 // ============================================================
 // AI PREDICTION LOGGING
 // ============================================================
@@ -551,11 +554,11 @@ window.formatPatternForAI = formatPatternForAI;
 async function refreshAllPositionPrices() {
     const positions = state.positions || [];
     if (positions.length === 0) {
-        console.log('[REFRESH] No positions to update');
+        if (VERBOSE_PRICE_LOGS) console.log('[REFRESH] No positions to update');
         return;
     }
     
-    console.log(`[REFRESH] Updating prices for ${positions.length} positions...`);
+    if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] Updating prices for ${positions.length} positions...`);
     
     // Check if Schwab is connected for real-time data
     let hasSchwab = false;
@@ -563,10 +566,10 @@ async function refreshAllPositionPrices() {
         if (window.SchwabAPI) {
             const status = await window.SchwabAPI.getStatus();
             hasSchwab = status.hasRefreshToken;
-            console.log(`[REFRESH] Schwab status: ${hasSchwab ? 'Connected (real-time)' : 'Not connected (using CBOE delayed)'}`);
+            if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] Schwab status: ${hasSchwab ? 'Connected (real-time)' : 'Not connected (using CBOE delayed)'}`);
         }
     } catch (e) {
-        console.log('[REFRESH] Could not check Schwab status:', e.message);
+        if (VERBOSE_PRICE_LOGS) console.log('[REFRESH] Could not check Schwab status:', e.message);
     }
     
     // Group positions by ticker to minimize API calls
@@ -586,12 +589,12 @@ async function refreshAllPositionPrices() {
             // Fetch full options chain for this ticker (Schwab first, then CBOE)
             const chain = await fetchOptionsChain(ticker);
             if (!chain) {
-                console.log(`[REFRESH] No chain data for ${ticker}`);
+                if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] No chain data for ${ticker}`);
                 failed += tickerPos.length;
                 continue;
             }
             
-            console.log(`[REFRESH] ${ticker}: Got ${chain.calls?.length || 0} calls, ${chain.puts?.length || 0} puts from ${hasSchwab ? 'Schwab' : 'CBOE'}`);
+            if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] ${ticker}: Got ${chain.calls?.length || 0} calls, ${chain.puts?.length || 0} puts from ${hasSchwab ? 'Schwab' : 'CBOE'}`);
             
             // Update each position with this ticker
             for (const pos of tickerPos) {
@@ -600,7 +603,7 @@ async function refreshAllPositionPrices() {
                 const options = isPut ? chain.puts : (isCall ? chain.calls : null);
                 
                 if (!options) {
-                    console.log(`[REFRESH] ${ticker} ${pos.type}: Unknown option type`);
+                    if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] ${ticker} ${pos.type}: Unknown option type`);
                     failed++;
                     continue;
                 }
@@ -638,10 +641,10 @@ async function refreshAllPositionPrices() {
                         pos.markedPrice = price;
                         pos.priceUpdatedAt = new Date().toISOString();
                         updated++;
-                        console.log(`[REFRESH] ${ticker} $${strike} ${isPut ? 'put' : 'call'}: $${oldPrice?.toFixed(2) || '?'} → $${price.toFixed(2)}`);
+                        if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] ${ticker} $${strike} ${isPut ? 'put' : 'call'}: $${oldPrice?.toFixed(2) || '?'} → $${price.toFixed(2)}`);
                     }
                 } else {
-                    console.log(`[REFRESH] ${ticker} $${strike} ${expiry}: No matching option found in chain`);
+                    if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] ${ticker} $${strike} ${expiry}: No matching option found in chain`);
                     failed++;
                 }
             }
@@ -661,7 +664,7 @@ async function refreshAllPositionPrices() {
         renderPositions();
     }
     
-    console.log(`[REFRESH] Complete: ${updated} updated, ${failed} failed`);
+    if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] Complete: ${updated} updated, ${failed} failed`);
     return { updated, failed };
 }
 
@@ -698,7 +701,7 @@ function updatePriceLastUpdated() {
 function startAutoRefreshPrices() {
     if (autoRefreshPricesInterval) return; // Already running
     
-    console.log('🔄 Starting auto-refresh prices (every 30s)');
+    if (VERBOSE_PRICE_LOGS) console.log('🔄 Starting auto-refresh prices (every 30s)');
     
     // Update checkbox label to show active
     const checkbox = document.getElementById('autoRefreshPricesCheckbox');
@@ -714,7 +717,7 @@ function startAutoRefreshPrices() {
             return;
         }
         
-        console.log('🔄 Auto-refreshing prices...');
+        if (VERBOSE_PRICE_LOGS) console.log('🔄 Auto-refreshing prices...');
         try {
             await refreshAllPositionPrices();
             updatePriceLastUpdated();
@@ -734,7 +737,7 @@ function startAutoRefreshPrices() {
  */
 function stopAutoRefreshPrices() {
     if (autoRefreshPricesInterval) {
-        console.log('⏹️ Stopping auto-refresh prices');
+        if (VERBOSE_PRICE_LOGS) console.log('⏹️ Stopping auto-refresh prices');
         clearInterval(autoRefreshPricesInterval);
         autoRefreshPricesInterval = null;
         
@@ -795,7 +798,7 @@ async function fetchCurrentOptionPrice(position) {
         
         if (!spot) return { success: false };
         
-        console.log(`[MATCH] ${position.ticker}: $${spot.toFixed(2)} from ${optionsChain?.currentPrice ? 'CBOE' : 'fallback'}`);
+        if (VERBOSE_PRICE_LOGS) console.log(`[MATCH] ${position.ticker}: $${spot.toFixed(2)} from ${optionsChain?.currentPrice ? 'CBOE' : 'fallback'}`);
         
         const isPut = position.type.toLowerCase().includes('put');
         const strike = position.strike;
@@ -850,8 +853,8 @@ async function fetchCurrentOptionPrice(position) {
                 
                 console.log(`[MATCH]   ✅ FOUND: ${matchedOption.symbol || 'no symbol'}`);
                 console.log(`[MATCH]   Strike: $${matchedOption.strike}, Exp: ${matchedOption.expiration}, Type: ${matchedOption.type}`);
-                console.log(`[MATCH]   Bid: $${matchedOption.bid} | Ask: $${matchedOption.ask} | Mid: $${midPrice.toFixed(2)} | Last: $${lastPrice.toFixed(2)}`);
-                console.log(`[MATCH]   Using ${priceSource} price: $${usePrice.toFixed(2)}`);
+                if (VERBOSE_PRICE_LOGS) console.log(`[MATCH]   Bid: $${matchedOption.bid} | Ask: $${matchedOption.ask} | Mid: $${midPrice.toFixed(2)} | Last: $${lastPrice.toFixed(2)}`);
+                if (VERBOSE_PRICE_LOGS) console.log(`[MATCH]   Using ${priceSource} price: $${usePrice.toFixed(2)}`);
                 console.log(`[MATCH]   Position expiry: ${position.expiry}, DTE: ${position.dte}`);
                 
                 // Check staleness - CBOE timestamp format: "2026-01-16 17:46:21"
@@ -2412,7 +2415,7 @@ async function fetchHoldingPrices(holdingData) {
     
     // BATCH fetch all prices in ONE request!
     const priceMap = await fetchStockPricesBatch(tickers);
-    console.log(`[HOLDINGS] Fetched ${Object.keys(priceMap).length} prices for holdings`);
+    if (VERBOSE_PRICE_LOGS) console.log(`[HOLDINGS] Fetched ${Object.keys(priceMap).length} prices for holdings`);
     
     // Summary totals
     let sumCapital = 0;
@@ -3054,11 +3057,19 @@ async function runHoldingAnalysis(modelType) {
                 body: JSON.stringify({ prompt, maxTokens: 1200 })
             });
         } else {
+            // Send complete position data along with custom prompt
             response = await fetch('/api/ai/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     ticker: holding.ticker,
+                    positionType: position?.type || 'covered_call',
+                    strike: strike,
+                    spot: currentPrice,
+                    dte: dte,
+                    premium: premium / 100,  // Convert total premium to per-share
+                    contracts: shares / 100,
+                    costBasis: costBasis,
                     customPrompt: prompt,
                     model: 'deepseek-r1:32b'
                 })
