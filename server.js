@@ -4664,7 +4664,19 @@ SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
   • Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH)
 
 YOUR JOB: Pick ONE setup (A, B, C, or D) and explain WHY it's best for this situation.
-⚠️ COPY THE PRE-CALCULATED NUMBERS EXACTLY - do NOT make up or recalculate!
+
+🚨🚨🚨 CRITICAL MATH WARNING 🚨🚨🚨
+The dollar amounts for Max Profit, Max Loss, and P&L are ALREADY CALCULATED above.
+DO NOT DO ANY MULTIPLICATION - just COPY the exact numbers from the SETUP you chose.
+
+Example of CORRECT output:
+  "Total Max Profit: $1,362 (6 contracts × $227)" ✅
+  
+Example of WRONG output (DO NOT DO THIS):
+  "Total Max Profit: $94,362" ❌ (This is WRONG - you made up a number)
+  
+The TOTALS are already computed for you. COPY THEM EXACTLY.
+🚨🚨🚨 END MATH WARNING 🚨🚨🚨
 
 Respond with this format:
 
@@ -4713,7 +4725,10 @@ Briefly explain why you DIDN'T choose these:
 Write 2-3 sentences explaining this strategy type for someone who has never done it before. What makes it different from just buying/selling a put or call?
 
 ### ✅ SANITY CHECK
-Confirm: My recommended strikes ($${sellPutStrike}/$${buyPutStrike} for puts, $${sellCallStrike}/$${buyCallStrike} for calls) are valid round-number strikes near ${ticker}'s price of $${spot.toFixed(2)}`;
+Confirm: My recommended strikes ($${sellPutStrike}/$${buyPutStrike} for puts, $${sellCallStrike}/$${buyCallStrike} for calls) are valid round-number strikes near ${ticker}'s price of $${spot.toFixed(2)}
+
+### 🔢 MATH VERIFICATION (required)
+I confirm that my Max Profit total ($${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()}) and Max Loss total ($${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()}) are copied directly from the SETUP section above, NOT calculated by me.`;
 }
 
 // Build a prompt for generating trade ideas (with real prices!)
