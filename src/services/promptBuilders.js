@@ -617,6 +617,17 @@ ${dte >= 180 && dte < 365 ? '- ⏳ LONG-DATED: Extended horizon gives time for t
 - What concerns would make you pass?
 - What would need to change for a better entry?
 
+**6. BETTER ALTERNATIVES** (REQUIRED - Suggest improvements if the trade has issues)
+If you identified problems with this trade (poor R/R, strike too close, expiry too short, etc.), suggest 1-2 SPECIFIC alternative setups that would be better:
+
+Example format:
+- **Better Strike**: $XX (Y% OTM instead of Z%) - More cushion, safer entry
+- **Better Expiry**: YYYY-MM-DD (45 DTE instead of 26) - More time for theta, higher premium
+- **Adjusted Position**: Sell the $XX put for $X.XX premium instead - Better R/R ratio of X%
+- **Different Strategy**: Consider a put spread $XX/$YY to cap risk at $ZZZ
+
+If the original trade is actually good, say "Original setup is sound - no major improvements needed."
+
 **BOTTOM LINE**: In one sentence, what type of trader is this trade best suited for?
 
 Be specific. Use the data. Give percentages where possible.`;
