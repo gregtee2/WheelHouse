@@ -876,21 +876,35 @@ const mainHandler = async (req, res, next) => {
             const allLargeNumbers = aiResponse.match(largeNumber) || [];
             console.log(`[STRATEGY-ADVISOR] 🔍 Large numbers found: ${JSON.stringify(allLargeNumbers)}`);
             
-            // Replace in "Max Profit" context (with various spacings)
-            aiResponse = aiResponse.replace(/Max\s*Profit[:\s]*\$\d{2,3},?\d{3}/gi, 
+            // NUCLEAR OPTION: Replace ANY dollar amount after "Max Profit:" that isn't our expected value
+            // Pattern: Max Profit: $XXX OR $X,XXX OR $XX,XXX OR $XXX,XXX - any amount!
+            aiResponse = aiResponse.replace(/Max\s*Profit[:\s]*\$[\d,]+(?=\s|\)|$)/gi, 
                 `Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
             
-            // Replace in "Max Loss" context  
-            aiResponse = aiResponse.replace(/Max\s*Loss[:\s]*\$\d{2,3},?\d{3}/gi,
+            // Same for Max Loss - replace ANY dollar amount  
+            aiResponse = aiResponse.replace(/Max\s*Loss[:\s]*\$[\d,]+(?=\s|\)|$)/gi,
                 `Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
             
-            // Fix P&L table: +$XX,XXX or +$XXXXX patterns
-            aiResponse = aiResponse.replace(/\+\s*\$\d{2,3},?\d{3}/g, 
+            // Fix P&L table: +$ANYTHING patterns (but not small per-contract amounts like +$227)
+            // Only replace if it's 4+ digits (indicating a total, not per-contract)
+            aiResponse = aiResponse.replace(/\+\s*\$(\d{1,3},\d{3}|\d{4,})/g, 
                 `+$${cv.totalPutMaxProfit.toLocaleString()}`);
             
-            // Fix P&L table: -$XX,XXX or -$XXXXX patterns
-            aiResponse = aiResponse.replace(/-\s*\$\d{2,3},?\d{3}/g,
+            // Fix P&L table: -$ANYTHING patterns (4+ digits = totals)
+            aiResponse = aiResponse.replace(/-\s*\$(\d{1,3},\d{3}|\d{4,})/g,
                 `-$${cv.totalPutMaxLoss.toLocaleString()}`);
+            
+            // Also fix the "(X contracts × $Y)" parenthetical if the total before it is wrong
+            // Pattern: $WRONG_TOTAL (6 contracts × $227) → $1,365 (6 contracts × $227)
+            aiResponse = aiResponse.replace(
+                /\$[\d,]+\s*\((\d+)\s*contracts\s*×\s*\$(\d+)\)/gi,
+                (match, contracts, perContract) => {
+                    const numContracts = parseInt(contracts);
+                    const perContractVal = parseInt(perContract);
+                    const correctTotal = (numContracts * perContractVal).toLocaleString();
+                    return `$${correctTotal} (${contracts} contracts × $${perContract})`;
+                }
+            );
             
             // Count remaining after fix
             const remainingNumbers = aiResponse.match(largeNumber) || [];
