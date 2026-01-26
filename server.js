@@ -731,26 +731,66 @@ const mainHandler = async (req, res, next) => {
                 const callsWithType = (chain.calls || []).map(c => ({ ...c, option_type: 'C' }));
                 const putsWithType = (chain.puts || []).map(p => ({ ...p, option_type: 'P' }));
                 
-                // Combine calls and puts, sort by proximity to ATM
+                // Combine calls and puts
                 const allOpts = [...callsWithType, ...putsWithType];
-                allOpts.sort((a, b) => Math.abs(a.strike - quote.price) - Math.abs(b.strike - quote.price));
-                sampleOptions = allOpts.slice(0, 18).map(o => ({
-                    option_type: o.option_type,  // Now correctly preserved
+                console.log(`[STRATEGY-ADVISOR] Raw options from ${chain.source}: ${allOpts.length} total (${putsWithType.length} puts, ${callsWithType.length} calls)`);
+                
+                // TARGET: ~30 DTE for optimal theta decay
+                const today = new Date();
+                const targetDTE = 30;
+                
+                // DEDUPLICATE: Keep one option per (strike, type) combo, preferring ~30 DTE
+                const optionsByKey = new Map();
+                for (const opt of allOpts) {
+                    const key = `${opt.option_type}_${opt.strike}`;
+                    const expDate = new Date(opt.expiration);
+                    const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+                    
+                    if (!optionsByKey.has(key)) {
+                        optionsByKey.set(key, { ...opt, dte });
+                    } else {
+                        // Prefer option closer to target DTE (30 days)
+                        const existing = optionsByKey.get(key);
+                        if (Math.abs(dte - targetDTE) < Math.abs(existing.dte - targetDTE)) {
+                            optionsByKey.set(key, { ...opt, dte });
+                        }
+                    }
+                }
+                
+                // Convert back to array
+                const uniqueOpts = Array.from(optionsByKey.values());
+                console.log(`[STRATEGY-ADVISOR] Unique strikes: ${uniqueOpts.length} (after dedup by strike+type)`);
+                
+                // FILTER: Keep strikes within $15 of spot to ensure we have OTM for spreads
+                // This is better than "closest 40" which clusters around ATM
+                const strikeRange = 15; // $15 on each side
+                const minStrike = quote.price - strikeRange;
+                const maxStrike = quote.price + strikeRange;
+                
+                const inRangeOpts = uniqueOpts.filter(o => o.strike >= minStrike && o.strike <= maxStrike);
+                console.log(`[STRATEGY-ADVISOR] In-range strikes ($${minStrike.toFixed(0)}-$${maxStrike.toFixed(0)}): ${inRangeOpts.length}`);
+                
+                // Sort by strike for easier debugging
+                inRangeOpts.sort((a, b) => a.strike - b.strike);
+                
+                sampleOptions = inRangeOpts.map(o => ({
+                    option_type: o.option_type,
                     strike: o.strike,
                     expiration_date: o.expiration,
                     bid: o.bid,
                     ask: o.ask,
                     delta: o.delta,
-                    iv: o.iv
+                    iv: o.iv,
+                    dte: o.dte
                 }));
                 
-                // Debug: show sample of what we're sending to AI
-                if (sampleOptions.length > 0) {
-                    const sample = sampleOptions[0];
-                    console.log(`[STRATEGY-ADVISOR] Sample option: ${sample.option_type} $${sample.strike} @ $${sample.bid}/$${sample.ask}`);
-                }
+                // Debug: show strike range we're using
+                const putStrikes = sampleOptions.filter(o => o.option_type === 'P').map(o => o.strike).sort((a,b) => b-a);
+                const callStrikes = sampleOptions.filter(o => o.option_type === 'C').map(o => o.strike).sort((a,b) => a-b);
+                console.log(`[STRATEGY-ADVISOR] Put strikes: $${putStrikes[0] || '?'} down to $${putStrikes[putStrikes.length-1] || '?'} (${putStrikes.length} total)`);
+                console.log(`[STRATEGY-ADVISOR] Call strikes: $${callStrikes[0] || '?'} up to $${callStrikes[callStrikes.length-1] || '?'} (${callStrikes.length} total)`);
                 
-                console.log(`[STRATEGY-ADVISOR] ✅ Options from ${chain.source}: ${sampleOptions.length} contracts, IV ~${ivRank}%`);
+                console.log(`[STRATEGY-ADVISOR] ✅ Using ${sampleOptions.length} unique options for analysis, IV ~${ivRank}%`);
             } else {
                 console.log(`[STRATEGY-ADVISOR] ⚠️ No options data available for ${ticker}`);
             }
@@ -774,7 +814,7 @@ const mainHandler = async (req, res, next) => {
                 stockData,
                 ivRank,
                 expirations,
-                sampleOptions: sampleOptions.slice(0, 20), // Need more strikes for spread calculations
+                sampleOptions: sampleOptions, // All options in range (already filtered to ±$15 of spot)
                 buyingPower: buyingPower || 25000,
                 riskTolerance: riskTolerance || 'moderate',
                 existingPositions: existingPositions || [],
@@ -4224,13 +4264,22 @@ function buildStrategyAdvisorPrompt(context) {
     const puts = sampleOptions?.filter(o => o.option_type === 'P').sort((a, b) => parseFloat(b.strike) - parseFloat(a.strike)) || [];
     const calls = sampleOptions?.filter(o => o.option_type === 'C').sort((a, b) => parseFloat(a.strike) - parseFloat(b.strike)) || [];
     
+    console.log(`[STRATEGY-ADVISOR] Processing ${puts.length} puts, ${calls.length} calls for spot $${spot.toFixed(2)}`);
+    // Debug: Show available put strikes
+    const putStrikes = puts.map(p => `$${p.strike}`).join(', ');
+    console.log(`[STRATEGY-ADVISOR] Available put strikes: ${putStrikes || 'NONE'}`);
+    
     // Find ATM put (just below spot, rounded to valid strike)
     const atmPut = puts.find(p => parseFloat(p.strike) <= spot) || puts[0];
+    if (atmPut) {
+        console.log(`[STRATEGY-ADVISOR] ATM put: $${atmPut.strike} @ $${atmPut.bid}/$${atmPut.ask}`);
+    }
     
     // For spreads, find a put ~$5 OTM (standard spread width)
     // OTM put should be $5 below the ATM put strike, not below spot
     const spreadWidth = spot >= 100 ? 5 : (spot >= 50 ? 5 : 2.5);
     const targetOtmStrike = atmPut ? parseFloat(atmPut.strike) - spreadWidth : spot - spreadWidth;
+    console.log(`[STRATEGY-ADVISOR] Target OTM strike: $${targetOtmStrike} (ATM $${atmPut?.strike} - $${spreadWidth} spread)`);
     
     // Find closest put to target OTM strike
     let otmPut = puts.find(p => {
@@ -4253,7 +4302,9 @@ function buildStrategyAdvisorPrompt(context) {
         // Estimate OTM premium as ~60% of ATM premium (better estimate for $5 OTM)
         const atmMid = (parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2;
         otmPut = { strike: otmStrike, bid: atmMid * 0.55, ask: atmMid * 0.65, synthetic: true };
-        console.log(`[STRATEGY-ADVISOR] ⚠️ Created synthetic OTM put: $${otmStrike} with estimated premium $${(atmMid * 0.6).toFixed(2)}`);
+        console.log(`[STRATEGY-ADVISOR] ⚠️ Created SYNTHETIC OTM put: $${otmStrike} with estimated premium $${(atmMid * 0.6).toFixed(2)}`);
+    } else if (otmPut) {
+        console.log(`[STRATEGY-ADVISOR] ✅ Found REAL OTM put: $${otmPut.strike} @ $${otmPut.bid}/$${otmPut.ask}`);
     }
     
     // Find ATM call (just above spot)
@@ -4274,7 +4325,9 @@ function buildStrategyAdvisorPrompt(context) {
         const otmStrike = roundStrike(parseFloat(atmCall.strike) + spreadWidth);
         const atmMid = (parseFloat(atmCall.bid) + parseFloat(atmCall.ask)) / 2;
         otmCall = { strike: otmStrike, bid: atmMid * 0.55, ask: atmMid * 0.65, synthetic: true };
-        console.log(`[STRATEGY-ADVISOR] ⚠️ Created synthetic OTM call: $${otmStrike}`);
+        console.log(`[STRATEGY-ADVISOR] ⚠️ Created SYNTHETIC OTM call: $${otmStrike} with estimated premium $${(atmMid * 0.6).toFixed(2)}`);
+    } else if (otmCall) {
+        console.log(`[STRATEGY-ADVISOR] ✅ Found REAL OTM call: $${otmCall.strike} @ $${otmCall.bid}/$${otmCall.ask}`);
     }
     
     // Pre-calculate strikes (rounded to valid increments)
