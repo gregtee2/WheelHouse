@@ -4805,10 +4805,18 @@ SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
 
 YOUR JOB: Pick ONE setup (A, B, C, or D) based on the market conditions below:
 
-🎯 DECISION CRITERIA (use these to make your choice):
-• IV Rank ${ivRank}%: ${ivRank > 50 ? 'ELEVATED - favors SELLING strategies (A, B, C, D)' : 'LOW - consider waiting for higher IV or buying strategies'}
-• Range Position ${stockData?.rangePosition || '?'}%: ${stockData?.rangePosition > 70 ? 'Near highs - BEARISH bias, D is attractive' : stockData?.rangePosition < 30 ? 'Near lows - BULLISH bias, A or B make sense' : 'Mid-range - neutral, spreads (B, D) balance risk'}
-• Range Position ${stockData?.rangePosition || '?'}%: ${stockData?.rangePosition > 50 ? 'Upper half - more bearish risk, consider D or lower strikes' : 'Lower half - bullish bias, A or B make sense'}
+🚨 DIRECTIONAL BIAS BASED ON RANGE POSITION (${stockData?.rangePosition || '?'}%):
+${stockData?.rangePosition > 80 ? `⬇️ BEARISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = OVERBOUGHT.
+   → STRONGLY FAVOR SETUP D (Call Credit Spread) - profits if stock pulls back or stays flat.
+   → Avoid A and B (bullish) unless you have a strong contrarian reason.` : 
+   stockData?.rangePosition < 20 ? `⬆️ BULLISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = OVERSOLD.
+   → FAVOR SETUP A or B (bullish) - profits if stock recovers.
+   → Avoid D (bearish) unless fundamentals are deteriorating.` :
+   `↔️ NEUTRAL: Stock at ${stockData?.rangePosition}% = mid-range.
+   → Either B (bullish) or D (bearish) reasonable based on your thesis.`}
+
+🎯 ADDITIONAL DECISION CRITERIA:
+• IV Rank ${ivRank}%: ${ivRank > 50 ? 'ELEVATED - favors SELLING strategies (A, B, C, D)' : 'LOW - options are cheap, spreads help manage this'}
 • Risk Tolerance: ${riskTolerance} - ${riskTolerance === 'conservative' ? 'favor defined risk (B, D)' : riskTolerance === 'aggressive' ? 'A is fine if bullish' : 'B or D for balanced risk/reward'}
 • Buying Power: $${buyingPower.toLocaleString()} - ${buyingPower < sellPutStrike * 100 ? 'Too low for A, use spreads (B or D)' : 'Enough for any strategy'}
 

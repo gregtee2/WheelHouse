@@ -4160,6 +4160,16 @@ window.stageStrategyAdvisorTrade = function() {
         }
     }
     
+    // Method 5: Calculate from "Max Profit per contract: $XXX" (for spreads, premium = maxProfit/100)
+    if (!premium && tradeType?.includes('_spread')) {
+        const maxProfitMatch = recommendation?.match(/Max\s+Profit\s+per\s+contract:\s*\$?(\d+(?:,\d{3})*)/i);
+        if (maxProfitMatch) {
+            const maxProfitPerContract = parseFloat(maxProfitMatch[1].replace(/,/g, ''));
+            premium = maxProfitPerContract / 100;  // Convert back to per-share
+            console.log('[STAGE] Calculated premium from max profit: $' + premium.toFixed(2) + '/share');
+        }
+    }
+    
     // Extract recommended contracts from "Recommended Contracts: X" or "Contracts: X"
     const contractsMatch = recommendation?.match(/(?:Recommended\s+)?Contracts:\s*(\d+)/i);
     if (contractsMatch) {
