@@ -693,7 +693,7 @@ const mainHandler = async (req, res, next) => {
     if (url.pathname === '/api/ai/strategy-advisor' && req.method === 'POST') {
         try {
             const data = req.body;
-            const { ticker, buyingPower, riskTolerance, existingPositions, model } = data;
+            const { ticker, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, model } = data;
             const selectedModel = model || 'qwen2.5:32b';
             
             console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with model ${selectedModel}`);
@@ -4622,15 +4622,21 @@ SETUP B - Put Credit Spread (Bull Put) - ALL MATH PRE-CALCULATED:
   Spread Width: $${putSpreadWidth.toFixed(2)}
   Credit Received: $${putSpreadCredit.toFixed(2)}/share (= $${atmPutMid.toFixed(2)} sell - $${otmPutMid.toFixed(2)} buy)
   
-  📐 EXACT NUMBERS (COPY THESE - do NOT recalculate!):
-  • Max Profit per contract = $${putSpreadCredit.toFixed(2)} × 100 = $${(putSpreadCredit * 100).toFixed(0)}
-  • Max Loss per contract = ($${putSpreadWidth.toFixed(2)} - $${putSpreadCredit.toFixed(2)}) × 100 = $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)}
-  • Breakeven = $${sellPutStrike} - $${putSpreadCredit.toFixed(2)} = $${(sellPutStrike - putSpreadCredit).toFixed(2)}
-  • Buying Power Required = Spread Width × 100 = $${(putSpreadWidth * 100).toFixed(0)} per contract
-  • Max contracts (Kelly): ${maxContractsByKelly} | Recommended (60%): ${conservativeContracts} contracts
-  • Risk/Reward Ratio = $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)} / $${(putSpreadCredit * 100).toFixed(0)} = ${((putSpreadWidth - putSpreadCredit) / putSpreadCredit).toFixed(1)}:1
-  • Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH - you want stock to stay UP)
-  • Win Probability: ~${winProbability}% (stock expires above $${sellPutStrike})
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: $${(putSpreadCredit * 100).toFixed(0)}
+  • Max Loss per contract: $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)}
+  • Breakeven: $${(sellPutStrike - putSpreadCredit).toFixed(2)}
+  • Buying Power per contract: $${(putSpreadWidth * 100).toFixed(0)}
+  • Recommended contracts: ${conservativeContracts} (60% of Kelly)
+  
+  💰 TOTALS FOR ${conservativeContracts} CONTRACTS (COPY EXACTLY):
+  • TOTAL MAX PROFIT: $${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL MAX LOSS: $${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL BUYING POWER USED: $${(putSpreadWidth * 100 * conservativeContracts).toLocaleString()}
+  
+  • Risk/Reward Ratio: ${((putSpreadWidth - putSpreadCredit) / putSpreadCredit).toFixed(1)}:1
+  • Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH)
+  • Win Probability: ~${winProbability}%
 
 SETUP C - Covered Call (requires owning 100 shares per contract):
   Trade: Sell ${ticker} $${sellCallStrike} Call, ${firstExpiry}
@@ -4642,14 +4648,20 @@ SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
   Spread Width: $${callSpreadWidth.toFixed(2)}
   Credit Received: $${callSpreadCredit.toFixed(2)}/share
   
-  📐 EXACT NUMBERS (COPY THESE - do NOT recalculate!):
-  • Max Profit per contract = $${(callSpreadCredit * 100).toFixed(0)}
-  • Max Loss per contract = $${((callSpreadWidth - callSpreadCredit) * 100).toFixed(0)}
-  • Breakeven = $${sellCallStrike} + $${callSpreadCredit.toFixed(2)} = $${(sellCallStrike + callSpreadCredit).toFixed(2)}
-  • Buying Power Required = $${(callSpreadWidth * 100).toFixed(0)} per contract
-  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (callSpreadWidth * 100))} contracts
-  • Risk/Reward Ratio = ${((callSpreadWidth - callSpreadCredit) / callSpreadCredit).toFixed(1)}:1
-  • Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH - you want stock to stay DOWN)
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: $${(callSpreadCredit * 100).toFixed(0)}
+  • Max Loss per contract: $${((callSpreadWidth - callSpreadCredit) * 100).toFixed(0)}
+  • Breakeven: $${(sellCallStrike + callSpreadCredit).toFixed(2)}
+  • Buying Power per contract: $${(callSpreadWidth * 100).toFixed(0)}
+  • Recommended contracts: ${conservativeContracts} (60% of Kelly)
+  
+  💰 TOTALS FOR ${conservativeContracts} CONTRACTS (COPY EXACTLY):
+  • TOTAL MAX PROFIT: $${(callSpreadCredit * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL MAX LOSS: $${((callSpreadWidth - callSpreadCredit) * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL BUYING POWER USED: $${(callSpreadWidth * 100 * conservativeContracts).toLocaleString()}
+  
+  • Risk/Reward Ratio: ${((callSpreadWidth - callSpreadCredit) / callSpreadCredit).toFixed(1)}:1
+  • Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH)
 
 YOUR JOB: Pick ONE setup (A, B, C, or D) and explain WHY it's best for this situation.
 ⚠️ COPY THE PRE-CALCULATED NUMBERS EXACTLY - do NOT make up or recalculate!
@@ -4671,27 +4683,25 @@ Respond with this format:
 • ⚠️ [Risk 2]
 ${propDeskWarnings.length > 0 ? '\n### 🏦 PROP DESK RISK NOTES\n' + propDeskWarnings.map(w => `• ${w}`).join('\n') : ''}
 
-### THE NUMBERS (COPY FROM SETUP ABOVE - do NOT make up numbers!)
-• Max Profit: [Copy from setup's "Max Profit per contract" × your contract count]
-• Max Loss: [Copy from setup's "Max Loss per contract" × your contract count]
-• Breakeven: [Copy from setup's "Breakeven" value]
+### THE NUMBERS (COPY THE "TOTALS FOR X CONTRACTS" SECTION EXACTLY!)
+• Max Profit: $${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()} (${conservativeContracts} contracts × $${(putSpreadCredit * 100).toFixed(0)})
+• Max Loss: $${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()} (${conservativeContracts} contracts × $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)})
+• Breakeven: $${(sellPutStrike - putSpreadCredit).toFixed(2)}
 • Contracts: ${conservativeContracts} (60% of Kelly max - prop desk sizing)
-• Win Probability: ~${winProbability}% (based on delta)
-• Risk/Reward Ratio: [Copy from setup's "Risk/Reward Ratio"]
+• Win Probability: ~${winProbability}%
+• Risk/Reward Ratio: ${((putSpreadWidth - putSpreadCredit) / putSpreadCredit).toFixed(1)}:1
 
-### 📊 PROFIT/LOSS AT EXPIRATION
-Using your recommended contract count, multiply per-contract values:
+### 📊 PROFIT/LOSS AT EXPIRATION (for ${conservativeContracts} contracts)
 | If Stock Ends At | You Make/Lose | Result |
 |------------------|---------------|--------|
-| $${Math.round(sellPutStrike * 1.05)} or higher | +$[Max Profit × contracts] | ✅ Max profit |
-| $${sellPutStrike} | +$[Max Profit × contracts] | ✅ Full profit |
+| $${Math.round(sellPutStrike * 1.05)} or higher | +$${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()} | ✅ Max profit |
+| $${sellPutStrike} | +$${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()} | ✅ Full profit |
 | $${(sellPutStrike - putSpreadCredit).toFixed(2)} (breakeven) | $0 | ➖ Break even |
-| $${Math.round(sellPutStrike * 0.95)} | -$[Calculate proportional loss] | ⚠️ Partial loss |
-| $${buyPutStrike} or lower | -$[Max Loss × contracts] | ❌ Max loss |
+| $${buyPutStrike} or lower | -$${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()} | ❌ Max loss |
 
 ### PORTFOLIO IMPACT
 • Buying Power Used: $${(conservativeContracts * putSpreadWidth * 100).toLocaleString()} (${((conservativeContracts * putSpreadWidth * 100) / buyingPower * 100).toFixed(0)}% of Kelly-adjusted capital)
-• Delta Exposure: +${(putSpreadDelta * 100 * conservativeContracts).toFixed(0)} total delta (${conservativeContracts} contracts × +${(putSpreadDelta * 100).toFixed(0)}/contract)
+• Delta Exposure: +${(putSpreadDelta * 100 * conservativeContracts).toFixed(0)} total delta
 
 ### 📚 OTHER OPTIONS CONSIDERED
 Briefly explain why you DIDN'T choose these:
