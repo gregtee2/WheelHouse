@@ -902,26 +902,28 @@ const mainHandler = async (req, res, next) => {
             });
             
             // STEP 1: Fix "Total Max Profit:" and "Max Profit:" - handle both patterns
+            // IMPORTANT: Use $$ to output a literal $ in regex replacement
             aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Profit[:\s]*\$?[\d,]+/gi, 
-                `Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
+                `Max Profit: $$${cv.totalPutMaxProfit.toLocaleString()}`);
             
             // STEP 2: Fix "Total Max Loss:" and "Max Loss:"
             aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Loss[:\s]*\$?[\d,]+/gi,
-                `Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
+                `Max Loss: $$${cv.totalPutMaxLoss.toLocaleString()}`);
             
             // STEP 3: Fix "TOTAL Max Profit:" (all caps variant)
             aiResponse = aiResponse.replace(/TOTAL\s+Max\s*Profit[:\s]*\$?[\d,]+/gi, 
-                `TOTAL Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
+                `TOTAL Max Profit: $$${cv.totalPutMaxProfit.toLocaleString()}`);
             aiResponse = aiResponse.replace(/TOTAL\s+Max\s*Loss[:\s]*\$?[\d,]+/gi,
-                `TOTAL Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
+                `TOTAL Max Loss: $$${cv.totalPutMaxLoss.toLocaleString()}`);
             
             // STEP 4: Fix P&L table rows with + prefix (any large number = total)
-            aiResponse = aiResponse.replace(/\+\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g, 
-                `+$${cv.totalPutMaxProfit.toLocaleString()}`);
+            // IMPORTANT: Use $$$ to escape the $ sign in replacement ($ has special meaning in regex replace)
+            const profitReplacement = `+$$${cv.totalPutMaxProfit.toLocaleString()}`;
+            aiResponse = aiResponse.replace(/\+\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g, profitReplacement);
             
             // STEP 5: Fix P&L table rows with - prefix  
-            aiResponse = aiResponse.replace(/-\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g,
-                `-$${cv.totalPutMaxLoss.toLocaleString()}`);
+            const lossReplacement = `-$$${cv.totalPutMaxLoss.toLocaleString()}`;
+            aiResponse = aiResponse.replace(/-\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g, lossReplacement);
             
             // STEP 6: Fix the "(X contracts × $Y)" parenthetical - recalculate total
             aiResponse = aiResponse.replace(
