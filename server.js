@@ -4453,6 +4453,53 @@ function buildStrategyAdvisorPrompt(context) {
     const otmCallMid = otmCall ? (parseFloat(otmCall.bid) + parseFloat(otmCall.ask)) / 2 : atmCallMid * 0.4;
     const callSpreadCredit = Math.max(0.10, atmCallMid - otmCallMid); // Net credit received
     
+    // =========================================================================
+    // NEW STRATEGIES: Additional strike calculations for E, F, G, H
+    // =========================================================================
+    
+    // For Long Put (E) and Long Call (F) - find slightly OTM options to buy
+    // Use strikes about 3-5% OTM for reasonable premium cost
+    const longPutStrike = roundStrike(spot * 0.97);  // 3% OTM put
+    const longCallStrike = roundStrike(spot * 1.03); // 3% OTM call
+    
+    // Find actual options near these strikes
+    const longPut = puts.find(p => Math.abs(parseFloat(p.strike) - longPutStrike) <= 2) || 
+                    { strike: longPutStrike, bid: atmPutMid * 0.6, ask: atmPutMid * 0.7 };
+    const longCall = calls.find(c => Math.abs(parseFloat(c.strike) - longCallStrike) <= 2) ||
+                     { strike: longCallStrike, bid: atmCallMid * 0.6, ask: atmCallMid * 0.7 };
+    
+    const longPutPremium = (parseFloat(longPut.bid) + parseFloat(longPut.ask)) / 2;
+    const longCallPremium = (parseFloat(longCall.bid) + parseFloat(longCall.ask)) / 2;
+    const longPutStrikeActual = parseFloat(longPut.strike);
+    const longCallStrikeActual = parseFloat(longCall.strike);
+    
+    // For Iron Condor (G) - use same strikes as B and D combined
+    // Put side: sell ATM put, buy OTM put (same as B)
+    // Call side: sell ATM call, buy OTM call (same as D)
+    const ironCondorCredit = putSpreadCredit + callSpreadCredit;
+    const ironCondorMaxLoss = Math.max(putSpreadWidth, callSpreadWidth) - ironCondorCredit;
+    const ironCondorPutBreakeven = sellPutStrike - ironCondorCredit;
+    const ironCondorCallBreakeven = sellCallStrike + ironCondorCredit;
+    
+    // For SKIP™ (H) - find LEAPS (longest expiry) and shorter-term call
+    const leapsExpiry = expirations?.find(exp => {
+        const dte = Math.ceil((new Date(exp) - new Date()) / (1000 * 60 * 60 * 24));
+        return dte >= 180; // 6+ months
+    }) || expirations?.[expirations.length - 1] || firstExpiry;
+    
+    const skipCallExpiry = expirations?.find(exp => {
+        const dte = Math.ceil((new Date(exp) - new Date()) / (1000 * 60 * 60 * 24));
+        return dte >= 45 && dte <= 120; // 45-120 DTE for SKIP call
+    }) || firstExpiry;
+    
+    // LEAPS: ATM or slightly ITM call (better delta)
+    const leapsStrike = roundStrike(spot * 0.95); // 5% ITM for good delta
+    const leapsPremium = atmCallMid * 2.5; // LEAPS cost more (rough estimate)
+    
+    // SKIP call: OTM call (5-10% above spot)
+    const skipStrike = roundStrike(spot * 1.07); // 7% OTM
+    const skipPremium = atmCallMid * 0.4; // OTM shorter-term call
+    
     // Calculate deltas (BULL PUT = POSITIVE delta, BEAR CALL = NEGATIVE delta)
     const atmPutDelta = atmPut?.delta ? parseFloat(atmPut.delta) : -0.45; // ATM put delta ~-0.45
     const otmPutDelta = otmPut?.delta ? parseFloat(otmPut.delta) : -0.25; // OTM put delta ~-0.25
@@ -4803,24 +4850,116 @@ SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
   • Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH)
   • Win Probability: ~${Math.round((1 - Math.abs(atmCallDelta)) * 100)}%
 
-YOUR JOB: Pick ONE setup (A, B, C, or D) based on the market conditions below:
+SETUP E - Long Put (Bearish, Defined Risk) - ALL MATH PRE-CALCULATED:
+  Trade: Buy ${ticker} $${longPutStrikeActual.toFixed(0)} Put, ${firstExpiry}
+  Debit Paid: $${longPutPremium.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: UNLIMITED (stock to $0 = $${(longPutStrikeActual * 100).toLocaleString()})
+  • Max Loss per contract: $${(longPutPremium * 100).toFixed(0)} (premium paid)
+  • Breakeven: $${(longPutStrikeActual - longPutPremium).toFixed(2)}
+  • Cost per contract: $${(longPutPremium * 100).toFixed(0)}
+  • Recommended contracts: ${Math.max(1, Math.floor(buyingPower / (longPutPremium * 100) * 0.3))} (30% of max - speculative)
+  
+  💰 TOTALS FOR ${Math.max(1, Math.floor(buyingPower / (longPutPremium * 100) * 0.3))} CONTRACTS:
+  • TOTAL COST: $${(longPutPremium * 100 * Math.max(1, Math.floor(buyingPower / (longPutPremium * 100) * 0.3))).toLocaleString()}
+  • TOTAL MAX LOSS: $${(longPutPremium * 100 * Math.max(1, Math.floor(buyingPower / (longPutPremium * 100) * 0.3))).toLocaleString()} (if stock stays above $${longPutStrikeActual.toFixed(0)})
+  
+  • Delta: ${(otmPutDelta * 100).toFixed(0)} per contract (BEARISH)
+  ⚠️ RISK: Lose entire premium if stock doesn't drop. Time decay works AGAINST you.
+  ✅ WHEN TO USE: Strong bearish conviction, expecting significant drop. Cheaper than shorting stock.
 
-⚠️ VARIETY INSTRUCTION: Don't default to B just because it's familiar. Compare B vs D explicitly:
-   • If B has better risk/reward AND bullish thesis makes sense → pick B
-   • If D has better risk/reward OR stock is extended → pick D
-   • If user has shares and wants income → consider C
-   • Only pick A if buying power is large AND you're very bullish
+SETUP F - Long Call (Bullish, Defined Risk) - ALL MATH PRE-CALCULATED:
+  Trade: Buy ${ticker} $${longCallStrikeActual.toFixed(0)} Call, ${firstExpiry}
+  Debit Paid: $${longCallPremium.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: UNLIMITED (stock to moon)
+  • Max Loss per contract: $${(longCallPremium * 100).toFixed(0)} (premium paid)
+  • Breakeven: $${(longCallStrikeActual + longCallPremium).toFixed(2)}
+  • Cost per contract: $${(longCallPremium * 100).toFixed(0)}
+  • Recommended contracts: ${Math.max(1, Math.floor(buyingPower / (longCallPremium * 100) * 0.3))} (30% of max - speculative)
+  
+  💰 TOTALS FOR ${Math.max(1, Math.floor(buyingPower / (longCallPremium * 100) * 0.3))} CONTRACTS:
+  • TOTAL COST: $${(longCallPremium * 100 * Math.max(1, Math.floor(buyingPower / (longCallPremium * 100) * 0.3))).toLocaleString()}
+  • TOTAL MAX LOSS: $${(longCallPremium * 100 * Math.max(1, Math.floor(buyingPower / (longCallPremium * 100) * 0.3))).toLocaleString()} (if stock stays below $${longCallStrikeActual.toFixed(0)})
+  
+  • Delta: +${(otmCallDelta * 100).toFixed(0)} per contract (BULLISH)
+  ⚠️ RISK: Lose entire premium if stock doesn't rise. Time decay works AGAINST you.
+  ✅ WHEN TO USE: Strong bullish conviction, expecting significant rise. Cheaper than buying stock.
+
+SETUP G - Iron Condor (Neutral, Range-Bound) - ALL MATH PRE-CALCULATED:
+  Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike}/$${sellCallStrike}/$${buyCallStrike} Iron Condor, ${firstExpiry}
+  Put Spread: $${sellPutStrike}/$${buyPutStrike} (Bull Put)
+  Call Spread: $${sellCallStrike}/$${buyCallStrike} (Bear Call)
+  Total Credit: $${ironCondorCredit.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Max Profit per contract: $${(ironCondorCredit * 100).toFixed(0)} (keep all premium if stock stays in range)
+  • Max Loss per contract: $${(ironCondorMaxLoss * 100).toFixed(0)} (if stock breaks through either spread)
+  • Breakeven Low: $${ironCondorPutBreakeven.toFixed(2)}
+  • Breakeven High: $${ironCondorCallBreakeven.toFixed(2)}
+  • Profit Zone: $${ironCondorPutBreakeven.toFixed(2)} to $${ironCondorCallBreakeven.toFixed(2)}
+  • Buying Power per contract: $${(Math.max(putSpreadWidth, callSpreadWidth) * 100).toFixed(0)}
+  • Recommended contracts: ${conservativeContracts} (60% of Kelly)
+  
+  💰 TOTALS FOR ${conservativeContracts} CONTRACTS:
+  • TOTAL MAX PROFIT: $${(ironCondorCredit * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL MAX LOSS: $${(ironCondorMaxLoss * 100 * conservativeContracts).toLocaleString()}
+  • TOTAL BUYING POWER USED: $${(Math.max(putSpreadWidth, callSpreadWidth) * 100 * conservativeContracts).toLocaleString()}
+  
+  • Risk/Reward Ratio: ${(ironCondorMaxLoss / ironCondorCredit).toFixed(1)}:1
+  • Delta: ~0 (NEUTRAL - profits from time decay)
+  • Win Probability: ~${Math.round((1 - Math.abs(atmPutDelta)) * (1 - Math.abs(atmCallDelta)) * 100)}%
+  ⚠️ RISK: Lose on EITHER side if stock moves too much. Double exposure.
+  ✅ WHEN TO USE: Low IV, expecting stock to stay in tight range. Collect double premium.
+
+SETUP H - SKIP™ Strategy (Long-Term Bullish with Cost Reduction):
+  Trade: Buy ${ticker} $${leapsStrike.toFixed(0)} LEAPS Call (${leapsExpiry}) + Buy $${skipStrike.toFixed(0)} SKIP Call (${skipCallExpiry})
+  LEAPS Call: $${leapsStrike.toFixed(0)} strike, ~${leapsExpiry} expiry, ~$${leapsPremium.toFixed(2)}/share
+  SKIP Call: $${skipStrike.toFixed(0)} strike, ~${skipCallExpiry} expiry, ~$${skipPremium.toFixed(2)}/share
+  
+  📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
+  • Total Investment per contract: $${((leapsPremium + skipPremium) * 100).toFixed(0)}
+  • LEAPS Cost: $${(leapsPremium * 100).toFixed(0)}
+  • SKIP Cost: $${(skipPremium * 100).toFixed(0)}
+  • Max Loss: $${((leapsPremium + skipPremium) * 100).toFixed(0)} (both expire worthless)
+  • Breakeven: $${(leapsStrike + leapsPremium + skipPremium).toFixed(2)} (at LEAPS expiry)
+  • Recommended contracts: ${Math.max(1, Math.floor(buyingPower / ((leapsPremium + skipPremium) * 100) * 0.5))} (50% allocation)
+  
+  💰 FOR ${Math.max(1, Math.floor(buyingPower / ((leapsPremium + skipPremium) * 100) * 0.5))} CONTRACTS:
+  • TOTAL INVESTMENT: $${((leapsPremium + skipPremium) * 100 * Math.max(1, Math.floor(buyingPower / ((leapsPremium + skipPremium) * 100) * 0.5))).toLocaleString()}
+  
+  • Combined Delta: High (LEAPS + SKIP = leveraged upside)
+  ⚠️ RISK: Both options can expire worthless. Complex exit strategy required.
+  ✅ WHEN TO USE: Long-term bullish on stock with 6+ month outlook. Exit SKIP at 45-60 DTE.
+  📚 SKIP = "Safely Keep Increasing Profits" - Exit the SKIP call early to lock in gains.
+
+YOUR JOB: Pick ONE setup (A through H) based on the market conditions below:
+
+⚠️ VARIETY INSTRUCTION: Consider ALL 8 strategies, not just B!
+   • A (Short Put): High conviction bullish + large buying power
+   • B (Put Credit Spread): Moderately bullish + defined risk
+   • C (Covered Call): Own shares + want income
+   • D (Call Credit Spread): Bearish or overbought stock
+   • E (Long Put): Strong bearish conviction, expecting big drop
+   • F (Long Call): Strong bullish conviction, expecting big move up
+   • G (Iron Condor): Neutral, expecting stock to stay in range
+   • H (SKIP™): Long-term bullish, 6+ month outlook
 
 🚨 DIRECTIONAL BIAS BASED ON RANGE POSITION (${stockData?.rangePosition || '?'}%):
 ${stockData?.rangePosition > 70 ? `⬇️ BEARISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = EXTENDED/OVERBOUGHT.
-   → FAVOR SETUP D (Call Credit Spread) - profits if stock pulls back or stays flat.
-   → Only pick B if risk/reward is significantly better (>1.5:1 vs D's ratio).` : 
+   → FAVOR D (Call Credit Spread) or E (Long Put) - bearish strategies.
+   → Consider G (Iron Condor) if expecting mean reversion but not sure of direction.
+   → Avoid A, B, F (bullish) unless you have strong contrarian thesis.` : 
    stockData?.rangePosition < 30 ? `⬆️ BULLISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = OVERSOLD.
-   → FAVOR SETUP A or B (bullish) - profits if stock recovers.
-   → Avoid D (bearish) unless fundamentals are deteriorating.` :
+   → FAVOR A, B, or F (bullish strategies) - profits if stock recovers.
+   → Consider H (SKIP™) for longer-term bullish play.
+   → Avoid D, E (bearish) unless fundamentals are deteriorating.` :
    `↔️ NEUTRAL: Stock at ${stockData?.rangePosition}% = mid-range.
-   → COMPARE B vs D risk/reward ratios and pick the better one.
-   → Don't just default to B - explain why B beats D (or vice versa).`}
+   → Compare risk/reward: B vs D for directional, G for neutral.
+   → Consider IV: High IV = favor selling (A,B,C,D,G), Low IV = favor buying (E,F,H).
+   → Don't just default to B - explain why your choice beats the alternatives.`}
 
 🎯 ADDITIONAL DECISION CRITERIA:
 • IV Rank ${ivRank}%: ${ivRank > 50 ? 'ELEVATED - favors SELLING strategies (A, B, C, D)' : 'LOW - options are cheap, spreads help manage this'}

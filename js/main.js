@@ -4150,23 +4150,88 @@ window.stageStrategyAdvisorTrade = function() {
         }
     }
     
+    // Method 5: Detect Iron Condor (G) - "Sell TICKER $XX/$XX/$XX/$XX Iron Condor"
+    const ironCondorMatch = recommendation?.match(/Sell\s+\w+\s+\$(\d+)\/\$(\d+)\/\$(\d+)\/\$(\d+)\s+Iron\s+Condor/i);
+    if (ironCondorMatch) {
+        tradeType = 'iron_condor';
+        const putSell = parseFloat(ironCondorMatch[1]);
+        const putBuy = parseFloat(ironCondorMatch[2]);
+        const callSell = parseFloat(ironCondorMatch[3]);
+        const callBuy = parseFloat(ironCondorMatch[4]);
+        strike = putSell;  // Use put sell as primary strike
+        upperStrike = callSell;  // Use call sell as upper strike
+        console.log('[STAGE] Detected Iron Condor: ' + putSell + '/' + putBuy + '/' + callSell + '/' + callBuy);
+    }
+    
+    // Method 6: Detect Long Put (E) - "Buy TICKER $XX Put"
+    const longPutMatch = recommendation?.match(/Buy\s+\w+\s+\$(\d+)\s+Put,?\s*(\d{4}-\d{2}-\d{2})?/i);
+    if (longPutMatch && !recommendation?.match(/Spread/i)) {
+        tradeType = 'long_put';
+        isDebit = true;
+        strike = parseFloat(longPutMatch[1]);
+        if (longPutMatch[2]) expiry = longPutMatch[2];
+        console.log('[STAGE] Detected Long Put: $' + strike);
+    }
+    
+    // Method 7: Detect Long Call (F) - "Buy TICKER $XX Call"
+    const longCallMatch = recommendation?.match(/Buy\s+\w+\s+\$(\d+)\s+Call,?\s*(\d{4}-\d{2}-\d{2})?/i);
+    if (longCallMatch && !recommendation?.match(/Spread|SKIP|LEAPS/i)) {
+        tradeType = 'long_call';
+        isCall = true;
+        isDebit = true;
+        strike = parseFloat(longCallMatch[1]);
+        if (longCallMatch[2]) expiry = longCallMatch[2];
+        console.log('[STAGE] Detected Long Call: $' + strike);
+    }
+    
+    // Method 8: Detect SKIP™ (H) - "Buy TICKER $XX LEAPS Call + Buy $XX SKIP Call"
+    const skipMatch = recommendation?.match(/Buy\s+\w+\s+\$(\d+)\s+LEAPS\s+Call.*?\+.*?Buy\s+\$(\d+)\s+SKIP\s+Call/i);
+    if (skipMatch) {
+        tradeType = 'skip_call';
+        isCall = true;
+        isDebit = true;
+        strike = parseFloat(skipMatch[1]);  // LEAPS strike
+        upperStrike = parseFloat(skipMatch[2]);  // SKIP strike
+        console.log('[STAGE] Detected SKIP strategy: LEAPS $' + strike + ' + SKIP $' + upperStrike);
+    }
+    
     // Try to find premium from other patterns if still missing
     if (!premium) {
-        // "Net Credit: $X.XX" or "Premium: $X.XX"
-        const altPremMatch = recommendation?.match(/(?:Net\s+Credit|Premium|Credit):\s*\$?(\d+(?:\.\d+)?)/i);
+        // "Net Credit: $X.XX" or "Premium: $X.XX" or "Total Credit: $X.XX"
+        const altPremMatch = recommendation?.match(/(?:Net\s+Credit|Premium|Credit|Total\s+Credit):\s*\$?(\d+(?:\.\d+)?)/i);
         if (altPremMatch) {
             premium = parseFloat(altPremMatch[1]);
             console.log('[STAGE] Found premium from alt pattern: $' + premium);
         }
     }
     
-    // Method 5: Calculate from "Max Profit per contract: $XXX" (for spreads, premium = maxProfit/100)
+    // Method 9: For debit trades, look for "Debit Paid: $X.XX" or "Cost per contract: $XXX"
+    if (!premium && isDebit) {
+        const debitMatch = recommendation?.match(/(?:Debit\s+Paid|Cost\s+per\s+contract):\s*\$?(\d+(?:\.\d+)?)/i);
+        if (debitMatch) {
+            premium = parseFloat(debitMatch[1]);
+            // If it's > 50, it's probably per-contract, convert to per-share
+            if (premium > 50) premium = premium / 100;
+            console.log('[STAGE] Found debit from pattern: $' + premium.toFixed(2) + '/share');
+        }
+    }
+    
+    // Method 10: Calculate from "Max Profit per contract: $XXX" (for spreads, premium = maxProfit/100)
     if (!premium && tradeType?.includes('_spread')) {
         const maxProfitMatch = recommendation?.match(/Max\s+Profit\s+per\s+contract:\s*\$?(\d+(?:,\d{3})*)/i);
         if (maxProfitMatch) {
             const maxProfitPerContract = parseFloat(maxProfitMatch[1].replace(/,/g, ''));
             premium = maxProfitPerContract / 100;  // Convert back to per-share
             console.log('[STAGE] Calculated premium from max profit: $' + premium.toFixed(2) + '/share');
+        }
+    }
+    
+    // For Iron Condor, use total credit
+    if (!premium && tradeType === 'iron_condor') {
+        const totalCreditMatch = recommendation?.match(/Total\s+Credit:\s*\$?(\d+(?:\.\d+)?)/i);
+        if (totalCreditMatch) {
+            premium = parseFloat(totalCreditMatch[1]);
+            console.log('[STAGE] Found Iron Condor total credit: $' + premium);
         }
     }
     
