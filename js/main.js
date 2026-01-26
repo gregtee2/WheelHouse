@@ -4056,8 +4056,8 @@ window.stageStrategyAdvisorTrade = function() {
     
     const { ticker, spot, recommendation } = lastStrategyAdvisorResult;
     
-    // Try to parse the recommendation to extract trade details
-    // Look for patterns like "Sell $95 Put", "Buy $100 Call / Sell $110 Call", etc.
+    // Parse the AI recommendation to extract trade details
+    // The AI outputs structured sections like "Sell: $90 put @ $2.50"
     let tradeType = 'short_put';
     let strike = Math.round(spot * 0.95); // Default: 5% OTM put
     let upperStrike = null;
@@ -4065,88 +4065,114 @@ window.stageStrategyAdvisorTrade = function() {
     let expiry = null;
     let isCall = false;
     let isDebit = false;
+    let contracts = 1;
     
-    // Try to extract from "THE TRADE" section
-    const tradeMatch = recommendation?.match(/Action:\s*([^\n]+)/i);
-    if (tradeMatch) {
-        const action = tradeMatch[1];
-        console.log('[STRATEGY-ADVISOR] Parsed action:', action);
+    console.log('[STAGE] Parsing recommendation...');
+    
+    // Method 1: Look for "Sell: $XX put @ $X.XX" pattern (spread format)
+    const sellPutMatch = recommendation?.match(/Sell:\s*\$(\d+(?:\.\d+)?)\s*put\s*@\s*\$(\d+(?:\.\d+)?)/i);
+    const buyPutMatch = recommendation?.match(/Buy:\s*\$(\d+(?:\.\d+)?)\s*put\s*@\s*\$(\d+(?:\.\d+)?)/i);
+    const sellCallMatch = recommendation?.match(/Sell:\s*\$(\d+(?:\.\d+)?)\s*call\s*@\s*\$(\d+(?:\.\d+)?)/i);
+    const buyCallMatch = recommendation?.match(/Buy:\s*\$(\d+(?:\.\d+)?)\s*call\s*@\s*\$(\d+(?:\.\d+)?)/i);
+    
+    if (sellPutMatch && buyPutMatch) {
+        // Put credit spread (bull put)
+        tradeType = 'put_credit_spread';
+        strike = parseFloat(sellPutMatch[1]);  // Sell higher strike
+        upperStrike = parseFloat(buyPutMatch[1]);  // Buy lower strike
+        const sellPrem = parseFloat(sellPutMatch[2]);
+        const buyPrem = parseFloat(buyPutMatch[2]);
+        premium = Math.max(0.01, sellPrem - buyPrem);  // Net credit
+        console.log('[STAGE] Detected put credit spread: Sell $' + strike + ', Buy $' + upperStrike + ', Net: $' + premium.toFixed(2));
+    } else if (sellCallMatch && buyCallMatch) {
+        // Call credit spread (bear call)
+        tradeType = 'call_credit_spread';
+        isCall = true;
+        strike = parseFloat(sellCallMatch[1]);  // Sell lower strike
+        upperStrike = parseFloat(buyCallMatch[1]);  // Buy higher strike
+        const sellPrem = parseFloat(sellCallMatch[2]);
+        const buyPrem = parseFloat(buyCallMatch[2]);
+        premium = Math.max(0.01, sellPrem - buyPrem);  // Net credit
+        console.log('[STAGE] Detected call credit spread: Sell $' + strike + ', Buy $' + upperStrike + ', Net: $' + premium.toFixed(2));
+    } else if (sellPutMatch) {
+        // Simple short put
+        tradeType = 'short_put';
+        strike = parseFloat(sellPutMatch[1]);
+        premium = parseFloat(sellPutMatch[2]);
+        console.log('[STAGE] Detected short put: $' + strike + ' @ $' + premium);
+    } else if (sellCallMatch) {
+        // Covered call
+        tradeType = 'covered_call';
+        isCall = true;
+        strike = parseFloat(sellCallMatch[1]);
+        premium = parseFloat(sellCallMatch[2]);
+        console.log('[STAGE] Detected covered call: $' + strike + ' @ $' + premium);
+    } else if (buyCallMatch) {
+        // Long call
+        tradeType = 'long_call';
+        isCall = true;
+        isDebit = true;
+        strike = parseFloat(buyCallMatch[1]);
+        premium = parseFloat(buyCallMatch[2]);
+        console.log('[STAGE] Detected long call: $' + strike + ' @ $' + premium);
+    } else if (buyPutMatch) {
+        // Long put
+        tradeType = 'long_put';
+        isDebit = true;
+        strike = parseFloat(buyPutMatch[1]);
+        premium = parseFloat(buyPutMatch[2]);
+        console.log('[STAGE] Detected long put: $' + strike + ' @ $' + premium);
+    }
+    
+    // Method 2: Try alternate patterns if above didn't work
+    if (!premium) {
+        // Look for "Net Credit: $X.XX" or "Net Premium: $X.XX"
+        const netCreditMatch = recommendation?.match(/Net\s+Credit:\s*\$?(\d+(?:\.\d+)?)/i);
+        if (netCreditMatch) {
+            premium = parseFloat(netCreditMatch[1]);
+            console.log('[STAGE] Found net credit: $' + premium);
+        }
         
-        // Detect spread
-        if (action.match(/sell.*buy|buy.*sell/i) && action.match(/\$\d+.*\$\d+/)) {
-            const strikes = action.match(/\$(\d+(?:\.\d+)?)/g)?.map(s => parseFloat(s.replace('$', '')));
-            if (strikes && strikes.length >= 2) {
-                strike = Math.min(...strikes);
-                upperStrike = Math.max(...strikes);
-                
-                if (action.match(/put/i)) {
-                    if (action.match(/sell.*\$.*put.*buy/i) || action.match(/bull put/i)) {
-                        tradeType = 'put_credit_spread';
-                        strike = Math.min(...strikes);
-                        upperStrike = Math.max(...strikes);
-                    } else {
-                        tradeType = 'put_debit_spread';
-                        isDebit = true;
-                        strike = Math.max(...strikes);
-                        upperStrike = Math.min(...strikes);
-                    }
-                } else if (action.match(/call/i)) {
-                    if (action.match(/buy.*\$.*call.*sell/i) || action.match(/bull call/i)) {
-                        tradeType = 'call_debit_spread';
-                        isDebit = true;
-                        isCall = true;
-                        strike = Math.min(...strikes);
-                        upperStrike = Math.max(...strikes);
-                    } else {
-                        tradeType = 'call_credit_spread';
-                        isCall = true;
-                        strike = Math.max(...strikes);
-                        upperStrike = Math.min(...strikes);
-                    }
-                }
-            }
-        }
-        // Single leg detection
-        else {
-            const strikeMatch = action.match(/\$(\d+(?:\.\d+)?)/);
-            if (strikeMatch) strike = parseFloat(strikeMatch[1]);
-            
-            if (action.match(/sell.*put/i) || action.match(/short.*put/i)) {
-                tradeType = 'short_put';
-            } else if (action.match(/buy.*put/i) || action.match(/long.*put/i)) {
-                tradeType = 'long_put';
-                isDebit = true;
-            } else if (action.match(/sell.*call/i) || action.match(/short.*call/i)) {
-                tradeType = 'covered_call';
-                isCall = true;
-            } else if (action.match(/buy.*call/i) || action.match(/long.*call/i)) {
-                tradeType = 'long_call';
-                isCall = true;
-                isDebit = true;
-            }
+        // Look for "collect $X.XX" or "receive $X.XX"
+        const collectMatch = recommendation?.match(/(?:collect|receive)\s*\$?(\d+(?:\.\d+)?)/i);
+        if (collectMatch && !premium) {
+            premium = parseFloat(collectMatch[1]);
+            console.log('[STAGE] Found collect/receive: $' + premium);
         }
     }
     
-    // Try to extract expiration
-    const expMatch = recommendation?.match(/Expiration:\s*([^\n]+)/i);
-    if (expMatch) {
-        // Parse various date formats
-        const dateStr = expMatch[1].trim();
-        try {
-            // Try common formats like "2026-02-21", "Feb 21", "February 21, 2026"
-            const parsed = new Date(dateStr);
-            if (!isNaN(parsed)) {
-                expiry = parsed.toISOString().split('T')[0];
-            }
-        } catch (e) {
-            console.log('[STRATEGY-ADVISOR] Could not parse expiry:', dateStr);
+    // Extract recommended contracts from "Recommended Contracts: X" or "Contracts: X"
+    const contractsMatch = recommendation?.match(/(?:Recommended\s+)?Contracts:\s*(\d+)/i);
+    if (contractsMatch) {
+        contracts = parseInt(contractsMatch[1]);
+        console.log('[STAGE] Found contracts: ' + contracts);
+    }
+    
+    // Extract expiration - look for various date patterns
+    // Pattern: "Expiration: 2026-03-14" or dates in expirations list
+    const expPatterns = [
+        /Expiration:\s*(\d{4}-\d{2}-\d{2})/i,
+        /Expiry:\s*(\d{4}-\d{2}-\d{2})/i,
+        /expire(?:s)?\s*(?:on)?\s*(\d{4}-\d{2}-\d{2})/i,
+        /(\d{4}-\d{2}-\d{2})\s*(?:expir|exp)/i
+    ];
+    
+    for (const pattern of expPatterns) {
+        const match = recommendation?.match(pattern);
+        if (match) {
+            expiry = match[1];
+            console.log('[STAGE] Found expiry: ' + expiry);
+            break;
         }
     }
     
-    // Try to extract premium
-    const premMatch = recommendation?.match(/Credit\/Debit:\s*\$?(\d+(?:\.\d+)?)/i);
-    if (premMatch) {
-        premium = parseFloat(premMatch[1]);
+    // If still no expiry, try to find any YYYY-MM-DD date in the recommendation
+    if (!expiry) {
+        const anyDateMatch = recommendation?.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+        if (anyDateMatch) {
+            expiry = anyDateMatch[1];
+            console.log('[STAGE] Found date: ' + expiry);
+        }
     }
     
     // Default expiry to ~45 days out if not found
@@ -4158,6 +4184,7 @@ window.stageStrategyAdvisorTrade = function() {
             defaultExpiry.setDate(defaultExpiry.getDate() + 1);
         }
         expiry = defaultExpiry.toISOString().split('T')[0];
+        console.log('[STAGE] Using default expiry: ' + expiry);
     }
     
     // Stage the trade - use same field names as other staging functions
@@ -4170,7 +4197,7 @@ window.stageStrategyAdvisorTrade = function() {
         upperStrike,
         premium: premium || null,
         expiry,
-        contracts: 1,
+        contracts: contracts,
         isCall,
         isDebit,
         source: 'Strategy Advisor',
