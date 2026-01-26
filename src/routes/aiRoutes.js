@@ -596,17 +596,106 @@ router.post('/parse-trade', async (req, res) => {
             return res.status(400).json({ error: `Could not fetch data for ${parsed.ticker}` });
         }
         
-        // Step 3: Fetch option premium
+        // Step 3: Fetch option premium AND alternatives chain
         sendProgress(3, `Fetching CBOE options pricing...`);
         let premium = null;
+        let alternativeStrikes = [];
+        
+        const callStrategies = ['long_call', 'covered_call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
+        const strategyLower = (parsed.strategy || '').toLowerCase().replace(/\s+/g, '_');
+        const optionType = callStrategies.some(s => strategyLower.includes(s)) ? 'CALL' : 'PUT';
+        
         if (parsed.strike && parsed.expiry) {
             const strikeNum = parseFloat(String(parsed.strike).replace(/[^0-9.]/g, ''));
-            const callStrategies = ['long_call', 'covered_call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
-            const strategyLower = (parsed.strategy || '').toLowerCase().replace(/\s+/g, '_');
-            const optionType = callStrategies.some(s => strategyLower.includes(s)) ? 'CALL' : 'PUT';
             premium = await DataService.fetchOptionPremium(parsed.ticker, strikeNum, formatExpiryForCBOE(parsed.expiry), optionType);
         }
         
+        // Fetch options chain to get real alternative strikes
+        try {
+            const chain = await MarketDataService.getOptionsChain(parsed.ticker, { strikeCount: 30 });
+            if (chain) {
+                const options = optionType === 'CALL' ? (chain.calls || []) : (chain.puts || []);
+                const currentStrike = parseFloat(parsed.strike) || 0;
+                const spot = parseFloat(tickerData.price) || 0;
+                
+                // Parse the original trade's expiry to match
+                const originalExpiry = parsed.expiry ? new Date(parsed.expiry) : null;
+                const originalExpiryStr = originalExpiry ? originalExpiry.toISOString().split('T')[0] : null;
+                
+                // Get strikes FURTHER OTM than the original (better cushion)
+                // For puts: lower strikes = more OTM = better
+                // For calls: higher strikes = more OTM = better
+                const betterStrikes = options.filter(opt => {
+                    const strike = parseFloat(opt.strike);
+                    
+                    // Filter by expiry - match same expiry OR close to it (within 7 days)
+                    if (originalExpiry && opt.expiration) {
+                        const optExpiry = new Date(opt.expiration);
+                        const daysDiff = Math.abs((optExpiry - originalExpiry) / (1000*60*60*24));
+                        if (daysDiff > 7) return false; // Skip if expiry is too different
+                    }
+                    
+                    if (optionType === 'PUT') {
+                        return strike < currentStrike && strike > spot * 0.7; // 30% max OTM
+                    } else {
+                        return strike > currentStrike && strike < spot * 1.3; // 30% max OTM
+                    }
+                });
+                
+                // Deduplicate by strike - keep the one closest to original expiry
+                const strikeMap = new Map();
+                for (const opt of betterStrikes) {
+                    const strike = parseFloat(opt.strike);
+                    if (!strikeMap.has(strike)) {
+                        strikeMap.set(strike, opt);
+                    } else if (originalExpiry) {
+                        // If we already have this strike, keep the one with closer expiry
+                        const existing = strikeMap.get(strike);
+                        const existingDiff = Math.abs(new Date(existing.expiration) - originalExpiry);
+                        const newDiff = Math.abs(new Date(opt.expiration) - originalExpiry);
+                        if (newDiff < existingDiff) {
+                            strikeMap.set(strike, opt);
+                        }
+                    }
+                }
+                const uniqueStrikes = Array.from(strikeMap.values());
+                
+                // Sort by distance from current strike (closer alternatives first)
+                uniqueStrikes.sort((a, b) => {
+                    const distA = Math.abs(parseFloat(a.strike) - currentStrike);
+                    const distB = Math.abs(parseFloat(b.strike) - currentStrike);
+                    return distA - distB;
+                });
+                
+                // Take up to 3 alternative strikes with good liquidity
+                alternativeStrikes = uniqueStrikes
+                    .filter(opt => (opt.bid || 0) > 0.10) // Has some premium
+                    .slice(0, 3)
+                    .map(opt => {
+                        const strike = parseFloat(opt.strike);
+                        const cushion = optionType === 'PUT' 
+                            ? ((spot - strike) / spot * 100).toFixed(1)
+                            : ((strike - spot) / spot * 100).toFixed(1);
+                        return {
+                            strike,
+                            expiry: opt.expiration,
+                            bid: opt.bid,
+                            ask: opt.ask,
+                            mid: ((opt.bid || 0) + (opt.ask || 0)) / 2,
+                            cushion: `${cushion}%`,
+                            dte: opt.dte || Math.ceil((new Date(opt.expiration) - new Date()) / (1000*60*60*24))
+                        };
+                    });
+                
+                console.log(`[AI] Found ${alternativeStrikes.length} alternative strikes for ${parsed.ticker}`);
+                if (alternativeStrikes.length > 0) {
+                    console.log(`[AI] Alternatives:`, alternativeStrikes.map(a => `$${a.strike} (bid:$${a.bid?.toFixed(2)}, ask:$${a.ask?.toFixed(2)}, ${a.cushion} OTM)`).join(', '));
+                }
+            }
+        } catch (chainErr) {
+            console.log(`[AI] Could not fetch options chain for alternatives: ${chainErr.message}`);
+        }
+
         // Step 4: Generate AI analysis (use analysisModel - the user's selected model, including R1)
         sendProgress(4, `Generating AI analysis with ${analysisModel}...`);
         
@@ -628,9 +717,10 @@ router.post('/parse-trade', async (req, res) => {
             }
         }
         
-        const analysisPrompt = promptBuilders.buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternContext);
+        const analysisPrompt = promptBuilders.buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternContext, alternativeStrikes);
         // R1 models need more tokens because they use tokens for both thinking AND response
-        const analysisTokens = analysisModel.includes('r1') ? 3000 : 1200;
+        // Increased in v1.13+ to prevent analysis cutoff - grade + alternatives need ~1500 tokens
+        const analysisTokens = analysisModel.includes('r1') ? 4000 : 2000;
         const analysis = await AIService.callAI(analysisPrompt, analysisModel, analysisTokens);
         
         const result = { 

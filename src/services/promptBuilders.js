@@ -385,9 +385,10 @@ If premium is not explicitly stated, set it to null (we'll fetch live pricing).`
  * @param {Object} tickerData - Market data for ticker
  * @param {Object} premium - Option pricing data
  * @param {string|null} patternContext - Historical pattern context
+ * @param {Array} alternativeStrikes - Real alternative strikes from CBOE
  * @returns {string} Formatted prompt
  */
-function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternContext = null) {
+function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternContext = null, alternativeStrikes = []) {
     const t = tickerData;
     const isSpread = parsed.buyStrike || parsed.sellStrike;
     const strikeDisplay = isSpread 
@@ -550,7 +551,13 @@ ${patternContext}
 `;
     }
 
-    return `You are evaluating a TRADE CALLOUT from a Discord trading group. Analyze whether this is a good trade.
+    return `You are evaluating a TRADE CALLOUT from a Discord trading group. Give a DECISIVE opinion.
+
+IMPORTANT REMINDERS:
+- SHORT PUTS are BULLISH (you want the stock to go UP or stay flat)
+- SHORT CALLS are BEARISH (you want the stock to go DOWN or stay flat)
+- For puts: LOWER strike = MORE cushion (further OTM)
+- For calls: HIGHER strike = MORE cushion (further OTM)
 
 ═══ THE CALLOUT ═══
 Ticker: ${parsed.ticker}
@@ -574,63 +581,68 @@ Support Levels: $${t.recentSupport?.join(', $') || 'N/A'}
 ${t.earnings ? `⚠️ Earnings: ${t.earnings}` : 'No upcoming earnings'}
 ${premiumSection}
 ${patternSection}
+${alternativeStrikes.length > 0 ? `
+═══ REAL ALTERNATIVE STRIKES (from CBOE - use THESE numbers!) ═══
+${alternativeStrikes.map((alt, i) => 
+`📈 Alternative #${i+1}: $${alt.strike} strike | ${alt.cushion} OTM | Bid: $${alt.bid?.toFixed(2)} | Ask: $${alt.ask?.toFixed(2)} | Mid: $${alt.mid?.toFixed(2)} | DTE: ${alt.dte}`
+).join('\n')}
+` : ''}
 ═══ YOUR ANALYSIS ═══
+
+**START WITH THE GRADE** (This MUST be the first thing you output!)
+## TRADE GRADE: [A/B/C/D/F] - [One sentence verdict]
+
+Example: "## TRADE GRADE: C - Decent setup but poor risk/reward ratio limits upside"
+Example: "## TRADE GRADE: A - Strong entry at support with excellent premium capture"
+Example: "## TRADE GRADE: F - Avoid - strike too close, expiry too short, terrible R/R"
+
+Be DECISIVE. Don't hedge with "it depends" - commit to a grade.
+
+---
 ${patternContext ? `
 **0. PATTERN CHECK** (IMPORTANT - Look at YOUR HISTORICAL TRADING PATTERNS above!)
 - Does this trade match a WINNING pattern from your history? Mention it!
 - Does this trade resemble a LOSING pattern? WARN about it!
 - If no history exists for this ticker/strategy, say so.
 ` : ''}
-**1. TRADE SETUP REVIEW**
-- Is this a reasonable entry? Evaluate strike selection vs support/resistance.
-- Is the expiry sensible given any upcoming events?
-${isSpread ? '- For spreads: Is the premium collected a good % of spread width? (≥30% is ideal)' : '- Is the premium worth the risk? Use the RISK/REWARD MATH above.'}
-${dte <= 7 ? '- ⚠️ WITH ONLY ' + dte + ' DAYS TO EXPIRY, is there enough time for theta decay?' : ''}
-${dte >= 365 ? '- 📅 LEAPS CONSIDERATIONS: This is a long-term directional bet. Premium is HIGH but so is time value. Evaluate as stock alternative with defined risk.' : ''}
-${dte >= 180 && dte < 365 ? '- ⏳ LONG-DATED: Extended horizon gives time for thesis to play out. IV sensitivity (vega) matters more than daily theta.' : ''}
+**1. TRADE SETUP REVIEW** (Keep brief - 2-3 sentences max)
+- Strike selection vs support/resistance
+- Premium worth the risk?
+${dte <= 7 ? '- ⚠️ ONLY ' + dte + ' DAYS - enough time?' : ''}
+${dte >= 365 ? '- 📅 LEAPS - evaluate as stock proxy with defined risk' : ''}
 
-**2. TECHNICAL CHECK**
-- Note the RANGE POSITION above - use it to assess entry timing
-- How far OTM is the strike? Is there adequate cushion?
-- Are support levels being respected?
+**2. KEY NUMBERS**
+- Max Risk: $X,XXX
+- Max Profit: $XXX  
+- R/R Ratio: X.X%
+- Win Probability: ~XX%
 
-**3. RISK/REWARD**
-- What's the max risk on this trade?
-- What's the realistic profit target?
-- Is the risk/reward ratio favorable?
+**3. RED FLAGS** (List only if they exist, otherwise skip)
 
-**4. RED FLAGS**
-- Any concerns? Earnings, ex-dividend, low volume, etc.?
-- Is this "chasing" a move or entering at support?
+**4. VERDICT SPECTRUM** (One sentence each - no rambling!)
 
-**5. VERDICT SPECTRUM** (Give ALL THREE perspectives!)
-
-🟢 **AGGRESSIVE VIEW**: 
-- What's the bull case for taking this trade?
-- Probability of max profit (expires worthless): X%
-
-🟡 **MODERATE VIEW**:
-- What's the balanced take?
-- Would you take this with position sizing adjustments?
+🟢 **AGGRESSIVE**: [One sentence bull case]
+🟡 **MODERATE**: [One sentence balanced take]  
+🔴 **CONSERVATIVE**: [One sentence bear case]
 
 🔴 **CONSERVATIVE VIEW**:
-- What concerns would make you pass?
-- What would need to change for a better entry?
+[One sentence bear case / reason to pass]
 
-**6. BETTER ALTERNATIVES** (REQUIRED - Suggest improvements if the trade has issues)
-If you identified problems with this trade (poor R/R, strike too close, expiry too short, etc.), suggest 1-2 SPECIFIC alternative setups that would be better:
+**5. BETTER ALTERNATIVES** (REQUIRED if you gave grade C or worse!)
+If grade is C, D, or F, look at the REAL ALTERNATIVE STRIKES section above and recommend one.
+Use the EXACT numbers from the data - do NOT make up premiums!
 
-Example format:
-- **Better Strike**: $XX (Y% OTM instead of Z%) - More cushion, safer entry
-- **Better Expiry**: YYYY-MM-DD (45 DTE instead of 26) - More time for theta, higher premium
-- **Adjusted Position**: Sell the $XX put for $X.XX premium instead - Better R/R ratio of X%
-- **Different Strategy**: Consider a put spread $XX/$YY to cap risk at $ZZZ
+📈 **RECOMMENDED ALTERNATIVE:**
+| Strike | Expiry | REAL Premium | Cushion |
+|--------|--------|--------------|---------|
+| $XX    | from data | $X.XX (bid/ask from data) | XX% OTM |
+**Why better:** [One sentence explaining improved R/R]
 
-If the original trade is actually good, say "Original setup is sound - no major improvements needed."
+If no alternatives are shown above, or the original trade is grade A/B, simply state:
+"Original setup is sound - no changes recommended."
 
-**BOTTOM LINE**: In one sentence, what type of trader is this trade best suited for?
-
-Be specific. Use the data. Give percentages where possible.`;
+---
+**BOTTOM LINE**: One decisive sentence - "Take it" or "Pass" and why.`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
