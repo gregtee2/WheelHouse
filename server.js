@@ -857,47 +857,47 @@ const mainHandler = async (req, res, next) => {
             console.log(`  Total Buying Power: $${cv.totalBuyingPower.toLocaleString()}`);
             
             // =====================================================================
-            // NUCLEAR MATH FIX: Replace ANY 5+ digit dollar amount in profit/loss context
+            // NUCLEAR MATH FIX: Replace ANY obviously wrong dollar amounts
             // The AI hallucinates numbers like $94,365, $199,365, $500,035
             // Our actual totals are always < $10,000 for this account size
             // =====================================================================
             
-            // Pattern: $XXX,XXX or $XX,XXX (any 5-6 digit amount with comma)
-            // These are ALWAYS wrong for a ~$5k buying power account
-            const fiveOrSixDigitDollar = /\$\d{2,3},\d{3}/g;
+            // Debug: Log a sample of the AI response to see what we're working with
+            const profitLine = aiResponse.match(/Max Profit[^\n]{0,50}/gi);
+            const lossLine = aiResponse.match(/Max Loss[^\n]{0,50}/gi);
+            console.log(`[STRATEGY-ADVISOR] 🔍 Found profit lines: ${JSON.stringify(profitLine)}`);
+            console.log(`[STRATEGY-ADVISOR] 🔍 Found loss lines: ${JSON.stringify(lossLine)}`);
+            
+            // More aggressive pattern: Any dollar amount with 5+ digits (with or without comma)
+            // Matches: $94365, $94,365, $199365, $199,365, $500035, $500,035
+            const largeNumber = /\$\d{2,3},?\d{3}/g;
             
             // Count hallucinations before fixing
-            const hallucinationCount = (aiResponse.match(fiveOrSixDigitDollar) || []).length;
-            if (hallucinationCount > 0) {
-                console.log(`[STRATEGY-ADVISOR] ⚠️ Found ${hallucinationCount} hallucinated large dollar amounts`);
-            }
+            const allLargeNumbers = aiResponse.match(largeNumber) || [];
+            console.log(`[STRATEGY-ADVISOR] 🔍 Large numbers found: ${JSON.stringify(allLargeNumbers)}`);
             
-            // Fix "Max Profit:" lines - replace any 5+ digit number
-            aiResponse = aiResponse.replace(/Max Profit[:\s]+\$\d{2,3},\d{3}/gi, 
+            // Replace in "Max Profit" context (with various spacings)
+            aiResponse = aiResponse.replace(/Max\s*Profit[:\s]*\$\d{2,3},?\d{3}/gi, 
                 `Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
             
-            // Fix "Max Loss:" lines - replace any 5+ digit number  
-            aiResponse = aiResponse.replace(/Max Loss[:\s]+\$\d{2,3},\d{3}/gi,
+            // Replace in "Max Loss" context  
+            aiResponse = aiResponse.replace(/Max\s*Loss[:\s]*\$\d{2,3},?\d{3}/gi,
                 `Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
             
-            // Fix P&L table: +$XX,XXX patterns
-            aiResponse = aiResponse.replace(/\+\$\d{2,3},\d{3}/g, 
+            // Fix P&L table: +$XX,XXX or +$XXXXX patterns
+            aiResponse = aiResponse.replace(/\+\s*\$\d{2,3},?\d{3}/g, 
                 `+$${cv.totalPutMaxProfit.toLocaleString()}`);
             
-            // Fix P&L table: -$XX,XXX patterns
-            aiResponse = aiResponse.replace(/-\$\d{2,3},\d{3}/g,
+            // Fix P&L table: -$XX,XXX or -$XXXXX patterns
+            aiResponse = aiResponse.replace(/-\s*\$\d{2,3},?\d{3}/g,
                 `-$${cv.totalPutMaxLoss.toLocaleString()}`);
             
-            // Fix standalone $XX,XXX or $XXX,XXX that appear elsewhere
-            // Only replace if it's NOT a strike price context (strike prices are $XX not $XX,XXX)
-            // But we need to be careful not to replace valid buying power amounts
-            
             // Count remaining after fix
-            const remainingCount = (aiResponse.match(fiveOrSixDigitDollar) || []).length;
-            if (remainingCount > 0) {
-                console.log(`[STRATEGY-ADVISOR] ⚠️ ${remainingCount} large dollar amounts remain (may be valid)`);
-            } else if (hallucinationCount > 0) {
-                console.log(`[STRATEGY-ADVISOR] ✅ Fixed ${hallucinationCount} hallucinated dollar amounts`);
+            const remainingNumbers = aiResponse.match(largeNumber) || [];
+            if (remainingNumbers.length > 0) {
+                console.log(`[STRATEGY-ADVISOR] ⚠️ ${remainingNumbers.length} large dollar amounts remain: ${JSON.stringify(remainingNumbers)}`);
+            } else if (allLargeNumbers.length > 0) {
+                console.log(`[STRATEGY-ADVISOR] ✅ Fixed ${allLargeNumbers.length} hallucinated dollar amounts`);
             }
             
             console.log(`[STRATEGY-ADVISOR] ✅ Math post-processing complete`);
