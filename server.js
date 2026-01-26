@@ -881,12 +881,24 @@ const mainHandler = async (req, res, next) => {
             // Order matters! Fix doubled numbers FIRST, then specific patterns
             // =====================================================================
             
-            // STEP 0: Fix doubled numbers FIRST (like "1,365,365" or "$1,365,365")
-            // These are AI hallucinations where it doubles the number
-            // Pattern: X,YYY,YYY where YYY repeats (with or without $ prefix)
+            // DEBUG: Log what we're working with in P/L table area
+            const plTableMatch = aiResponse.match(/\|\s*\$?\d+[^\n]*\|[^\n]*\|/g);
+            if (plTableMatch) {
+                console.log(`[STRATEGY-ADVISOR] 📋 P/L table rows found: ${JSON.stringify(plTableMatch.slice(0, 3))}`);
+            }
+            
+            // STEP 0: Fix doubled numbers (like "1,365,365" or "$1,365,365")
+            // Pattern: X,YYY,YYY where YYY repeats
             aiResponse = aiResponse.replace(/\$?(\d{1,3}),(\d{3}),\2(?!\d)/g, (match, first, second) => {
                 console.log(`[STRATEGY-ADVISOR] 🔧 Fixed doubled number: ${match} → $${first},${second}`);
                 return `$${first},${second}`;
+            });
+            
+            // STEP 0b: NUCLEAR - Any 7-digit number pattern X,XXX,XXX is wrong
+            aiResponse = aiResponse.replace(/(\+|-)\s*\$?(\d),(\d{3}),(\d{3})(?!\d)/g, (match, sign, d1, d2, d3) => {
+                const correctVal = sign === '+' ? cv.totalPutMaxProfit : cv.totalPutMaxLoss;
+                console.log(`[STRATEGY-ADVISOR] 🔧 Fixed 7-digit P/L: ${match} → ${sign}$${correctVal.toLocaleString()}`);
+                return `${sign}$${correctVal.toLocaleString()}`;
             });
             
             // STEP 1: Fix "Total Max Profit:" and "Max Profit:" - handle both patterns
@@ -904,7 +916,6 @@ const mainHandler = async (req, res, next) => {
                 `TOTAL Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
             
             // STEP 4: Fix P&L table rows with + prefix (any large number = total)
-            // Match: +$X,XXX or +$XX,XXX or +$XXX,XXX or without $
             aiResponse = aiResponse.replace(/\+\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g, 
                 `+$${cv.totalPutMaxProfit.toLocaleString()}`);
             
