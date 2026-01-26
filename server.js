@@ -713,8 +713,9 @@ const mainHandler = async (req, res, next) => {
             
             console.log(`[STRATEGY-ADVISOR] ✅ Quote from ${quote.source}: $${quote.price}`);
             
-            // 2. Get options chain
-            const chain = await MarketDataService.getOptionsChain(ticker, { strikeCount: 20, range: 'NTM' });
+            // 2. Get options chain - need wider strike range for spreads
+            // strikeCount: 40 gives us ~$20 range on either side of ATM
+            const chain = await MarketDataService.getOptionsChain(ticker, { strikeCount: 40, range: 'ALL' });
             
             let sampleOptions = [];
             let expirations = [];
