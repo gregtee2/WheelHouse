@@ -823,8 +823,8 @@ const mainHandler = async (req, res, next) => {
                 dataSource
             };
             
-            // 4. Build AI prompt
-            const prompt = buildStrategyAdvisorPrompt(context);
+            // 4. Build AI prompt (returns { prompt, calculatedValues })
+            const { prompt, calculatedValues } = buildStrategyAdvisorPrompt(context);
             
             // Debug: Show what strikes we're sending to AI
             if (context.sampleOptions?.length > 0) {
@@ -844,7 +844,47 @@ const mainHandler = async (req, res, next) => {
             let aiResponse = await callAI(prompt, selectedModel, 2000);
             
             // =====================================================================
-            // POST-PROCESSING: Fix AI hallucinations where it outputs "$1" for everything
+            // POST-PROCESSING #1: Fix math hallucinations (AI concatenating numbers)
+            // The AI sees "$94 strike" and "$1,362 profit" and outputs "$94,362"
+            // We know the CORRECT values, so we replace any obviously wrong amounts
+            // =====================================================================
+            const cv = calculatedValues;
+            
+            // Log what we expect to see
+            console.log(`[STRATEGY-ADVISOR] 🔢 Post-processing - Expected values:`);
+            console.log(`  Total Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
+            console.log(`  Total Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
+            console.log(`  Total Buying Power: $${cv.totalBuyingPower.toLocaleString()}`);
+            
+            // Fix profit/loss totals that are way too high (hallucinated)
+            // Pattern: Any dollar amount > $50,000 in profit/loss context is wrong
+            // (For a $4,687 buying power account, max loss can't be >$50k)
+            const wrongProfitPattern = /Max\s+Profit[:\s]*\$[\d,]+,[\d,]+/gi; // e.g. "$94,365" or "$199,365"
+            const wrongLossPattern = /Max\s+Loss[:\s]*\$[\d,]+,[\d,]+/gi;
+            
+            // Replace hallucinated large numbers with correct values
+            // First, fix "Max Profit: $X" patterns
+            aiResponse = aiResponse.replace(/Total\s+Max\s+Profit[:\s]*\$[\d,]+/gi, 
+                `Total Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
+            aiResponse = aiResponse.replace(/Max\s+Profit[:\s]*\$[\d]{2,3},[\d]{3}/gi, 
+                `Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
+            
+            // Fix "Max Loss: $X" patterns  
+            aiResponse = aiResponse.replace(/Total\s+Max\s+Loss[:\s]*\$[\d,]+/gi,
+                `Total Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
+            aiResponse = aiResponse.replace(/Max\s+Loss[:\s]*\$[\d]{2,3},[\d]{3}/gi,
+                `Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
+            
+            // Fix P&L table values (these show up as +$XX,XXX or -$XX,XXX)
+            aiResponse = aiResponse.replace(/\+\$[\d]{2,3},[\d]{3}/g, 
+                `+$${cv.totalPutMaxProfit.toLocaleString()}`);
+            aiResponse = aiResponse.replace(/-\$[\d]{2,3},[\d]{3}/g,
+                `-$${cv.totalPutMaxLoss.toLocaleString()}`);
+                
+            console.log(`[STRATEGY-ADVISOR] ✅ Math hallucination post-processing complete`);
+            
+            // =====================================================================
+            // POST-PROCESSING #2: Fix AI hallucinations where it outputs "$1" for everything
             // This is a known issue with some models (DeepSeek-R1, Grok) that replace
             // dollar amounts with "$1" placeholder
             // =====================================================================
@@ -4435,6 +4475,16 @@ function buildStrategyAdvisorPrompt(context) {
     console.log(`  First Expiry: ${firstExpiry}`);
     console.log(`  Options in chain: ${sampleOptions?.length || 0}, Puts: ${puts.length}, Calls: ${calls.length}`);
     
+    // DEBUG: Log the exact TOTALS being sent (to verify AI isn't hallucinating)
+    const totalMaxProfit = putSpreadCredit * 100 * conservativeContracts;
+    const totalMaxLoss = (putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts;
+    console.log(`[STRATEGY-ADVISOR] 💰 EXACT TOTALS BEING SENT TO AI:`);
+    console.log(`  Conservative contracts: ${conservativeContracts}`);
+    console.log(`  Max Profit per contract: $${(putSpreadCredit * 100).toFixed(0)}`);
+    console.log(`  Max Loss per contract: $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)}`);
+    console.log(`  TOTAL MAX PROFIT: $${totalMaxProfit.toLocaleString()} ← AI MUST output this EXACT number`);
+    console.log(`  TOTAL MAX LOSS: $${totalMaxLoss.toLocaleString()} ← AI MUST output this EXACT number`);
+    
     // Format sample options for context - CRYSTAL CLEAR format to prevent AI confusion
     let optionsContext = '';
     if (sampleOptions && sampleOptions.length > 0) {
@@ -4508,7 +4558,7 @@ function buildStrategyAdvisorPrompt(context) {
         else ivDesc = `High (${ivRank}%) - options are expensive, strongly favor SELLING`;
     }
     
-    return `You are an expert options strategist helping a trader who is NEW to complex strategies beyond basic puts and calls.
+    const promptText = `You are an expert options strategist helping a trader who is NEW to complex strategies beyond basic puts and calls.
 
 ═══════════════════════════════════════════════════════════════════════════
 TICKER: ${ticker}
@@ -4729,6 +4779,27 @@ Confirm: My recommended strikes ($${sellPutStrike}/$${buyPutStrike} for puts, $$
 
 ### 🔢 MATH VERIFICATION (required)
 I confirm that my Max Profit total ($${(putSpreadCredit * 100 * conservativeContracts).toLocaleString()}) and Max Loss total ($${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()}) are copied directly from the SETUP section above, NOT calculated by me.`;
+    
+    // Return both the prompt AND the calculated values for post-processing
+    return {
+        prompt: promptText,
+        calculatedValues: {
+            conservativeContracts,
+            putSpreadCredit,
+            putSpreadWidth,
+            callSpreadCredit,
+            callSpreadWidth,
+            sellPutStrike,
+            buyPutStrike,
+            sellCallStrike,
+            buyCallStrike,
+            totalPutMaxProfit: Math.round(putSpreadCredit * 100 * conservativeContracts),
+            totalPutMaxLoss: Math.round((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts),
+            totalCallMaxProfit: Math.round(callSpreadCredit * 100 * conservativeContracts),
+            totalCallMaxLoss: Math.round((callSpreadWidth - callSpreadCredit) * 100 * conservativeContracts),
+            totalBuyingPower: Math.round(putSpreadWidth * 100 * conservativeContracts)
+        }
+    };
 }
 
 // Build a prompt for generating trade ideas (with real prices!)
