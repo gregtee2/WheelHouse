@@ -140,26 +140,40 @@ function startServer() {
 
 function stopServer() {
     return new Promise((resolve) => {
+        const { exec } = require('child_process');
+        
+        // Set a timeout to prevent hanging forever
+        const timeout = setTimeout(() => {
+            console.log('[Server] Stop timeout - forcing continue...');
+            serverProcess = null;
+            resolve();
+        }, 10000); // 10 second max wait
+        
+        const cleanup = () => {
+            clearTimeout(timeout);
+            serverProcess = null;
+            console.log('[Server] Server stopped, waiting for port to clear...');
+            setTimeout(resolve, 1500);
+        };
+        
         if (serverProcess) {
             const pid = serverProcess.pid;
             console.log(`[Server] Stopping server process (PID: ${pid})...`);
             
             // On Windows, use taskkill to force-kill the process tree
             if (process.platform === 'win32') {
-                const { exec } = require('child_process');
-                
-                // Kill the specific process tree
+                // Kill the specific process tree first
                 exec(`taskkill /PID ${pid} /T /F`, (err) => {
                     if (err) {
                         console.log(`[Server] taskkill error (may be already dead): ${err.message}`);
                     }
                     
-                    // Also kill any orphaned node on port 8888
-                    exec('for /f "tokens=5" %a in (\'netstat -ano ^| findstr :8888 ^| findstr LISTENING\') do taskkill /PID %a /F', (err2) => {
-                        serverProcess = null;
-                        console.log('[Server] Server stopped, waiting for port to clear...');
-                        // Give port time to clear
-                        setTimeout(resolve, 1500);
+                    // Also kill any orphaned node on port 8888 using PowerShell (more reliable)
+                    exec('powershell -Command "Get-NetTCPConnection -LocalPort 8888 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"', (err2) => {
+                        if (err2) {
+                            console.log(`[Server] Port cleanup warning: ${err2.message}`);
+                        }
+                        cleanup();
                     });
                 });
             } else {
@@ -169,19 +183,17 @@ function stopServer() {
                     if (serverProcess) {
                         serverProcess.kill('SIGKILL');
                     }
-                    serverProcess = null;
-                    resolve();
+                    cleanup();
                 }, 500);
             }
         } else {
             // No process but still clear any orphaned port usage
             if (process.platform === 'win32') {
-                const { exec } = require('child_process');
-                exec('for /f "tokens=5" %a in (\'netstat -ano ^| findstr :8888 ^| findstr LISTENING\') do taskkill /PID %a /F', () => {
-                    setTimeout(resolve, 500);
+                exec('powershell -Command "Get-NetTCPConnection -LocalPort 8888 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"', () => {
+                    cleanup();
                 });
             } else {
-                resolve();
+                cleanup();
             }
         }
     });
