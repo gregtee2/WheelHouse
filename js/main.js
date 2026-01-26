@@ -1631,21 +1631,29 @@ window.deepDive = async function(ticker) {
 /**
  * Analyze a Discord trade callout
  * Parses the trade text, fetches data, and runs AI analysis
+ * @param {string} tradeTextOverride - Optional: pass text directly instead of reading from DOM
+ * @param {string} modelOverride - Optional: pass model directly instead of reading from DOM
  */
-window.analyzeDiscordTrade = async function() {
-    const textarea = document.getElementById('pasteTradeInput');
-    const tradeText = textarea?.value?.trim();
+window.analyzeDiscordTrade = async function(tradeTextOverride, modelOverride) {
+    // Use overrides if provided, otherwise read from DOM
+    let tradeText, model;
+    
+    if (tradeTextOverride) {
+        tradeText = tradeTextOverride;
+        model = modelOverride || 'deepseek-r1:32b';
+    } else {
+        const textarea = document.getElementById('pasteTradeInput');
+        tradeText = textarea?.value?.trim();
+        const discordModelSelect = document.getElementById('discordModelSelect');
+        const mainModelSelect = document.getElementById('aiModelSelect');
+        model = discordModelSelect?.value || mainModelSelect?.value || 'deepseek-r1:32b';
+    }
     
     if (!tradeText) {
         showNotification('Paste a trade callout first', 'error');
         return;
     }
-    
-    // Get selected model from Discord-specific dropdown (falls back to main AI dropdown)
-    const discordModelSelect = document.getElementById('discordModelSelect');
-    const mainModelSelect = document.getElementById('aiModelSelect');
-    const model = discordModelSelect?.value || mainModelSelect?.value || 'deepseek-r1:32b';
-    
+
     // Create modal with loading state
     const modal = document.createElement('div');
     modal.id = 'discordTradeModal';
@@ -4067,7 +4075,7 @@ window.stageStrategyAdvisorTrade = function() {
         return;
     }
     
-    const { ticker, spot, recommendation } = lastStrategyAdvisorResult;
+    const { ticker, spot, recommendation, ivRank, model, stockData } = lastStrategyAdvisorResult;
     
     // Parse the AI recommendation to extract trade details
     // The AI outputs structured sections like "Sell: $90 put @ $2.50"
@@ -4304,9 +4312,15 @@ window.stageStrategyAdvisorTrade = function() {
         isDebit,
         source: 'Strategy Advisor',
         stagedAt: now,  // For display in render
-        thesis: {
+        currentPrice: spot,
+        // Proper openingThesis structure (same as Discord Analyzer)
+        openingThesis: {
+            analyzedAt: new Date().toISOString(),
             priceAtAnalysis: spot,
-            aiRecommendation: recommendation?.substring(0, 500) + '...'
+            rangePosition: stockData?.rangePosition || null,
+            iv: ivRank || null,  // IV rank at time of analysis
+            modelUsed: model || 'unknown',
+            aiSummary: extractThesisSummary(recommendation)
         }
     };
     
@@ -4334,27 +4348,29 @@ window.stageStrategyAdvisorTrade = function() {
 
 /**
  * Ideas Tab: Discord Trade Analyzer (uses Ideas tab element IDs)
- * Wrapper that calls the main analyzeDiscordTrade but swaps element sources
+ * Directly calls the API instead of relying on element swapping
  */
 window.analyzeDiscordTrade2 = async function() {
-    // Temporarily swap IDs so the main function works
     const textarea = document.getElementById('pasteTradeInput2');
     const modelSelect = document.getElementById('discordModelSelect2');
+    const tradeText = textarea?.value?.trim();
     
-    if (!textarea || !textarea.value.trim()) {
+    if (!tradeText) {
         showNotification('Paste a trade callout first', 'error');
         return;
     }
     
-    // Temporarily set the main elements to our values (for modal display)
-    const mainTextarea = document.getElementById('pasteTradeInput');
-    if (mainTextarea) mainTextarea.value = textarea.value;
+    const model = modelSelect?.value || 'deepseek-r1:32b';
     
-    const mainModel = document.getElementById('discordModelSelect');
-    if (mainModel) mainModel.value = modelSelect?.value || 'deepseek-r1:32b';
-    
-    // Call the main function
-    window.analyzeDiscordTrade();
+    // Call analyzeDiscordTrade with the text directly
+    window.analyzeDiscordTrade(tradeText, model);
+};
+
+/**
+ * Alias for calling analyzeDiscordTrade with text directly
+ */
+window.analyzeDiscordTradeWithText = function(tradeText, model) {
+    window.analyzeDiscordTrade(tradeText, model);
 };
 
 /**

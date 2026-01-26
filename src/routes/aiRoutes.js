@@ -523,6 +523,12 @@ router.post('/parse-trade', async (req, res) => {
         const { tradeText, model, closedSummary } = req.body;
         const selectedModel = model || 'qwen2.5:7b';
         
+        // For parsing, use a simpler model - R1's "thinking" wastes tokens on simple JSON extraction
+        // R1 is great for analysis but overkill for parsing
+        const isR1 = selectedModel.includes('r1');
+        const parseModel = isR1 ? 'qwen2.5:7b' : selectedModel;
+        const analysisModel = selectedModel; // Use selected model for actual analysis
+        
         if (acceptsSSE) {
             res.set({
                 'Content-Type': 'text/event-stream',
@@ -531,12 +537,15 @@ router.post('/parse-trade', async (req, res) => {
             });
         }
         
-        sendProgress(1, `Loading ${selectedModel}...`, { total: 4 });
+        sendProgress(1, `Loading ${parseModel}...`, { total: 4 });
         
-        // Step 1: Parse trade text
+        // Step 1: Parse trade text (use parseModel - simpler model for JSON extraction)
         const parsePrompt = promptBuilders.buildTradeParsePrompt(tradeText);
-        sendProgress(1, `Parsing trade callout with ${selectedModel}...`);
-        const parsedJson = await AIService.callAI(parsePrompt, selectedModel, 500);
+        sendProgress(1, `Parsing trade callout with ${parseModel}...`);
+        let parsedJson = await AIService.callAI(parsePrompt, parseModel, 500);
+        
+        // Strip <think>...</think> tags from R1 models before parsing
+        parsedJson = parsedJson.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
         
         let parsed;
         try {
@@ -548,6 +557,7 @@ router.post('/parse-trade', async (req, res) => {
             }
         } catch (parseErr) {
             console.log('[AI] Parse extraction failed:', parseErr.message);
+            console.log('[AI] Raw response was:', parsedJson.substring(0, 500));
             if (acceptsSSE) {
                 res.write(`data: ${JSON.stringify({ type: 'error', error: 'Could not parse trade format.' })}\n\n`);
                 return res.end();
@@ -597,8 +607,8 @@ router.post('/parse-trade', async (req, res) => {
             premium = await DataService.fetchOptionPremium(parsed.ticker, strikeNum, formatExpiryForCBOE(parsed.expiry), optionType);
         }
         
-        // Step 4: Generate AI analysis
-        sendProgress(4, `Generating AI analysis with ${selectedModel}...`);
+        // Step 4: Generate AI analysis (use analysisModel - the user's selected model, including R1)
+        sendProgress(4, `Generating AI analysis with ${analysisModel}...`);
         
         // Build pattern context from closed positions
         let patternContext = null;
@@ -619,7 +629,9 @@ router.post('/parse-trade', async (req, res) => {
         }
         
         const analysisPrompt = promptBuilders.buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternContext);
-        const analysis = await AIService.callAI(analysisPrompt, selectedModel, 1200);
+        // R1 models need more tokens because they use tokens for both thinking AND response
+        const analysisTokens = analysisModel.includes('r1') ? 3000 : 1200;
+        const analysis = await AIService.callAI(analysisPrompt, analysisModel, analysisTokens);
         
         const result = { 
             type: 'complete',
@@ -628,7 +640,7 @@ router.post('/parse-trade', async (req, res) => {
             tickerData,
             premium,
             analysis,
-            model: selectedModel
+            model: analysisModel
         };
         
         if (acceptsSSE) {
