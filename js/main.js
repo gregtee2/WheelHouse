@@ -3896,13 +3896,35 @@ window.runStrategyAdvisor = async function() {
     const model = modelSelect?.value || 'deepseek-r1:32b';
     const riskTolerance = riskSelect?.value || 'moderate';
     
-    // Get buying power from AccountService (single source of truth)
-    // Falls back to manual input field, then default
-    let buyingPower = AccountService.getBuyingPower() 
-        || parseFloat(bpInput?.value) 
-        || 25000;
+    // =========================================================================
+    // PROP DESK SIZING: Use Conservative Kelly Base, NOT raw buying power
+    // Kelly Base = Account Value + (25% × Available Margin)
+    // Then apply Half-Kelly for even more conservative sizing
+    // =========================================================================
+    const buyingPower = AccountService.getBuyingPower() || parseFloat(bpInput?.value) || 25000;
+    const accountValue = AccountService.getAccountValue() || buyingPower * 0.5; // Estimate if not available
     
-    console.log(`[STRATEGY-ADVISOR] Using buying power: $${buyingPower.toLocaleString()} (source: ${AccountService.getBuyingPower() ? 'Schwab' : 'fallback'})`);
+    // Calculate conservative Kelly Base (same formula as Portfolio Analytics)
+    let kellyBase = 0;
+    if (accountValue > 0) {
+        const availableMargin = Math.max(0, buyingPower - accountValue);
+        kellyBase = accountValue + (availableMargin * 0.25);
+    } else {
+        kellyBase = buyingPower * 0.625; // Fallback: 50% + 25% of remaining 50%
+    }
+    
+    // Apply Half-Kelly for conservative sizing (prop desks typically use 1/4 to 1/2 Kelly)
+    const maxPositionSize = kellyBase * 0.5; // Half Kelly
+    
+    // Cap at 60% of max position size per trade (no single trade > 60% of Half-Kelly)
+    const perTradeCap = maxPositionSize * 0.6;
+    
+    console.log(`[STRATEGY-ADVISOR] Prop Desk Sizing:`);
+    console.log(`  Account Value: $${accountValue.toLocaleString()}`);
+    console.log(`  Buying Power: $${buyingPower.toLocaleString()}`);
+    console.log(`  Kelly Base: $${kellyBase.toLocaleString()}`);
+    console.log(`  Half-Kelly Max: $${maxPositionSize.toLocaleString()}`);
+    console.log(`  Per-Trade Cap (60%): $${perTradeCap.toLocaleString()}`);
     
     // Show loading state
     loadingDiv.style.display = 'block';
@@ -3913,7 +3935,7 @@ window.runStrategyAdvisor = async function() {
         // Get existing positions for context
         const existingPositions = state.positions || [];
         
-        console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with BP=$${buyingPower.toLocaleString()}...`);
+        console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with Kelly-capped BP=$${perTradeCap.toLocaleString()}...`);
         progressDiv.textContent = `Analyzing ${ticker} with ${model}...`;
         
         const response = await fetch('/api/ai/strategy-advisor', {
@@ -3922,7 +3944,9 @@ window.runStrategyAdvisor = async function() {
             body: JSON.stringify({
                 ticker,
                 model,
-                buyingPower,
+                buyingPower: perTradeCap,  // Send Kelly-capped amount, not raw BP
+                accountValue,               // For context in prompt
+                kellyBase,                  // For display
                 riskTolerance,
                 existingPositions
             })

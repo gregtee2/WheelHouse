@@ -816,6 +816,8 @@ const mainHandler = async (req, res, next) => {
                 expirations,
                 sampleOptions: sampleOptions, // All options in range (already filtered to ±$15 of spot)
                 buyingPower: buyingPower || 25000,
+                accountValue: accountValue || null,    // For prop desk context
+                kellyBase: kellyBase || null,          // For prop desk sizing display
                 riskTolerance: riskTolerance || 'moderate',
                 existingPositions: existingPositions || [],
                 dataSource
@@ -4248,7 +4250,7 @@ Be honest but constructive. Focus on the PROCESS, not just the outcome. A losing
 // BUILD STRATEGY ADVISOR PROMPT - Analyzes all strategies and recommends best
 // ═══════════════════════════════════════════════════════════════════════════
 function buildStrategyAdvisorPrompt(context) {
-    const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, riskTolerance, existingPositions, dataSource } = context;
+    const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, dataSource } = context;
     
     // =========================================================================
     // HELPER: Round strike to valid increment ($1 for stocks > $50, $0.50 for < $50)
@@ -4380,6 +4382,47 @@ function buildStrategyAdvisorPrompt(context) {
     }
     const firstExpiry = targetExpiry;
     
+    // =========================================================================
+    // PROP DESK WARNINGS - Professional risk management checks
+    // =========================================================================
+    const propDeskWarnings = [];
+    
+    // 1. Calculate DTE for gamma warning
+    const today = new Date();
+    let targetDTE = 30;
+    if (firstExpiry && firstExpiry !== 'next monthly') {
+        const expDate = new Date(firstExpiry);
+        targetDTE = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+    }
+    
+    // Gamma alert: Short DTE + wide spread = high gamma risk
+    if (targetDTE < 14 && putSpreadWidth >= spot * 0.03) {
+        propDeskWarnings.push(`⚠️ HIGH GAMMA RISK: ${targetDTE} DTE with $${putSpreadWidth} spread. Short expiry amplifies losses on gaps.`);
+    }
+    
+    // 2. IV vs estimated HV check (rough approximation)
+    // High IV may persist in volatile assets
+    if (ivRank > 70) {
+        propDeskWarnings.push(`📊 IV ELEVATED (${ivRank}%): Good for selling, but vol could persist or spike on news. Set stops.`);
+    } else if (ivRank < 30) {
+        propDeskWarnings.push(`📉 IV LOW (${ivRank}%): Options are cheap. Favor buying strategies or wait for vol spike.`);
+    }
+    
+    // 3. Position sizing guidance
+    const marginPerSpread = putSpreadWidth * 100;
+    const maxContractsByKelly = buyingPower > 0 ? Math.floor(buyingPower / marginPerSpread) : 10;
+    const conservativeContracts = Math.max(1, Math.floor(maxContractsByKelly * 0.6)); // 60% of max
+    propDeskWarnings.push(`💰 POSITION SIZE: Max ${maxContractsByKelly} contracts by Kelly, recommend ${conservativeContracts} (60% for safety buffer).`);
+    
+    // 4. Liquidity check (approximate - we'd need OI data for real check)
+    // Flag if using very low-priced options
+    if (atmPutMid < 0.50 || otmPutMid < 0.20) {
+        propDeskWarnings.push(`💧 LIQUIDITY NOTE: Low premium options may have wide bid/ask spreads. Consider legging in.`);
+    }
+    
+    // 5. Win probability from delta
+    const winProbability = Math.round((1 - Math.abs(atmPutDelta)) * 100);
+    
     // DEBUG: Log what we're sending to AI
     console.log(`[STRATEGY-ADVISOR] Pre-calculated values for AI prompt:`);
     console.log(`  ATM Put: $${atmPut?.strike} bid=${atmPut?.bid} ask=${atmPut?.ask} → mid=$${atmPutMid.toFixed(2)}`);
@@ -4485,10 +4528,35 @@ REAL OPTIONS CHAIN DATA (USE THESE EXACT STRIKES AND PREMIUMS!):
 ${optionsContext || 'Options data not available'}
 
 USER PROFILE:
-• Buying Power: $${buyingPower.toLocaleString()}
+• Available Capital: $${buyingPower.toLocaleString()} (Kelly-adjusted, Half-Kelly of account)${kellyBase ? `\n• Kelly Base: $${kellyBase.toLocaleString()} (Account Value + 25% margin)` : ''}${accountValue ? `\n• Account Value: $${accountValue.toLocaleString()}` : ''}
 • Risk Tolerance: ${riskTolerance}
 • Existing ${ticker} Positions:
 ${positionsContext}
+
+═══════════════════════════════════════════════════════════════════════════
+🏦 PROP DESK RISK CHECKS:
+═══════════════════════════════════════════════════════════════════════════
+${propDeskWarnings.join('\n')}
+
+═══════════════════════════════════════════════════════════════════════════
+PRE-CALCULATED SPREAD VALUES (USE THESE EXACT NUMBERS!):
+═══════════════════════════════════════════════════════════════════════════
+PUT CREDIT SPREAD (Bull Put):
+• Sell: $${sellPutStrike} put @ $${atmPutMid.toFixed(2)}
+• Buy: $${buyPutStrike} put @ $${otmPutMid.toFixed(2)}
+• Net Credit: $${putSpreadCredit.toFixed(2)} per share ($${(putSpreadCredit * 100).toFixed(0)} per contract)
+• Spread Width: $${putSpreadWidth}
+• Max Loss: $${(putSpreadWidth - putSpreadCredit).toFixed(2)} per share
+• Breakeven: $${(sellPutStrike - putSpreadCredit).toFixed(2)}
+• Net Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH)
+• Win Probability: ~${winProbability}%
+• Recommended Contracts: ${conservativeContracts}
+
+CALL CREDIT SPREAD (Bear Call):
+• Sell: $${sellCallStrike} call
+• Buy: $${buyCallStrike} call
+• Net Credit: $${callSpreadCredit.toFixed(2)} per share
+• Net Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH)
 
 ═══════════════════════════════════════════════════════════════════════════
 STRATEGIES TO EVALUATE (analyze ALL of these):
@@ -4559,10 +4627,10 @@ SETUP B - Put Credit Spread (Bull Put) - ALL MATH PRE-CALCULATED:
   • Max Loss per contract = ($${putSpreadWidth.toFixed(2)} - $${putSpreadCredit.toFixed(2)}) × 100 = $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)}
   • Breakeven = $${sellPutStrike} - $${putSpreadCredit.toFixed(2)} = $${(sellPutStrike - putSpreadCredit).toFixed(2)}
   • Buying Power Required = Spread Width × 100 = $${(putSpreadWidth * 100).toFixed(0)} per contract
-  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (putSpreadWidth * 100))} contracts
+  • Max contracts (Kelly): ${maxContractsByKelly} | Recommended (60%): ${conservativeContracts} contracts
   • Risk/Reward Ratio = $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)} / $${(putSpreadCredit * 100).toFixed(0)} = ${((putSpreadWidth - putSpreadCredit) / putSpreadCredit).toFixed(1)}:1
   • Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH - you want stock to stay UP)
-  • Win Probability: ~${(60 + putSpreadDelta * 20).toFixed(0)}% (stock expires above $${sellPutStrike})
+  • Win Probability: ~${winProbability}% (stock expires above $${sellPutStrike})
 
 SETUP C - Covered Call (requires owning 100 shares per contract):
   Trade: Sell ${ticker} $${sellCallStrike} Call, ${firstExpiry}
@@ -4596,18 +4664,19 @@ Respond with this format:
 ### WHY THIS STRATEGY (explain in plain English)
 • [Reason 1 - tie to IV level of ${ivRank || '?'}%]
 • [Reason 2 - tie to stock position in range: ${stockData?.rangePosition || '?'}%]
-• [Reason 3 - tie to buying power of $${buyingPower.toLocaleString()}]
+• [Reason 3 - tie to risk management]
 
 ### THE RISKS
 • ⚠️ [Risk 1]
 • ⚠️ [Risk 2]
+${propDeskWarnings.length > 0 ? '\n### 🏦 PROP DESK RISK NOTES\n' + propDeskWarnings.map(w => `• ${w}`).join('\n') : ''}
 
 ### THE NUMBERS (COPY FROM SETUP ABOVE - do NOT make up numbers!)
 • Max Profit: [Copy from setup's "Max Profit per contract" × your contract count]
 • Max Loss: [Copy from setup's "Max Loss per contract" × your contract count]
 • Breakeven: [Copy from setup's "Breakeven" value]
-• Contracts: [Use ${riskTolerance === 'conservative' ? '50%' : riskTolerance === 'aggressive' ? '80%' : '60%'} of max contracts from setup]
-• Win Probability: [Copy from setup - typically 60-70% for credit spreads]
+• Contracts: ${conservativeContracts} (60% of Kelly max - prop desk sizing)
+• Win Probability: ~${winProbability}% (based on delta)
 • Risk/Reward Ratio: [Copy from setup's "Risk/Reward Ratio"]
 
 ### 📊 PROFIT/LOSS AT EXPIRATION
@@ -4621,8 +4690,8 @@ Using your recommended contract count, multiply per-contract values:
 | $${buyPutStrike} or lower | -$[Max Loss × contracts] | ❌ Max loss |
 
 ### PORTFOLIO IMPACT
-• Buying Power Used: $[Width × 100 × contracts] ([X]% of $${buyingPower.toLocaleString()})
-• Delta Exposure: [Copy delta from setup] - Bull put = BULLISH, Bear call = BEARISH
+• Buying Power Used: $${(conservativeContracts * putSpreadWidth * 100).toLocaleString()} (${((conservativeContracts * putSpreadWidth * 100) / buyingPower * 100).toFixed(0)}% of Kelly-adjusted capital)
+• Delta Exposure: +${(putSpreadDelta * 100 * conservativeContracts).toFixed(0)} total delta (${conservativeContracts} contracts × +${(putSpreadDelta * 100).toFixed(0)}/contract)
 
 ### 📚 OTHER OPTIONS CONSIDERED
 Briefly explain why you DIDN'T choose these:
