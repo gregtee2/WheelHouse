@@ -1,0 +1,1146 @@
+/**
+ * AI Routes - All /api/ai/* endpoints
+ * Extracted from server.js Phase 6 modularization
+ * 
+ * Handles 17 AI endpoints:
+ * - /api/ai/critique - Trade critique
+ * - /api/ai/strategy-advisor - Strategy recommendations
+ * - /api/ai/ideas - Trade idea generation
+ * - /api/ai/grok - Generic Grok prompts
+ * - /api/ai/x-sentiment - X/Twitter sentiment via Grok
+ * - /api/ai/deep-dive - Comprehensive trade analysis
+ * - /api/ai/checkup - Position health check
+ * - /api/ai/parse-trade - Discord trade parsing (SSE)
+ * - /api/ai/analyze - Trade analysis with MoE
+ * - /api/ai/portfolio-audit - Portfolio audit
+ * - /api/ai/historical-audit - Historical performance audit
+ * - /api/ai/status - Ollama status check
+ * - /api/ai/restart - Restart Ollama
+ * - /api/ai/warmup - Pre-load model (SSE)
+ * - /api/ai/parse-image - Vision model image parsing
+ * - /api/ai/parse-wisdom-image - Extract trading wisdom from screenshots
+ */
+
+const express = require('express');
+const router = express.Router();
+const http = require('http');
+
+// Dependencies - will be injected
+let AIService;           // callAI, callGrok, callMoE
+let DataService;         // fetchDeepDiveData, fetchOptionPremium, fetchTickerIVData
+let DiscoveryService;    // fetchWheelCandidatePrices
+let promptBuilders;      // All prompt builder functions
+let MarketDataService;   // Centralized market data
+let formatExpiryForCBOE; // Date helper
+let detectGPU;           // GPU detection
+let fetchJsonHttp;       // HTTP fetch helper
+let MODEL_VRAM_REQUIREMENTS; // VRAM requirements map
+
+/**
+ * Initialize the router with required dependencies
+ */
+function init(deps) {
+    AIService = deps.AIService;
+    DataService = deps.DataService;
+    DiscoveryService = deps.DiscoveryService;
+    promptBuilders = deps.promptBuilders;
+    MarketDataService = deps.MarketDataService;
+    formatExpiryForCBOE = deps.formatExpiryForCBOE;
+    detectGPU = deps.detectGPU;
+    fetchJsonHttp = deps.fetchJsonHttp;
+    MODEL_VRAM_REQUIREMENTS = deps.MODEL_VRAM_REQUIREMENTS;
+}
+
+// Alias for cleaner code
+const callAI = () => AIService.callAI;
+const callGrok = () => AIService.callGrok;
+const callMoE = () => AIService.callMoE;
+
+// =============================================================================
+// TRADE CRITIQUE
+// =============================================================================
+
+router.post('/critique', async (req, res) => {
+    try {
+        const data = req.body;
+        const selectedModel = data.model || 'deepseek-r1:32b';
+        console.log('[AI] Critiquing trade:', data.ticker, 'with model:', selectedModel);
+        
+        const prompt = promptBuilders.buildCritiquePrompt(data);
+        const response = await AIService.callAI(prompt, selectedModel, 500);
+        
+        res.json({ 
+            success: true, 
+            critique: response,
+            model: selectedModel
+        });
+        console.log('[AI] ✅ Critique complete');
+    } catch (e) {
+        console.log('[AI] ❌ Critique error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// STRATEGY ADVISOR - Analyzes all strategies for a ticker
+// =============================================================================
+
+router.post('/strategy-advisor', async (req, res) => {
+    try {
+        const data = req.body;
+        const { ticker, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, model } = data;
+        const selectedModel = model || 'qwen2.5:32b';
+        
+        console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with model ${selectedModel}`);
+        console.log(`[STRATEGY-ADVISOR] Buying power from request: ${buyingPower} (type: ${typeof buyingPower})`);
+        
+        // 1. Get stock quote
+        const quote = await MarketDataService.getQuote(ticker);
+        if (!quote) {
+            return res.status(400).json({ error: `Could not fetch price for ${ticker}` });
+        }
+        
+        console.log(`[STRATEGY-ADVISOR] ✅ Quote from ${quote.source}: $${quote.price}`);
+        
+        // 2. Get options chain
+        const chain = await MarketDataService.getOptionsChain(ticker, { strikeCount: 40, range: 'ALL' });
+        
+        let sampleOptions = [];
+        let expirations = [];
+        let ivRank = null;
+        let dataSource = quote.source;
+        
+        if (chain) {
+            expirations = chain.expirations.slice(0, 6);
+            ivRank = chain.ivRank;
+            dataSource = chain.source === quote.source ? chain.source : `${quote.source}+${chain.source}`;
+            
+            // Add option_type to each option
+            const callsWithType = (chain.calls || []).map(c => ({ ...c, option_type: 'C' }));
+            const putsWithType = (chain.puts || []).map(p => ({ ...p, option_type: 'P' }));
+            
+            const allOpts = [...callsWithType, ...putsWithType];
+            console.log(`[STRATEGY-ADVISOR] Raw options from ${chain.source}: ${allOpts.length} total`);
+            
+            // Target ~30 DTE for optimal theta decay
+            const today = new Date();
+            const targetDTE = 30;
+            
+            // Deduplicate by strike+type, preferring ~30 DTE
+            const optionsByKey = new Map();
+            for (const opt of allOpts) {
+                const key = `${opt.option_type}_${opt.strike}`;
+                const expDate = new Date(opt.expiration);
+                const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+                
+                if (!optionsByKey.has(key)) {
+                    optionsByKey.set(key, { ...opt, dte });
+                } else {
+                    const existing = optionsByKey.get(key);
+                    if (Math.abs(dte - targetDTE) < Math.abs(existing.dte - targetDTE)) {
+                        optionsByKey.set(key, { ...opt, dte });
+                    }
+                }
+            }
+            
+            const uniqueOpts = Array.from(optionsByKey.values());
+            console.log(`[STRATEGY-ADVISOR] Unique strikes: ${uniqueOpts.length}`);
+            
+            // Filter to ±$15 of spot
+            const strikeRange = 15;
+            const minStrike = quote.price - strikeRange;
+            const maxStrike = quote.price + strikeRange;
+            
+            const inRangeOpts = uniqueOpts.filter(o => o.strike >= minStrike && o.strike <= maxStrike);
+            inRangeOpts.sort((a, b) => a.strike - b.strike);
+            
+            sampleOptions = inRangeOpts.map(o => ({
+                option_type: o.option_type,
+                strike: o.strike,
+                expiration_date: o.expiration,
+                bid: o.bid,
+                ask: o.ask,
+                delta: o.delta,
+                iv: o.iv,
+                dte: o.dte
+            }));
+            
+            console.log(`[STRATEGY-ADVISOR] ✅ Using ${sampleOptions.length} options for analysis`);
+        }
+        
+        // 3. Build context for AI
+        const stockData = {
+            price: quote.price,
+            change: quote.change,
+            changePercent: quote.changePercent,
+            high52: quote.high52,
+            low52: quote.low52,
+            high3mo: quote.high3mo,
+            low3mo: quote.low3mo,
+            volume: quote.volume,
+            rangePosition: quote.rangePosition
+        };
+        
+        const context = {
+            ticker,
+            spot: quote.price,
+            stockData,
+            ivRank,
+            expirations,
+            sampleOptions,
+            buyingPower: buyingPower || 25000,
+            accountValue: accountValue || null,
+            kellyBase: kellyBase || null,
+            riskTolerance: riskTolerance || 'moderate',
+            existingPositions: existingPositions || [],
+            dataSource
+        };
+        
+        // 4. Build AI prompt
+        const { prompt, calculatedValues } = promptBuilders.buildStrategyAdvisorPrompt(context);
+        
+        // 5. Call AI
+        console.log(`[STRATEGY-ADVISOR] Calling AI for recommendation...`);
+        let aiResponse = await AIService.callAI(prompt, selectedModel, 2000);
+        
+        // 6. Post-process to fix math hallucinations
+        const cv = calculatedValues;
+        const maxProfitStr = `$${cv.totalPutMaxProfit.toLocaleString()}`;
+        const maxLossStr = `$${cv.totalPutMaxLoss.toLocaleString()}`;
+        
+        // Fix doubled numbers
+        aiResponse = aiResponse.replace(/\$?(\d{1,3}),(\d{3}),\2(?!\d)/g, (match, first, second) => {
+            return `$${first},${second}`;
+        });
+        
+        // Fix 7-digit P/L numbers
+        aiResponse = aiResponse.replace(/(\+|-)\s*\$?(\d),(\d{3}),(\d{3})(?!\d)/g, (match, sign) => {
+            const correctVal = sign === '+' ? cv.totalPutMaxProfit : cv.totalPutMaxLoss;
+            return `${sign}$${correctVal.toLocaleString()}`;
+        });
+        
+        // Fix Max Profit/Loss labels
+        aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Profit[:\s]*\$?[\d,]+/gi, 
+            () => `Max Profit: ${maxProfitStr}`);
+        aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Loss[:\s]*\$?[\d,]+/gi,
+            () => `Max Loss: ${maxLossStr}`);
+        
+        // Fix $1 hallucinations
+        const dollarOneCount = (aiResponse.match(/\$1(?![0-9.])/g) || []).length;
+        if (quote.price > 10 && dollarOneCount >= 1) {
+            const puts = sampleOptions.filter(o => o.option_type === 'P');
+            const atmPut = puts.find(p => parseFloat(p.strike) <= quote.price) || puts[0];
+            const sellPutStrike = atmPut ? parseFloat(atmPut.strike).toFixed(0) : Math.floor(quote.price);
+            const buyPutStrike = Math.floor(quote.price - 5);
+            const premium = atmPut ? ((parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2).toFixed(2) : '2.50';
+            const stockPrice = quote.price.toFixed(0);
+            
+            // Apply $1 fixes
+            aiResponse = aiResponse.replace(/\$1\s*\/\s*\$1\s+Put\s+Spread/gi, `$${sellPutStrike}/$${buyPutStrike} Put Spread`);
+            aiResponse = aiResponse.replace(/~\$1\/share/gi, `~$${premium}/share`);
+            aiResponse = aiResponse.replace(/\$1\s+strike/gi, `$${sellPutStrike} strike`);
+            aiResponse = aiResponse.replace(/\$1(?![0-9.,])/g, `$${stockPrice}`);
+        }
+        
+        res.json({
+            success: true,
+            ticker,
+            spot: quote.price,
+            stockData,
+            ivRank,
+            expirations,
+            dataSource,
+            recommendation: aiResponse,
+            model: selectedModel
+        });
+        
+        console.log(`[STRATEGY-ADVISOR] ✅ Analysis complete for ${ticker}`);
+        
+    } catch (e) {
+        console.log('[STRATEGY-ADVISOR] ❌ Error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// TRADE IDEAS GENERATOR
+// =============================================================================
+
+router.post('/ideas', async (req, res) => {
+    try {
+        const data = req.body;
+        const selectedModel = data.model || 'qwen2.5:14b';
+        const xTrendingTickers = data.xTrendingTickers || [];
+        console.log('[AI] Generating trade ideas with model:', selectedModel);
+        
+        // Fetch real prices for wheel candidates
+        const buyingPower = data.buyingPower || 25000;
+        const excludeTickers = data.excludeTickers || [];
+        const realPrices = await DiscoveryService.fetchWheelCandidatePrices(buyingPower, excludeTickers);
+        
+        // Fetch prices for X trending tickers
+        let xTickerPrices = [];
+        if (xTrendingTickers.length > 0) {
+            const xPricePromises = xTrendingTickers.map(async (ticker) => {
+                try {
+                    const quoteRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1mo`);
+                    if (quoteRes.ok) {
+                        const data = await quoteRes.json();
+                        const result = data.chart?.result?.[0];
+                        if (result?.meta?.regularMarketPrice) {
+                            const price = result.meta.regularMarketPrice;
+                            const prevClose = result.meta.previousClose || price;
+                            const highs = result.indicators?.quote?.[0]?.high || [];
+                            const lows = result.indicators?.quote?.[0]?.low || [];
+                            const monthHigh = Math.max(...highs.filter(h => h));
+                            const monthLow = Math.min(...lows.filter(l => l));
+                            const monthChange = prevClose ? ((price - prevClose) / prevClose * 100).toFixed(1) : 0;
+                            const rangePosition = monthHigh - monthLow > 0 ? Math.round((price - monthLow) / (monthHigh - monthLow) * 100) : 50;
+                            
+                            return {
+                                ticker,
+                                price: price.toFixed(2),
+                                monthLow: monthLow?.toFixed(2) || price.toFixed(2),
+                                monthHigh: monthHigh?.toFixed(2) || price.toFixed(2),
+                                monthChange,
+                                rangePosition,
+                                sector: '🔥 X Trending'
+                            };
+                        }
+                    }
+                } catch (e) {
+                    console.log(`[AI] Failed to fetch X ticker ${ticker}:`, e.message);
+                }
+                return null;
+            });
+            xTickerPrices = (await Promise.all(xPricePromises)).filter(p => p !== null);
+        }
+        
+        const allCandidates = [...xTickerPrices, ...realPrices];
+        
+        const prompt = promptBuilders.buildIdeaPrompt(data, allCandidates, xTrendingTickers);
+        const response = await AIService.callAI(prompt, selectedModel, 1500);
+        
+        const discoveredCount = realPrices.filter(p => p.sector === 'Active Today' || p.sector === 'Trending').length;
+        
+        res.json({ 
+            success: true, 
+            ideas: response,
+            model: selectedModel,
+            candidatesChecked: allCandidates.length,
+            discoveredCount,
+            xTrendingCount: xTickerPrices.length,
+            candidates: allCandidates
+        });
+        console.log(`[AI] ✅ Ideas generated (${allCandidates.length} candidates)`);
+    } catch (e) {
+        console.log('[AI] ❌ Ideas error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// GENERIC GROK PROMPT
+// =============================================================================
+
+router.post('/grok', async (req, res) => {
+    try {
+        const { prompt, maxTokens } = req.body;
+        
+        if (!process.env.GROK_API_KEY) {
+            return res.status(400).json({ error: 'Grok API key not configured. Add in Settings.' });
+        }
+        
+        console.log('[AI] Grok custom prompt request...');
+        const response = await AIService.callGrok(prompt, 'grok-3', maxTokens || 800);
+        
+        res.json({ 
+            success: true, 
+            insight: response,
+            source: 'grok-3'
+        });
+        console.log('[AI] ✅ Grok custom prompt complete');
+    } catch (e) {
+        console.log('[AI] ❌ Grok error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// X/TWITTER SENTIMENT (Grok-only)
+// =============================================================================
+
+router.post('/x-sentiment', async (req, res) => {
+    try {
+        const data = req.body;
+        const { buyingPower, holdings } = data;
+        
+        if (!process.env.GROK_API_KEY) {
+            return res.status(400).json({ error: 'X Sentiment requires Grok API. Configure in Settings.' });
+        }
+        
+        console.log('[AI] 🔥 Fetching X/Twitter sentiment via Grok...');
+        
+        const today = new Date();
+        const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        
+        let holdingsContext = '';
+        if (holdings && holdings.length > 0) {
+            const holdingsList = holdings.map(h => `${h.ticker} (${h.shares || h.quantity || 100} shares @ $${h.costBasis || h.avgCost || '?'})`).join(', ');
+            holdingsContext = `
+
+**IMPORTANT - CHECK MY HOLDINGS FIRST:**
+I currently hold these stocks: ${holdingsList}
+
+BEFORE the main analysis, check if there's ANY news, sentiment, or buzz on X about my holdings. Put this in a section called "⚡ YOUR HOLDINGS ALERT" at the very top. If nothing notable, just say "No significant X chatter about your holdings today."
+`;
+        }
+        
+        const prompt = `Today is ${dateStr}. You have real-time access to X (Twitter). I'm a wheel strategy options trader with $${buyingPower || 25000} buying power.
+${holdingsContext}
+Scan X/Twitter RIGHT NOW and find me:
+
+1. **🔥 TRENDING TICKERS** - What stocks are traders actively discussing today?
+2. **📢 EARNINGS PLAYS** - Any upcoming earnings that FinTwit is buzzing about?
+3. **⚠️ CAUTION FLAGS** - Stocks where sentiment has turned negative?
+4. **💰 PUT SELLING OPPORTUNITIES** - Stocks good for selling puts?
+5. **🚀 SECTOR MOMENTUM** - What sectors are traders most bullish/bearish on?
+
+FORMAT each ticker mention like: **TICKER** @ $XX.XX
+Be specific about WHAT you're seeing on X. Focus on wheel-friendly stocks ($5-$200 range).`;
+
+        const response = await AIService.callGrok(prompt, 'grok-3', 1500);
+        
+        res.json({ 
+            success: true, 
+            sentiment: response,
+            source: 'grok-x-realtime',
+            timestamp: new Date().toISOString()
+        });
+        console.log('[AI] ✅ X sentiment retrieved');
+    } catch (e) {
+        console.log('[AI] ❌ X sentiment error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// DEEP DIVE - Comprehensive single trade analysis
+// =============================================================================
+
+router.post('/deep-dive', async (req, res) => {
+    try {
+        const data = req.body;
+        const { ticker, strike, expiry, currentPrice, model, positionType } = data;
+        const selectedModel = model || 'deepseek-r1:32b';
+        
+        // Determine option type
+        const callTypes = ['long_call', 'long_call_leaps', 'covered_call', 'leap', 'leaps', 'call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
+        const typeLower = (positionType || '').toLowerCase().replace(/\s+/g, '_');
+        const optionType = callTypes.some(s => typeLower.includes(s)) ? 'CALL' : 'PUT';
+        
+        console.log(`[AI] Deep dive on ${ticker} $${strike} ${optionType.toLowerCase()}, expiry ${expiry}`);
+        
+        // Fetch extended data
+        const tickerData = await DataService.fetchDeepDiveData(ticker);
+        
+        // Fetch actual option premium
+        const premium = await DataService.fetchOptionPremium(ticker, parseFloat(strike), expiry, optionType);
+        if (premium) {
+            tickerData.premium = premium;
+            console.log(`[CBOE] Found premium: bid=$${premium.bid} ask=$${premium.ask} IV=${premium.iv}%`);
+        }
+        
+        const prompt = promptBuilders.buildDeepDivePrompt(data, tickerData);
+        const response = await AIService.callAI(prompt, selectedModel, 1000);
+        
+        res.json({ 
+            success: true, 
+            analysis: response,
+            model: selectedModel,
+            tickerData,
+            premium
+        });
+        console.log('[AI] ✅ Deep dive complete');
+    } catch (e) {
+        console.log('[AI] ❌ Deep dive error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// POSITION CHECKUP - Compare opening thesis to current state
+// =============================================================================
+
+router.post('/checkup', async (req, res) => {
+    try {
+        const data = req.body;
+        const { ticker, strike, expiry, openingThesis, positionType, model } = data;
+        const selectedModel = model || 'qwen2.5:7b';
+        
+        // Determine option type
+        const callTypes = ['long_call', 'long_call_leaps', 'covered_call', 'leap', 'leaps', 'call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
+        const typeLower = (positionType || '').toLowerCase().replace(/\s+/g, '_');
+        const optionType = callTypes.some(s => typeLower.includes(s)) ? 'CALL' : 'PUT';
+        
+        console.log(`[AI] Position checkup for ${ticker} $${strike} ${optionType.toLowerCase()}`);
+        
+        const currentData = await DataService.fetchDeepDiveData(ticker);
+        const currentPremium = await DataService.fetchOptionPremium(ticker, parseFloat(strike), formatExpiryForCBOE(expiry), optionType);
+        
+        const prompt = promptBuilders.buildCheckupPrompt(data, openingThesis, currentData, currentPremium);
+        const response = await AIService.callAI(prompt, selectedModel, 800);
+        
+        res.json({ 
+            success: true, 
+            checkup: response,
+            model: selectedModel,
+            currentData,
+            currentPremium
+        });
+        console.log('[AI] ✅ Checkup complete');
+    } catch (e) {
+        console.log('[AI] ❌ Checkup error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// PARSE TRADE - Discord trade parsing with SSE progress
+// =============================================================================
+
+router.post('/parse-trade', async (req, res) => {
+    const acceptsSSE = req.headers.accept?.includes('text/event-stream');
+    
+    const sendProgress = (step, message, data = {}) => {
+        if (acceptsSSE) {
+            res.write(`data: ${JSON.stringify({ type: 'progress', step, message, ...data })}\n\n`);
+        }
+        console.log(`[AI] Step ${step}: ${message}`);
+    };
+    
+    try {
+        const { tradeText, model, closedSummary } = req.body;
+        const selectedModel = model || 'qwen2.5:7b';
+        
+        if (acceptsSSE) {
+            res.set({
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            });
+        }
+        
+        sendProgress(1, `Loading ${selectedModel}...`, { total: 4 });
+        
+        // Step 1: Parse trade text
+        const parsePrompt = promptBuilders.buildTradeParsePrompt(tradeText);
+        sendProgress(1, `Parsing trade callout with ${selectedModel}...`);
+        const parsedJson = await AIService.callAI(parsePrompt, selectedModel, 500);
+        
+        let parsed;
+        try {
+            const jsonMatch = parsedJson.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                parsed = JSON.parse(jsonMatch[0]);
+            } else {
+                throw new Error('No JSON found in parse response');
+            }
+        } catch (parseErr) {
+            console.log('[AI] Parse extraction failed:', parseErr.message);
+            if (acceptsSSE) {
+                res.write(`data: ${JSON.stringify({ type: 'error', error: 'Could not parse trade format.' })}\n\n`);
+                return res.end();
+            }
+            return res.status(400).json({ error: 'Could not parse trade format.' });
+        }
+        
+        if (!parsed.ticker) {
+            if (acceptsSSE) {
+                res.write(`data: ${JSON.stringify({ type: 'error', error: 'Could not identify ticker symbol' })}\n\n`);
+                return res.end();
+            }
+            return res.status(400).json({ error: 'Could not identify ticker symbol' });
+        }
+        
+        // Fix spread strikes if backwards
+        if (parsed.buyStrike && parsed.sellStrike) {
+            const buy = parseFloat(parsed.buyStrike);
+            const sell = parseFloat(parsed.sellStrike);
+            const strategy = parsed.strategy?.toLowerCase() || '';
+            
+            if (strategy.includes('bull') && strategy.includes('put') && sell < buy) {
+                parsed.sellStrike = Math.max(buy, sell);
+                parsed.buyStrike = Math.min(buy, sell);
+            }
+        }
+        
+        // Step 2: Fetch ticker data
+        sendProgress(2, `Fetching market data for ${parsed.ticker}...`);
+        const tickerData = await DataService.fetchDeepDiveData(parsed.ticker);
+        if (!tickerData || !tickerData.price) {
+            if (acceptsSSE) {
+                res.write(`data: ${JSON.stringify({ type: 'error', error: `Could not fetch data for ${parsed.ticker}` })}\n\n`);
+                return res.end();
+            }
+            return res.status(400).json({ error: `Could not fetch data for ${parsed.ticker}` });
+        }
+        
+        // Step 3: Fetch option premium
+        sendProgress(3, `Fetching CBOE options pricing...`);
+        let premium = null;
+        if (parsed.strike && parsed.expiry) {
+            const strikeNum = parseFloat(String(parsed.strike).replace(/[^0-9.]/g, ''));
+            const callStrategies = ['long_call', 'covered_call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
+            const strategyLower = (parsed.strategy || '').toLowerCase().replace(/\s+/g, '_');
+            const optionType = callStrategies.some(s => strategyLower.includes(s)) ? 'CALL' : 'PUT';
+            premium = await DataService.fetchOptionPremium(parsed.ticker, strikeNum, formatExpiryForCBOE(parsed.expiry), optionType);
+        }
+        
+        // Step 4: Generate AI analysis
+        sendProgress(4, `Generating AI analysis with ${selectedModel}...`);
+        
+        // Build pattern context from closed positions
+        let patternContext = null;
+        if (closedSummary && closedSummary.length > 0) {
+            // ... pattern analysis logic (abbreviated for space)
+            const ticker = parsed.ticker?.toUpperCase();
+            const strategyType = parsed.strategy?.toLowerCase().replace(/\s+/g, '_') || '';
+            const sameTickerType = closedSummary.filter(p => 
+                p.ticker?.toUpperCase() === ticker && 
+                p.type?.toLowerCase().replace(/\s+/g, '_') === strategyType
+            );
+            
+            if (sameTickerType.length >= 2) {
+                const totalPnL = sameTickerType.reduce((sum, p) => sum + (p.pnl || 0), 0);
+                const winRate = sameTickerType.filter(p => (p.pnl || 0) >= 0).length / sameTickerType.length * 100;
+                patternContext = `### ${ticker} ${strategyType} History\n- ${sameTickerType.length} trades, ${winRate.toFixed(0)}% win rate, $${totalPnL.toFixed(0)} total P&L\n`;
+            }
+        }
+        
+        const analysisPrompt = promptBuilders.buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternContext);
+        const analysis = await AIService.callAI(analysisPrompt, selectedModel, 1200);
+        
+        const result = { 
+            type: 'complete',
+            success: true,
+            parsed,
+            tickerData,
+            premium,
+            analysis,
+            model: selectedModel
+        };
+        
+        if (acceptsSSE) {
+            res.write(`data: ${JSON.stringify(result)}\n\n`);
+            res.end();
+        } else {
+            res.json(result);
+        }
+        console.log('[AI] ✅ Trade callout analyzed');
+    } catch (e) {
+        console.log('[AI] ❌ Parse trade error:', e.message);
+        if (acceptsSSE) {
+            res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+            res.end();
+        } else {
+            if (!res.headersSent) res.status(500).json({ error: e.message });
+        }
+    }
+});
+
+// =============================================================================
+// TRADE ANALYSIS - Main analysis with MoE support
+// =============================================================================
+
+router.post('/analyze', async (req, res) => {
+    try {
+        const data = req.body;
+        const selectedModel = data.model || 'qwen2.5:7b';
+        const isGrok = selectedModel.startsWith('grok');
+        const useMoE = !isGrok && data.useMoE !== false;
+        const skipWisdom = data.skipWisdom === true;
+        console.log('[AI] Analyzing position:', data.ticker, 'with model:', selectedModel, skipWisdom ? '(PURE MODE)' : '');
+        
+        const isLargeModel = selectedModel.includes('32b') || selectedModel.includes('70b') || selectedModel.includes('72b') || isGrok;
+        const tokenLimit = isLargeModel ? 1800 : 1000;
+        
+        const prompt = await promptBuilders.buildTradePrompt({ ...data, skipWisdom }, isLargeModel);
+        const wisdomUsed = promptBuilders.buildTradePrompt._lastWisdomUsed || [];
+        
+        let response;
+        let took = '';
+        let moeDetails = null;
+        
+        if (isLargeModel && useMoE) {
+            const moeResult = await AIService.callMoE(prompt, data);
+            response = moeResult.response;
+            took = `MoE: ${moeResult.timing.total}ms`;
+            moeDetails = { opinions: moeResult.opinions, timing: moeResult.timing };
+        } else {
+            const start = Date.now();
+            response = await AIService.callAI(prompt, selectedModel, tokenLimit);
+            took = `${Date.now() - start}ms`;
+        }
+        
+        res.json({ 
+            success: true, 
+            insight: response,
+            model: selectedModel,
+            took,
+            moe: moeDetails,
+            pureMode: skipWisdom,
+            wisdomApplied: !skipWisdom && wisdomUsed.length > 0 ? {
+                count: wisdomUsed.length,
+                entries: wisdomUsed.map(w => ({ category: w.category, wisdom: w.wisdom.substring(0, 100) + '...' }))
+            } : null
+        });
+        console.log('[AI] ✅ Analysis complete');
+    } catch (e) {
+        console.log('[AI] ❌ Error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// PORTFOLIO AUDIT
+// =============================================================================
+
+router.post('/portfolio-audit', async (req, res) => {
+    try {
+        const data = req.body;
+        const selectedModel = data.model || 'qwen2.5:14b';
+        console.log('[AI] Portfolio audit with model:', selectedModel);
+        
+        const positions = data.positions || [];
+        const greeks = data.greeks || {};
+        const closedStats = data.closedStats || {};
+        
+        // Build position summary
+        const positionSummary = positions.map(p => {
+            const riskPct = p.riskPercent || 0;
+            const isLong = ['long_call', 'long_put', 'long_call_leaps', 'skip_call'].includes(p.type);
+            const typeNote = isLong ? '[LONG]' : '[SHORT]';
+            return `${p.ticker}: ${p.type} $${p.strike} (${p.dte}d DTE) ${typeNote} - ${riskPct.toFixed(0)}% ITM`;
+        }).join('\n');
+        
+        // Concentration analysis
+        const tickerCounts = {};
+        positions.forEach(p => { tickerCounts[p.ticker] = (tickerCounts[p.ticker] || 0) + 1; });
+        const concentrations = Object.entries(tickerCounts).sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t}: ${c}`);
+        
+        const prompt = `You are a professional options portfolio manager auditing a wheel strategy portfolio.
+
+## CURRENT POSITIONS (${positions.length} total)
+${positionSummary || 'No open positions'}
+
+## PORTFOLIO GREEKS
+- Net Delta: ${greeks.delta?.toFixed(0) || 0}
+- Daily Theta: $${greeks.theta?.toFixed(2) || 0}
+- Vega: $${greeks.vega?.toFixed(0) || 0}
+
+## CONCENTRATION
+${concentrations.join('\n') || 'None'}
+
+## HISTORICAL PERFORMANCE
+- Win Rate: ${closedStats.winRate?.toFixed(1) || '?'}%
+- Profit Factor: ${closedStats.profitFactor?.toFixed(2) || '?'}
+
+Provide:
+## 📊 PORTFOLIO GRADE: [A/B/C/D/F]
+Then: 1. 🚨 PROBLEM POSITIONS, 2. ⚠️ CONCENTRATION RISKS, 3. 📊 GREEKS ASSESSMENT, 4. 💡 OPTIMIZATION IDEAS, 5. ✅ WHAT'S WORKING`;
+
+        const response = await AIService.callAI(prompt, selectedModel, 1200);
+        
+        res.json({ success: true, audit: response, model: selectedModel });
+        console.log('[AI] ✅ Portfolio audit complete');
+    } catch (e) {
+        console.log('[AI] ❌ Portfolio audit error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// HISTORICAL AUDIT
+// =============================================================================
+
+router.post('/historical-audit', async (req, res) => {
+    try {
+        const data = req.body;
+        console.log('[AI] Historical audit for period:', data.periodLabel);
+        
+        const prompt = `You are a professional options trading coach analyzing historical trade data.
+
+## PERIOD: ${data.periodLabel}
+- Total Trades: ${data.totalTrades}
+- Total P&L: $${data.totalPnL?.toFixed(0) || 0}
+- Win Rate: ${data.winRate}%
+
+## BY TICKER (Top 10)
+${(data.tickerSummary || []).join('\n')}
+
+## BY STRATEGY
+${(data.typeSummary || []).join('\n')}
+
+Provide:
+## 📊 PERIOD GRADE: [A/B/C/D/F]
+Then: 1. 🎯 WHAT WORKED, 2. ⚠️ AREAS FOR IMPROVEMENT, 3. 📈 PATTERN ANALYSIS, 4. 💡 RECOMMENDATIONS, 5. 🏆 KEY LESSONS`;
+
+        const response = await AIService.callAI(prompt, 'qwen2.5:14b', 1200);
+        
+        res.json({ success: true, analysis: response });
+        console.log('[AI] ✅ Historical audit complete');
+    } catch (e) {
+        console.log('[AI] ❌ Historical audit error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// AI STATUS - Check Ollama availability
+// =============================================================================
+
+router.get('/status', async (req, res) => {
+    try {
+        const gpu = detectGPU();
+        const ollamaRes = await fetchJsonHttp('http://localhost:11434/api/tags');
+        const models = ollamaRes.models || [];
+        const hasQwen = models.some(m => m.name?.includes('qwen'));
+        const hasVision = models.some(m => m.name?.includes('minicpm-v') || m.name?.includes('llava'));
+        
+        let loadedModels = [];
+        try {
+            const psRes = await fetchJsonHttp('http://localhost:11434/api/ps');
+            loadedModels = (psRes.models || []).map(m => ({
+                name: m.name,
+                sizeVramGB: (m.size_vram / 1024 / 1024 / 1024).toFixed(1)
+            }));
+        } catch (e) { /* older Ollama versions */ }
+        
+        const freeGB = parseFloat(gpu.freeGB) || 0;
+        const totalGB = parseFloat(gpu.totalGB) || 0;
+        const modelsWithCapability = models.map(m => {
+            const req = MODEL_VRAM_REQUIREMENTS[m.name] || { minGB: 4, recGB: 8 };
+            const canRun = gpu.available && freeGB >= req.minGB;
+            return { 
+                name: m.name, 
+                sizeGB: (m.size / 1024 / 1024 / 1024).toFixed(1),
+                canRun,
+                warning: !canRun ? `Needs ${req.minGB}GB VRAM (${freeGB}GB free)` : null
+            };
+        });
+        
+        res.json({ 
+            available: models.length > 0,
+            hasQwen,
+            hasVision,
+            gpu,
+            models: modelsWithCapability,
+            loaded: loadedModels,
+            isWarm: loadedModels.length > 0
+        });
+    } catch (e) {
+        res.json({ available: false, error: 'Ollama not running', gpu: detectGPU() });
+    }
+});
+
+// =============================================================================
+// RESTART OLLAMA
+// =============================================================================
+
+router.post('/restart', async (req, res) => {
+    console.log('[AI] 🔄 Restarting Ollama...');
+    try {
+        const { exec } = require('child_process');
+        
+        await new Promise((resolve) => {
+            exec('taskkill /f /im ollama.exe', () => resolve());
+        });
+        
+        await new Promise(r => setTimeout(r, 1000));
+        
+        await new Promise((resolve, reject) => {
+            exec('start /b ollama serve', { shell: true }, (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+        
+        await new Promise(r => setTimeout(r, 3000));
+        
+        try {
+            const status = await fetchJsonHttp('http://localhost:11434/api/tags');
+            console.log('[AI] ✅ Ollama restarted successfully');
+            res.json({ success: true, models: status.models?.length || 0 });
+        } catch (e) {
+            res.status(500).json({ success: false, error: 'Ollama failed to start' });
+        }
+    } catch (e) {
+        console.log('[AI] ❌ Restart error:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// =============================================================================
+// WARMUP - Pre-load model (SSE)
+// =============================================================================
+
+router.post('/warmup', async (req, res) => {
+    try {
+        const selectedModel = req.body?.model || 'qwen2.5:7b';
+        console.log(`[AI] 🔥 Warming up model: ${selectedModel}...`);
+        
+        res.set({
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+        });
+        
+        res.write(`data: ${JSON.stringify({ type: 'progress', message: `Loading ${selectedModel}...`, percent: 10 })}\n\n`);
+        
+        const startTime = Date.now();
+        
+        const postData = JSON.stringify({
+            model: selectedModel,
+            prompt: 'Hi',
+            stream: false,
+            options: { num_predict: 1 }
+        });
+        
+        const ollamaReq = http.request({
+            hostname: 'localhost',
+            port: 11434,
+            path: '/api/generate',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(postData)
+            }
+        }, (ollamaRes) => {
+            let data = '';
+            
+            const progressInterval = setInterval(() => {
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+                const percent = Math.min(90, 10 + parseInt(elapsed) * 5);
+                res.write(`data: ${JSON.stringify({ type: 'progress', message: `Loading ${selectedModel}... ${elapsed}s`, percent })}\n\n`);
+            }, 1000);
+            
+            ollamaRes.on('data', chunk => data += chunk);
+            ollamaRes.on('end', () => {
+                clearInterval(progressInterval);
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                console.log(`[AI] ✅ Model ${selectedModel} loaded in ${elapsed}s`);
+                
+                res.write(`data: ${JSON.stringify({ type: 'complete', success: true, message: `Loaded in ${elapsed}s`, model: selectedModel })}\n\n`);
+                res.end();
+            });
+        });
+        
+        ollamaReq.on('error', (e) => {
+            console.log(`[AI] ❌ Warmup failed: ${e.message}`);
+            res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+            res.end();
+        });
+        
+        ollamaReq.setTimeout(180000, () => {
+            ollamaReq.destroy();
+            res.write(`data: ${JSON.stringify({ type: 'error', error: 'Timeout - model too large' })}\n\n`);
+            res.end();
+        });
+        
+        ollamaReq.write(postData);
+        ollamaReq.end();
+        
+    } catch (e) {
+        console.log(`[AI] ❌ Warmup failed: ${e.message}`);
+        if (!res.headersSent) {
+            res.set({ 'Content-Type': 'text/event-stream' });
+        }
+        res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+        res.end();
+    }
+});
+
+// =============================================================================
+// PARSE IMAGE - Vision model
+// =============================================================================
+
+router.post('/parse-image', async (req, res) => {
+    console.log('[AI-VISION] 📷 Image parse request received');
+    try {
+        const { image, model = 'minicpm-v:latest' } = req.body || {};
+        
+        if (!image) {
+            return res.status(400).json({ error: 'No image provided' });
+        }
+        
+        let base64Data = image;
+        if (image.startsWith('data:image')) {
+            base64Data = image.split(',')[1];
+        }
+        
+        console.log(`[AI-VISION] Using model: ${model}, image size: ${(base64Data.length / 1024).toFixed(1)}KB`);
+        
+        const prompt = `You are extracting trade information from a broker confirmation screenshot.
+Look at this image and extract:
+1. Ticker symbol
+2. Action (Sold to Open, etc.)
+3. Option type (Put or Call)
+4. Strike price
+5. Expiration date
+6. Premium/price per share
+7. Number of contracts
+8. Total premium
+
+Format as:
+TICKER: [symbol]
+ACTION: [action]
+TYPE: [put/call]
+STRIKE: [strike price]
+EXPIRY: [date]
+PREMIUM: [per share price]
+CONTRACTS: [number]
+TOTAL: [total amount]`;
+
+        const postData = JSON.stringify({
+            model,
+            prompt,
+            images: [base64Data],
+            stream: false,
+            options: { temperature: 0.1 }
+        });
+        
+        const response = await new Promise((resolve, reject) => {
+            const ollamaReq = http.request({
+                hostname: 'localhost',
+                port: 11434,
+                path: '/api/generate',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(postData)
+                }
+            }, (ollamaRes) => {
+                let data = '';
+                ollamaRes.on('data', chunk => data += chunk);
+                ollamaRes.on('end', () => {
+                    try {
+                        const parsed = JSON.parse(data);
+                        resolve(parsed.response || data);
+                    } catch { resolve(data); }
+                });
+            });
+            
+            ollamaReq.on('error', reject);
+            ollamaReq.setTimeout(120000, () => {
+                ollamaReq.destroy();
+                reject(new Error('Timeout'));
+            });
+            
+            ollamaReq.write(postData);
+            ollamaReq.end();
+        });
+        
+        console.log('[AI-VISION] ✅ Image parsed successfully');
+        
+        const parsed = {};
+        response.split('\n').forEach(line => {
+            const match = line.match(/^(TICKER|ACTION|TYPE|STRIKE|EXPIRY|PREMIUM|CONTRACTS|TOTAL):\s*(.+)/i);
+            if (match) parsed[match[1].toLowerCase()] = match[2].trim();
+        });
+        
+        res.json({ success: true, raw: response, parsed, model });
+        
+    } catch (e) {
+        console.log('[AI-VISION] ❌ Error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// PARSE WISDOM IMAGE - Extract trading advice from screenshots
+// =============================================================================
+
+router.post('/parse-wisdom-image', async (req, res) => {
+    console.log('[AI-VISION] 📚 Wisdom image parse request received');
+    try {
+        const { image, model = 'minicpm-v:latest' } = req.body || {};
+        
+        if (!image) {
+            return res.status(400).json({ error: 'No image provided' });
+        }
+        
+        let base64Data = image;
+        if (image.startsWith('data:image')) {
+            base64Data = image.split(',')[1];
+        }
+        
+        const prompt = `Look at this screenshot and extract ALL trading advice, tips, or wisdom mentioned.
+Focus on extracting:
+- Any specific rules or guidelines
+- Any strategies or recommendations
+- Any warnings or things to avoid
+- Any tips about rolling, timing, or position sizing
+
+Return ONLY the trading advice/wisdom text that you find.
+If you cannot find any trading advice, respond with: NO_TRADING_ADVICE_FOUND`;
+
+        const postData = JSON.stringify({
+            model,
+            prompt,
+            images: [base64Data],
+            stream: false,
+            options: { temperature: 0.1 }
+        });
+        
+        const response = await new Promise((resolve, reject) => {
+            const ollamaReq = http.request({
+                hostname: 'localhost',
+                port: 11434,
+                path: '/api/generate',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(postData)
+                }
+            }, (ollamaRes) => {
+                let data = '';
+                ollamaRes.on('data', chunk => data += chunk);
+                ollamaRes.on('end', () => {
+                    try {
+                        const parsed = JSON.parse(data);
+                        resolve(parsed.response || data);
+                    } catch { resolve(data); }
+                });
+            });
+            
+            ollamaReq.on('error', reject);
+            ollamaReq.setTimeout(120000, () => {
+                ollamaReq.destroy();
+                reject(new Error('Timeout'));
+            });
+            
+            ollamaReq.write(postData);
+            ollamaReq.end();
+        });
+        
+        if (!response || response.trim().startsWith('{"error"')) {
+            return res.status(500).json({ error: 'Vision model error. Try restarting Ollama.' });
+        }
+        
+        console.log('[AI-VISION] ✅ Wisdom image parsed successfully');
+        
+        if (response.includes('NO_TRADING_ADVICE_FOUND')) {
+            return res.json({ success: false, error: 'No trading advice found in image', extractedText: '' });
+        }
+        
+        res.json({ success: true, extractedText: response.trim(), model });
+        
+    } catch (e) {
+        console.log('[AI-VISION] ❌ Wisdom parse error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+module.exports = router;
+module.exports.init = init;
