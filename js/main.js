@@ -3082,6 +3082,31 @@ window.runPositionCheckup = async function(positionId) {
             recommendation = 'CLOSE';
         }
         
+        // Parse suggested trade from AI response
+        let suggestedTrade = null;
+        const tradeMatch = checkupText.match(/===SUGGESTED_TRADE===([\s\S]*?)===END_TRADE===/);
+        if (tradeMatch) {
+            const tradeBlock = tradeMatch[1];
+            suggestedTrade = {
+                action: tradeBlock.match(/ACTION:\s*(\S+)/)?.[1] || 'NONE',
+                closeStrike: parseFloat(tradeBlock.match(/CLOSE_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
+                closeExpiry: tradeBlock.match(/CLOSE_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
+                closeType: tradeBlock.match(/CLOSE_TYPE:\s*(\S+)/)?.[1] || null,
+                newStrike: parseFloat(tradeBlock.match(/NEW_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
+                newExpiry: tradeBlock.match(/NEW_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
+                newType: tradeBlock.match(/NEW_TYPE:\s*(\S+)/)?.[1] || null,
+                estimatedDebit: tradeBlock.match(/ESTIMATED_DEBIT:\s*(.+)/)?.[1]?.trim() || null,
+                estimatedCredit: tradeBlock.match(/ESTIMATED_CREDIT:\s*(.+)/)?.[1]?.trim() || null,
+                netCost: tradeBlock.match(/NET_COST:\s*(.+)/)?.[1]?.trim() || null,
+                rationale: tradeBlock.match(/RATIONALE:\s*(.+)/)?.[1]?.trim() || null,
+                ticker: pos.ticker,
+                originalPositionId: positionId
+            };
+            console.log('[CHECKUP] Parsed suggested trade:', suggestedTrade);
+            // Store for staging
+            window._lastCheckupSuggestedTrade = suggestedTrade;
+        }
+        
         // Log AI prediction for accuracy tracking
         if (window.logAIPrediction) {
             window.logAIPrediction({
@@ -3206,11 +3231,56 @@ ${pos.openingThesis.aiSummary.fullAnalysis}
             <div style="background:#0d0d1a;padding:20px;border-radius:8px;">
                 <h4 style="margin:0 0 15px;color:#00d9ff;">AI Checkup Analysis</h4>
                 <div style="white-space:pre-wrap;line-height:1.6;font-size:14px;">
-                    ${formatAIResponse(data.checkup)}
+                    ${formatAIResponse(data.checkup.replace(/===SUGGESTED_TRADE===[\s\S]*?===END_TRADE===/g, ''))}
                 </div>
             </div>
             
+            ${suggestedTrade && suggestedTrade.action !== 'NONE' ? `
+            <div style="background:linear-gradient(135deg, #1a2a3a 0%, #0d1a2a 100%);padding:20px;border-radius:8px;margin-top:15px;border:1px solid #00d9ff;">
+                <h4 style="margin:0 0 15px;color:#00d9ff;">📋 Suggested Trade</h4>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+                    <div style="background:#0d0d1a;padding:12px;border-radius:6px;">
+                        <div style="font-size:11px;color:#888;margin-bottom:5px;">CLOSE (Buy Back)</div>
+                        <div style="font-size:16px;font-weight:bold;color:#ff5252;">
+                            ${pos.ticker} $${suggestedTrade.closeStrike} ${suggestedTrade.closeType}
+                        </div>
+                        <div style="font-size:12px;color:#888;">Exp: ${suggestedTrade.closeExpiry}</div>
+                        <div style="font-size:12px;color:#ffaa00;margin-top:5px;">Est. Cost: ${suggestedTrade.estimatedDebit || 'N/A'}</div>
+                    </div>
+                    ${suggestedTrade.newStrike ? `
+                    <div style="background:#0d0d1a;padding:12px;border-radius:6px;">
+                        <div style="font-size:11px;color:#888;margin-bottom:5px;">OPEN (Sell New)</div>
+                        <div style="font-size:16px;font-weight:bold;color:#00ff88;">
+                            ${pos.ticker} $${suggestedTrade.newStrike} ${suggestedTrade.newType}
+                        </div>
+                        <div style="font-size:12px;color:#888;">Exp: ${suggestedTrade.newExpiry}</div>
+                        <div style="font-size:12px;color:#00ff88;margin-top:5px;">Est. Credit: ${suggestedTrade.estimatedCredit || 'N/A'}</div>
+                    </div>
+                    ` : '<div></div>'}
+                </div>
+                <div style="margin-top:15px;padding:12px;background:#0d0d1a;border-radius:6px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                            <span style="font-size:12px;color:#888;">Net Cost:</span>
+                            <span style="font-size:18px;font-weight:bold;color:${suggestedTrade.netCost?.includes('credit') ? '#00ff88' : '#ffaa00'};margin-left:10px;">
+                                ${suggestedTrade.netCost || 'N/A'}
+                            </span>
+                        </div>
+                    </div>
+                    <div style="font-size:12px;color:#aaa;margin-top:8px;">
+                        💡 ${suggestedTrade.rationale || 'AI-suggested trade based on current conditions'}
+                    </div>
+                </div>
+            </div>
+            ` : ''}
+            
             <div style="margin-top:15px;display:flex;gap:10px;justify-content:flex-end;">
+                ${suggestedTrade && suggestedTrade.action !== 'NONE' ? `
+                <button onclick="window.stageCheckupSuggestedTrade()" 
+                    style="background:linear-gradient(135deg, #00d9ff 0%, #0099cc 100%);border:none;color:#000;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:bold;">
+                    📥 Stage ${suggestedTrade.action === 'ROLL' ? 'Roll' : suggestedTrade.action}
+                </button>
+                ` : ''}
                 <button onclick="this.closest('#checkupModal').remove()" 
                     style="background:#333;border:none;color:#fff;padding:10px 20px;border-radius:6px;cursor:pointer;">
                     Close
@@ -3226,6 +3296,92 @@ ${pos.openingThesis.aiSummary.fullAnalysis}
             </div>
         `;
     }
+};
+
+/**
+ * Stage the suggested trade from a checkup into pending trades
+ */
+window.stageCheckupSuggestedTrade = function() {
+    const trade = window._lastCheckupSuggestedTrade;
+    if (!trade) {
+        showNotification('No suggested trade available', 'error');
+        return;
+    }
+    
+    // Get positions to find the original position details
+    const positions = JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
+    const originalPos = positions.find(p => p.id === trade.originalPositionId);
+    
+    // Determine the trade type for the NEW position
+    let newType = 'short_put';  // default
+    if (trade.newType === 'CALL') {
+        newType = originalPos?.type?.includes('covered') ? 'covered_call' : 'short_call';
+    } else if (trade.newType === 'PUT') {
+        newType = 'short_put';
+    }
+    
+    // Create staged trade
+    const now = Date.now();
+    const stagedTrade = {
+        id: now,
+        ticker: trade.ticker,
+        type: newType,
+        strike: trade.newStrike,
+        expiry: trade.newExpiry,
+        premium: null,  // Will be determined at execution
+        contracts: originalPos?.contracts || 1,
+        isCall: trade.newType === 'CALL',
+        isDebit: false,  // Rolling typically results in credit or small debit
+        source: 'AI Checkup',
+        stagedAt: now,
+        currentPrice: null,
+        // Mark as a roll with reference to original position
+        isRoll: true,
+        rollFrom: {
+            positionId: trade.originalPositionId,
+            strike: trade.closeStrike,
+            expiry: trade.closeExpiry,
+            type: trade.closeType
+        },
+        // Opening thesis from AI checkup recommendation
+        openingThesis: {
+            analyzedAt: new Date().toISOString(),
+            priceAtAnalysis: null,
+            rationale: trade.rationale,
+            netCost: trade.netCost,
+            modelUsed: 'AI Checkup',
+            aiSummary: {
+                bottomLine: `${trade.action}: Roll from $${trade.closeStrike} to $${trade.newStrike} ${trade.newType}`,
+                fullAnalysis: trade.rationale
+            }
+        }
+    };
+    
+    // Add to pending trades
+    let pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+    
+    // Check for duplicates
+    const isDuplicate = pending.some(p => 
+        p.ticker === stagedTrade.ticker && 
+        p.strike === stagedTrade.strike && 
+        p.expiry === stagedTrade.expiry
+    );
+    
+    if (isDuplicate) {
+        showNotification(`${trade.ticker} $${trade.newStrike} already staged`, 'info');
+        return;
+    }
+    
+    pending.unshift(stagedTrade);
+    localStorage.setItem('wheelhouse_pending', JSON.stringify(pending));
+    
+    // Close the checkup modal
+    document.getElementById('checkupModal')?.remove();
+    
+    // Render pending trades
+    renderPendingTrades();
+    
+    showNotification(`📥 Staged roll: ${trade.ticker} $${trade.closeStrike} → $${trade.newStrike} ${trade.newType}`, 'success');
 };
 
 /**

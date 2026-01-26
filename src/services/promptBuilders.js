@@ -289,7 +289,40 @@ Rate the position health:
 - 🟡 STABLE - Minor concerns but manageable
 - 🔴 AT RISK - Original thesis weakening, action may be needed
 
-Give a 2-3 sentence summary of how the position has evolved since entry.`;
+Give a 2-3 sentence summary of how the position has evolved since entry.
+
+**6. SUGGESTED TRADE (REQUIRED if recommending ROLL, CLOSE, or ADD)**
+If you recommend any action other than HOLD, you MUST provide specific trade details.
+Format EXACTLY like this (we will parse it):
+
+===SUGGESTED_TRADE===
+ACTION: ROLL|CLOSE|ADD_CALL|ADD_PUT|NONE
+CLOSE_STRIKE: ${strike}
+CLOSE_EXPIRY: ${expiry}
+CLOSE_TYPE: ${isCall ? 'CALL' : 'PUT'}
+NEW_STRIKE: [new strike price, or "N/A" if just closing]
+NEW_EXPIRY: [new expiry YYYY-MM-DD, or "N/A" if just closing]
+NEW_TYPE: CALL|PUT|N/A
+ESTIMATED_DEBIT: [estimated cost to execute, e.g. "$1.50" or "N/A"]
+ESTIMATED_CREDIT: [estimated credit received, e.g. "$3.50" or "N/A"]
+NET_COST: [net debit/credit, e.g. "-$1.50 debit" or "+$2.00 credit"]
+RATIONALE: [One sentence explaining why this specific trade]
+===END_TRADE===
+
+Example for rolling a $87 call up to $110:
+===SUGGESTED_TRADE===
+ACTION: ROLL
+CLOSE_STRIKE: 87
+CLOSE_EXPIRY: 2026-03-06
+CLOSE_TYPE: CALL
+NEW_STRIKE: 110
+NEW_EXPIRY: 2026-05-15
+NEW_TYPE: CALL
+ESTIMATED_DEBIT: $20.00
+ESTIMATED_CREDIT: $4.00
+NET_COST: -$16.00 debit
+RATIONALE: Roll up to capture additional upside while collecting new premium
+===END_TRADE===`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
