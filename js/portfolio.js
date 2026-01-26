@@ -2868,12 +2868,6 @@ window.aiHoldingSuggestion = async function(holdingId) {
         return;
     }
     
-    // Update modal to show analyzing
-    document.querySelector('#aiHoldingModal > div > div:last-child').innerHTML = `
-        <div style="font-size:24px;margin-bottom:10px;">🤔</div>
-        <div>Analyzing position...</div>
-    `;
-    
     // Calculate metrics with real per-share price
     const stockValue = currentPrice * shares;
     const stockGainLoss = costBasis > 0 ? (currentPrice - costBasis) * shares : 0;
@@ -2951,8 +2945,60 @@ Be specific with dollar amounts and percentages. Don't be vague.`;
         isITM, isOTM, isDeep, prompt
     };
     
-    // Run analysis with Grok by default (better quality)
-    await runHoldingAnalysis('grok');
+    // Show model picker instead of auto-running
+    const contentDiv = document.querySelector('#aiHoldingModal > div');
+    contentDiv.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div>
+                <h3 style="margin:0;color:#ffaa00;">🤖 AI Suggestion: ${holding.ticker}</h3>
+            </div>
+            <button onclick="this.closest('#aiHoldingModal').remove()" 
+                style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
+        </div>
+        
+        <!-- Position Summary -->
+        <div style="background:#0d0d1a;padding:12px;border-radius:8px;margin-bottom:16px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px;">
+                <div>
+                    <span style="color:#888;">Stock:</span> 
+                    <span style="color:#fff;font-weight:bold;">$${currentPrice.toFixed(2)}</span>
+                </div>
+                <div>
+                    <span style="color:#888;">Strike:</span> 
+                    <span style="color:#fff;font-weight:bold;">$${strike.toFixed(2)}</span>
+                </div>
+                <div>
+                    <span style="color:#888;">Cost:</span> 
+                    <span style="color:#fff;">$${costBasis.toFixed(2)}</span>
+                </div>
+                <div>
+                    <span style="color:#888;">DTE:</span> 
+                    <span style="color:#fff;">${dte} days</span>
+                </div>
+            </div>
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid #333;">
+                ${isITM ? '<span style="background:#ffaa00;color:#000;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold;">⚠️ IN THE MONEY</span>' : '<span style="background:#00ff88;color:#000;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold;">✅ OUT OF THE MONEY</span>'}
+                <span style="color:#888;margin-left:12px;font-size:11px;">
+                    ${isITM ? `$${onTable.toFixed(0)} on table` : `$${cushion.toFixed(0)} cushion`}
+                </span>
+            </div>
+        </div>
+        
+        <!-- Model Selection -->
+        <div style="text-align:center;padding:20px 0;">
+            <div style="color:#888;margin-bottom:16px;font-size:13px;">Choose AI model to analyze:</div>
+            <div style="display:flex;gap:12px;justify-content:center;">
+                <button onclick="runHoldingAnalysis('ollama')" 
+                    style="padding:14px 28px;background:linear-gradient(135deg, #1a3a1a 0%, #0d1a0d 100%);border:2px solid #00ff88;border-radius:8px;color:#00ff88;font-weight:bold;cursor:pointer;font-size:14px;min-width:180px;">
+                    🦙 Ollama (32B)<br><span style="font-size:10px;font-weight:normal;opacity:0.7;">Free - Local</span>
+                </button>
+                <button onclick="runHoldingAnalysis('grok')" 
+                    style="padding:14px 28px;background:linear-gradient(135deg, #3a2a1a 0%, #1a0d0d 100%);border:2px solid #ff6600;border-radius:8px;color:#ff6600;font-weight:bold;cursor:pointer;font-size:14px;min-width:180px;">
+                    🔥 Grok<br><span style="font-size:10px;font-weight:normal;opacity:0.7;">~$0.02 - Cloud</span>
+                </button>
+            </div>
+        </div>
+    `;
 };
 
 /**
