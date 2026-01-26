@@ -878,44 +878,43 @@ const mainHandler = async (req, res, next) => {
             
             // =====================================================================
             // TRULY NUCLEAR: Fix ALL profit/loss amounts regardless of format
+            // Order matters! Fix doubled numbers FIRST, then specific patterns
             // =====================================================================
             
-            // 1. Fix "Total Max Profit:" and "Max Profit:" - handle both patterns
-            aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Profit[:\s]*\$[\d,]+/gi, 
-                `Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
-            
-            // 2. Fix "Total Max Loss:" and "Max Loss:"
-            aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Loss[:\s]*\$[\d,]+/gi,
-                `Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
-            
-            // 3. Fix "TOTAL Max Profit:" (all caps variant)
-            aiResponse = aiResponse.replace(/TOTAL\s+Max\s*Profit[:\s]*\$[\d,]+/gi, 
-                `TOTAL Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
-            aiResponse = aiResponse.replace(/TOTAL\s+Max\s*Loss[:\s]*\$[\d,]+/gi,
-                `TOTAL Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
-            
-            // 4. Fix P&L table rows - patterns WITH $ sign (4+ digits = totals)
-            aiResponse = aiResponse.replace(/\+\s*\$(\d{1,3},\d{3}|\d{4,})/g, 
-                `+$${cv.totalPutMaxProfit.toLocaleString()}`);
-            aiResponse = aiResponse.replace(/-\s*\$(\d{1,3},\d{3}|\d{4,})/g,
-                `-$${cv.totalPutMaxLoss.toLocaleString()}`);
-            
-            // 5. Fix P&L table rows - patterns WITHOUT $ sign (like +1,365,365)
-            // Match: +X,XXX,XXX or +XXXXXXX (7+ digits is definitely wrong)
-            aiResponse = aiResponse.replace(/\+\s*(\d{1,3},\d{3},\d{3}|\d{7,})/g, 
-                `+$${cv.totalPutMaxProfit.toLocaleString()}`);
-            aiResponse = aiResponse.replace(/-\s*(\d{1,3},\d{3},\d{3}|\d{7,})/g,
-                `-$${cv.totalPutMaxLoss.toLocaleString()}`);
-            
-            // 6. Fix doubled numbers like "1,365,365" → "$1,365"
-            // Pattern: X,XXX,XXX where first and last parts are same
-            aiResponse = aiResponse.replace(/(\d{1,3}),(\d{3}),\2/g, (match, first, second) => {
+            // STEP 0: Fix doubled numbers FIRST (like "1,365,365" or "$1,365,365")
+            // These are AI hallucinations where it doubles the number
+            // Pattern: X,YYY,YYY where YYY repeats (with or without $ prefix)
+            aiResponse = aiResponse.replace(/\$?(\d{1,3}),(\d{3}),\2(?!\d)/g, (match, first, second) => {
+                console.log(`[STRATEGY-ADVISOR] 🔧 Fixed doubled number: ${match} → $${first},${second}`);
                 return `$${first},${second}`;
             });
             
-            // 7. Fix the "(X contracts × $Y)" parenthetical - recalculate total from components
+            // STEP 1: Fix "Total Max Profit:" and "Max Profit:" - handle both patterns
+            aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Profit[:\s]*\$?[\d,]+/gi, 
+                `Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
+            
+            // STEP 2: Fix "Total Max Loss:" and "Max Loss:"
+            aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Loss[:\s]*\$?[\d,]+/gi,
+                `Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
+            
+            // STEP 3: Fix "TOTAL Max Profit:" (all caps variant)
+            aiResponse = aiResponse.replace(/TOTAL\s+Max\s*Profit[:\s]*\$?[\d,]+/gi, 
+                `TOTAL Max Profit: $${cv.totalPutMaxProfit.toLocaleString()}`);
+            aiResponse = aiResponse.replace(/TOTAL\s+Max\s*Loss[:\s]*\$?[\d,]+/gi,
+                `TOTAL Max Loss: $${cv.totalPutMaxLoss.toLocaleString()}`);
+            
+            // STEP 4: Fix P&L table rows with + prefix (any large number = total)
+            // Match: +$X,XXX or +$XX,XXX or +$XXX,XXX or without $
+            aiResponse = aiResponse.replace(/\+\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g, 
+                `+$${cv.totalPutMaxProfit.toLocaleString()}`);
+            
+            // STEP 5: Fix P&L table rows with - prefix  
+            aiResponse = aiResponse.replace(/-\s*\$?(\d{1,3},\d{3}(?:,\d{3})?|\d{4,})/g,
+                `-$${cv.totalPutMaxLoss.toLocaleString()}`);
+            
+            // STEP 6: Fix the "(X contracts × $Y)" parenthetical - recalculate total
             aiResponse = aiResponse.replace(
-                /\$[\d,]+\s*\((\d+)\s*contracts\s*×\s*\$(\d+)\)/gi,
+                /\$?[\d,]+\s*\((\d+)\s*contracts\s*[×x]\s*\$(\d+)\)/gi,
                 (match, contracts, perContract) => {
                     const numContracts = parseInt(contracts);
                     const perContractVal = parseInt(perContract);
@@ -928,6 +927,7 @@ const mainHandler = async (req, res, next) => {
             const remainingNumbers = aiResponse.match(largeNumber) || [];
             if (remainingNumbers.length > 0) {
                 console.log(`[STRATEGY-ADVISOR] ⚠️ ${remainingNumbers.length} large dollar amounts remain: ${JSON.stringify(remainingNumbers)}`);
+
             } else if (allLargeNumbers.length > 0) {
                 console.log(`[STRATEGY-ADVISOR] ✅ Fixed ${allLargeNumbers.length} hallucinated dollar amounts`);
             }
