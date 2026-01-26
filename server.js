@@ -983,13 +983,14 @@ const mainHandler = async (req, res, next) => {
                 
                 // FINAL NUCLEAR PASS: Replace any remaining standalone $1 with stock price
                 // This catches anything we missed
-                // IMPORTANT: $1.70 is VALID (1 dollar 70 cents), $1/ or $1 space is NOT valid
-                // Pattern: $1 NOT followed by digit or decimal point
-                aiResponse = aiResponse.replace(/\$1(?![0-9.])/g, `$${stockPrice}`);
+                // IMPORTANT: $1.70 is VALID (1 dollar 70 cents), $1,365 is VALID too!
+                // Pattern: $1 NOT followed by digit, decimal point, OR COMMA
+                // Without the comma, $1,365 would become $94,365 (BAD!)
+                aiResponse = aiResponse.replace(/\$1(?![0-9.,])/g, `$${stockPrice}`);
                 
                 // Count remaining standalone $1 instances (for sanity check)
-                // Use same pattern - exclude valid $1.xx prices
-                const remainingCount = (aiResponse.match(/\$1(?![0-9.])/g) || []).length;
+                // Use same pattern - exclude valid $1.xx AND $1,xxx prices
+                const remainingCount = (aiResponse.match(/\$1(?![0-9.,])/g) || []).length;
                 if (remainingCount > 0) {
                     console.log(`[STRATEGY-ADVISOR] ⚠️ ${remainingCount} standalone "$1" remain after fixes`);
                 } else {
