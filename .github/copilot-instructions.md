@@ -76,88 +76,196 @@ WheelHouse/
 
 ---
 
-## 🚀 ACTIVE PROJECT: Server.js Modularization (January 2026)
+## 🏛️ Backend Architecture (COMPLETED January 2026)
 
-**Status**: ✅ PHASE 4 COMPLETE - Ready for Phase 5  
-**Branch**: `refactor/modularize-server`  
-**Goal**: Reduce server.js from 5247 → ~500 lines
+**Status**: ✅ COMPLETE - server.js reduced from 5,247 → 217 lines (96% reduction!)
 
-### Progress Summary
-
-| Phase | Before | After | Lines Removed | New Files |
-|-------|--------|-------|---------------|-----------|
-| Phase 1 (Utilities) | 5247 | 5092 | ~155 | `dateHelpers.js`, `serverHelpers.js` |
-| Phase 2 (Services) | 5092 | 4640 | ~450 | `CacheService.js`, `DiscoveryService.js`, `AIService.js`, `WisdomService.js` |
-| Phase 3 (Prompts) | 4640 | 3490 | ~1150 | `promptBuilders.js` |
-| Phase 4 (Routes) | 3490 | 2813 | ~677 | `wisdomRoutes.js`, `DataService.js` |
-| **Total** | **5247** | **2813** | **~2434 (46%)** | **9 new files** |
-
-### Git Commits (Branch: refactor/modularize-server)
-1. `b507a9b` - Phase 1: Extract dateHelpers and serverHelpers
-2. `446c9da` - Phase 2: Extract CacheService, DiscoveryService, AIService, WisdomService
-3. `111b5f5` - Phase 3: Extract promptBuilders (~1150 lines)
-4. `e03fa5b` - Phase 4: Extract wisdomRoutes and DataService (~677 lines)
-
-### What Remains in server.js (~2813 lines)
-- `mainHandler` middleware (~1600 lines) - All `/api/*` endpoints
-- `buildStrategyAdvisorPrompt` function (~700 lines) - Strategy advisor prompt
-- Express app setup, middleware, static file serving (~500 lines)
-
-### Next Steps (Phase 5+)
-1. **Move `buildStrategyAdvisorPrompt`** to `promptBuilders.js` (~700 lines, easy)
-2. **Convert `mainHandler` to Express routers**:
-   - `cboeRoutes.js` - CBOE/Yahoo proxy endpoints
-   - `aiRoutes.js` - All `/api/ai/*` endpoints (~1200 lines)
-   - `updateRoutes.js` - Version check/apply
-3. **Final server.js** should be ~500 lines (imports, middleware, router mounts)
-
-### New Files Created (src/ directory)
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `src/utils/dateHelpers.js` | ~80 | `formatExpiryForCBOE`, `parseExpiryDate`, `calculateDTE` |
-| `src/utils/serverHelpers.js` | ~75 | `getLocalVersion`, `detectGPU`, `MIME_TYPES`, `compareVersions` |
-| `src/services/CacheService.js` | ~40 | `tickerDataCache`, `optionPremiumCache`, `CACHE_TTL` |
-| `src/services/DiscoveryService.js` | ~100 | `fetchMostActiveStocks`, `fetchTrendingStocks`, `fetchWheelCandidatePrices` |
-| `src/services/AIService.js` | ~200 | `callAI`, `callGrok`, `callOllama`, `callMoE` |
-| `src/services/WisdomService.js` | ~150 | `loadWisdom`, `saveWisdom`, `generateEmbedding`, `searchWisdom` |
-| `src/services/promptBuilders.js` | ~1100 | `buildDeepDivePrompt`, `buildCheckupPrompt`, `buildTradeParsePrompt`, etc. |
-| `src/services/DataService.js` | ~350 | `fetchJson`, `fetchTickerIVData`, `fetchOptionPremium`, `fetchDeepDiveData` |
-| `src/routes/wisdomRoutes.js` | ~150 | GET/POST/DELETE `/api/wisdom/*` endpoints |
-
-### How Modules Are Imported in server.js
-```javascript
-// Utilities
-const { formatExpiryForCBOE, parseExpiryDate, calculateDTE } = require('./src/utils/dateHelpers');
-const { getLocalVersion, detectGPU, MIME_TYPES, compareVersions } = require('./src/utils/serverHelpers');
-
-// Services
-const CacheService = require('./src/services/CacheService');
-const AIService = require('./src/services/AIService');
-const WisdomService = require('./src/services/WisdomService');
-const promptBuilders = require('./src/services/promptBuilders');
-const DataService = require('./src/services/DataService');
-
-// Routes
-const wisdomRoutes = require('./src/routes/wisdomRoutes');
-app.use('/api/wisdom', wisdomRoutes);
+### Architecture Overview
+```
+server.js (217 lines) - Express app setup, middleware, router mounts
+    │
+    ├── src/routes/           # API endpoint handlers (Express routers)
+    │   ├── aiRoutes.js       # All /api/ai/* endpoints (1158 lines)
+    │   ├── cboeRoutes.js     # CBOE/IV/Yahoo proxy endpoints (168 lines)
+    │   ├── updateRoutes.js   # Version check/apply/restart (182 lines)
+    │   ├── wisdomRoutes.js   # Trading wisdom CRUD (154 lines)
+    │   ├── settingsRoutes.js # Settings API (394 lines)
+    │   └── schwabRoutes.js   # Schwab broker API (551 lines)
+    │
+    ├── src/services/         # Business logic (reusable across routes)
+    │   ├── AIService.js      # callAI, callGrok, callOllama (409 lines)
+    │   ├── CacheService.js   # Ticker/option caching (163 lines)
+    │   ├── DataService.js    # Market data fetching (573 lines)
+    │   ├── DiscoveryService.js # Stock screening (314 lines)
+    │   ├── WisdomService.js  # RAG embeddings (192 lines)
+    │   ├── MarketDataService.js # Schwab→CBOE→Yahoo fallback (519 lines)
+    │   └── promptBuilders.js # AI prompt templates (1949 lines)
+    │
+    └── src/utils/            # Pure utility functions
+        ├── dateHelpers.js    # Date formatting (146 lines)
+        └── serverHelpers.js  # Version, GPU, MIME (139 lines)
 ```
 
 ---
 
-### Module Dependencies
+## 🚨 CRITICAL: How to Add New Backend Features
+
+**⚠️ NEVER add new endpoints or business logic directly to server.js!**
+
+### The Pattern
+
+| What You're Adding | Where It Goes | Example |
+|-------------------|---------------|---------|
+| New API endpoint | `src/routes/xxxRoutes.js` | POST /api/new-feature |
+| AI/LLM calls | `src/services/AIService.js` | New AI function |
+| Data fetching | `src/services/DataService.js` | New data source |
+| AI prompts | `src/services/promptBuilders.js` | New prompt builder |
+| Date/time utils | `src/utils/dateHelpers.js` | New date function |
+| Caching logic | `src/services/CacheService.js` | New cache type |
+
+### Adding a New API Endpoint
+
+**Step 1: Create or use existing route file**
+```javascript
+// src/routes/myFeatureRoutes.js
+const express = require('express');
+const router = express.Router();
+
+// Dependencies injected via init()
+let AIService, DataService, promptBuilders;
+
+function init(deps) {
+    AIService = deps.AIService;
+    DataService = deps.DataService;
+    promptBuilders = deps.promptBuilders;
+}
+
+router.post('/analyze', async (req, res) => {
+    try {
+        const { ticker } = req.body;
+        const data = await DataService.fetchTickerIVData(ticker);
+        const prompt = promptBuilders.buildMyPrompt(data);
+        const result = await AIService.callAI(prompt, req.body.model);
+        res.json({ success: true, result });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+module.exports = router;
+module.exports.init = init;
 ```
-main.js (entry point)
-  ├── state.js (global state - imported by everything)
-  ├── api.js → state.js, utils.js
-  ├── simulation.js → state.js, charts.js
-  ├── pricing.js → state.js
-  ├── positions.js → state.js, api.js, portfolio.js
-  ├── portfolio.js → state.js, positions.js, AccountService
-  ├── challenges.js → state.js, positions.js
-  ├── charts.js → state.js, pricing.js
-  ├── analysis.js → state.js, pricing.js, AccountService
-  └── ui.js → state.js, charts.js, pricing.js, simulation.js
+
+**Step 2: Mount in server.js**
+```javascript
+// In server.js imports section
+const myFeatureRoutes = require('./src/routes/myFeatureRoutes');
+
+// After other route inits
+myFeatureRoutes.init({ AIService, DataService, promptBuilders });
+
+// Mount the router
+app.use('/api/my-feature', myFeatureRoutes);
+```
+
+### Adding Business Logic (Services)
+
+If your feature needs reusable logic (not just an endpoint), add it to an existing service or create a new one:
+
+```javascript
+// src/services/MyService.js
+class MyService {
+    static someCalculation(data) {
+        // Pure business logic, no Express req/res
+        return result;
+    }
+    
+    static async fetchSomething(ticker) {
+        // Async operations
+        return data;
+    }
+}
+
+module.exports = MyService;
+```
+
+Then import it in your route file and inject via `init()`.
+
+### Adding AI Prompts
+
+All AI prompts go in `src/services/promptBuilders.js`:
+
+```javascript
+// Add to promptBuilders.js
+function buildMyNewPrompt(ticker, data, options = {}) {
+    return `
+You are analyzing ${ticker}...
+
+DATA:
+${JSON.stringify(data, null, 2)}
+
+INSTRUCTIONS:
+...
+    `.trim();
+}
+
+// Add to module.exports at bottom
+module.exports = {
+    // ... existing exports
+    buildMyNewPrompt
+};
+```
+
+### ❌ What NOT to Do
+
+```javascript
+// ❌ WRONG - Adding directly to server.js
+app.post('/api/my-new-feature', async (req, res) => {
+    // 500 lines of logic here...
+});
+
+// ❌ WRONG - Duplicating fetch logic
+const response = await fetch('https://api.schwab.com/...');
+
+// ❌ WRONG - Inline AI prompts in route handlers
+const prompt = `You are an AI that...` // Should be in promptBuilders.js
+```
+
+### ✅ What TO Do
+
+```javascript
+// ✅ CORRECT - Use existing services
+const data = await DataService.fetchTickerIVData(ticker);
+const quote = await MarketDataService.getQuote(ticker);
+
+// ✅ CORRECT - Use promptBuilders
+const prompt = promptBuilders.buildMyPrompt(data);
+
+// ✅ CORRECT - Use AIService
+const result = await AIService.callAI(prompt, model);
+
+// ✅ CORRECT - Keep routes thin, logic in services
+router.post('/analyze', async (req, res) => {
+    const result = await MyService.analyze(req.body);
+    res.json(result);
+});
+```
+
+### Dependency Injection Pattern
+
+Routes receive their dependencies via `init()` to avoid circular imports:
+
+```javascript
+// Route file
+let AIService, CacheService;
+function init(deps) {
+    AIService = deps.AIService;
+    CacheService = deps.CacheService;
+}
+module.exports.init = init;
+
+// server.js
+myRoutes.init({ AIService, CacheService, DataService, promptBuilders, secureStore });
 ```
 
 ---
