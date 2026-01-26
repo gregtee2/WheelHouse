@@ -4083,26 +4083,34 @@ window.stageStrategyAdvisorTrade = function() {
     console.log('[STAGE] Parsing recommendation...');
     
     // Method 1: Look for "Sell TICKER $XX/$XX Put Spread, DATE" format
-    const spreadMatch = recommendation?.match(/Sell\s+\w+\s+\$(\d+)\/\$(\d+)\s+(Put|Call)\s+Spread,?\s*(\d{4}-\d{2}-\d{2})?/i);
+    // Also handles "Bear Call Spread" and "Bull Put Spread" variations
+    // Date can appear with or without "expiry" after it
+    const spreadMatch = recommendation?.match(/Sell\s+\w+\s+\$(\d+(?:\.\d+)?)\/\$(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread[,.]?\s*(\d{4}-\d{2}-\d{2})?/i);
     if (spreadMatch) {
-        const upperStrikeVal = parseFloat(spreadMatch[1]);
-        const lowerStrikeVal = parseFloat(spreadMatch[2]);
+        const strike1 = parseFloat(spreadMatch[1]);
+        const strike2 = parseFloat(spreadMatch[2]);
         const optType = spreadMatch[3].toLowerCase();
-        const expDate = spreadMatch[4];
+        let expDate = spreadMatch[4];
+        
+        // If no date in the header line, look for date elsewhere nearby
+        if (!expDate) {
+            const dateMatch = recommendation?.match(/(\d{4}-\d{2}-\d{2})\s*(?:expir|exp)/i);
+            if (dateMatch) expDate = dateMatch[1];
+        }
         
         if (optType === 'put') {
             tradeType = 'put_credit_spread';
-            strike = upperStrikeVal;  // Sell higher strike
-            upperStrike = lowerStrikeVal;  // Buy lower strike
+            strike = Math.max(strike1, strike2);  // Sell higher strike
+            upperStrike = Math.min(strike1, strike2);  // Buy lower strike
         } else {
             tradeType = 'call_credit_spread';
             isCall = true;
-            strike = lowerStrikeVal;  // Sell lower strike
-            upperStrike = upperStrikeVal;  // Buy higher strike
+            strike = Math.min(strike1, strike2);  // Sell lower strike
+            upperStrike = Math.max(strike1, strike2);  // Buy higher strike
         }
         
         if (expDate) expiry = expDate;
-        console.log('[STAGE] Detected spread from header: ' + tradeType + ' $' + strike + '/$' + upperStrike);
+        console.log('[STAGE] Detected spread from header: ' + tradeType + ' $' + strike + '/$' + upperStrike + ' exp ' + (expiry || 'TBD'));
     }
     
     // Method 2: Look for "Credit Received: $X.XX/share" or "Credit Received: $X.XX"
