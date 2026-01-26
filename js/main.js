@@ -3957,7 +3957,7 @@ window.runStrategyAdvisor = async function() {
                         <button onclick="document.getElementById('strategyAdvisorModal').remove()" style="padding:10px 20px; background:#333; border:1px solid #444; border-radius:8px; color:#ddd; font-size:13px; cursor:pointer;">
                             Close
                         </button>
-                        <button onclick="window.stageStrategyAdvisorTrade(); document.getElementById('strategyAdvisorModal').remove();" style="padding:10px 24px; background:linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border:none; border-radius:8px; color:#fff; font-weight:bold; font-size:13px; cursor:pointer; box-shadow:0 4px 12px rgba(34,197,94,0.3);">
+                        <button onclick="window.stageStrategyAdvisorTrade();" style="padding:10px 24px; background:linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border:none; border-radius:8px; color:#fff; font-weight:bold; font-size:13px; cursor:pointer; box-shadow:0 4px 12px rgba(34,197,94,0.3);">
                             ➕ Stage This Trade
                         </button>
                     </div>
@@ -4200,12 +4200,7 @@ window.stageStrategyAdvisorTrade = function() {
     localStorage.setItem('wheelhouse_pending', JSON.stringify(pending));
     
     renderPendingTrades();
-    showNotification(`✅ Staged ${ticker} ${tradeType.replace(/_/g, ' ')} from Strategy Advisor`, 'success');
-    
-    // Switch to Ideas tab so user sees the staged trade
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        if (btn.dataset.tab === 'ideas') btn.click();
-    });
+    showNotification(`✅ Staged ${ticker} ${tradeType.replace(/_/g, ' ')} - check Ideas tab`, 'success');
 };
 
 /**
