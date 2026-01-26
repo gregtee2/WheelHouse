@@ -3237,6 +3237,52 @@ function formatAIResponse(text) {
     // IMPORTANT: Use function replacements to prevent $94 being interpreted as capture group 94
     // When replacement string contains $N, JavaScript interprets it as backreference!
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STEP 1: INLINE TEXT STYLING (must happen BEFORE structural HTML is added)
+    // This prevents the percentage/dollar regex from matching values inside CSS
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Style dollar amounts - green for positive context
+    html = html.replace(/\$(\d+(?:,\d{3})*(?:\.\d{2})?)/g, (match, p1) =>
+        `<span style="color:#00ff88; font-weight:bold;">$${p1}</span>`);
+    
+    // Style percentages (but NOT inside style="" attributes - those come later)
+    html = html.replace(/(\d+(?:\.\d+)?%)/g, (match, p1) =>
+        `<span style="color:#00d9ff; font-weight:bold;">${p1}</span>`);
+    
+    // Style specific keywords/values
+    html = html.replace(/Max Profit:/g, '<span style="color:#22c55e; font-weight:bold;">Max Profit:</span>');
+    html = html.replace(/Max Loss:/g, '<span style="color:#ff5252; font-weight:bold;">Max Loss:</span>');
+    html = html.replace(/Breakeven:/g, '<span style="color:#ffaa00; font-weight:bold;">Breakeven:</span>');
+    html = html.replace(/Win Probability:/g, '<span style="color:#00d9ff; font-weight:bold;">Win Probability:</span>');
+    html = html.replace(/Risk\/Reward Ratio:/g, '<span style="color:#a78bfa; font-weight:bold;">Risk/Reward Ratio:</span>');
+    html = html.replace(/Buying Power Used:/g, '<span style="color:#8b5cf6; font-weight:bold;">Buying Power Used:</span>');
+    html = html.replace(/Delta Exposure:/g, '<span style="color:#00d9ff; font-weight:bold;">Delta Exposure:</span>');
+    html = html.replace(/Action:/g, '<span style="color:#22c55e; font-weight:bold;">Action:</span>');
+    html = html.replace(/Expiration:/g, '<span style="color:#ffaa00; font-weight:bold;">Expiration:</span>');
+    html = html.replace(/Credit\/Debit:/g, '<span style="color:#00d9ff; font-weight:bold;">Credit/Debit:</span>');
+    html = html.replace(/Contracts:/g, '<span style="color:#a78bfa; font-weight:bold;">Contracts:</span>');
+    
+    // Convert bold **text** - make it stand out
+    html = html.replace(/\*\*([^*]+)\*\*/g, (match, p1) =>
+        `<strong style="color:#fff; background:rgba(255,255,255,0.1); padding:1px 4px; border-radius:3px;">${p1}</strong>`);
+    
+    // Convert emoji colors
+    html = html.replace(/✅/g, '<span style="color:#00ff88;">✅</span>');
+    html = html.replace(/❌/g, '<span style="color:#ff5252;">❌</span>');
+    html = html.replace(/🟢/g, '<span style="color:#00ff88;">🟢</span>');
+    html = html.replace(/🟡/g, '<span style="color:#ffaa00;">🟡</span>');
+    html = html.replace(/🔴/g, '<span style="color:#ff5252;">🔴</span>');
+    html = html.replace(/📈/g, '<span style="color:#00ff88;">📈</span>');
+    html = html.replace(/📉/g, '<span style="color:#ff5252;">📉</span>');
+    html = html.replace(/💡/g, '<span style="color:#ffaa00;">💡</span>');
+    html = html.replace(/📚/g, '<span style="color:#a78bfa;">📚</span>');
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STEP 2: STRUCTURAL HTML (headers, bullets, etc with CSS gradients)
+    // Done AFTER inline styling so percentages like "0%" in CSS won't get styled
+    // ═══════════════════════════════════════════════════════════════════════════
+    
     // Convert ## headers (main sections) - with colored background
     html = html.replace(/^## 🏆 (.*?)$/gm, (match, p1) =>
         `<div style="background:linear-gradient(135deg, rgba(34,197,94,0.2) 0%, rgba(34,197,94,0.1) 100%); border:1px solid rgba(34,197,94,0.4); border-radius:8px; padding:12px 16px; margin:20px 0 15px 0;"><span style="font-size:18px; font-weight:bold; color:#22c55e;">🏆 ${p1}</span></div>`);
@@ -3262,42 +3308,9 @@ function formatAIResponse(text) {
     html = html.replace(/(⚠️[^<\n]*)/g, (match, p1) =>
         `<div style="background:rgba(255,170,0,0.1); border-left:3px solid #ffaa00; padding:8px 12px; margin:6px 0; color:#ffcc00;">${p1}</div>`);
     
-    // Convert bold **text** - make it stand out
-    html = html.replace(/\*\*([^*]+)\*\*/g, (match, p1) =>
-        `<strong style="color:#fff; background:rgba(255,255,255,0.1); padding:1px 4px; border-radius:3px;">${p1}</strong>`);
-    
-    // Style specific keywords/values
-    html = html.replace(/Max Profit:/g, '<span style="color:#22c55e; font-weight:bold;">Max Profit:</span>');
-    html = html.replace(/Max Loss:/g, '<span style="color:#ff5252; font-weight:bold;">Max Loss:</span>');
-    html = html.replace(/Breakeven:/g, '<span style="color:#ffaa00; font-weight:bold;">Breakeven:</span>');
-    html = html.replace(/Win Probability:/g, '<span style="color:#00d9ff; font-weight:bold;">Win Probability:</span>');
-    html = html.replace(/Risk\/Reward Ratio:/g, '<span style="color:#a78bfa; font-weight:bold;">Risk/Reward Ratio:</span>');
-    html = html.replace(/Buying Power Used:/g, '<span style="color:#8b5cf6; font-weight:bold;">Buying Power Used:</span>');
-    html = html.replace(/Delta Exposure:/g, '<span style="color:#00d9ff; font-weight:bold;">Delta Exposure:</span>');
-    html = html.replace(/Action:/g, '<span style="color:#22c55e; font-weight:bold;">Action:</span>');
-    html = html.replace(/Expiration:/g, '<span style="color:#ffaa00; font-weight:bold;">Expiration:</span>');
-    html = html.replace(/Credit\/Debit:/g, '<span style="color:#00d9ff; font-weight:bold;">Credit/Debit:</span>');
-    html = html.replace(/Contracts:/g, '<span style="color:#a78bfa; font-weight:bold;">Contracts:</span>');
-    
-    // Style dollar amounts - green for positive context, show them clearly
-    // Use function to prevent $94 being interpreted as capture group 94
-    html = html.replace(/\$(\d+(?:,\d{3})*(?:\.\d{2})?)/g, (match, p1) =>
-        `<span style="color:#00ff88; font-weight:bold;">$${p1}</span>`);
-    
-    // Style percentages
-    html = html.replace(/(\d+(?:\.\d+)?%)/g, (match, p1) =>
-        `<span style="color:#00d9ff; font-weight:bold;">${p1}</span>`);
-    
-    // Convert emoji colors
-    html = html.replace(/✅/g, '<span style="color:#00ff88;">✅</span>');
-    html = html.replace(/❌/g, '<span style="color:#ff5252;">❌</span>');
-    html = html.replace(/🟢/g, '<span style="color:#00ff88;">🟢</span>');
-    html = html.replace(/🟡/g, '<span style="color:#ffaa00;">🟡</span>');
-    html = html.replace(/🔴/g, '<span style="color:#ff5252;">🔴</span>');
-    html = html.replace(/📈/g, '<span style="color:#00ff88;">📈</span>');
-    html = html.replace(/📉/g, '<span style="color:#ff5252;">📉</span>');
-    html = html.replace(/💡/g, '<span style="color:#ffaa00;">💡</span>');
-    html = html.replace(/📚/g, '<span style="color:#a78bfa;">📚</span>');
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STEP 3: LINE BREAKS AND FINAL WRAPPING
+    // ═══════════════════════════════════════════════════════════════════════════
     
     // Convert line breaks to proper spacing (but not inside already-styled divs)
     // Double line breaks = paragraph break
