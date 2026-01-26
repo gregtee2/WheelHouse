@@ -4210,34 +4210,79 @@ function buildStrategyAdvisorPrompt(context) {
     const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, riskTolerance, existingPositions, dataSource } = context;
     
     // =========================================================================
-    // EXTRACT SPECIFIC STRIKES - Pre-calculate examples the AI MUST use
+    // HELPER: Round strike to valid increment ($1 for stocks > $50, $0.50 for < $50)
+    // =========================================================================
+    const roundStrike = (price) => {
+        const increment = spot >= 50 ? 1 : 0.5;
+        return Math.round(price / increment) * increment;
+    };
+    
+    // =========================================================================
+    // EXTRACT SPECIFIC STRIKES - Use REAL chain data with proper rounding
     // =========================================================================
     const puts = sampleOptions?.filter(o => o.option_type === 'P').sort((a, b) => parseFloat(b.strike) - parseFloat(a.strike)) || [];
     const calls = sampleOptions?.filter(o => o.option_type === 'C').sort((a, b) => parseFloat(a.strike) - parseFloat(b.strike)) || [];
     
-    // Find ATM put (just below spot)
+    // Find ATM put (just below spot, rounded to valid strike)
     const atmPut = puts.find(p => parseFloat(p.strike) <= spot) || puts[0];
-    // Find OTM put - must be DIFFERENT from ATM, else calculate synthetic
-    let otmPut = puts.find(p => parseFloat(p.strike) <= spot - 3 && p !== atmPut);
+    
+    // For spreads, find a put ~$5 OTM (standard spread width)
+    const spreadWidth = spot >= 100 ? 5 : (spot >= 50 ? 5 : 2.5);
+    let otmPut = puts.find(p => {
+        const strike = parseFloat(p.strike);
+        return strike <= spot - spreadWidth && p !== atmPut;
+    });
+    
+    // If no OTM put in chain, create synthetic based on ATM
     if (!otmPut && atmPut) {
-        // Create synthetic OTM strike $5 below ATM
-        otmPut = { strike: parseFloat(atmPut.strike) - 5, bid: 0.50, ask: 0.80 };
+        const otmStrike = roundStrike(parseFloat(atmPut.strike) - spreadWidth);
+        // Estimate OTM premium as ~40% of ATM premium (rough delta-based estimate)
+        const atmMid = (parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2;
+        otmPut = { strike: otmStrike, bid: atmMid * 0.35, ask: atmMid * 0.45 };
     }
     
     // Find ATM call (just above spot)
     const atmCall = calls.find(c => parseFloat(c.strike) >= spot) || calls[0];
-    // Find OTM call - must be DIFFERENT from ATM
-    let otmCall = calls.find(c => parseFloat(c.strike) >= spot + 3 && c !== atmCall);
+    // Find OTM call for spread
+    let otmCall = calls.find(c => {
+        const strike = parseFloat(c.strike);
+        return strike >= spot + spreadWidth && c !== atmCall;
+    });
     if (!otmCall && atmCall) {
-        // Create synthetic OTM strike $5 above ATM
-        otmCall = { strike: parseFloat(atmCall.strike) + 5, bid: 0.50, ask: 0.80 };
+        const otmStrike = roundStrike(parseFloat(atmCall.strike) + spreadWidth);
+        const atmMid = (parseFloat(atmCall.bid) + parseFloat(atmCall.ask)) / 2;
+        otmCall = { strike: otmStrike, bid: atmMid * 0.35, ask: atmMid * 0.45 };
     }
     
-    // Pre-calculate example values
-    const sellPutStrike = atmPut ? parseFloat(atmPut.strike).toFixed(2) : (spot - 1).toFixed(2);
-    const buyPutStrike = otmPut ? parseFloat(otmPut.strike).toFixed(2) : (spot - 5).toFixed(2);
-    const sellCallStrike = atmCall ? parseFloat(atmCall.strike).toFixed(2) : (spot + 1).toFixed(2);
-    const buyCallStrike = otmCall ? parseFloat(otmCall.strike).toFixed(2) : (spot + 5).toFixed(2);
+    // Pre-calculate strikes (rounded to valid increments)
+    const sellPutStrike = atmPut ? roundStrike(parseFloat(atmPut.strike)) : roundStrike(spot - 1);
+    const buyPutStrike = otmPut ? roundStrike(parseFloat(otmPut.strike)) : roundStrike(spot - spreadWidth - 1);
+    const sellCallStrike = atmCall ? roundStrike(parseFloat(atmCall.strike)) : roundStrike(spot + 1);
+    const buyCallStrike = otmCall ? roundStrike(parseFloat(otmCall.strike)) : roundStrike(spot + spreadWidth + 1);
+    
+    // Calculate ACTUAL spread width (may differ from target due to available strikes)
+    const putSpreadWidth = sellPutStrike - buyPutStrike;
+    const callSpreadWidth = buyCallStrike - sellCallStrike;
+    
+    // Calculate premiums for spreads (NET credit = sell premium - buy premium)
+    const atmPutMid = atmPut ? (parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2 : 2.00;
+    const otmPutMid = otmPut ? (parseFloat(otmPut.bid) + parseFloat(otmPut.ask)) / 2 : atmPutMid * 0.4;
+    const putSpreadCredit = Math.max(0.10, atmPutMid - otmPutMid); // Net credit received
+    
+    const atmCallMid = atmCall ? (parseFloat(atmCall.bid) + parseFloat(atmCall.ask)) / 2 : 2.00;
+    const otmCallMid = otmCall ? (parseFloat(otmCall.bid) + parseFloat(otmCall.ask)) / 2 : atmCallMid * 0.4;
+    const callSpreadCredit = Math.max(0.10, atmCallMid - otmCallMid); // Net credit received
+    
+    // Calculate deltas (BULL PUT = POSITIVE delta, BEAR CALL = NEGATIVE delta)
+    const atmPutDelta = atmPut?.delta ? parseFloat(atmPut.delta) : -0.45; // ATM put delta ~-0.45
+    const otmPutDelta = otmPut?.delta ? parseFloat(otmPut.delta) : -0.25; // OTM put delta ~-0.25
+    // Bull put spread net delta = |short put delta| - |long put delta| = POSITIVE
+    const putSpreadDelta = Math.abs(atmPutDelta) - Math.abs(otmPutDelta); // ~+0.20 per contract
+    
+    const atmCallDelta = atmCall?.delta ? parseFloat(atmCall.delta) : 0.45;
+    const otmCallDelta = otmCall?.delta ? parseFloat(otmCall.delta) : 0.25;
+    // Bear call spread net delta = -(short call delta - long call delta) = NEGATIVE  
+    const callSpreadDelta = -(atmCallDelta - otmCallDelta); // ~-0.20 per contract
     
     // Find ideal expiration: target 30-45 DTE for wheel strategies
     // Weeklies (< 7 days) have too much gamma risk and not enough premium
@@ -4259,15 +4304,14 @@ function buildStrategyAdvisorPrompt(context) {
     }
     const firstExpiry = targetExpiry;
     
-    // Get premium for ATM put (what you'd receive)
-    const atmPutPremium = atmPut ? ((parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2).toFixed(2) : '1.00';
-    const atmPutDelta = atmPut?.delta ? Math.abs(parseFloat(atmPut.delta)).toFixed(2) : '0.40';
-    
     // DEBUG: Log what we're sending to AI
-    console.log(`[STRATEGY-ADVISOR] Pre-calculated strikes for AI prompt:`);
-    console.log(`  Sell Put: $${sellPutStrike}, Buy Put: $${buyPutStrike}`);
-    console.log(`  Sell Call: $${sellCallStrike}, Buy Call: $${buyCallStrike}`);
-    console.log(`  First Expiry: ${firstExpiry}, ATM Put Premium: $${atmPutPremium}`);
+    console.log(`[STRATEGY-ADVISOR] Pre-calculated values for AI prompt:`);
+    console.log(`  Sell Put: $${sellPutStrike}, Buy Put: $${buyPutStrike}, Width: $${putSpreadWidth}`);
+    console.log(`  Put Spread Credit: $${putSpreadCredit.toFixed(2)} (sell $${atmPutMid.toFixed(2)} - buy $${otmPutMid.toFixed(2)})`);
+    console.log(`  Sell Call: $${sellCallStrike}, Buy Call: $${buyCallStrike}, Width: $${callSpreadWidth}`);
+    console.log(`  Call Spread Credit: $${callSpreadCredit.toFixed(2)}`);
+    console.log(`  Put Spread Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH)`);
+    console.log(`  First Expiry: ${firstExpiry}`);
     console.log(`  Options in chain: ${sampleOptions?.length || 0}, Puts: ${puts.length}, Calls: ${calls.length}`);
     
     // Format sample options for context - CRYSTAL CLEAR format to prevent AI confusion
@@ -4412,54 +4456,57 @@ STRATEGIES TO EVALUATE (analyze ALL of these):
 YOUR TASK: Recommend THE BEST strategy for this situation
 ═══════════════════════════════════════════════════════════════════════════
 
-🚨🚨🚨 MANDATORY STRIKE PRICES (THESE ARE NEAR THE STOCK PRICE OF $${spot.toFixed(0)}):
+🚨🚨🚨 MANDATORY STRIKE PRICES (valid CBOE strikes near $${spot.toFixed(0)}):
    
-   FOR PUTS:  Sell the $${sellPutStrike} strike, Buy the $${buyPutStrike} strike
-   FOR CALLS: Sell the $${sellCallStrike} strike, Buy the $${buyCallStrike} strike
+   FOR PUTS:  Sell the $${sellPutStrike} strike, Buy the $${buyPutStrike} strike (${putSpreadWidth} point spread)
+   FOR CALLS: Sell the $${sellCallStrike} strike, Buy the $${buyCallStrike} strike (${callSpreadWidth} point spread)
    EXPIRATION: ${firstExpiry}
-   
-   ⚠️ The PREMIUM you receive is ~$${atmPutPremium}/share (a few dollars)
-   ⚠️ The STRIKE is ~$${sellPutStrike} (near stock price of $${spot.toFixed(0)})
-   ⚠️ DO NOT confuse these! Strike ≈ $${spot.toFixed(0)}, Premium ≈ $${atmPutPremium}
 
 VALID TRADE SETUPS (these are the ONLY options - pick ONE):
 
-SETUP A - Short Put:
+SETUP A - Short Put (Cash-Secured):
   Trade: Sell ${ticker} $${sellPutStrike} Put, ${firstExpiry}
-  Credit: ~$${atmPutPremium}/share
-  Buying Power: ~$${(parseFloat(sellPutStrike) * 100).toLocaleString()} per contract
-  Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (parseFloat(sellPutStrike) * 100))} contracts
+  Credit: ~$${atmPutMid.toFixed(2)}/share
+  Buying Power Required: ~$${(sellPutStrike * 100).toLocaleString()} per contract
+  Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (sellPutStrike * 100))} contracts
+  Delta: +${Math.abs(atmPutDelta * 100).toFixed(0)} per contract (BULLISH)
 
-SETUP B - Put Credit Spread (MATH PRE-CALCULATED):
+SETUP B - Put Credit Spread (Bull Put) - ALL MATH PRE-CALCULATED:
   Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike} Put Spread, ${firstExpiry}
-  Spread Width: $${sellPutStrike} - $${buyPutStrike} = $${(parseFloat(sellPutStrike) - parseFloat(buyPutStrike)).toFixed(2)}
-  Credit Received: ~$${(parseFloat(atmPutPremium) * 0.6).toFixed(2)}/share
+  Spread Width: $${putSpreadWidth.toFixed(2)}
+  Credit Received: $${putSpreadCredit.toFixed(2)}/share (= $${atmPutMid.toFixed(2)} sell - $${otmPutMid.toFixed(2)} buy)
   
-  📐 FORMULAS (use these EXACT numbers):
-  • Max Profit per contract = Credit × 100 = $${(parseFloat(atmPutPremium) * 0.6).toFixed(2)} × 100 = $${(parseFloat(atmPutPremium) * 0.6 * 100).toFixed(0)}
-  • Max Loss per contract = (Width - Credit) × 100 = ($${(parseFloat(sellPutStrike) - parseFloat(buyPutStrike)).toFixed(2)} - $${(parseFloat(atmPutPremium) * 0.6).toFixed(2)}) × 100 = $${((parseFloat(sellPutStrike) - parseFloat(buyPutStrike) - parseFloat(atmPutPremium) * 0.6) * 100).toFixed(0)}
-  • Breakeven = Sell Strike - Credit = $${sellPutStrike} - $${(parseFloat(atmPutPremium) * 0.6).toFixed(2)} = $${(parseFloat(sellPutStrike) - parseFloat(atmPutPremium) * 0.6).toFixed(2)}
-  • Buying Power per contract = Width × 100 = $${((parseFloat(sellPutStrike) - parseFloat(buyPutStrike)) * 100).toFixed(0)}
-  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / ((parseFloat(sellPutStrike) - parseFloat(buyPutStrike)) * 100))} contracts
-  • Risk/Reward = Max Loss / Max Profit = $${((parseFloat(sellPutStrike) - parseFloat(buyPutStrike) - parseFloat(atmPutPremium) * 0.6) * 100).toFixed(0)} / $${(parseFloat(atmPutPremium) * 0.6 * 100).toFixed(0)} = ${((parseFloat(sellPutStrike) - parseFloat(buyPutStrike) - parseFloat(atmPutPremium) * 0.6) / (parseFloat(atmPutPremium) * 0.6)).toFixed(1)}:1
+  📐 EXACT NUMBERS (COPY THESE - do NOT recalculate!):
+  • Max Profit per contract = $${putSpreadCredit.toFixed(2)} × 100 = $${(putSpreadCredit * 100).toFixed(0)}
+  • Max Loss per contract = ($${putSpreadWidth.toFixed(2)} - $${putSpreadCredit.toFixed(2)}) × 100 = $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)}
+  • Breakeven = $${sellPutStrike} - $${putSpreadCredit.toFixed(2)} = $${(sellPutStrike - putSpreadCredit).toFixed(2)}
+  • Buying Power Required = Spread Width × 100 = $${(putSpreadWidth * 100).toFixed(0)} per contract
+  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (putSpreadWidth * 100))} contracts
+  • Risk/Reward Ratio = $${((putSpreadWidth - putSpreadCredit) * 100).toFixed(0)} / $${(putSpreadCredit * 100).toFixed(0)} = ${((putSpreadWidth - putSpreadCredit) / putSpreadCredit).toFixed(1)}:1
+  • Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH - you want stock to stay UP)
+  • Win Probability: ~${(60 + putSpreadDelta * 20).toFixed(0)}% (stock expires above $${sellPutStrike})
 
-SETUP C - Covered Call (if you own shares):
+SETUP C - Covered Call (requires owning 100 shares per contract):
   Trade: Sell ${ticker} $${sellCallStrike} Call, ${firstExpiry}
-  Credit: ~$${atmPutPremium}/share
+  Credit: ~$${atmCallMid.toFixed(2)}/share
+  Requires: Own ${ticker} shares (100 per contract)
 
-SETUP D - Call Credit Spread (MATH PRE-CALCULATED):
+SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
   Trade: Sell ${ticker} $${sellCallStrike}/$${buyCallStrike} Call Spread, ${firstExpiry}
-  Spread Width: $${buyCallStrike} - $${sellCallStrike} = $${(parseFloat(buyCallStrike) - parseFloat(sellCallStrike)).toFixed(2)}
-  Credit Received: ~$${(parseFloat(atmPutPremium) * 0.5).toFixed(2)}/share
+  Spread Width: $${callSpreadWidth.toFixed(2)}
+  Credit Received: $${callSpreadCredit.toFixed(2)}/share
   
-  📐 FORMULAS (use these EXACT numbers):
-  • Max Profit per contract = Credit × 100 = $${(parseFloat(atmPutPremium) * 0.5 * 100).toFixed(0)}
-  • Max Loss per contract = (Width - Credit) × 100 = $${((parseFloat(buyCallStrike) - parseFloat(sellCallStrike) - parseFloat(atmPutPremium) * 0.5) * 100).toFixed(0)}
-  • Breakeven = Sell Strike + Credit = $${(parseFloat(sellCallStrike) + parseFloat(atmPutPremium) * 0.5).toFixed(2)}
-  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / ((parseFloat(buyCallStrike) - parseFloat(sellCallStrike)) * 100))} contracts
+  📐 EXACT NUMBERS (COPY THESE - do NOT recalculate!):
+  • Max Profit per contract = $${(callSpreadCredit * 100).toFixed(0)}
+  • Max Loss per contract = $${((callSpreadWidth - callSpreadCredit) * 100).toFixed(0)}
+  • Breakeven = $${sellCallStrike} + $${callSpreadCredit.toFixed(2)} = $${(sellCallStrike + callSpreadCredit).toFixed(2)}
+  • Buying Power Required = $${(callSpreadWidth * 100).toFixed(0)} per contract
+  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (callSpreadWidth * 100))} contracts
+  • Risk/Reward Ratio = ${((callSpreadWidth - callSpreadCredit) / callSpreadCredit).toFixed(1)}:1
+  • Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH - you want stock to stay DOWN)
 
 YOUR JOB: Pick ONE setup (A, B, C, or D) and explain WHY it's best for this situation.
-⚠️ COPY THE PRE-CALCULATED MATH - do NOT recalculate or make up numbers!
+⚠️ COPY THE PRE-CALCULATED NUMBERS EXACTLY - do NOT make up or recalculate!
 
 Respond with this format:
 
@@ -4482,23 +4529,22 @@ Respond with this format:
 • Max Loss: [Copy from setup's "Max Loss per contract" × your contract count]
 • Breakeven: [Copy from setup's "Breakeven" value]
 • Contracts: [Use ${riskTolerance === 'conservative' ? '50%' : riskTolerance === 'aggressive' ? '80%' : '60%'} of max contracts from setup]
-• Win Probability: ~X% (based on delta - typically 60-70% for credit spreads)
-• Risk/Reward Ratio: [Copy from setup's "Risk/Reward" calculation]
+• Win Probability: [Copy from setup - typically 60-70% for credit spreads]
+• Risk/Reward Ratio: [Copy from setup's "Risk/Reward Ratio"]
 
 ### 📊 PROFIT/LOSS AT EXPIRATION
 Using your recommended contract count, multiply per-contract values:
 | If Stock Ends At | You Make/Lose | Result |
 |------------------|---------------|--------|
-| $${(parseFloat(sellPutStrike) * 1.05).toFixed(0)} or higher | +$[Max Profit × contracts] | ✅ Max profit |
+| $${Math.round(sellPutStrike * 1.05)} or higher | +$[Max Profit × contracts] | ✅ Max profit |
 | $${sellPutStrike} | +$[Max Profit × contracts] | ✅ Full profit |
-| Breakeven | $0 | ➖ Break even |
-| $${(parseFloat(sellPutStrike) * 0.95).toFixed(0)} | -$[Calculate] | ⚠️ Partial loss |
+| $${(sellPutStrike - putSpreadCredit).toFixed(2)} (breakeven) | $0 | ➖ Break even |
+| $${Math.round(sellPutStrike * 0.95)} | -$[Calculate proportional loss] | ⚠️ Partial loss |
 | $${buyPutStrike} or lower | -$[Max Loss × contracts] | ❌ Max loss |
 
 ### PORTFOLIO IMPACT
-• Buying Power Used: $X (X% of available)
-• Delta Exposure: [+/- X delta, bullish/bearish]
-• If you have existing positions, note any concentration risk
+• Buying Power Used: $[Width × 100 × contracts] ([X]% of $${buyingPower.toLocaleString()})
+• Delta Exposure: [Copy delta from setup] - Bull put = BULLISH, Bear call = BEARISH
 
 ### 📚 OTHER OPTIONS CONSIDERED
 Briefly explain why you DIDN'T choose these:
@@ -4510,7 +4556,7 @@ Briefly explain why you DIDN'T choose these:
 Write 2-3 sentences explaining this strategy type for someone who has never done it before. What makes it different from just buying/selling a put or call?
 
 ### ✅ SANITY CHECK
-Confirm: My recommended strikes are $${sellPutStrike} and/or $${buyPutStrike} (near ${ticker} price of $${spot.toFixed(2)})`;
+Confirm: My recommended strikes ($${sellPutStrike}/$${buyPutStrike} for puts, $${sellCallStrike}/$${buyCallStrike} for calls) are valid round-number strikes near ${ticker}'s price of $${spot.toFixed(2)}`;
 }
 
 // Build a prompt for generating trade ideas (with real prices!)
