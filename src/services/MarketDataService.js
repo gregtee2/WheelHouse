@@ -190,7 +190,9 @@ async function getOptionsChain(ticker, options = {}) {
                                 gamma: c.gamma,
                                 theta: c.theta,
                                 vega: c.vega,
-                                dte: c.daysToExpiration
+                                dte: c.daysToExpiration,
+                                netChange: c.netChange || 0,
+                                closePrice: c.closePrice
                             });
                             
                             // Collect IV for ATM options
@@ -226,7 +228,9 @@ async function getOptionsChain(ticker, options = {}) {
                                 gamma: c.gamma,
                                 theta: c.theta,
                                 vega: c.vega,
-                                dte: c.daysToExpiration
+                                dte: c.daysToExpiration,
+                                netChange: c.netChange || 0,
+                                closePrice: c.closePrice
                             });
                             
                             if (spotPrice && Math.abs(parseFloat(strikeKey) - spotPrice) / spotPrice < 0.05) {

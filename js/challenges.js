@@ -1,11 +1,9 @@
 // WheelHouse - Challenge System
 // Track trading challenges with goals, time limits, and linked positions
 
-import { state } from './state.js';
+import { state, getChallengesKey, getPositionsKey, getClosedKey } from './state.js';
 import { loadClosedPositions } from './portfolio.js';
 import { isDebitPosition, createModal, modalHeader } from './utils.js';
-
-const CHALLENGES_KEY = 'wheelhouse_challenges';
 
 // ============ Theme Colors Helper ============
 // Gets CSS variable values for dynamic theming
@@ -45,7 +43,7 @@ const colors = {
 
 export function loadChallenges() {
     try {
-        const saved = localStorage.getItem(CHALLENGES_KEY);
+        const saved = localStorage.getItem(getChallengesKey());
         state.challenges = saved ? JSON.parse(saved) : [];
     } catch (e) {
         console.error('Failed to load challenges:', e);
@@ -55,7 +53,7 @@ export function loadChallenges() {
 }
 
 export function saveChallenges() {
-    localStorage.setItem(CHALLENGES_KEY, JSON.stringify(state.challenges || []));
+    localStorage.setItem(getChallengesKey(), JSON.stringify(state.challenges || []));
 }
 
 // ============ Challenge CRUD ============
@@ -97,7 +95,7 @@ export function deleteChallenge(id) {
             pos.challengeIds = pos.challengeIds.filter(cid => cid !== id);
         }
     });
-    localStorage.setItem('wheelhouse_positions', JSON.stringify(state.positions));
+    localStorage.setItem(getPositionsKey(), JSON.stringify(state.positions));
     
     // Remove from closed positions too
     state.closedPositions?.forEach(pos => {
@@ -105,7 +103,7 @@ export function deleteChallenge(id) {
             pos.challengeIds = pos.challengeIds.filter(cid => cid !== id);
         }
     });
-    localStorage.setItem('wheelhouse_closed', JSON.stringify(state.closedPositions));
+    localStorage.setItem(getClosedKey(), JSON.stringify(state.closedPositions));
     
     state.challenges = state.challenges.filter(c => c.id !== id);
     saveChallenges();
@@ -120,13 +118,13 @@ export function archiveChallenge(id) {
 export function linkPositionToChallenge(positionId, challengeId) {
     // Check open positions
     let pos = state.positions?.find(p => p.id === positionId);
-    let storage = 'wheelhouse_positions';
+    let storageKey = getPositionsKey();
     let list = state.positions;
     
     // Check closed positions if not found
     if (!pos) {
         pos = state.closedPositions?.find(p => p.id === positionId);
-        storage = 'wheelhouse_closed';
+        storageKey = getClosedKey();
         list = state.closedPositions;
     }
     
@@ -134,25 +132,25 @@ export function linkPositionToChallenge(positionId, challengeId) {
         if (!pos.challengeIds) pos.challengeIds = [];
         if (!pos.challengeIds.includes(challengeId)) {
             pos.challengeIds.push(challengeId);
-            localStorage.setItem(storage, JSON.stringify(list));
+            localStorage.setItem(storageKey, JSON.stringify(list));
         }
     }
 }
 
 export function unlinkPositionFromChallenge(positionId, challengeId) {
     let pos = state.positions?.find(p => p.id === positionId);
-    let storage = 'wheelhouse_positions';
+    let storageKey = getPositionsKey();
     let list = state.positions;
     
     if (!pos) {
         pos = state.closedPositions?.find(p => p.id === positionId);
-        storage = 'wheelhouse_closed';
+        storageKey = getClosedKey();
         list = state.closedPositions;
     }
     
     if (pos && pos.challengeIds) {
         pos.challengeIds = pos.challengeIds.filter(cid => cid !== challengeId);
-        localStorage.setItem(storage, JSON.stringify(list));
+        localStorage.setItem(storageKey, JSON.stringify(list));
     }
 }
 

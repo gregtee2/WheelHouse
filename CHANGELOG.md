@@ -2,6 +2,61 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.16.0] - 2026-01-27
+
+### Added
+- **🌐 Global AI Model Selector** - One model setting to rule them all!
+  - New dropdown in header bar (next to Account switcher)
+  - Sets default AI model for all features
+  - Local "Override" dropdowns let you customize per-feature if needed
+  - Defaults to "(use global)" - no more setting the same model everywhere
+  - Preference saved to localStorage for persistence
+
+- **📊 Spread Position Support in Portfolio Audit** - AI now understands spreads!
+  - Portfolio audit sends `sellStrike`, `buyStrike`, `spreadWidth` for spreads
+  - Also sends calculated `maxProfit` and `maxLoss` values
+  - AI sees `$325/$320 (5w) MaxProfit: $X, MaxLoss: $Y` instead of `$null`
+  - Proper `[SPREAD]` tag in position summary
+
+- **🧠 Spread AI Advisor** - "What Should I Do?" button for spreads
+  - New button in spread explanation modal
+  - Fetches live spot price from CBOE
+  - Calls AI for recommendation (HOLD, CLOSE, ROLL)
+  - Shows model name at bottom of recommendation
+
+- **🔌 Simple AI Endpoint** - New `/api/ai/simple` endpoint
+  - Takes raw `{prompt, model}` without prompt builder
+  - Used by spread advisor and other direct AI calls
+  - Cleaner API for custom prompts
+
+### Fixed
+- **AI Model Override Priority** - Local selectors no longer override global incorrectly
+  - Fixed: saved local preferences were overriding "(use global)" selection
+  - Now properly defaults to global unless explicitly overridden
+  - Removed `selected` attribute from DeepSeek option in local dropdowns
+
+- **Spread Explanation Modal** - Enhanced with live position data
+  - Shows Current Status section: DTE, Spot Price, Current P/L
+  - Unrealized P/L calculated from live option prices
+  - Clear visual display of position health
+
+### Changed
+- **Local AI Model Selectors** - Now labeled as "Override:" with "(use global)" default
+  - P&L tab, Discord Analyzer, Trade Ideas all updated
+  - Empty value means "use global model"
+  - Consistent pattern across all AI features
+
+### Technical Notes
+- `getSelectedAIModel(localSelectId)` helper function for consistent model selection
+- Pattern: check local override → fall back to global → final default to qwen2.5:14b
+- `window.T2SharedLogic` pattern from T2AutoTron adopted for shared utilities
+
+## [1.15.0] - 2026-01-25
+
+### Added
+- **📈 Enhanced Trade Analysis** - AI now considers more data points!
+  - Full options chain context for smarter recommendations
+
 ## [1.14.0] - 2026-01-24
 
 ### Added

@@ -863,8 +863,24 @@ router.post('/portfolio-audit', async (req, res) => {
         const positionSummary = positions.map(p => {
             const riskPct = p.riskPercent || 0;
             const isLong = ['long_call', 'long_put', 'long_call_leaps', 'skip_call'].includes(p.type);
-            const typeNote = isLong ? '[LONG]' : '[SHORT]';
-            return `${p.ticker}: ${p.type} $${p.strike} (${p.dte}d DTE) ${typeNote} - ${riskPct.toFixed(0)}% ITM`;
+            const isSpread = p.type?.includes('_spread');
+            const typeNote = isLong ? '[LONG]' : (isSpread ? '[SPREAD]' : '[SHORT]');
+            
+            // Build strike display - spreads have two strikes
+            let strikeDisplay;
+            if (isSpread && p.sellStrike && p.buyStrike) {
+                strikeDisplay = `$${p.sellStrike}/$${p.buyStrike} (${p.spreadWidth || Math.abs(p.sellStrike - p.buyStrike)}w)`;
+            } else {
+                strikeDisplay = `$${p.strike}`;
+            }
+            
+            // Add max profit/loss for spreads
+            let spreadInfo = '';
+            if (isSpread && p.maxProfit != null) {
+                spreadInfo = ` MaxProfit: $${p.maxProfit}, MaxLoss: $${p.maxLoss}`;
+            }
+            
+            return `${p.ticker}: ${p.type} ${strikeDisplay} (${p.dte}d DTE) ${typeNote}${spreadInfo} - ${riskPct.toFixed(0)}% ITM`;
         }).join('\n');
         
         // Concentration analysis
@@ -1285,6 +1301,42 @@ If you cannot find any trading advice, respond with: NO_TRADING_ADVICE_FOUND`;
         
     } catch (e) {
         console.log('[AI-VISION] ❌ Wisdom parse error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// SIMPLE PROMPT - Direct AI call with custom prompt (no prompt builder)
+// =============================================================================
+
+router.post('/simple', async (req, res) => {
+    try {
+        const { prompt, model } = req.body;
+        if (!prompt) {
+            return res.status(400).json({ error: 'Missing prompt' });
+        }
+        
+        const selectedModel = model || 'qwen2.5:14b';
+        const isGrok = selectedModel.startsWith('grok');
+        const tokenLimit = isGrok ? 500 : 800;
+        
+        console.log('[AI-SIMPLE] Direct prompt with model:', selectedModel);
+        
+        let response;
+        if (isGrok) {
+            response = await AIService.callGrok(prompt, selectedModel, tokenLimit);
+        } else {
+            response = await AIService.callAI(prompt, selectedModel, tokenLimit);
+        }
+        
+        res.json({ 
+            success: true, 
+            insight: response,
+            model: selectedModel
+        });
+        console.log('[AI-SIMPLE] ✅ Complete');
+    } catch (e) {
+        console.log('[AI-SIMPLE] ❌ Error:', e.message);
         res.status(500).json({ error: e.message });
     }
 });

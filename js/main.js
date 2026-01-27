@@ -1,7 +1,7 @@
 // WheelHouse - Main Entry Point
 // Initialization and tab management
 
-import { state, resetSimulation } from './state.js';
+import { state, resetSimulation, setAccountMode, updatePaperModeIndicator, setPaperAccountBalance, getPaperAccountBalance } from './state.js';
 import { draw, drawPayoffChart, drawHistogram, drawPnLChart, drawProbabilityCone, drawHeatMap, drawGreeksChart } from './charts.js';
 import { runSingle, runBatch, resetAll } from './simulation.js';
 import { priceOptions, calcGreeks } from './pricing.js';
@@ -13,6 +13,153 @@ import { initChallenges, renderChallenges } from './challenges.js';
 import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from './ui.js';
 import { showNotification } from './utils.js';
 import AccountService from './services/AccountService.js';
+
+/**
+ * Switch between Real and Paper trading accounts
+ */
+window.switchAccountMode = function(mode) {
+    if (mode === state.accountMode) return;
+    
+    // Confirm switch if in paper mode with positions
+    if (state.accountMode === 'paper' && state.positions.length > 0) {
+        // Just switch - positions are saved to paper storage
+    }
+    
+    // Set the mode
+    setAccountMode(mode);
+    
+    // Reload all data from the new storage
+    loadPositions();
+    loadClosedPositions();
+    renderPortfolio();
+    renderHoldings();
+    initChallenges();
+    
+    // Update balances display
+    if (mode === 'paper') {
+        // Show paper account balance
+        const bp = getPaperAccountBalance();
+        const balBP = document.getElementById('balBuyingPower');
+        const balValue = document.getElementById('balAccountValue');
+        if (balBP) balBP.textContent = `$${bp.toLocaleString()}`;
+        if (balValue) balValue.textContent = `$${bp.toLocaleString()}`;
+        showNotification(`📝 Switched to Paper Trading - $${bp.toLocaleString()} starting balance`, 'info');
+    } else {
+        // Refresh real account balances
+        AccountService.refresh().then(() => {
+            const bp = AccountService.getBuyingPower();
+            const value = AccountService.getAccountValue();
+            const balBP = document.getElementById('balBuyingPower');
+            const balValue = document.getElementById('balAccountValue');
+            if (balBP && bp) balBP.textContent = `$${bp.toLocaleString()}`;
+            if (balValue && value) balValue.textContent = `$${value.toLocaleString()}`;
+        });
+        showNotification('💰 Switched to Real Trading Account', 'success');
+    }
+};
+
+/**
+ * Set paper account starting balance
+ */
+window.setPaperBalance = function() {
+    const currentBalance = getPaperAccountBalance();
+    const input = prompt('Enter paper trading starting balance ($):', currentBalance.toString());
+    if (input === null) return;
+    
+    const newBalance = parseFloat(input.replace(/[,$]/g, ''));
+    if (isNaN(newBalance) || newBalance <= 0) {
+        showNotification('Invalid amount. Please enter a positive number.', 'error');
+        return;
+    }
+    
+    setPaperAccountBalance(newBalance);
+    
+    // Update display if in paper mode
+    if (state.accountMode === 'paper') {
+        const balBP = document.getElementById('balBuyingPower');
+        const balValue = document.getElementById('balAccountValue');
+        if (balBP) balBP.textContent = `$${newBalance.toLocaleString()}`;
+        if (balValue) balValue.textContent = `$${newBalance.toLocaleString()}`;
+    }
+    
+    showNotification(`📝 Paper account balance set to $${newBalance.toLocaleString()}`, 'success');
+};
+
+// =============================================================================
+// GLOBAL AI MODEL SELECTOR
+// =============================================================================
+
+/**
+ * Get the currently selected AI model
+ * Priority: local override (if set to non-default) > global selector > hardcoded default
+ * @param {string} localSelectId - Optional ID of local override selector
+ * @returns {string} The model name to use
+ */
+window.getSelectedAIModel = function(localSelectId = null) {
+    // Check local override first (if provided and has a non-empty value)
+    if (localSelectId) {
+        const localSelect = document.getElementById(localSelectId);
+        if (localSelect && localSelect.value) {
+            return localSelect.value;
+        }
+    }
+    
+    // Fall back to global selector
+    const globalSelect = document.getElementById('globalAiModelSelect');
+    if (globalSelect && globalSelect.value) {
+        return globalSelect.value;
+    }
+    
+    // Final fallback
+    return 'qwen2.5:14b';
+};
+
+/**
+ * Save global AI model preference to localStorage
+ */
+window.saveGlobalAIModel = function() {
+    const select = document.getElementById('globalAiModelSelect');
+    if (select) {
+        localStorage.setItem('wheelhouse_global_ai_model', select.value);
+        showNotification(`🧠 Default AI model set to ${select.value}`, 'info', 2000);
+    }
+};
+
+/**
+ * Load global AI model preference on startup
+ */
+function initGlobalAIModel() {
+    const saved = localStorage.getItem('wheelhouse_global_ai_model');
+    const select = document.getElementById('globalAiModelSelect');
+    if (select && saved) {
+        select.value = saved;
+    }
+}
+
+/**
+ * Initialize account mode on page load
+ * Sets the dropdown value and shows paper mode indicator if needed
+ */
+function initAccountMode() {
+    const select = document.getElementById('accountModeSelect');
+    if (select) {
+        select.value = state.accountMode;
+    }
+    
+    // Show paper mode indicator if in paper mode
+    updatePaperModeIndicator();
+    
+    // If in paper mode, set paper balance display
+    if (state.accountMode === 'paper') {
+        const bp = getPaperAccountBalance();
+        setTimeout(() => {
+            const balBP = document.getElementById('balBuyingPower');
+            const balValue = document.getElementById('balAccountValue');
+            if (balBP) balBP.textContent = `$${bp.toLocaleString()}`;
+            if (balValue) balValue.textContent = `$${bp.toLocaleString()}`;
+        }, 500);
+    }
+}
 
 /**
  * Get the next 3rd Friday of the month (standard options expiry)
@@ -134,6 +281,12 @@ window.restartServer = async function() {
 export function init() {
     console.log('🏠 WheelHouse - Wheel Strategy Options Analyzer');
     
+    // Initialize account mode (Real vs Paper trading)
+    initAccountMode();
+    
+    // Initialize global AI model selector
+    initGlobalAIModel();
+    
     // Setup tabs
     setupTabs();
     
@@ -192,10 +345,11 @@ async function checkAIAvailability() {
     
     if (!aiPanel) return;
     
-    // Restore saved model preference
-    const savedModel = localStorage.getItem('wheelhouse_ai_model') || 'deepseek-r1:32b';
+    // Restore saved model preference (empty string means "use global")
+    const savedModel = localStorage.getItem('wheelhouse_ai_model');
     if (modelSelect) {
-        modelSelect.value = savedModel;
+        // Default to empty (use global) if no preference saved
+        modelSelect.value = savedModel || '';
     }
     
     // Restore wisdom toggle preference
@@ -585,7 +739,8 @@ window.checkAIStatus = async function() {
             return;
         }
         
-        const selectedModel = document.getElementById('aiModelSelect')?.value || 'qwen2.5:7b';
+        // Use global model selector (local aiModelSelect is an override)
+        const selectedModel = window.getSelectedAIModel('aiModelSelect');
         const isLoaded = status.loaded?.some(m => m.name === selectedModel);
         
         if (isLoaded) {
@@ -627,7 +782,8 @@ window.checkAIStatus = async function() {
 window.warmupAIModel = async function() {
     const statusEl = document.getElementById('aiModelStatus');
     const warmupBtn = document.getElementById('aiWarmupBtn');
-    const selectedModel = document.getElementById('aiModelSelect')?.value || 'qwen2.5:7b';
+    // Use global model selector (local aiModelSelect is an override)
+    const selectedModel = window.getSelectedAIModel('aiModelSelect');
     
     if (warmupBtn) {
         warmupBtn.disabled = true;
@@ -1644,9 +1800,9 @@ window.analyzeDiscordTrade = async function(tradeTextOverride, modelOverride) {
     } else {
         const textarea = document.getElementById('pasteTradeInput');
         tradeText = textarea?.value?.trim();
+        // Discord has its own selector, but falls back to global
         const discordModelSelect = document.getElementById('discordModelSelect');
-        const mainModelSelect = document.getElementById('aiModelSelect');
-        model = discordModelSelect?.value || mainModelSelect?.value || 'deepseek-r1:32b';
+        model = discordModelSelect?.value || window.getSelectedAIModel?.() || 'deepseek-r1:32b';
     }
     
     if (!tradeText) {
@@ -1806,9 +1962,9 @@ window.analyzeDiscordTrade = async function(tradeTextOverride, modelOverride) {
             ? parseFloat(parsed.premium) 
             : null;
         
-        // Get the model used for this analysis
+        // Get the model used for this analysis (Discord override or global)
         const discordModelSelect = document.getElementById('discordModelSelect');
-        const modelUsed = discordModelSelect?.value || 'deepseek-r1:32b';
+        const modelUsed = discordModelSelect?.value || window.getSelectedAIModel?.() || 'deepseek-r1:32b';
         
         // Store parsed data for staging
         window._currentParsedTrade = {
@@ -2551,43 +2707,122 @@ window.confirmStagedTrade = function(id) {
     
     if (!trade) return;
     
+    // Detect if this is a spread trade
+    const isSpread = trade.type?.includes('_spread') || trade.upperStrike;
+    const isCredit = trade.type?.includes('credit') || (trade.type === 'put_credit_spread' || trade.type === 'call_credit_spread');
+    const isPut = trade.type?.includes('put');
+    
+    // For put credit spread: strike = sell (higher), upperStrike = buy (lower)
+    // For call credit spread: strike = sell (lower), upperStrike = buy (higher)
+    const sellStrike = trade.strike || '';
+    const buyStrike = trade.upperStrike || '';
+    const expiry = parseExpiryToDate(trade.expiry);
+    
     // Show modal to enter actual trade details
     const modal = document.createElement('div');
     modal.id = 'confirmTradeModal';
     modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:10000;';
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
+    // Format trade type for display
+    const tradeTypeDisplay = trade.type?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Short Put';
+    
+    // Build strike and premium fields based on trade type
+    let strikeFieldsHtml = '';
+    let premiumFieldsHtml = '';
+    
+    if (isSpread) {
+        // Spread: two strikes + two premiums + net credit display
+        strikeFieldsHtml = `
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div>
+                    <label style="color:#00ff88; font-size:12px;">Sell Strike</label>
+                    <input id="confirmSellStrike" type="number" value="${sellStrike}" step="0.5"
+                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #00ff88; color:#fff; border-radius:4px;">
+                </div>
+                <div>
+                    <label style="color:#ff5252; font-size:12px;">Buy Strike (protection)</label>
+                    <input id="confirmBuyStrike" type="number" value="${buyStrike}" step="0.5"
+                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px;">
+                </div>
+            </div>
+        `;
+        premiumFieldsHtml = `
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div>
+                    <label style="color:#00ff88; font-size:12px;">Sell Premium (received)</label>
+                    <input id="confirmSellPremium" type="number" step="0.01" placeholder="e.g., 5.50"
+                           oninput="window.updateNetCredit()"
+                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #00ff88; color:#fff; border-radius:4px;">
+                </div>
+                <div>
+                    <label style="color:#ff5252; font-size:12px;">Buy Premium (paid)</label>
+                    <input id="confirmBuyPremium" type="number" step="0.01" placeholder="e.g., 3.15"
+                           oninput="window.updateNetCredit()"
+                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px;">
+                </div>
+            </div>
+            <div style="background:#0d0d1a; padding:12px; border-radius:8px; border:1px solid #333;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                    <span style="color:#888;">Net Credit (per share):</span>
+                    <span id="netCreditPerShare" style="color:#888; font-size:14px;">$0.00</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="color:#00ff88; font-weight:bold;">Total Credit Received:</span>
+                    <span id="netCreditDisplay" style="color:#00ff88; font-size:20px; font-weight:bold;">$0</span>
+                </div>
+                <input type="hidden" id="confirmPremium" value="${trade.premium || 0}">
+            </div>
+        `;
+    } else {
+        // Single leg: one strike + one premium
+        strikeFieldsHtml = `
+            <div>
+                <label style="color:#888; font-size:12px;">Strike Price</label>
+                <input id="confirmStrike" type="number" value="${trade.strike}" step="0.5"
+                       style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
+            </div>
+        `;
+        premiumFieldsHtml = `
+            <div>
+                <label style="color:#888; font-size:12px;">Premium (per share)</label>
+                <input id="confirmPremium" type="number" value="${trade.premium?.toFixed(2) || ''}" step="0.01" placeholder="e.g., 2.35"
+                       style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
+            </div>
+        `;
+    }
+    
     modal.innerHTML = `
-        <div style="background:#1a1a2e; border-radius:12px; width:400px; padding:24px; border:1px solid #00ff88;">
-            <h2 style="color:#00ff88; margin:0 0 16px 0;">✅ Confirm Trade Executed</h2>
-            <p style="color:#888; margin-bottom:16px; font-size:13px;">
-                Enter the actual details from your broker:
-            </p>
+        <div style="background:#1a1a2e; border-radius:12px; width:450px; padding:24px; border:1px solid #00ff88;">
+            <h2 style="color:#00ff88; margin:0 0 8px 0;">✅ Confirm Trade Executed</h2>
+            <div style="color:#888; font-size:12px; margin-bottom:16px; padding:8px; background:rgba(0,0,0,0.3); border-radius:4px;">
+                ${isSpread ? `📊 <span style="color:#8b5cf6;">${tradeTypeDisplay}</span> - enter both legs` : tradeTypeDisplay}
+            </div>
             <div style="display:grid; gap:12px;">
                 <div>
                     <label style="color:#888; font-size:12px;">Ticker</label>
                     <input id="confirmTicker" type="text" value="${trade.ticker}" readonly
                            style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
                 </div>
-                <div>
-                    <label style="color:#888; font-size:12px;">Strike Price</label>
-                    <input id="confirmStrike" type="number" value="${trade.strike}" step="0.5"
-                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
+                ${strikeFieldsHtml}
+                ${premiumFieldsHtml}
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div>
+                        <label style="color:#888; font-size:12px;">Contracts</label>
+                        <input id="confirmContracts" type="number" value="${trade.contracts || 1}" min="1"
+                               oninput="window.updateNetCredit()"
+                               style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
+                    </div>
+                    <div>
+                        <label style="color:#888; font-size:12px;">Expiry Date</label>
+                        <input id="confirmExpiry" type="date" value="${expiry}"
+                               style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
+                    </div>
                 </div>
-                <div>
-                    <label style="color:#888; font-size:12px;">Premium Received (per share)</label>
-                    <input id="confirmPremium" type="number" value="${trade.premium?.toFixed(2) || ''}" step="0.01" placeholder="e.g., 1.50"
-                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
-                </div>
-                <div>
-                    <label style="color:#888; font-size:12px;">Contracts</label>
-                    <input id="confirmContracts" type="number" value="1" min="1"
-                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
-                </div>
-                <div>
-                    <label style="color:#888; font-size:12px;">Expiry Date</label>
-                    <input id="confirmExpiry" type="date" value="${parseExpiryToDate(trade.expiry)}"
-                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
+                <input type="hidden" id="confirmTradeType" value="${trade.type || 'short_put'}">
+                <input type="hidden" id="confirmIsSpread" value="${isSpread ? '1' : '0'}">
+                <div id="priceLoadingStatus" style="color:#888; font-size:11px; text-align:center; display:none;">
+                    ⏳ Fetching market prices...
                 </div>
             </div>
             <div style="display:flex; gap:12px; margin-top:20px;">
@@ -2603,7 +2838,133 @@ window.confirmStagedTrade = function(id) {
         </div>
     `;
     document.body.appendChild(modal);
+    
+    // Fetch option prices to pre-populate
+    if (isSpread && trade.ticker && expiry) {
+        fetchOptionPricesForModal(trade.ticker, sellStrike, buyStrike, expiry, isPut);
+    } else if (!isSpread && trade.ticker && trade.strike && expiry) {
+        fetchSingleOptionPrice(trade.ticker, trade.strike, expiry, isPut);
+    }
 };
+
+/**
+ * Update net credit display for spreads
+ */
+window.updateNetCredit = function() {
+    const sellPremium = parseFloat(document.getElementById('confirmSellPremium')?.value) || 0;
+    const buyPremium = parseFloat(document.getElementById('confirmBuyPremium')?.value) || 0;
+    const contracts = parseInt(document.getElementById('confirmContracts')?.value) || 1;
+    const netCreditPerShare = sellPremium - buyPremium;
+    const totalCredit = netCreditPerShare * 100 * contracts;
+    
+    const perShareDisplay = document.getElementById('netCreditPerShare');
+    const totalDisplay = document.getElementById('netCreditDisplay');
+    const hidden = document.getElementById('confirmPremium');
+    
+    if (perShareDisplay) {
+        perShareDisplay.textContent = `$${netCreditPerShare.toFixed(2)}`;
+    }
+    if (totalDisplay) {
+        totalDisplay.textContent = `$${totalCredit.toLocaleString()}`;
+        totalDisplay.style.color = totalCredit >= 0 ? '#00ff88' : '#ff5252';
+    }
+    if (hidden) {
+        hidden.value = netCreditPerShare;  // Store per-share for position
+    }
+};
+
+/**
+ * Fetch option prices for spread and populate modal fields
+ */
+async function fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, isPut) {
+    const statusEl = document.getElementById('priceLoadingStatus');
+    if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.textContent = '⏳ Fetching market prices...';
+    }
+    
+    try {
+        const chain = await window.fetchOptionsChain(ticker);
+        if (!chain) throw new Error('No chain data');
+        
+        const options = isPut ? chain.puts : chain.calls;
+        if (!options?.length) throw new Error('No options data');
+        
+        // Find matching options
+        const sellOption = options.find(opt => 
+            Math.abs(opt.strike - parseFloat(sellStrike)) < 0.01 && opt.expiration === expiry
+        );
+        const buyOption = options.find(opt => 
+            Math.abs(opt.strike - parseFloat(buyStrike)) < 0.01 && opt.expiration === expiry
+        );
+        
+        // Populate fields (use mid price: (bid+ask)/2)
+        if (sellOption) {
+            const sellMid = (sellOption.bid + sellOption.ask) / 2;
+            document.getElementById('confirmSellPremium').value = sellMid.toFixed(2);
+        }
+        if (buyOption) {
+            const buyMid = (buyOption.bid + buyOption.ask) / 2;
+            document.getElementById('confirmBuyPremium').value = buyMid.toFixed(2);
+        }
+        
+        // Update net credit display
+        window.updateNetCredit();
+        
+        if (statusEl) {
+            statusEl.textContent = '✅ Prices loaded from market data';
+            statusEl.style.color = '#00ff88';
+            setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+        }
+    } catch (err) {
+        console.warn('Could not fetch option prices:', err.message);
+        if (statusEl) {
+            statusEl.textContent = '⚠️ Enter prices manually (market data unavailable)';
+            statusEl.style.color = '#ffaa00';
+        }
+    }
+}
+
+/**
+ * Fetch single option price and populate modal field
+ */
+async function fetchSingleOptionPrice(ticker, strike, expiry, isPut) {
+    const statusEl = document.getElementById('priceLoadingStatus');
+    if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.textContent = '⏳ Fetching market price...';
+    }
+    
+    try {
+        const chain = await window.fetchOptionsChain(ticker);
+        if (!chain) throw new Error('No chain data');
+        
+        const options = isPut ? chain.puts : chain.calls;
+        if (!options?.length) throw new Error('No options data');
+        
+        // Find matching option
+        const option = options.find(opt => 
+            Math.abs(opt.strike - parseFloat(strike)) < 0.01 && opt.expiration === expiry
+        );
+        
+        if (option) {
+            const mid = (option.bid + option.ask) / 2;
+            document.getElementById('confirmPremium').value = mid.toFixed(2);
+        }
+        
+        if (statusEl) {
+            statusEl.textContent = '✅ Price loaded from market data';
+            statusEl.style.color = '#00ff88';
+            setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+        }
+    } catch (err) {
+        console.warn('Could not fetch option price:', err.message);
+        if (statusEl) {
+            statusEl.textContent = '⚠️ Enter price manually (market data unavailable)';
+            statusEl.style.color = '#ffaa00';
+        }
+    }
+}
 
 /**
  * Parse "Feb 20" or "Mar 21" to YYYY-MM-DD
@@ -2638,32 +2999,69 @@ window.finalizeConfirmedTrade = function(id) {
     
     // Get values from modal
     const ticker = document.getElementById('confirmTicker').value;
-    const strike = parseFloat(document.getElementById('confirmStrike').value);
     const premium = parseFloat(document.getElementById('confirmPremium').value) || 0;
     const contracts = parseInt(document.getElementById('confirmContracts').value) || 1;
     const expiry = document.getElementById('confirmExpiry').value;
+    const tradeType = document.getElementById('confirmTradeType')?.value || 'short_put';
+    const isSpread = document.getElementById('confirmIsSpread')?.value === '1';
     
-    // Create position object with thesis if available
-    const position = {
+    // Create position object
+    let position = {
         id: Date.now(),
         chainId: Date.now(),
         ticker,
-        type: 'short_put',
-        strike,
+        type: tradeType,
         premium,
         contracts,
         expiry,
         openDate: new Date().toISOString().split('T')[0],
         status: 'open',
         broker: 'Manual',
-        // Include thesis if it was staged with one
         openingThesis: trade.openingThesis || null
     };
     
-    // Add to positions
-    const positions = JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
+    // Handle spread vs single-leg positions
+    if (isSpread) {
+        const sellStrike = parseFloat(document.getElementById('confirmSellStrike').value);
+        const buyStrike = parseFloat(document.getElementById('confirmBuyStrike').value);
+        const sellPremium = parseFloat(document.getElementById('confirmSellPremium')?.value) || 0;
+        const buyPremium = parseFloat(document.getElementById('confirmBuyPremium')?.value) || 0;
+        
+        // For spreads, use sellStrike/buyStrike format matching positions.js
+        position.sellStrike = sellStrike;
+        position.buyStrike = buyStrike;
+        position.spreadWidth = Math.abs(sellStrike - buyStrike);
+        
+        // Store individual leg premiums for record-keeping
+        position.sellPremium = sellPremium;
+        position.buyPremium = buyPremium;
+        
+        // Calculate max profit/loss for the spread
+        const spreadWidth = position.spreadWidth;
+        position.maxProfit = premium * 100 * contracts;
+        position.maxLoss = (spreadWidth - premium) * 100 * contracts;
+        
+        // Calculate breakeven based on spread type
+        if (tradeType === 'put_credit_spread') {
+            position.breakeven = sellStrike - premium;
+        } else if (tradeType === 'call_credit_spread') {
+            position.breakeven = sellStrike + premium;
+        }
+        
+        console.log(`[CONFIRM] Created ${tradeType}: Sell $${sellStrike}@${sellPremium} / Buy $${buyStrike}@${buyPremium}, net: $${premium}`);
+    } else {
+        // Single leg - just one strike
+        const strike = parseFloat(document.getElementById('confirmStrike').value);
+        position.strike = strike;
+    }
+    
+    // Add to positions using the correct storage key based on account mode
+    const { getPositionsKey } = window.state ? { getPositionsKey: () => window.state.accountMode === 'paper' ? 'wheelhouse_paper_positions' : 'wheelhouse_positions' } : { getPositionsKey: () => 'wheelhouse_positions' };
+    const storageKey = getPositionsKey();
+    
+    const positions = JSON.parse(localStorage.getItem(storageKey) || '[]');
     positions.push(position);
-    localStorage.setItem('wheelhouse_positions', JSON.stringify(positions));
+    localStorage.setItem(storageKey, JSON.stringify(positions));
     
     // Remove from pending
     const updatedPending = pending.filter(p => p.id !== id);
@@ -2680,7 +3078,12 @@ window.finalizeConfirmedTrade = function(id) {
         window.loadPositions();
     }
     
-    showNotification(`✅ Added ${ticker} $${strike} put to positions!`, 'success');
+    // Format success message based on trade type
+    const strikeDisplay = isSpread 
+        ? `$${position.sellStrike}/$${position.buyStrike} spread` 
+        : `$${position.strike} ${tradeType.includes('put') ? 'put' : 'call'}`;
+    
+    showNotification(`✅ Added ${ticker} ${strikeDisplay} to positions!`, 'success');
 };
 
 /**
@@ -4534,7 +4937,8 @@ window.analyzeDiscordTrade2 = async function() {
         return;
     }
     
-    const model = modelSelect?.value || 'deepseek-r1:32b';
+    // Use local override if set, otherwise fall back to global
+    const model = modelSelect?.value || window.getSelectedAIModel?.() || 'deepseek-r1:32b';
     
     // Call analyzeDiscordTrade with the text directly
     window.analyzeDiscordTrade(tradeText, model);

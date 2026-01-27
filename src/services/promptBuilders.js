@@ -1959,52 +1959,45 @@ Respond with this format:
 ## 🏆 RECOMMENDED: [Setup Letter] - [Strategy Name]
 
 ### THE TRADE
-[Copy the EXACT trade line from the setup you chose, including strikes and expiry]
+[Copy the EXACT trade line from the setup you chose, including ticker, strikes and expiry]
 
-### WHY THIS STRATEGY (explain in plain English)
-• [Reason 1 - tie to IV level of ${ivRank || '?'}%]
-• [Reason 2 - tie to stock position in range: ${stockData?.rangePosition || '?'}%]
-• [Reason 3 - tie to risk management]
+### WHY THIS STRATEGY
+• [Reason 1 - tie to IV level]
+• [Reason 2 - tie to stock's position in range]
+• [Reason 3 - tie to risk/capital management]
 
 ### THE RISKS
-• ⚠️ [Risk 1]
-• ⚠️ [Risk 2]
+• ⚠️ [Risk 1 - when you lose money]
+• ⚠️ [Risk 2 - market scenario that hurts]
 ${propDeskWarnings.length > 0 ? '\n### 🏦 PROP DESK RISK NOTES\n' + propDeskWarnings.map(w => `• ${w}`).join('\n') : ''}
 
-### THE NUMBERS (COPY FROM YOUR CHOSEN SETUP - do NOT calculate!)
-Copy the "📐 EXACT NUMBERS" and "💰 TOTALS" sections from the setup you chose.
+### THE NUMBERS
+Copy the numbers from your chosen SETUP above. Format as:
 
-### 📊 PROFIT/LOSS AT EXPIRATION
-Create a simple P&L table for YOUR CHOSEN STRATEGY using the numbers from that setup.
-Use format: | If Stock Ends At | You Make/Lose | Result |
+**Per Contract:**
+• Max Profit: $X
+• Max Loss: $X  
+• Breakeven: $X.XX
+• Buying Power: $X
 
-### PORTFOLIO IMPACT
-• Buying Power Used: [from your chosen setup]
-• Delta Exposure: [from your chosen setup]
+**For [N] Contracts:**
+• Total Max Profit: $X
+• Total Max Loss: $X
+• Total Buying Power: $X
 
-### 📚 OTHER OPTIONS CONSIDERED
-Briefly explain why you DIDN'T choose these (1 line each):
-1. [Another setup letter]: [Why not ideal for THIS situation]
-2. [Another setup letter]: [Why not ideal]
+### 📊 P&L AT EXPIRATION
+| Stock Price | Result | P&L |
+|-------------|--------|-----|
+| Above $[upper strike] | Max Profit | +$X |
+| At $[breakeven] | Breakeven | $0 |
+| Below $[lower strike] | Max Loss | -$X |
 
-### 💡 EDUCATIONAL NOTE
-[1-2 sentences explaining this strategy for beginners]
+### OTHER STRATEGIES CONSIDERED
+• [Letter]: [1-line reason why not ideal here]
+• [Letter]: [1-line reason why not ideal here]
 
-### ✅ SANITY CHECK
-${stockData?.rangePosition !== undefined && stockData?.rangePosition < 25 ? 
-`Is your recommendation BULLISH (A, B, F, or H)? If not, explain why you're going AGAINST the oversold signal at ${stockData?.rangePosition}% of range.` :
-stockData?.rangePosition !== undefined && stockData?.rangePosition > 75 ?
-`Is your recommendation BEARISH or NEUTRAL (D, E, or G)? If not, explain why you're going AGAINST the overbought signal at ${stockData?.rangePosition}% of range.` :
-`Does your recommendation match your stated thesis? Confirm strikes are valid.`}
-
-### 💡 EDUCATIONAL NOTE
-Write 2-3 sentences explaining your chosen strategy for someone new to options.
-
-### ✅ SANITY CHECK
-Confirm: My recommended strikes are valid and near ${ticker}'s price of $${spot.toFixed(2)}
-
-### 🔢 MATH VERIFICATION
-I confirm that my numbers are copied directly from the SETUP section, NOT calculated by me.`;
+### 💡 FOR BEGINNERS
+[2-3 sentences explaining this strategy in plain English for someone new to options]`;
     
     // Return both the prompt AND the calculated values for post-processing
     return {

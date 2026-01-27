@@ -1,15 +1,18 @@
 // WheelHouse - Position Tracker Module
 // localStorage-based position management
 
-import { state, setPositionContext, clearPositionContext } from './state.js';
+import { state, setPositionContext, clearPositionContext, getPositionsKey, getClosedKey, getHoldingsKey } from './state.js';
 import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal, isDebitPosition, calculatePositionCredit, calculateRealizedPnL, getChainNetCredit as utilsGetChainNetCredit, hasRollHistory as utilsHasRollHistory, createModal, modalHeader, calculateGreeks } from './utils.js';
 import { fetchPositionTickerPrice, fetchStockPrice, fetchStockPricesBatch } from './api.js';
 import { drawPayoffChart } from './charts.js';
 import { updateDteDisplay } from './ui.js';
 
-const STORAGE_KEY = 'wheelhouse_positions';
-const HOLDINGS_KEY = 'wheelhouse_holdings';
-const CLOSED_KEY = 'wheelhouse_closed_positions';
+// Dynamic storage keys based on account mode (real vs paper)
+function getStorageKey() { return getPositionsKey(); }
+function getHoldingsStorageKey() { return getHoldingsKey(); }
+function getClosedStorageKey() { return getClosedKey(); }
+
+// Legacy static keys for checkpoint (shared across modes)
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
 
 // Theme color helpers - read from CSS variables at render time
@@ -117,8 +120,14 @@ function estimateVolatility(ticker, fallback = 0.5) {
  * @returns {object} { icon, text, color, needsAttention, itmPct }
  */
 function calculatePositionRisk(pos, spotPrice) {
+    // Check if this is a spread (has different strike requirements)
+    const isSpread = pos.type?.includes('_spread');
+    
     // If we don't have spot price, fall back to DTE-based status
-    if (!spotPrice || !pos.strike) {
+    // For spreads, check sellStrike/buyStrike instead of strike
+    const hasStrike = isSpread ? (pos.sellStrike && pos.buyStrike) : pos.strike;
+    
+    if (!spotPrice || !hasStrike) {
         if (pos.dte <= 5) {
             return { icon: '⏳', text: 'Check', color: colors.orange, needsAttention: true, itmPct: null };
         } else if (pos.dte <= 14) {
@@ -130,8 +139,58 @@ function calculatePositionRisk(pos, spotPrice) {
     const isPut = pos.type?.includes('put');
     const isCall = pos.type?.includes('call');
     
-    // Skip spreads for now - they have complex risk profiles
-    if (pos.type?.includes('_spread')) {
+    // Handle spreads - calculate risk based on short leg
+    if (isSpread) {
+        // Determine which strike is the short leg (at risk of assignment)
+        let shortStrike;
+        let isShortPut = false;
+        let isShortCall = false;
+        
+        if (pos.type === 'put_credit_spread') {
+            // Bull put spread: short the HIGHER strike put
+            shortStrike = Math.max(pos.sellStrike, pos.buyStrike);
+            isShortPut = true;
+        } else if (pos.type === 'call_credit_spread') {
+            // Bear call spread: short the LOWER strike call
+            shortStrike = Math.min(pos.sellStrike, pos.buyStrike);
+            isShortCall = true;
+        } else if (pos.type === 'put_debit_spread') {
+            // Bear put spread: you bought the higher strike, sold the lower
+            // Short leg is the LOWER strike put
+            shortStrike = Math.min(pos.sellStrike, pos.buyStrike);
+            isShortPut = true;
+        } else if (pos.type === 'call_debit_spread') {
+            // Bull call spread: you bought the lower strike, sold the higher
+            // Short leg is the HIGHER strike call
+            shortStrike = Math.max(pos.sellStrike, pos.buyStrike);
+            isShortCall = true;
+        }
+        
+        if (shortStrike && spotPrice) {
+            const vol = pos.iv || estimateVolatility(pos.ticker);
+            const itmPct = quickMonteCarloRisk(spotPrice, shortStrike, pos.dte, vol, isShortPut);
+            
+            // Use same thresholds as single-leg options
+            const isLeaps = pos.dte >= 365;
+            const isLongDated = pos.dte >= 180 && pos.dte < 365;
+            const thresholds = isLeaps 
+                ? { safe: 60, watch: 70, caution: 80, danger: 90 }
+                : isLongDated 
+                ? { safe: 45, watch: 55, caution: 65, danger: 75 }
+                : { safe: 30, watch: 40, caution: 50, danger: 60 };
+            
+            if (itmPct >= thresholds.caution) {
+                return { icon: '🔴', text: `${itmPct.toFixed(0)}%`, color: colors.red, needsAttention: true, itmPct };
+            } else if (itmPct >= thresholds.watch) {
+                return { icon: '🟠', text: `${itmPct.toFixed(0)}%`, color: colors.orange, needsAttention: true, itmPct };
+            } else if (itmPct >= thresholds.safe) {
+                return { icon: '🟡', text: `${itmPct.toFixed(0)}%`, color: colors.yellow, needsAttention: false, itmPct };
+            } else {
+                return { icon: '🟢', text: `${itmPct.toFixed(0)}%`, color: colors.green, needsAttention: false, itmPct };
+            }
+        }
+        
+        // Fallback if we can't calculate
         return { icon: '📊', text: 'Spread', color: colors.purple, needsAttention: false, itmPct: null };
     }
     
@@ -705,9 +764,8 @@ window.getCritique = async function(chainId) {
                           'Closed early';
         }
         
-        // Get selected model
-        const modelSelect = document.getElementById('aiModelSelect');
-        const selectedModel = modelSelect?.value || 'qwen2.5:14b';
+        // Get selected model (global with local override)
+        const selectedModel = window.getSelectedAIModel?.('aiModelSelect') || 'qwen2.5:14b';
         
         // Call the critique API
         const response = await fetch('/api/ai/critique', {
@@ -748,9 +806,9 @@ window.getCritique = async function(chainId) {
 };
 
 /**
- * Show AI-style spread explanation modal
+ * Show AI-style spread explanation modal with live P/L and AI advisor
  */
-window.showSpreadExplanation = function(posId) {
+window.showSpreadExplanation = async function(posId) {
     const pos = state.positions?.find(p => p.id === posId) || 
                 state.closedPositions?.find(p => p.id === posId);
     
@@ -769,6 +827,39 @@ window.showSpreadExplanation = function(posId) {
     const dirColor = explanation.direction === 'BULLISH' ? colors.green : colors.red;
     const dirEmoji = explanation.direction === 'BULLISH' ? '📈' : '📉';
     
+    // Calculate current P/L
+    const currentSpread = pos.lastOptionPrice ?? pos.markedPrice ?? null;
+    const entrySpread = pos.premium || 0;
+    const isCredit = pos.type?.includes('credit');
+    let unrealizedPnL = null;
+    let pnlColor = colors.muted;
+    let pnlSign = '';
+    
+    if (currentSpread !== null && entrySpread > 0) {
+        if (isCredit) {
+            // Credit spread: profit if current < entry
+            unrealizedPnL = (entrySpread - currentSpread) * 100 * (pos.contracts || 1);
+        } else {
+            // Debit spread: profit if current > entry
+            unrealizedPnL = (currentSpread - entrySpread) * 100 * (pos.contracts || 1);
+        }
+        pnlColor = unrealizedPnL >= 0 ? colors.green : colors.red;
+        pnlSign = unrealizedPnL >= 0 ? '+' : '';
+    }
+    
+    // Calculate DTE
+    const today = new Date();
+    const expDate = new Date(pos.expiry);
+    const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+    
+    // Get current spot price if available
+    const spotPrice = pos.currentSpot || null;
+    
+    // Determine short leg strike for risk display
+    const shortStrike = pos.type?.includes('credit') 
+        ? (pos.type?.includes('put') ? pos.sellStrike : pos.sellStrike)
+        : (pos.type?.includes('put') ? pos.buyStrike : pos.buyStrike);
+    
     const modal = document.createElement('div');
     modal.id = 'spreadExplanationModal';
     modal.style.cssText = `
@@ -780,7 +871,7 @@ window.showSpreadExplanation = function(posId) {
     
     modal.innerHTML = `
         <div style="background:linear-gradient(135deg, ${colors.bgPrimary} 0%, #16213e 100%); border:1px solid ${colors.purple}; 
-                    border-radius:16px; padding:30px; width:90%; max-width:600px; max-height:90vh; overflow-y:auto;
+                    border-radius:16px; padding:30px; width:90%; max-width:650px; max-height:90vh; overflow-y:auto;
                     box-shadow: 0 0 40px rgba(139, 92, 246, 0.3);">
             
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
@@ -793,6 +884,32 @@ window.showSpreadExplanation = function(posId) {
                              padding:6px 14px; border-radius:20px; font-weight:bold; font-size:13px;">
                     ${dirEmoji} ${explanation.direction}
                 </span>
+            </div>
+            
+            <!-- Current Status Section -->
+            <div style="background:linear-gradient(135deg, #1a1a3e 0%, #0d1b2a 100%); border:1px solid ${colors.cyan}44; 
+                        border-radius:10px; padding:15px; margin-bottom:20px;">
+                <div style="color:${colors.cyan}; font-size:12px; font-weight:bold; margin-bottom:12px; text-transform:uppercase;">
+                    📊 Current Status
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px;">
+                    <div style="text-align:center;">
+                        <div style="color:${colors.muted}; font-size:11px; margin-bottom:4px;">DTE</div>
+                        <div style="color:${dte <= 7 ? colors.red : dte <= 21 ? colors.orange : colors.text}; font-size:16px; font-weight:bold;">${dte}d</div>
+                    </div>
+                    <div style="text-align:center;">
+                        <div style="color:${colors.muted}; font-size:11px; margin-bottom:4px;">Spot</div>
+                        <div style="color:${colors.text}; font-size:16px; font-weight:bold;">${spotPrice ? '$' + spotPrice.toFixed(2) : '—'}</div>
+                    </div>
+                    <div style="text-align:center;">
+                        <div style="color:${colors.muted}; font-size:11px; margin-bottom:4px;">Current</div>
+                        <div style="color:${colors.text}; font-size:16px; font-weight:bold;">${currentSpread !== null ? '$' + currentSpread.toFixed(2) : '—'}</div>
+                    </div>
+                    <div style="text-align:center;">
+                        <div style="color:${colors.muted}; font-size:11px; margin-bottom:4px;">Unrealized P/L</div>
+                        <div style="color:${pnlColor}; font-size:16px; font-weight:bold;">${unrealizedPnL !== null ? pnlSign + '$' + Math.abs(unrealizedPnL).toFixed(0) : '—'}</div>
+                    </div>
+                </div>
             </div>
             
             <div style="background:${colors.bgSecondary}; border-radius:10px; padding:20px; margin-bottom:20px;">
@@ -834,18 +951,195 @@ window.showSpreadExplanation = function(posId) {
                 <div style="color:${colors.purple}; font-size:14px; font-weight:bold;">${explanation.riskReward}</div>
             </div>
             
-            <div style="display:flex; justify-content:center;">
+            <!-- AI Advisor Section -->
+            <div id="spreadAiAdvisor" style="background:linear-gradient(135deg, #1a2a1a 0%, #0d2818 100%); border:1px solid ${colors.green}44; 
+                        border-radius:10px; padding:15px; margin-bottom:20px; display:none;">
+                <div style="color:${colors.green}; font-size:12px; font-weight:bold; margin-bottom:10px; text-transform:uppercase;">
+                    🤖 AI Recommendation
+                </div>
+                <div id="spreadAiContent" style="color:#ddd; font-size:14px; line-height:1.6;">
+                    Loading...
+                </div>
+            </div>
+            
+            <div style="display:flex; justify-content:center; gap:12px;">
                 <button onclick="document.getElementById('spreadExplanationModal').remove()" 
-                        style="background:${colors.purple}; border:none; color:${colors.text}; padding:12px 40px; 
+                        style="background:${colors.bgSecondary}; border:1px solid ${colors.purple}; color:${colors.text}; padding:12px 30px; 
                                border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;
                                transition: all 0.2s;">
                     Got it! 👍
+                </button>
+                <button id="spreadAskAiBtn" onclick="window.askSpreadAI(${pos.id})" 
+                        style="background:linear-gradient(135deg, ${colors.green} 0%, #059669 100%); border:none; color:#000; padding:12px 30px; 
+                               border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;
+                               transition: all 0.2s;">
+                    🧠 What Should I Do?
                 </button>
             </div>
         </div>
     `;
     
     document.body.appendChild(modal);
+};
+
+/**
+ * Ask AI for spread position advice
+ */
+window.askSpreadAI = async function(posId) {
+    const pos = state.positions?.find(p => p.id === posId);
+    if (!pos) return;
+    
+    const btn = document.getElementById('spreadAskAiBtn');
+    const advisorSection = document.getElementById('spreadAiAdvisor');
+    const contentDiv = document.getElementById('spreadAiContent');
+    
+    if (!btn || !advisorSection || !contentDiv) return;
+    
+    // Show loading state
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Fetching data...';
+    btn.style.opacity = '0.6';
+    advisorSection.style.display = 'block';
+    contentDiv.innerHTML = '<em style="color:#888;">Fetching current prices...</em>';
+    
+    try {
+        // Fetch current spot price if not available
+        let spotPrice = pos.currentSpot || 0;
+        if (!spotPrice || spotPrice === 0) {
+            try {
+                const quoteRes = await fetch(`/api/cboe/quote/${pos.ticker}`);
+                if (quoteRes.ok) {
+                    const quoteData = await quoteRes.json();
+                    spotPrice = quoteData.last || quoteData.price || 0;
+                }
+            } catch (e) {
+                console.warn('Could not fetch spot price:', e);
+            }
+        }
+        
+        // Calculate key metrics
+        const currentSpread = pos.lastOptionPrice ?? pos.markedPrice ?? null;
+        const entrySpread = pos.premium || 0;
+        const isCredit = pos.type?.includes('credit');
+        const isPut = pos.type?.includes('put');
+        
+        // Calculate DTE
+        const today = new Date();
+        const expDate = new Date(pos.expiry);
+        const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+        
+        // Calculate current P/L
+        let unrealizedPnL = 0;
+        if (currentSpread !== null && entrySpread > 0) {
+            if (isCredit) {
+                unrealizedPnL = (entrySpread - currentSpread) * 100 * (pos.contracts || 1);
+            } else {
+                unrealizedPnL = (currentSpread - entrySpread) * 100 * (pos.contracts || 1);
+            }
+        }
+        
+        // Determine position status
+        const spreadWidth = Math.abs((pos.sellStrike || 0) - (pos.buyStrike || 0));
+        const maxProfit = isCredit ? entrySpread * 100 * (pos.contracts || 1) : (spreadWidth - entrySpread) * 100 * (pos.contracts || 1);
+        const maxLoss = isCredit ? (spreadWidth - entrySpread) * 100 * (pos.contracts || 1) : entrySpread * 100 * (pos.contracts || 1);
+        const pnlPercent = maxProfit > 0 ? (unrealizedPnL / maxProfit * 100) : 0;
+        
+        // Determine ITM/OTM status
+        const shortStrike = pos.sellStrike || 0;
+        let isITM = false;
+        if (isPut && isCredit) {
+            // Put credit spread - short put is higher strike, ITM if spot < short strike
+            isITM = spotPrice > 0 && spotPrice < shortStrike;
+        } else if (!isPut && isCredit) {
+            // Call credit spread - short call is lower strike, ITM if spot > short strike
+            isITM = spotPrice > 0 && spotPrice > shortStrike;
+        }
+        
+        const itmStatus = spotPrice > 0 ? (isITM ? 'ITM (in trouble)' : 'OTM (safe zone)') : 'unknown';
+        
+        // Get AI model (global with local override)
+        const model = window.getSelectedAIModel?.('aiModelSelect') || 'qwen2.5:14b';
+        
+        btn.innerHTML = '⏳ Thinking...';
+        contentDiv.innerHTML = '<em style="color:#888;">Analyzing your spread position...</em>';
+        
+        // Build the prompt with all available data
+        const prompt = `You are a concise options trading advisor. Analyze this spread position and give a SHORT recommendation (3-4 sentences MAX).
+
+POSITION:
+- ${pos.ticker} ${isPut ? 'PUT' : 'CALL'} ${isCredit ? 'CREDIT' : 'DEBIT'} SPREAD
+- Short strike: $${pos.sellStrike}, Long strike: $${pos.buyStrike}
+- Contracts: ${pos.contracts}
+- Entry premium: $${entrySpread.toFixed(2)} ${isCredit ? 'credit received' : 'debit paid'}
+- Current spread price: ${currentSpread !== null ? '$' + currentSpread.toFixed(2) : 'not available'}
+- Stock price: ${spotPrice > 0 ? '$' + spotPrice.toFixed(2) : 'not available'}
+- Status: ${itmStatus}
+- DTE: ${dte} days
+- Unrealized P/L: $${unrealizedPnL.toFixed(0)} (${pnlPercent.toFixed(0)}% of max profit)
+- Max Profit potential: $${maxProfit.toFixed(0)}
+- Max Loss risk: $${maxLoss.toFixed(0)}
+
+RULES TO FOLLOW:
+- If P/L > 50% of max profit: CLOSE to lock in gains
+- If DTE < 7 and profitable: CLOSE to avoid gamma risk
+- If ITM and losing: Consider CLOSE to limit loss
+- Credit spreads profit when stock stays ${isPut ? 'ABOVE' : 'BELOW'} short strike ($${pos.sellStrike})
+
+Give ONE clear verdict: HOLD, CLOSE, or CLOSE EARLY. Explain in 2-3 sentences why.`;
+
+        const response = await fetch('/api/ai/simple', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, model })
+        });
+        
+        if (!response.ok) throw new Error('AI request failed');
+        
+        const data = await response.json();
+        const insight = data.insight || data.analysis || 'No recommendation available';
+        
+        // Parse recommendation type from response
+        let recColor = colors.text;
+        let recIcon = '💡';
+        const insightUpper = insight.toUpperCase();
+        if (insightUpper.includes('CLOSE') && (insightUpper.includes('PROFIT') || insightUpper.includes('LOCK IN') || insightUpper.includes('GAIN'))) {
+            recColor = colors.green;
+            recIcon = '💰';
+        } else if (insightUpper.includes('CLOSE') && (insightUpper.includes('LOSS') || insightUpper.includes('LIMIT') || insightUpper.includes('CUT'))) {
+            recColor = colors.red;
+            recIcon = '🛑';
+        } else if (insightUpper.includes('CLOSE EARLY') || insightUpper.includes('CLOSE NOW')) {
+            recColor = colors.orange;
+            recIcon = '⚡';
+        } else if (insightUpper.includes('HOLD')) {
+            recColor = colors.cyan;
+            recIcon = '⏳';
+        }
+        
+        // Format the response nicely
+        const sentences = insight.split(/(?<=[.!?])\s+/);
+        const headline = sentences[0] || insight;
+        const details = sentences.slice(1).join(' ');
+        
+        // Get model name returned from API (or use what we sent)
+        const usedModel = data.model || model;
+        const modelDisplay = usedModel.replace('qwen2.5:', 'Qwen ').replace('deepseek-r1:', 'DeepSeek ').replace('grok-', 'Grok ');
+        
+        contentDiv.innerHTML = `<div style="color:${recColor}; font-weight:bold; font-size:16px; margin-bottom:8px;">${recIcon} ${headline}</div>
+            ${details ? `<div style="color:#bbb; font-size:13px; line-height:1.5;">${details}</div>` : ''}
+            <div style="color:#666; font-size:11px; margin-top:10px; text-align:right;">via ${modelDisplay}</div>`;
+        
+        btn.innerHTML = '✓ Got Advice';
+        btn.style.background = colors.bgSecondary;
+        btn.style.opacity = '1';
+        
+    } catch (err) {
+        console.error('Spread AI error:', err);
+        contentDiv.innerHTML = `<span style="color:${colors.red};">❌ Could not get AI recommendation. Make sure Ollama is running.</span>`;
+        btn.innerHTML = '🧠 Try Again';
+        btn.disabled = false;
+        btn.style.opacity = '1';
+    }
 };
 
 /**
@@ -1065,7 +1359,7 @@ function showDataRecoveryPrompt(expected, actual) {
  */
 export function loadPositions() {
     try {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const saved = localStorage.getItem(getStorageKey());
         if (saved) {
             state.positions = JSON.parse(saved) || [];
         } else {
@@ -1078,12 +1372,12 @@ export function loadPositions() {
     
     // Load holdings (share ownership from assignments and buy/writes)
     try {
-        const savedHoldings = localStorage.getItem(HOLDINGS_KEY);
+        const savedHoldings = localStorage.getItem(getHoldingsStorageKey());
         if (savedHoldings) {
             state.holdings = JSON.parse(savedHoldings) || [];
             
             // Load positions first so we can link holdings to them
-            const savedPositions = localStorage.getItem(STORAGE_KEY);
+            const savedPositions = localStorage.getItem(getStorageKey());
             const positions = savedPositions ? JSON.parse(savedPositions) : [];
             
             // Migrate old holdings - add missing fields for display compatibility
@@ -1159,7 +1453,7 @@ export function loadPositions() {
     
     // Load closed positions
     try {
-        const savedClosed = localStorage.getItem(CLOSED_KEY);
+        const savedClosed = localStorage.getItem(getClosedStorageKey());
         if (savedClosed) {
             state.closedPositions = JSON.parse(savedClosed) || [];
         } else {
@@ -1186,7 +1480,7 @@ let autoSaveDebounceTimer = null;
  */
 export function savePositionsToStorage() {
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.positions));
+        localStorage.setItem(getStorageKey(), JSON.stringify(state.positions));
         saveDataCheckpoint(); // Track data count for integrity check
         triggerAutoSave();
     } catch (e) {
@@ -1199,7 +1493,7 @@ export function savePositionsToStorage() {
  */
 export function saveHoldingsToStorage() {
     try {
-        localStorage.setItem(HOLDINGS_KEY, JSON.stringify(state.holdings));
+        localStorage.setItem(getHoldingsStorageKey(), JSON.stringify(state.holdings));
         saveDataCheckpoint(); // Track data count for integrity check
         triggerAutoSave();
     } catch (e) {
@@ -1212,7 +1506,7 @@ export function saveHoldingsToStorage() {
  */
 export function saveClosedToStorage() {
     try {
-        localStorage.setItem(CLOSED_KEY, JSON.stringify(state.closedPositions));
+        localStorage.setItem(getClosedStorageKey(), JSON.stringify(state.closedPositions));
         saveDataCheckpoint(); // Track data count for integrity check
         triggerAutoSave();
     } catch (e) {
@@ -2395,7 +2689,9 @@ function renderPositionsTable(container, openPositions) {
                     <th style="padding: 6px; text-align: right; width: 30px;">DTE</th>
                     <th style="padding: 6px; text-align: right; width: 35px;" title="Position Delta - Directional exposure per $1 stock move">Δ</th>
                     <th style="padding: 6px; text-align: right; width: 45px;" title="Daily Theta - Premium decay you collect per day">Θ/day</th>
-                    <th style="padding: 6px; text-align: right; width: 55px;" title="Unrealized P&L - Current value vs entry price">P/L</th>
+                    <th style="padding: 6px; text-align: right; width: 40px;" title="P&L Percentage - Profit/loss as % of entry">P/L %</th>
+                    <th style="padding: 6px; text-align: right; width: 50px;" title="Today's P&L - Change in option value since market open">P/L Day</th>
+                    <th style="padding: 6px; text-align: right; width: 55px;" title="Unrealized P&L - Total profit/loss since open">P/L Open</th>
                     <th style="padding: 6px; text-align: right; width: 45px;" title="Credit received (green) or Debit paid (red)">Cr/Dr</th>
                     <th style="padding: 6px; text-align: right; width: 40px;" title="Annualized Return on Capital">Ann%</th>
                     <th style="padding: 6px; text-align: left; min-width: 180px;">Actions</th>
@@ -2550,7 +2846,7 @@ function renderPositionsTable(container, openPositions) {
             : `<span id="risk-status-${pos.id}" style="color: #888; font-size: 10px;">⏳</span>`;
         
         html += `
-            <tr style="border-bottom: 1px solid #333;${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.openDate ? ' | Opened: ' + pos.openDate : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}">
+            <tr style="border-bottom: 1px solid #333;${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}">
                 <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${pos.ticker}${pos.openingThesis ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}${isSkip && pos.skipDte <= 60 ? '<span style="margin-left:3px;font-size:9px;" title="' + (pos.skipDte < 45 ? 'PAST EXIT WINDOW!' : 'In 45-60 DTE exit window') + '">' + (pos.skipDte < 45 ? '🚨' : '⚠️') + '</span>' : ''}</td>
                 <td style="padding: 4px; text-align: center;" id="risk-cell-${pos.id}">
                     ${initialStatusHtml}
@@ -2567,15 +2863,41 @@ function renderPositionsTable(container, openPositions) {
                 </td>
                 <td id="delta-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
                 <td id="theta-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
-                <td style="padding: 6px; text-align: right; font-size: 11px;" title="${currentOptionPrice !== null ? `Entry: $${pos.premium.toFixed(2)} | Current: $${currentOptionPrice.toFixed(2)} | P&L: ${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)} (${unrealizedPnLPct >= 0 ? '+' : ''}${unrealizedPnLPct.toFixed(1)}%)` : 'Mark price to see P&L'}">
-                    ${currentOptionPrice !== null 
-                        ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px;">
-                            <span style="color:${unrealizedPnL >= 0 ? '#00ff88' : '#ff5252'};font-size:11px;">${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)}</span>
-                            <span style="font-size:11px;font-weight:bold;color:${unrealizedPnLPct >= 50 ? '#00d9ff' : (unrealizedPnLPct >= 0 ? '#00ff88' : '#ff5252')};${unrealizedPnLPct >= 50 ? 'text-shadow:0 0 4px #00d9ff;' : ''}">${unrealizedPnLPct >= 50 ? '✓ ' : ''}${unrealizedPnLPct >= 0 ? '+' : ''}${unrealizedPnLPct.toFixed(0)}%</span>
-                           </div>` 
-                        : `<span style="color:#666">⏳</span>`
+                ${(() => {
+                    // P/L % column - just the percentage
+                    const pctColor = unrealizedPnLPct >= 50 ? '#00d9ff' : (unrealizedPnLPct >= 0 ? '#00ff88' : '#ff5252');
+                    const pctStyle = unrealizedPnLPct >= 50 ? 'text-shadow:0 0 4px #00d9ff;' : '';
+                    if (currentOptionPrice === null) {
+                        return `<td style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">⏳</span></td>`;
                     }
-                </td>
+                    return `<td style="padding: 6px; text-align: right; font-size: 11px;" title="Entry: $${pos.premium.toFixed(2)} → Current: $${currentOptionPrice.toFixed(2)}">
+                        <span style="color:${pctColor};font-weight:bold;${pctStyle}">${unrealizedPnLPct >= 50 ? '✓' : ''}${unrealizedPnLPct >= 0 ? '+' : ''}${unrealizedPnLPct.toFixed(0)}%</span>
+                    </td>`;
+                })()}
+                ${(() => {
+                    // P/L Day column - today's change in option value
+                    // For SHORT positions: option price going DOWN = profit, so negate the change
+                    // For LONG positions: option price going UP = profit, so keep the change
+                    const dayChange = pos.dayChange || 0;
+                    const pnlDay = isLongPosition ? (dayChange * 100 * pos.contracts) : (-dayChange * 100 * pos.contracts);
+                    const pnlDayColor = pnlDay >= 0 ? '#00ff88' : '#ff5252';
+                    if (dayChange === 0 && !pos.priceUpdatedAt) {
+                        return `<td style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">—</span></td>`;
+                    }
+                    return `<td style="padding: 6px; text-align: right; font-size: 11px;" title="Option day change: ${dayChange >= 0 ? '+' : ''}$${dayChange.toFixed(2)}/share">
+                        <span style="color:${pnlDayColor}">${pnlDay >= 0 ? '+' : ''}$${pnlDay.toFixed(0)}</span>
+                    </td>`;
+                })()}
+                ${(() => {
+                    // P/L Open column - total unrealized P/L since open
+                    if (currentOptionPrice === null) {
+                        return `<td style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">⏳</span></td>`;
+                    }
+                    const pnlColor = unrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
+                    return `<td style="padding: 6px; text-align: right; font-size: 11px;" title="${pos.priceUpdatedAt ? 'Updated: ' + new Date(pos.priceUpdatedAt).toLocaleTimeString() : ''}">
+                        <span style="color:${pnlColor}">${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)}</span>
+                    </td>`;
+                })()}
                 <td style="padding: 6px; text-align: right; color: ${isLongPosition ? '#ffaa00' : '#00ff88'};" title="${isLongPosition ? `Paid: $${credit.toFixed(0)}` : (isChainCredit ? `Chain NET: $${displayCredit.toFixed(0)}` : `Premium: $${credit.toFixed(0)}`)}">
                     ${isLongPosition 
                         ? `<span style="color:#ffaa00">-$${credit.toFixed(0)}</span>`
@@ -2673,14 +2995,45 @@ async function updatePositionRiskStatuses(openPositions) {
         const itmCell = document.getElementById(`itm-${pos.id}`);
         if (!cell) continue;
         
-        // Skip spreads - already showing static indicator
+        const spotPrice = spotPrices[pos.ticker];
+        
+        // Handle spreads - show spot price and calculate risk, but skip ITM (complex)
         if (pos.type?.includes('_spread')) {
-            if (spotCell) spotCell.innerHTML = '<span style="color:#888;font-size:10px;">—</span>';
+            // Update Spot Price cell for spreads too
+            if (spotCell && spotPrice) {
+                spotCell.innerHTML = `<span style="color:#ccc;">$${spotPrice.toFixed(2)}</span>`;
+            }
+            // ITM is complex for spreads - skip it
             if (itmCell) itmCell.innerHTML = '<span style="color:#888;font-size:10px;">—</span>';
+            
+            // Calculate risk for the spread's short leg
+            const risk = calculatePositionRisk(pos, spotPrice);
+            
+            if (risk.itmPct !== null) {
+                // We have a real risk calculation
+                if (risk.needsAttention) {
+                    cell.innerHTML = `
+                        <button onclick="window.showSpreadExplanation(${pos.id})" 
+                                style="background: rgba(${risk.color === '#ff5252' ? '255,82,82' : '255,170,0'},0.2); border: 1px solid ${risk.color}; color: ${risk.color}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px; white-space: nowrap;"
+                                title="${risk.itmPct.toFixed(1)}% short leg ITM probability - Click to view spread details">
+                            ${risk.icon} ${risk.text}
+                        </button>
+                    `;
+                } else {
+                    cell.innerHTML = `
+                        <span style="color: ${risk.color}; font-size: 11px;" title="${risk.itmPct.toFixed(1)}% short leg ITM probability">
+                            ${risk.icon} ${risk.text}
+                        </span>
+                    `;
+                }
+            } else {
+                // Fallback - no risk calculated
+                cell.innerHTML = `<span style="color: #8b5cf6; font-size: 11px;" title="Spread position">📊 Spread</span>`;
+            }
             continue;
         }
         
-        const spotPrice = spotPrices[pos.ticker];
+        // Update Spot Price cell
         
         // Update Spot Price cell
         if (spotCell && spotPrice) {
@@ -2920,8 +3273,11 @@ export function updatePortfolioSummary() {
         }
     }, 0);
     
-    // Total P/L = Net Premium + Unrealized P/L
-    const totalPnL = netPremium + unrealizedPnL;
+    // Total P/L = Unrealized P/L only (NOT Net Premium + Unrealized)
+    // Why? For credit positions, unrealized P/L already represents "premium received minus cost to close"
+    // Adding Net Premium would double-count the premium.
+    // Net Premium is shown separately for cash flow visibility.
+    const totalPnL = unrealizedPnL;
     
     // Calculate ROC (Return on Capital) = Net Premium / Capital at Risk
     const roc = capitalAtRisk > 0 ? (netPremium / capitalAtRisk) * 100 : 0;
@@ -3010,7 +3366,7 @@ export function updatePortfolioSummary() {
                     </div>
                 </div>
                 <div class="summary-item" style="text-align: center; border-left: 1px solid #333; padding-left: 12px;">
-                    <div style="color: #888; font-size: 11px;" title="Net Premium + Unrealized P/L = True portfolio value">TOTAL P/L</div>
+                    <div style="color: #888; font-size: 11px;" title="Profit if closed now (premium kept minus cost to close)">TOTAL P/L</div>
                     <div style="color: ${totalPnL >= 0 ? '#00ff88' : '#ff5252'}; font-size: 22px; font-weight: bold;">
                         ${totalPnL >= 0 ? '+' : ''}${formatCurrency(totalPnL)}
                     </div>
@@ -3211,6 +3567,7 @@ window.loadPositionToAnalyze = loadPositionToAnalyze;
 window.closePosition = closePosition;
 window.assignPosition = assignPosition;
 window.renderPositions = renderPositions;
+window.updatePortfolioSummary = updatePortfolioSummary;
 window.undoLastAction = undoLastAction;
 
 /**

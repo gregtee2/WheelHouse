@@ -306,7 +306,9 @@ function parseSchwabOptionsChain(chain, ticker) {
                         gamma: opt.gamma || 0,
                         theta: opt.theta || 0,
                         vega: opt.vega || 0,
-                        inTheMoney: opt.inTheMoney || false
+                        inTheMoney: opt.inTheMoney || false,
+                        netChange: opt.netChange || 0,
+                        closePrice: opt.closePrice || 0
                     });
                 }
             }
@@ -342,7 +344,9 @@ function parseSchwabOptionsChain(chain, ticker) {
                         gamma: opt.gamma || 0,
                         theta: opt.theta || 0,
                         vega: opt.vega || 0,
-                        inTheMoney: opt.inTheMoney || false
+                        inTheMoney: opt.inTheMoney || false,
+                        netChange: opt.netChange || 0,
+                        closePrice: opt.closePrice || 0
                     });
                 }
             }

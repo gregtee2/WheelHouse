@@ -4,7 +4,7 @@
 
 **WheelHouse** is a Wheel Strategy Options Analyzer & Position Tracker built with vanilla JavaScript (ES6 modules) and Node.js. It provides Monte Carlo-based options pricing, real-time CBOE quotes, position tracking, and portfolio analytics.
 
-**Version**: 1.12.0  
+**Version**: 1.16.0  
 **Repository**: https://github.com/gregtee2/WheelHouse  
 **Branches**: `main` (development), `stable` (releases)
 
@@ -956,7 +956,41 @@ git push origin main:stable
 
 ## 📋 Recent Features (January 2026)
 
-### v1.13.0 (Current)
+### v1.16.0 (Current)
+- **🌐 Global AI Model Selector**: One model setting for all features
+  - New dropdown in header bar (next to Account switcher)
+  - Local "Override" dropdowns let you customize per-feature if needed
+  - `getSelectedAIModel(localSelectId)` helper function for consistent model selection
+  - Pattern: check local override → fall back to global → final default
+
+- **📊 Spread Position Support**: AI now understands spreads in Portfolio Audit
+  - Sends `sellStrike`, `buyStrike`, `spreadWidth` for spreads
+  - Calculated `maxProfit` and `maxLoss` values included
+  - AI sees `$325/$320 (5w) MaxProfit: $X, MaxLoss: $Y` not `$null`
+  - Proper `[SPREAD]` tag in position summary
+
+- **🧠 Spread AI Advisor**: "What Should I Do?" button for spreads
+  - New button in spread explanation modal
+  - Fetches live spot price from CBOE
+  - Calls AI for recommendation (HOLD, CLOSE, ROLL)
+
+- **🔌 Simple AI Endpoint**: New `/api/ai/simple` endpoint
+  - Takes raw `{prompt, model}` without prompt builder
+  - Used by spread advisor and custom prompts
+
+### v1.14.0
+- **🎓 AI Strategy Advisor**: Comprehensive strategy analysis for any ticker
+  - Recommends BEST strategy based on IV rank, range position, buying power
+  - Data hierarchy: Schwab (real-time) → CBOE → Yahoo fallback
+
+- **🧠 Trading Pattern Memory**: AI remembers your past wins and losses
+  - Warns about losing patterns, encourages winning patterns
+
+- **📅 Custom Date Range Filtering**: Filter closed positions by any date range
+
+- **📊 AI Historical Audit**: AI analyzes your filtered closed trades
+
+### v1.13.0
 - **🧠 Vector RAG Wisdom System**: AI uses semantic search for trading rules
   - Wisdom entries converted to vector embeddings via `nomic-embed-text` model
   - `generateEmbedding(text)` - Calls Ollama embedding API

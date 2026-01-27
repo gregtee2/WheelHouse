@@ -1,13 +1,15 @@
 // WheelHouse - Portfolio P&L Tracker
 // Tracks actual P&L across all positions
 
-import { state } from './state.js';
+import { state, getClosedKey } from './state.js';
 import { showNotification, isDebitPosition, calculateRealizedPnL, colors, createModal, modalHeader, calculatePortfolioGreeks } from './utils.js';
 import { fetchStockPrice, fetchStockPricesBatch, fetchOptionsChain, findOption } from './api.js';
 import { saveHoldingsToStorage, renderPositions } from './positions.js';
 import AccountService from './services/AccountService.js';
 
-const STORAGE_KEY_CLOSED = 'wheelhouse_closed_positions';
+// Dynamic storage key based on account mode
+function getClosedStorageKey() { return getClosedKey(); }
+
 const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
 const AI_LOG_KEY = 'wheelhouse_ai_predictions';
 
@@ -339,7 +341,7 @@ export function loadClosedPositions() {
  * Save closed positions to storage
  */
 function saveClosedPositions() {
-    localStorage.setItem(STORAGE_KEY_CLOSED, JSON.stringify(state.closedPositions || []));
+    localStorage.setItem(getClosedStorageKey(), JSON.stringify(state.closedPositions || []));
     saveDataCheckpoint(); // Track data count for integrity check
     triggerAutoSave();
 }
@@ -600,6 +602,7 @@ async function refreshAllPositionPrices() {
             for (const pos of tickerPos) {
                 const isPut = pos.type?.toLowerCase().includes('put');
                 const isCall = pos.type?.toLowerCase().includes('call');
+                const isSpread = pos.type?.includes('_spread');
                 const options = isPut ? chain.puts : (isCall ? chain.calls : null);
                 
                 if (!options) {
@@ -608,44 +611,88 @@ async function refreshAllPositionPrices() {
                     continue;
                 }
                 
-                // Find matching option by strike and expiry
-                const strike = pos.strike;
                 const expiry = pos.expiry; // YYYY-MM-DD format
                 
-                // Look for exact match first, then closest
-                let matchedOption = options.find(o => 
-                    Math.abs(o.strike - strike) < 0.01 && 
-                    o.expiration === expiry
-                );
+                // Helper function to find option by strike
+                const findOption = (strike) => {
+                    let matched = options.find(o => 
+                        Math.abs(o.strike - strike) < 0.01 && 
+                        o.expiration === expiry
+                    );
+                    // If no exact match, try different date formats
+                    if (!matched) {
+                        matched = options.find(o => {
+                            if (Math.abs(o.strike - strike) > 0.01) return false;
+                            const oExp = new Date(o.expiration).toISOString().split('T')[0];
+                            const pExp = new Date(expiry).toISOString().split('T')[0];
+                            return oExp === pExp;
+                        });
+                    }
+                    return matched;
+                };
                 
-                // If no exact match, try different date formats
-                if (!matchedOption) {
-                    matchedOption = options.find(o => {
-                        if (Math.abs(o.strike - strike) > 0.01) return false;
-                        // Try to normalize dates
-                        const oExp = new Date(o.expiration).toISOString().split('T')[0];
-                        const pExp = new Date(expiry).toISOString().split('T')[0];
-                        return oExp === pExp;
-                    });
-                }
-                
-                if (matchedOption) {
-                    // Use mid price (between bid and ask) for most accurate current value
-                    const mid = matchedOption.mid || ((matchedOption.bid + matchedOption.ask) / 2);
-                    const last = matchedOption.last || mid;
-                    const price = mid > 0 ? mid : last;
+                // SPREAD HANDLING: Need to get both legs and calculate net value
+                if (isSpread && pos.sellStrike && pos.buyStrike) {
+                    const sellOption = findOption(pos.sellStrike);
+                    const buyOption = findOption(pos.buyStrike);
                     
-                    if (price > 0) {
-                        const oldPrice = pos.lastOptionPrice;
-                        pos.lastOptionPrice = price;
-                        pos.markedPrice = price;
-                        pos.priceUpdatedAt = new Date().toISOString();
-                        updated++;
-                        if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] ${ticker} $${strike} ${isPut ? 'put' : 'call'}: $${oldPrice?.toFixed(2) || '?'} → $${price.toFixed(2)}`);
+                    if (sellOption && buyOption) {
+                        const sellMid = sellOption.mid || ((sellOption.bid + sellOption.ask) / 2);
+                        const buyMid = buyOption.mid || ((buyOption.bid + buyOption.ask) / 2);
+                        
+                        // For credit spread: net value = sell leg - buy leg
+                        // This represents what you'd PAY to close the spread
+                        const netSpreadValue = sellMid - buyMid;
+                        
+                        // Calculate daily change for spread (sell leg change - buy leg change)
+                        const sellDayChange = sellOption.netChange || 0;
+                        const buyDayChange = buyOption.netChange || 0;
+                        const spreadDayChange = sellDayChange - buyDayChange;
+                        
+                        if (netSpreadValue >= 0) {
+                            const oldPrice = pos.lastOptionPrice;
+                            pos.lastOptionPrice = netSpreadValue;
+                            pos.markedPrice = netSpreadValue;
+                            pos.priceUpdatedAt = new Date().toISOString();
+                            // Also store individual leg prices for reference
+                            pos.sellLegPrice = sellMid;
+                            pos.buyLegPrice = buyMid;
+                            // Store daily change for P/L Day column
+                            pos.dayChange = spreadDayChange;
+                            updated++;
+                            // Always log spread updates so we can verify they're happening
+                            console.log(`[REFRESH] ${ticker} $${pos.sellStrike}/$${pos.buyStrike} spread: $${oldPrice?.toFixed(2) || '?'} → $${netSpreadValue.toFixed(2)} (sell: $${sellMid.toFixed(2)}, buy: $${buyMid.toFixed(2)}, day: ${spreadDayChange >= 0 ? '+' : ''}$${spreadDayChange.toFixed(2)})`);
+                        }
+                    } else {
+                        console.log(`[REFRESH] ${ticker} spread: Could not find both legs (sell: ${!!sellOption}, buy: ${!!buyOption})`);
+                        failed++;
                     }
                 } else {
-                    if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] ${ticker} $${strike} ${expiry}: No matching option found in chain`);
-                    failed++;
+                    // SINGLE LEG: Original logic
+                    const strike = pos.strike;
+                    const matchedOption = findOption(strike);
+                
+                    if (matchedOption) {
+                        // Use mid price (between bid and ask) for most accurate current value
+                        const mid = matchedOption.mid || ((matchedOption.bid + matchedOption.ask) / 2);
+                        const last = matchedOption.last || mid;
+                        const price = mid > 0 ? mid : last;
+                        // Store daily change for P/L Day column
+                        const dayChange = matchedOption.netChange || 0;
+                    
+                        if (price > 0) {
+                            const oldPrice = pos.lastOptionPrice;
+                            pos.lastOptionPrice = price;
+                            pos.markedPrice = price;
+                            pos.priceUpdatedAt = new Date().toISOString();
+                            pos.dayChange = dayChange;
+                            updated++;
+                            if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] ${ticker} $${strike} ${isPut ? 'put' : 'call'}: $${oldPrice?.toFixed(2) || '?'} → $${price.toFixed(2)} (day: ${dayChange >= 0 ? '+' : ''}$${dayChange.toFixed(2)})`);
+                        }
+                    } else {
+                        if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] ${ticker} $${strike} ${expiry}: No matching option found in chain`);
+                        failed++;
+                    }
                 }
             }
         } catch (err) {
@@ -662,9 +709,13 @@ async function refreshAllPositionPrices() {
         }
         // Re-render the positions table
         renderPositions();
+        // Also update the portfolio summary bar
+        if (window.updatePortfolioSummary) {
+            window.updatePortfolioSummary();
+        }
     }
     
-    if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] Complete: ${updated} updated, ${failed} failed`);
+    console.log(`[REFRESH] ✅ Complete: ${updated} updated, ${failed} failed`);
     return { updated, failed };
 }
 
@@ -701,7 +752,7 @@ function updatePriceLastUpdated() {
 function startAutoRefreshPrices() {
     if (autoRefreshPricesInterval) return; // Already running
     
-    if (VERBOSE_PRICE_LOGS) console.log('🔄 Starting auto-refresh prices (every 30s)');
+    console.log('🔄 Auto-refresh started (every 30s)');
     
     // Update checkbox label to show active
     const checkbox = document.getElementById('autoRefreshPricesCheckbox');
@@ -717,7 +768,7 @@ function startAutoRefreshPrices() {
             return;
         }
         
-        if (VERBOSE_PRICE_LOGS) console.log('🔄 Auto-refreshing prices...');
+        console.log('🔄 Auto-refreshing prices...');
         try {
             await refreshAllPositionPrices();
             updatePriceLastUpdated();
@@ -756,11 +807,14 @@ function setupAutoRefreshPrices() {
     const checkbox = document.getElementById('autoRefreshPricesCheckbox');
     if (!checkbox) return;
     
-    // Load saved preference
+    // Load saved preference - DEFAULT TO ON if never set
     const saved = localStorage.getItem('wheelhouse_autoRefreshPrices');
-    if (saved === 'true') {
+    const shouldAutoRefresh = saved === null ? true : saved === 'true';  // Default ON
+    
+    if (shouldAutoRefresh) {
         checkbox.checked = true;
         startAutoRefreshPrices();
+        console.log('✅ Auto-refresh prices enabled (every 30s)');
     }
     
     // Handle toggle
@@ -5528,22 +5582,37 @@ window.runPortfolioAudit = async function() {
         const profitFactor = totalLosses > 0 ? totalWins / totalLosses : 0;
         
         // Build position data with risk and Greeks
-        const positions = (state.positions || []).filter(p => p.status === 'open').map(p => ({
-            ticker: p.ticker,
-            type: p.type,
-            strike: p.strike,
-            expiry: p.expiry,
-            dte: p.dte,
-            contracts: p.contracts,
-            premium: p.premium,
-            delta: p._delta || 0,
-            theta: p._theta || 0,
-            riskPercent: parseFloat(document.getElementById(`risk-cell-${p.id}`)?.textContent?.match(/\\d+/)?.[0] || 0)
-        }));
+        const positions = (state.positions || []).filter(p => p.status === 'open').map(p => {
+            const isSpread = p.type?.includes('_spread');
+            return {
+                ticker: p.ticker,
+                type: p.type,
+                strike: p.strike,
+                // Include spread-specific fields
+                sellStrike: p.sellStrike,
+                buyStrike: p.buyStrike,
+                spreadWidth: isSpread ? Math.abs((p.sellStrike || 0) - (p.buyStrike || 0)) : null,
+                expiry: p.expiry,
+                dte: p.dte,
+                contracts: p.contracts,
+                premium: p.premium,
+                // For spreads, calculate max profit/loss
+                maxProfit: isSpread ? (p.type?.includes('credit') 
+                    ? p.premium * 100 * (p.contracts || 1) 
+                    : (Math.abs((p.sellStrike || 0) - (p.buyStrike || 0)) - p.premium) * 100 * (p.contracts || 1)) : null,
+                maxLoss: isSpread ? (p.type?.includes('credit')
+                    ? (Math.abs((p.sellStrike || 0) - (p.buyStrike || 0)) - p.premium) * 100 * (p.contracts || 1)
+                    : p.premium * 100 * (p.contracts || 1)) : null,
+                delta: p._delta || 0,
+                theta: p._theta || 0,
+                currentSpot: p.currentSpot || null,
+                lastOptionPrice: p.lastOptionPrice || null,
+                riskPercent: parseFloat(document.getElementById(`risk-cell-${p.id}`)?.textContent?.match(/\\d+/)?.[0] || 0)
+            };
+        });
         
-        // Get selected AI model
-        const modelSelect = document.getElementById('aiModelSelect');
-        const selectedModel = modelSelect?.value || 'qwen2.5:14b';
+        // Get selected AI model (global with local override)
+        const selectedModel = window.getSelectedAIModel?.('aiModelSelect') || 'qwen2.5:14b';
         
         // Call AI audit endpoint
         const res = await fetch('/api/ai/portfolio-audit', {

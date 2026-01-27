@@ -2615,9 +2615,8 @@ async function getAIInsight() {
             if (closeMatch) costToClose = parseInt(closeMatch[1]);
         }
         
-        // Get selected AI model from dropdown
-        const modelSelect = document.getElementById('aiModelSelect');
-        const selectedModel = modelSelect?.value || 'qwen2.5:7b';
+        // Get selected AI model (global with local override)
+        const selectedModel = window.getSelectedAIModel?.('aiModelSelect') || 'qwen2.5:7b';
         
         // Get previous analysis for comparison (if any)
         const positionId = state.currentPositionContext?.id;
