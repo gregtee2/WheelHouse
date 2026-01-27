@@ -2793,8 +2793,47 @@ window.aiHoldingSuggestion = async function(holdingId) {
     
     const shares = holding.shares || 100;
     const strike = position?.strike || holding.strike || 0;
-    const premium = holding.premiumCredit || (position?.premium * 100) || 0;
     const costBasis = holding.stockPrice || holding.costBasis || 0;
+    
+    // Calculate NET premium from entire chain (all rolls, minus buyback costs)
+    // This matches the Portfolio card calculation
+    let premium = 0;
+    if (position) {
+        const chainId = position.chainId || position.id;
+        const closedPositions = state.closedPositions || [];
+        const openPositions = state.positions || [];
+        
+        // Get all positions in this chain
+        const chainPositions = [
+            ...closedPositions.filter(cp => cp.chainId === chainId),
+            ...openPositions.filter(sp => sp.chainId === chainId || sp.id === chainId)
+        ];
+        
+        let premiumCollected = 0;
+        let premiumPaid = 0;
+        
+        chainPositions.forEach(cp => {
+            const posPremium = (cp.premium || 0) * 100 * (cp.contracts || 1);
+            const isDebit = (cp.type || '').includes('long_') || (cp.type || '').includes('_debit_');
+            
+            if (isDebit) {
+                premiumPaid += posPremium;
+            } else {
+                premiumCollected += posPremium;
+            }
+            
+            // Subtract buyback cost if position was rolled
+            if (cp.closeReason === 'rolled' && cp.closePrice) {
+                premiumPaid += cp.closePrice * 100 * (cp.contracts || 1);
+            }
+        });
+        
+        premium = premiumCollected - premiumPaid;
+        console.log(`[AI] Chain premium for ${holding.ticker}: collected $${premiumCollected}, paid $${premiumPaid}, net $${premium}`);
+    } else {
+        // Fallback to holding's premiumCredit if no position found
+        premium = holding.premiumCredit || 0;
+    }
     const dte = position?.expiry ? Math.max(0, Math.round((new Date(position.expiry) - new Date()) / 86400000)) : 0;
     const expiry = position?.expiry || 'unknown';
     
@@ -3219,12 +3258,21 @@ async function runHoldingAnalysis(modelType) {
                 <h4 style="margin:0 0 12px;color:#00d9ff;font-size:13px;">📋 Suggested Trade</h4>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <div style="background:#0d0d1a;padding:10px;border-radius:6px;">
+                        ${suggestedTrade.action === 'WHEEL_CONTINUATION' ? `
+                        <div style="font-size:10px;color:#888;margin-bottom:4px;">LET ASSIGN (Keep Premium)</div>
+                        <div style="font-size:14px;font-weight:bold;color:#00ff88;">
+                            ${holding.ticker} $${suggestedTrade.closeStrike} ${suggestedTrade.closeType}
+                        </div>
+                        <div style="font-size:11px;color:#888;">Exp: ${suggestedTrade.closeExpiry}</div>
+                        <div style="font-size:11px;color:#00ff88;margin-top:4px;">Collect: $${suggestedTrade.closeStrike * 100} cash</div>
+                        ` : `
                         <div style="font-size:10px;color:#888;margin-bottom:4px;">CLOSE (Buy Back)</div>
                         <div style="font-size:14px;font-weight:bold;color:#ff5252;">
                             ${holding.ticker} $${suggestedTrade.closeStrike} ${suggestedTrade.closeType}
                         </div>
                         <div style="font-size:11px;color:#888;">Exp: ${suggestedTrade.closeExpiry}</div>
                         <div style="font-size:11px;color:#ffaa00;margin-top:4px;">Est: ${suggestedTrade.estimatedDebit || 'N/A'}</div>
+                        `}
                     </div>
                     <div style="background:#0d0d1a;padding:10px;border-radius:6px;">
                         <div style="font-size:10px;color:#888;margin-bottom:4px;">OPEN (Sell New)</div>
