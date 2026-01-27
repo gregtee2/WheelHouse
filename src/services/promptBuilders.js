@@ -1911,19 +1911,38 @@ YOUR JOB: Pick ONE setup (A through H) based on the market conditions below:
    • G (Iron Condor): Neutral, expecting stock to stay in range
    • H (SKIP™): Long-term bullish, 6+ month outlook
 
-🚨 DIRECTIONAL BIAS BASED ON RANGE POSITION (${stockData?.rangePosition || '?'}%):
-${stockData?.rangePosition > 70 ? `⬇️ BEARISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = EXTENDED/OVERBOUGHT.
-   → FAVOR D (Call Credit Spread) or E (Long Put) - bearish strategies.
-   → Consider G (Iron Condor) if expecting mean reversion but not sure of direction.
-   → Avoid A, B, F (bullish) unless you have strong contrarian thesis.` : 
-   stockData?.rangePosition < 30 ? `⬆️ BULLISH LEAN: Stock at ${stockData?.rangePosition}% of 3-month range = OVERSOLD.
-   → FAVOR A, B, or F (bullish strategies) - profits if stock recovers.
-   → Consider H (SKIP™) for longer-term bullish play.
-   → Avoid D, E (bearish) unless fundamentals are deteriorating.` :
-   `↔️ NEUTRAL: Stock at ${stockData?.rangePosition}% = mid-range.
-   → Compare risk/reward: B vs D for directional, G for neutral.
-   → Consider IV: High IV = favor selling (A,B,C,D,G), Low IV = favor buying (E,F,H).
-   → Don't just default to B - explain why your choice beats the alternatives.`}
+═══════════════════════════════════════════════════════════════════════════
+🚨🚨🚨 MANDATORY DIRECTIONAL GUIDANCE - YOU MUST FOLLOW THIS 🚨🚨🚨
+═══════════════════════════════════════════════════════════════════════════
+
+RANGE POSITION: ${stockData?.rangePosition ?? '?'}% (0% = 3-month low, 100% = 3-month high)
+${stockData?.rangePosition !== undefined && stockData?.rangePosition < 25 ? `
+████████████████████████████████████████████████████████████████████████████
+█  ⬆️ BULLISH REQUIRED: Stock is at ${stockData?.rangePosition}% of 3-month range = NEAR THE LOW!
+█  
+█  🟢 PICK FROM: A (Short Put), B (Put Credit Spread), F (Long Call), H (SKIP™)
+█  🔴 DO NOT PICK: D (Call Credit Spread), E (Long Put), G (Iron Condor)
+█  
+█  Iron Condor is WRONG for oversold stocks - they tend to bounce, not chop.
+█  Call Credit Spread is WRONG - you'd be betting against recovery.
+████████████████████████████████████████████████████████████████████████████
+` : stockData?.rangePosition !== undefined && stockData?.rangePosition > 75 ? `
+████████████████████████████████████████████████████████████████████████████
+█  ⬇️ BEARISH REQUIRED: Stock is at ${stockData?.rangePosition}% of 3-month range = NEAR THE HIGH!
+█  
+█  🟢 PICK FROM: D (Call Credit Spread), E (Long Put)
+█  🟠 MAYBE: G (Iron Condor) if expecting sideways
+█  🔴 DO NOT PICK: A (Short Put), B (Put Credit Spread), F (Long Call)
+█  
+█  Short puts are WRONG for extended stocks - high risk of pullback and assignment.
+█  Put Credit Spread is WRONG - you'd be betting on more upside in overbought stock.
+████████████████████████████████████████████████████████████████████████████
+` : `
+↔️ NEUTRAL ZONE: Stock at ${stockData?.rangePosition ?? '?'}% = mid-range
+   → Consider risk/reward and IV to choose direction
+   → G (Iron Condor) is acceptable here if you expect range-bound action
+   → B or D can work depending on your directional thesis
+`}
 
 🎯 ADDITIONAL DECISION CRITERIA:
 • IV Rank ${ivRank}%: ${ivRank > 50 ? 'ELEVATED - favors SELLING strategies (A, B, C, D)' : 'LOW - options are cheap, spreads help manage this'}
@@ -1967,6 +1986,16 @@ Use format: | If Stock Ends At | You Make/Lose | Result |
 Briefly explain why you DIDN'T choose these (1 line each):
 1. [Another setup letter]: [Why not ideal for THIS situation]
 2. [Another setup letter]: [Why not ideal]
+
+### 💡 EDUCATIONAL NOTE
+[1-2 sentences explaining this strategy for beginners]
+
+### ✅ SANITY CHECK
+${stockData?.rangePosition !== undefined && stockData?.rangePosition < 25 ? 
+`Is your recommendation BULLISH (A, B, F, or H)? If not, explain why you're going AGAINST the oversold signal at ${stockData?.rangePosition}% of range.` :
+stockData?.rangePosition !== undefined && stockData?.rangePosition > 75 ?
+`Is your recommendation BEARISH or NEUTRAL (D, E, or G)? If not, explain why you're going AGAINST the overbought signal at ${stockData?.rangePosition}% of range.` :
+`Does your recommendation match your stated thesis? Confirm strikes are valid.`}
 
 ### 💡 EDUCATIONAL NOTE
 Write 2-3 sentences explaining your chosen strategy for someone new to options.

@@ -41,6 +41,87 @@
                         🎮 Detecting GPU...
                     </div>
                     
+                    <!-- 🔍 WHEEL SCANNER - Find stocks near 3-month lows -->
+                    <div style="background:linear-gradient(135deg, rgba(0,217,255,0.15) 0%, rgba(0,153,204,0.1) 100%); border:1px solid rgba(0,217,255,0.4); border-radius:10px; padding:18px; margin-bottom:20px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <div>
+                                <span style="color:#00d9ff; font-weight:bold; font-size:15px;">🔍 Wheel Scanner</span>
+                                <div style="font-size:11px; color:#0099cc; margin-top:2px;">Find oversold stocks near 3-month lows • Good wheel entry points</div>
+                            </div>
+                            <button id="scannerBtn" onclick="window.runWheelScanner()" class="btn-primary" style="padding:8px 16px; background:linear-gradient(135deg, #00d9ff 0%, #0099cc 100%); border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer;">
+                                🔄 Scan Now
+                            </button>
+                        </div>
+                        
+                        <!-- Scanner Filters -->
+                        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                            <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:#888;">
+                                <span>Range:</span>
+                                <select id="scannerMaxRange" style="background:#0d0d1a; border:1px solid #444; border-radius:4px; color:#ddd; padding:3px 6px; font-size:11px;">
+                                    <option value="5">≤5% from low</option>
+                                    <option value="10" selected>≤10% from low</option>
+                                    <option value="15">≤15% from low</option>
+                                    <option value="20">≤20% from low</option>
+                                    <option value="25">≤25% from low</option>
+                                </select>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:#888;">
+                                <span>Sector:</span>
+                                <select id="scannerSector" style="background:#0d0d1a; border:1px solid #444; border-radius:4px; color:#ddd; padding:3px 6px; font-size:11px;">
+                                    <option value="all">All Sectors</option>
+                                    <option value="Tech">Tech</option>
+                                    <option value="Fintech">Fintech</option>
+                                    <option value="Crypto">Crypto</option>
+                                    <option value="Space">Space</option>
+                                    <option value="Defense">Defense</option>
+                                    <option value="EV">EV</option>
+                                    <option value="Energy">Energy</option>
+                                    <option value="AI">AI</option>
+                                    <option value="Healthcare">Healthcare</option>
+                                    <option value="Retail">Retail</option>
+                                    <option value="Finance">Finance</option>
+                                    <option value="ETF">ETFs</option>
+                                    <option value="Gaming">Gaming</option>
+                                    <option value="Entertainment">Entertainment</option>
+                                    <option value="Materials">Materials</option>
+                                </select>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:#888;">
+                                <span>Cap:</span>
+                                <select id="scannerCap" style="background:#0d0d1a; border:1px solid #444; border-radius:4px; color:#ddd; padding:3px 6px; font-size:11px;">
+                                    <option value="all">All Caps</option>
+                                    <option value="Large">Large</option>
+                                    <option value="Mid">Mid</option>
+                                    <option value="Small">Small</option>
+                                    <option value="ETF">ETF</option>
+                                </select>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:#888;">
+                                <span>Price $</span>
+                                <input type="number" id="scannerMinPrice" value="10" min="1" style="width:50px; background:#0d0d1a; border:1px solid #444; border-radius:4px; color:#ddd; padding:3px 6px; font-size:11px;">
+                                <span>-</span>
+                                <input type="number" id="scannerMaxPrice" value="500" min="1" style="width:50px; background:#0d0d1a; border:1px solid #444; border-radius:4px; color:#ddd; padding:3px 6px; font-size:11px;">
+                            </label>
+                        </div>
+                        
+                        <!-- Scanner Results -->
+                        <div id="scannerResults" style="display:none;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <span id="scannerCount" style="font-size:12px; color:#00d9ff; font-weight:bold;">0 candidates found</span>
+                                <span id="scannerTime" style="font-size:10px; color:#666;"></span>
+                            </div>
+                            <div id="scannerTable" style="max-height:300px; overflow-y:auto; font-size:11px;">
+                                <!-- Results populate here -->
+                            </div>
+                        </div>
+                        
+                        <!-- Scanner Loading -->
+                        <div id="scannerLoading" style="display:none; text-align:center; padding:20px; color:#888;">
+                            <div style="font-size:20px; margin-bottom:8px;">🔄</div>
+                            <div>Scanning <span id="scannerProgress">0</span> tickers...</div>
+                        </div>
+                    </div>
+                    
                     <!-- 🎓 AI Strategy Advisor - Recommends best strategy for any ticker -->
                     <div style="background:linear-gradient(135deg, rgba(147,51,234,0.15) 0%, rgba(79,70,229,0.1) 100%); border:1px solid rgba(147,51,234,0.4); border-radius:10px; padding:18px; margin-bottom:20px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -49,10 +130,13 @@
                                 <div style="font-size:11px; color:#8b5cf6; margin-top:2px;">Analyzes ALL strategies • Recommends the best one • Explains risks</div>
                             </div>
                             <select id="strategyAdvisorModel" style="font-size:11px; padding:4px 8px; background:#1a1a2e; color:#ddd; border:1px solid #6d28d9; border-radius:4px;">
-                                <option value="deepseek-r1:32b" selected>DeepSeek-R1 🧮</option>
-                                <option value="qwen2.5:32b">Qwen 32B</option>
+                                <option value="qwen2.5:7b">Qwen 7B ⚡</option>
+                                <option value="qwen2.5:14b">Qwen 14B</option>
+                                <option value="qwen2.5:32b" selected>Qwen 32B 🎯</option>
+                                <option value="deepseek-r1:32b">DeepSeek-R1 🧮</option>
                                 <option value="grok-3">🚀 Grok-3</option>
                                 <option value="grok-4">🧠 Grok-4</option>
+                                <option value="grok-4-1-fast">⚡ Grok 4.1 Fast</option>
                             </select>
                         </div>
                         <div style="display:flex; gap:10px; margin-bottom:12px;">

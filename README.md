@@ -18,11 +18,14 @@ A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBO
 - **Proper strike selection** - Uses valid CBOE strike increments ($1 for stocks >$50)
 - **Correct delta direction** - Bull put spreads show POSITIVE delta (bullish!)
 - **108 strikes analyzed** - Full range ±$15 from spot price
+- **Model Picker** - Choose Qwen 7B/14B/32B, DeepSeek-R1, or Grok models
+- **Range-Aware Recommendations** - Uses real 3-month range to recommend bullish/bearish strategies
 - See [docs/FEATURES.md](docs/FEATURES.md) for "How It Works"
 
 ### Technical Improvements
 - Deduplicate options by (strike, type), prefer ~30 DTE
 - Filter by strike RANGE not "closest N to ATM"
+- Uses Yahoo 3-month historical data for accurate range position
 - Detailed server logging for debugging
 
 ---
@@ -297,15 +300,16 @@ Instead of binary FOLLOW/PASS, Discord Analyzer now gives **three perspectives**
 - Cost basis management
 - Covered call integration
 
-### 🧠 AI Trade Advisor (Local - No Cloud Required)
+### 🧠 AI Trade Advisor (Local + Cloud Options)
 - **100% Local AI** - Runs entirely on your machine via [Ollama](https://ollama.com)
-- **No API keys, no subscriptions, no data leaves your computer**
-- **Model Selection**: Choose between 7B (fast), 14B (better), 32B (best)
+- **Cloud AI (Optional)** - Grok models for instant results without GPU
+- **No subscriptions** - Grok has a free tier, Ollama is completely free
 
 **AI Features:**
 
 | Feature | Description |
 |---------|-------------|
+| **Strategy Advisor** | Enter any ticker → AI analyzes ALL strategies → recommends the best one |
 | **Deep Dive** | Comprehensive analysis with CBOE live pricing, support/resistance, scenario modeling |
 | **Discord Analyzer** | Paste any trade callout → AI parses it and gives FOLLOW/PASS/AVOID verdict |
 | **Position Checkup** | Compare opening thesis to current market - has your trade thesis held up? |
@@ -318,16 +322,26 @@ Instead of binary FOLLOW/PASS, Discord Analyzer now gives **three perspectives**
 - ⚠️ **WAIT/PASS** - Not ideal entry, wait for better conditions
 - ❌ **AVOID** - Poor risk/reward, skip this one
 
-**Supported Models:**
-| Model | Size | Speed | Quality |
-|-------|------|-------|---------|
-| qwen2.5:7b | ~5GB | Fast (5s) | Good |
-| qwen2.5:14b | ~9GB | Medium (10s) | Better |
-| qwen2.5:32b | ~20GB | Slower (20s) | Best |
-| llama3.1:8b | ~5GB | Fast | Good |
-| mistral:7b | ~4GB | Fast | Good |
+**Model Selection Guide:**
 
-**GPU Requirements for AI:**
+| Model | Type | Speed | Quality | Requirements |
+|-------|------|-------|---------|--------------|
+| **Qwen 7B** | Local | ~5 sec | Good | 8GB VRAM |
+| **Qwen 14B** | Local | ~10 sec | Better | 16GB VRAM |
+| **Qwen 32B** | Local | ~20 sec | Best Local | 24GB+ VRAM |
+| **DeepSeek-R1** | Local | ~30 sec | Excellent | 24GB+ VRAM |
+| **Grok-3** | Cloud | ~3 sec | Excellent | API key (free tier) |
+| **Grok-4** | Cloud | ~10 sec | Best Overall | API key |
+| **Grok 4.1 Fast** | Cloud | ~2 sec | Great | API key (fastest) |
+
+**Which model should I use?**
+- **No GPU**: Use Grok models (free tier available at [x.ai](https://x.ai))
+- **8GB VRAM**: Qwen 7B
+- **24GB+ VRAM**: Qwen 32B or DeepSeek-R1 (best reasoning)
+- **Best quality**: Grok-4 or DeepSeek-R1
+- **Fastest**: Grok 4.1 Fast (~2 seconds)
+
+**GPU Requirements for Local AI:**
 | Hardware | Speed | Notes |
 |----------|-------|-------|
 | NVIDIA GPU (8GB+ VRAM) | Fast (~5-10 sec) | RTX 3060 or better recommended |

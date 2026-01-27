@@ -37,7 +37,29 @@ function initialize(schwabApiCallFn) {
 async function getQuote(ticker) {
     const symbol = ticker.toUpperCase().trim();
     
-    // 1. Try Schwab first (best - real-time)
+    // Always fetch Yahoo 3-month data first for accurate rangePosition
+    // (Schwab doesn't provide historical data in quote endpoint)
+    let yahoo3mo = null;
+    try {
+        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=3mo`;
+        const yahooRes = await fetch(yahooUrl);
+        if (yahooRes.ok) {
+            const yahooData = await yahooRes.json();
+            const result = yahooData.chart?.result?.[0];
+            if (result) {
+                const highs = result.indicators?.quote?.[0]?.high?.filter(h => h) || [];
+                const lows = result.indicators?.quote?.[0]?.low?.filter(l => l) || [];
+                yahoo3mo = {
+                    high3mo: highs.length > 0 ? Math.max(...highs) : null,
+                    low3mo: lows.length > 0 ? Math.min(...lows) : null
+                };
+            }
+        }
+    } catch (e) {
+        console.log(`[MarketDataService] Yahoo 3mo fetch failed for ${symbol}:`, e.message);
+    }
+    
+    // 1. Try Schwab first (best - real-time price)
     if (schwabApiCall) {
         try {
             const data = await schwabApiCall(`/marketdata/v1/quotes?symbols=${symbol}`);
@@ -47,14 +69,9 @@ async function getQuote(ticker) {
                 const high52 = q['52WeekHigh'];
                 const low52 = q['52WeekLow'];
                 
-                // Schwab doesn't give 3-month range directly
-                // Estimate: 3-month is roughly 1/4 of 52-week volatility from current price
-                // Better: fetch price history, but that's another API call
-                // For now, estimate conservatively
-                const range52 = high52 - low52;
-                const estimatedRange3mo = range52 * 0.4; // 3-month typically ~40% of annual range
-                const high3mo = Math.min(high52, price + estimatedRange3mo * 0.6);
-                const low3mo = Math.max(low52, price - estimatedRange3mo * 0.6);
+                // Use Yahoo's actual 3-month range if available, otherwise estimate
+                const high3mo = yahoo3mo?.high3mo ?? Math.min(high52, price * 1.15);
+                const low3mo = yahoo3mo?.low3mo ?? Math.max(low52, price * 0.85);
                 
                 return {
                     ticker: symbol,

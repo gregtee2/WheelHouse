@@ -27,6 +27,7 @@ const wisdomRoutes = require('./src/routes/wisdomRoutes');
 const cboeRoutes = require('./src/routes/cboeRoutes');
 const updateRoutes = require('./src/routes/updateRoutes');
 const aiRoutes = require('./src/routes/aiRoutes');
+const scannerRoutes = require('./src/routes/scannerRoutes');
 
 // ============================================================================
 // UTILITY MODULES (extracted for modularity)
@@ -143,6 +144,10 @@ aiRoutes.init({
     MODEL_VRAM_REQUIREMENTS
 });
 app.use('/api/ai', aiRoutes);
+
+// Mount Scanner routes (wheel candidate scanner)
+scannerRoutes.init({ DataService });
+app.use('/api/scanner', scannerRoutes);
 
 
 // Main request handler (converted to Express middleware)

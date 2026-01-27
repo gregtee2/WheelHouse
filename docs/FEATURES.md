@@ -145,6 +145,32 @@ Find ATM put ($94 @ $9.07), OTM put ($90 @ $6.80) → BOTH REAL
 Calculate credit: $9.07 - $6.80 = $2.27 ✅
 ```
 
+### AI Model Selection
+
+Choose the right model for your needs:
+
+| Model | Speed | Quality | Requirements |
+|-------|-------|---------|--------------|
+| **Qwen 7B ⚡** | ~5 sec | Good | 8GB VRAM (runs on most GPUs) |
+| **Qwen 14B** | ~10 sec | Better | 16GB VRAM |
+| **Qwen 32B 🎯** | ~20 sec | Best Local | 24GB+ VRAM (recommended) |
+| **DeepSeek-R1 🧮** | ~30 sec | Excellent (reasoning) | 24GB+ VRAM |
+| **Grok-3 🚀** | ~3 sec | Excellent | Cloud API key (free tier) |
+| **Grok-4 🧠** | ~10 sec | Best (reasoning) | Cloud API key |
+| **Grok 4.1 Fast ⚡** | ~2 sec | Great | Cloud API key (fastest) |
+
+**Recommendations:**
+- **No GPU / Quick test**: Grok-3 or Grok 4.1 Fast (cloud, instant)
+- **Local with 8GB VRAM**: Qwen 7B
+- **Local with 24GB+ VRAM**: Qwen 32B (default) or DeepSeek-R1
+- **Best reasoning**: DeepSeek-R1 (local) or Grok-4 (cloud)
+
+**How to use:**
+1. Select your model from the dropdown before clicking "Analyze"
+2. Local models (Qwen, DeepSeek) require [Ollama](https://ollama.ai) running
+3. Grok models require API key in Settings → Grok API Key
+4. First use of a local model downloads it (~20GB for 32B models)
+
 ### Key Files
 
 | File | Purpose |
@@ -154,6 +180,24 @@ Calculate credit: $9.07 - $6.80 = $2.27 ✅
 | `js/main.js` | `runStrategyAdvisor()` frontend logic |
 | `js/main.js` | `stageStrategyAdvisorTrade()` staging logic |
 | `index.html` | UI in Ideas tab |
+
+### Range-Aware Strategy Selection
+
+**Added**: v1.15.1 (January 2026)
+
+The Strategy Advisor now uses real 3-month price range data to recommend directionally-appropriate strategies:
+
+| Range Position | Interpretation | AI Recommends |
+|----------------|----------------|---------------|
+| **0-25%** | Near 3-month low (oversold) | Bullish: Short Put, Put Credit Spread, Long Call, SKIP™ |
+| **25-75%** | Mid-range (neutral) | Any direction based on IV and other factors |
+| **75-100%** | Near 3-month high (overbought) | Bearish: Call Credit Spread, Put Debit Spread, Iron Condor |
+
+The range position is displayed in the results modal with a color-coded indicator:
+- 🟢 Green = Oversold (bullish opportunity)
+- 🔴 Red = Overbought (be cautious on bullish plays)
+
+If the AI picks a strategy that conflicts with the range signal, a warning banner appears.
 
 ### Example Output
 

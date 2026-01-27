@@ -242,6 +242,33 @@ router.post('/strategy-advisor', async (req, res) => {
             aiResponse = aiResponse.replace(/\$1(?![0-9.,])/g, `$${stockPrice}`);
         }
         
+        // Range position sanity check - warn if AI ignores directional guidance
+        let rangeWarning = null;
+        const rangePos = quote.rangePosition;
+        if (rangePos !== undefined && rangePos !== null) {
+            // Detect which setup AI recommended
+            const recMatch = aiResponse.match(/RECOMMENDED:\s*([A-H])\s*-?\s*([^\n]*)/i);
+            const recLetter = recMatch ? recMatch[1].toUpperCase() : null;
+            
+            const bullishSetups = ['A', 'B', 'F', 'H'];
+            const bearishSetups = ['D', 'E'];
+            const neutralSetups = ['G'];
+            
+            if (rangePos < 25 && recLetter) {
+                // Near low - should be bullish
+                if (bearishSetups.includes(recLetter) || neutralSetups.includes(recLetter)) {
+                    rangeWarning = `⚠️ RANGE CONFLICT: Stock is at ${rangePos}% of 3-month range (near LOW = oversold), but AI recommended ${recLetter} (${neutralSetups.includes(recLetter) ? 'neutral' : 'bearish'}). Consider bullish strategies (A, B, F, H) for oversold stocks.`;
+                    console.log(`[STRATEGY-ADVISOR] ⚠️ Range conflict: ${rangePos}% (oversold) but recommended ${recLetter}`);
+                }
+            } else if (rangePos > 75 && recLetter) {
+                // Near high - should be bearish/neutral
+                if (bullishSetups.includes(recLetter)) {
+                    rangeWarning = `⚠️ RANGE CONFLICT: Stock is at ${rangePos}% of 3-month range (near HIGH = overbought), but AI recommended ${recLetter} (bullish). Consider bearish or neutral strategies (D, E, G) for extended stocks.`;
+                    console.log(`[STRATEGY-ADVISOR] ⚠️ Range conflict: ${rangePos}% (overbought) but recommended ${recLetter}`);
+                }
+            }
+        }
+        
         res.json({
             success: true,
             ticker,
@@ -251,6 +278,7 @@ router.post('/strategy-advisor', async (req, res) => {
             expirations,
             dataSource,
             recommendation: aiResponse,
+            rangeWarning,
             model: selectedModel
         });
         
