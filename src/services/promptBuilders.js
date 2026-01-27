@@ -887,9 +887,14 @@ ${rollCount >= 3 ? '⚠️ Multiple rolls - consider if continuing to roll is th
         const upsideMissed = ((spot - strike) / strike * 100).toFixed(1);
         const itmPercent = ((spot - strike) / strike * 100).toFixed(1);
         
+        // Calculate wheel continuation put strike (slightly below current call strike for lower re-entry)
+        const wheelPutStrike = Math.floor((strike * 0.95) / 5) * 5;  // ~5% below call strike
+        const wheelPutStrikeAlt = Math.floor((strike * 0.90) / 5) * 5;  // ~10% below for more cushion
+        
         // Build dynamic strategy list based on situation
         scorecardStrategies = [
             { name: 'LET ASSIGN', detail: `($${assignmentProfit?.toFixed(0) || '???'} profit)`, always: true },
+            { name: 'WHEEL CONTINUATION', detail: `(LET ASSIGN + SELL $${wheelPutStrike} PUT)`, always: true, highlight: true },
             { name: 'ROLL UP+OUT', detail: '(higher strike, further out)', always: true },
         ];
         
@@ -917,6 +922,15 @@ Your covered call is ITM with the stock at $${spot.toFixed(2)} vs $${strike} str
 
 STRATEGY MENU (evaluate each that applies to this situation):
 
+🔄 WHEEL CONTINUATION (COMBO STRATEGY - Often the BEST play!):
+• LET ASSIGN + SELL PUT - Take assignment profit ($${assignmentProfit?.toFixed(0) || '???'}), THEN immediately sell a put at $${wheelPutStrike} or $${wheelPutStrikeAlt}
+  - You collect EXTRA premium from the put NOW (while still holding shares)
+  - When called away, you keep assignment profit + put premium
+  - If stock drops to put strike, you re-enter at LOWER cost basis than current
+  - This is the WHEEL STRATEGY continuing - not a new position, but the next leg
+  - RISK: Only if stock crashes below put strike before assignment
+  - BEST WHEN: You're bullish, want to stay in the name, but happy to take profits first
+
 📈 BULLISH STRATEGIES (if you think stock continues higher):
 • SKIP™ STRATEGY - Buy LEAPS (12+ mo) + SKIP call (3-9 mo, higher strike). Exit SKIP at 45-60 DTE.
 • BUY LONG CALL - Buy $${Math.ceil(spot / 5) * 5} call 60-90 DTE to ride further upside
@@ -936,7 +950,8 @@ STRATEGY MENU (evaluate each that applies to this situation):
 • LET ASSIGN - Collect $${assignmentProfit?.toFixed(0) || '???'} profit, free up capital
 
 💡 KEY INSIGHT: You're missing ${upsideMissed}% of upside ($${spot.toFixed(2)} vs $${strike} cap).
-Pick strategies that match YOUR outlook on ${ticker}.`;
+Pick strategies that match YOUR outlook on ${ticker}.
+⭐ WHEEL CONTINUATION is often overlooked but combines the safety of taking profits with continued premium collection.`;
 
     } else if (isCoveredCall && spot <= strike) {
         // OTM or ATM covered call - winning position, theta working

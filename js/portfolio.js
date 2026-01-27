@@ -2884,6 +2884,10 @@ window.aiHoldingSuggestion = async function(holdingId) {
     const isOTM = currentPrice < strike;
     const isDeep = isITM ? (currentPrice - strike) / strike > 0.05 : (strike - currentPrice) / strike > 0.1;
     
+    // Calculate wheel continuation put strikes
+    const wheelPutStrike = Math.floor((strike * 0.95) / 5) * 5;  // ~5% below call strike
+    const wheelPutStrikeAlt = Math.floor((strike * 0.90) / 5) * 5;  // ~10% below for more cushion
+    
     // Build detailed prompt
     const prompt = `You are a wheel strategy options expert. Analyze this covered call position and give SPECIFIC, ACTIONABLE advice.
 
@@ -2908,36 +2912,44 @@ Provide a COMPLETE analysis with these sections:
 Explain what's happening with this position in 2-3 sentences. Is the covered call working as intended? What's the risk?
 
 **RECOMMENDATION** 
-Choose ONE: HOLD / ROLL UP / ROLL OUT / ROLL UP & OUT / LET IT GET CALLED / BUY BACK THE CALL
-Explain WHY this is the best action right now.
+Choose ONE: HOLD / ROLL UP / ROLL OUT / ROLL UP & OUT / LET IT GET CALLED / WHEEL CONTINUATION / BUY BACK THE CALL
+- WHEEL CONTINUATION means: LET IT GET CALLED + immediately SELL A PUT at $${wheelPutStrike} or $${wheelPutStrikeAlt}
+  This is often the SMARTEST play for ITM covered calls because:
+  1. You take your profit from assignment (stock gain + call premium)
+  2. You collect ADDITIONAL premium from the put NOW
+  3. If stock stays high: put expires worthless, you keep both premiums
+  4. If stock drops to put strike: you re-enter at LOWER cost basis, continue the wheel
+  5. Your assignment cash covers the put obligation if assigned
+Explain WHY your choice is the best action right now.
 
 **SPECIFIC ACTION**
 If holding: Explain what price levels would change your recommendation.
 If rolling: Suggest specific new strike (e.g., "$31 or $32") and timeframe (e.g., "30-45 DTE").
-If letting call: Explain what to expect at expiration.
+If WHEEL CONTINUATION: Specify the put strike ($${wheelPutStrike} or $${wheelPutStrikeAlt}), expiry (30-45 DTE ideal), and expected premium.
+If letting call expire: Explain what to expect at expiration.
 
 **KEY RISK**
 One important risk or thing to watch.
 
-**SUGGESTED TRADE (REQUIRED if recommending ROLL or BUY BACK)**
-If you recommend ROLL UP, ROLL OUT, ROLL UP & OUT, or BUY BACK, you MUST provide specific trade details.
+**SUGGESTED TRADE (REQUIRED if recommending ROLL, WHEEL CONTINUATION, or BUY BACK)**
+If you recommend ROLL UP, ROLL OUT, ROLL UP & OUT, WHEEL CONTINUATION, or BUY BACK, you MUST provide specific trade details.
 Format EXACTLY like this (we will parse it to create a stageable trade):
 
 ===SUGGESTED_TRADE===
-ACTION: ROLL|CLOSE|HOLD
+ACTION: ROLL|WHEEL_CONTINUATION|CLOSE|HOLD
 CLOSE_STRIKE: ${strike.toFixed(0)}
 CLOSE_EXPIRY: ${expiry}
 CLOSE_TYPE: CALL
-NEW_STRIKE: [new strike price, e.g. 105]
+NEW_STRIKE: [new strike price - for WHEEL_CONTINUATION this is the PUT strike, e.g. ${wheelPutStrike}]
 NEW_EXPIRY: [new expiry YYYY-MM-DD, e.g. 2026-05-15]
-NEW_TYPE: CALL
-ESTIMATED_DEBIT: [cost to buy back current call, e.g. $14.00]
-ESTIMATED_CREDIT: [credit from selling new call, e.g. $4.00]
+NEW_TYPE: [CALL for rolls, PUT for WHEEL_CONTINUATION]
+ESTIMATED_DEBIT: [cost to buy back current call, or N/A for LET ASSIGN]
+ESTIMATED_CREDIT: [credit from selling new option, e.g. $4.00]
 NET_COST: [net result, e.g. "-$10.00 debit" or "+$2.00 credit"]
 RATIONALE: [One sentence explaining why this specific trade]
 ===END_TRADE===
 
-If you recommend HOLD or LET IT GET CALLED, use ACTION: HOLD and leave the other fields as N/A.
+If you recommend HOLD or LET IT GET CALLED (without selling a put), use ACTION: HOLD and leave the other fields as N/A.
 
 Be specific with dollar amounts and percentages. Don't be vague.`;
 
