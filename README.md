@@ -499,7 +499,9 @@ const PORT = process.env.PORT || 8888;
 
 ## 📝 License
 
-MIT License - see [LICENSE](LICENSE) for details.
+This project is licensed under a custom license. The software is provided for personal, non-commercial use only. Redistribution, modification, or commercial use is prohibited without explicit written permission from the copyright holder.
+
+See the [LICENSE](LICENSE) file for details.
 
 ---
 
