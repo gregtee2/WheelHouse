@@ -2521,10 +2521,22 @@ window.renderPendingTrades = function() {
         // Calculate credit (premium × 100)
         const credit = p.premium ? (p.premium * 100) : null;
         
-        // Calculate annualized return: (premium / strike) × (365 / DTE) × 100
-        const annReturn = (p.premium && p.strike && dte > 0) 
-            ? ((p.premium / p.strike) * (365 / dte) * 100).toFixed(1)
-            : null;
+        // Calculate annualized return based on trade type
+        let annReturn = null;
+        if (p.premium && dte > 0) {
+            const isSpread = p.type?.includes('_spread') || p.upperStrike;
+            if (isSpread && p.strike && p.upperStrike) {
+                // For spreads: return on buying power (spread width)
+                const spreadWidth = Math.abs(p.strike - p.upperStrike);
+                const buyingPowerPerContract = spreadWidth * 100;  // Full spread width is buying power
+                if (buyingPowerPerContract > 0) {
+                    annReturn = ((p.premium * 100) / buyingPowerPerContract * (365 / dte) * 100).toFixed(1);
+                }
+            } else if (p.strike) {
+                // For single legs: (premium / strike) × (365 / DTE) × 100
+                annReturn = ((p.premium / p.strike) * (365 / dte) * 100).toFixed(1);
+            }
+        }
         
         return { ...p, dte, credit, annReturn };
     });
@@ -2765,13 +2777,16 @@ window.confirmStagedTrade = function(id) {
             <div style="background:#0d0d1a; padding:12px; border-radius:8px; border:1px solid #333;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                     <span style="color:#888;">Net Credit (per share):</span>
-                    <span id="netCreditPerShare" style="color:#888; font-size:14px;">$0.00</span>
+                    <span id="netCreditPerShare" style="color:#888; font-size:14px;">${trade.premium ? '$' + trade.premium.toFixed(2) : '$0.00'}</span>
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <span style="color:#00ff88; font-weight:bold;">Total Credit Received:</span>
-                    <span id="netCreditDisplay" style="color:#00ff88; font-size:20px; font-weight:bold;">$0</span>
+                    <span id="netCreditDisplay" style="color:#00ff88; font-size:20px; font-weight:bold;">${trade.premium ? '$' + (trade.premium * 100).toFixed(0) : '$0'}</span>
                 </div>
                 <input type="hidden" id="confirmPremium" value="${trade.premium || 0}">
+                ${trade.premium ? `<div style="color:#666; font-size:10px; margin-top:6px; text-align:center;">
+                    💡 AI estimated ~$${trade.premium.toFixed(2)}/share net credit. Enter actual fill prices above.
+                </div>` : ''}
             </div>
         `;
     } else {
@@ -2890,15 +2905,48 @@ async function fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, 
         const options = isPut ? chain.puts : chain.calls;
         if (!options?.length) throw new Error('No options data');
         
-        // Find matching options
-        const sellOption = options.find(opt => 
+        console.log(`[CONFIRM] Looking for ${ticker} ${isPut ? 'PUT' : 'CALL'} strikes $${sellStrike}/$${buyStrike} exp ${expiry}`);
+        
+        // Show what strikes exist at target expiry
+        const targetExpOptions = options.filter(o => o.expiration === expiry);
+        
+        // Find matching options - try exact match first, then closest expiry
+        let sellOption = options.find(opt => 
             Math.abs(opt.strike - parseFloat(sellStrike)) < 0.01 && opt.expiration === expiry
         );
-        const buyOption = options.find(opt => 
+        let buyOption = options.find(opt => 
             Math.abs(opt.strike - parseFloat(buyStrike)) < 0.01 && opt.expiration === expiry
         );
         
-        // Populate fields (use mid price: (bid+ask)/2)
+        // Track if we had to use different expiry (means strike doesn't exist at target)
+        let sellExpiryMismatch = false;
+        let buyExpiryMismatch = false;
+        
+        // If exact strike+expiry not found, DON'T fall back to different expiry (prices would be wrong)
+        // Instead, find nearest valid strike at target expiry
+        if (!sellOption) {
+            const nearestSell = targetExpOptions.reduce((prev, curr) => 
+                Math.abs(curr.strike - parseFloat(sellStrike)) < Math.abs(prev.strike - parseFloat(sellStrike)) ? curr : prev
+            , targetExpOptions[0]);
+            if (nearestSell) {
+                console.log(`[CONFIRM] ⚠️ Sell strike $${sellStrike} not found at ${expiry}, nearest is $${nearestSell.strike}`);
+                sellExpiryMismatch = true;
+            }
+        }
+        if (!buyOption) {
+            const nearestBuy = targetExpOptions.reduce((prev, curr) => 
+                Math.abs(curr.strike - parseFloat(buyStrike)) < Math.abs(prev.strike - parseFloat(buyStrike)) ? curr : prev
+            , targetExpOptions[0]);
+            if (nearestBuy) {
+                console.log(`[CONFIRM] ⚠️ Buy strike $${buyStrike} not found at ${expiry}, nearest is $${nearestBuy.strike}`);
+                buyExpiryMismatch = true;
+            }
+        }
+        
+        console.log(`[CONFIRM] Sell option:`, sellOption ? `$${sellOption.strike} bid=${sellOption.bid} ask=${sellOption.ask}` : 'NOT FOUND');
+        console.log(`[CONFIRM] Buy option:`, buyOption ? `$${buyOption.strike} bid=${buyOption.bid} ask=${buyOption.ask}` : 'NOT FOUND');
+        
+        // Populate fields (use mid price: (bid+ask)/2) - only if SAME expiry!
         if (sellOption) {
             const sellMid = (sellOption.bid + sellOption.ask) / 2;
             document.getElementById('confirmSellPremium').value = sellMid.toFixed(2);
@@ -2911,10 +2959,26 @@ async function fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, 
         // Update net credit display
         window.updateNetCredit();
         
-        if (statusEl) {
-            statusEl.textContent = '✅ Prices loaded from market data';
-            statusEl.style.color = '#00ff88';
-            setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+        // Show appropriate status
+        if (sellExpiryMismatch || buyExpiryMismatch) {
+            const missingStrikes = [];
+            if (sellExpiryMismatch) missingStrikes.push(`$${sellStrike}`);
+            if (buyExpiryMismatch) missingStrikes.push(`$${buyStrike}`);
+            if (statusEl) {
+                statusEl.textContent = `⚠️ Strike${missingStrikes.length > 1 ? 's' : ''} ${missingStrikes.join(' & ')} not available at ${expiry}`;
+                statusEl.style.color = '#ffaa00';
+            }
+        } else if (sellOption && buyOption) {
+            if (statusEl) {
+                statusEl.textContent = '✅ Prices loaded from market data';
+                statusEl.style.color = '#00ff88';
+                setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+            }
+        } else {
+            if (statusEl) {
+                statusEl.textContent = '⚠️ Some prices unavailable';
+                statusEl.style.color = '#ffaa00';
+            }
         }
     } catch (err) {
         console.warn('Could not fetch option prices:', err.message);
@@ -4646,7 +4710,7 @@ window.runStrategyAdvisor = async function() {
 };
 
 // Stage the recommended trade from Strategy Advisor
-window.stageStrategyAdvisorTrade = function() {
+window.stageStrategyAdvisorTrade = async function() {
     if (!lastStrategyAdvisorResult) {
         showNotification('No strategy analysis to stage', 'error');
         return;
@@ -4809,9 +4873,18 @@ window.stageStrategyAdvisorTrade = function() {
         }
     }
     
-    // Method 10: Calculate from "Max Profit per contract: $XXX" (for spreads, premium = maxProfit/100)
+    // Method 10: Calculate from "Max Profit per contract: $XXX" or just "Max Profit: $XXX" (for spreads, premium = maxProfit/100)
     if (!premium && tradeType?.includes('_spread')) {
-        const maxProfitMatch = recommendation?.match(/Max\s+Profit\s+per\s+contract:\s*\$?(\d+(?:,\d{3})*)/i);
+        // Try with "per contract" first
+        let maxProfitMatch = recommendation?.match(/Max\s+Profit\s+per\s+contract:\s*\$?(\d+(?:,\d{3})*)/i);
+        // Try without "per contract" (the post-processed format)
+        if (!maxProfitMatch) {
+            maxProfitMatch = recommendation?.match(/Per\s+Contract:[\s\S]*?Max\s+Profit:\s*\$?(\d+(?:,\d{3})*)/i);
+        }
+        // Try simple "Max Profit:" pattern (first occurrence, typically per-contract)
+        if (!maxProfitMatch) {
+            maxProfitMatch = recommendation?.match(/Max\s+Profit:\s*\$?(\d+(?:,\d{3})*)/i);
+        }
         if (maxProfitMatch) {
             const maxProfitPerContract = parseFloat(maxProfitMatch[1].replace(/,/g, ''));
             premium = maxProfitPerContract / 100;  // Convert back to per-share
@@ -4872,6 +4945,71 @@ window.stageStrategyAdvisorTrade = function() {
         }
         expiry = defaultExpiry.toISOString().split('T')[0];
         console.log('[STAGE] Using default expiry: ' + expiry);
+    }
+    
+    // =========================================================================
+    // STRIKE VALIDATION: Fetch options chain and snap invalid strikes to valid ones
+    // =========================================================================
+    if (tradeType?.includes('_spread') && strike && upperStrike) {
+        try {
+            console.log('[STAGE] Validating strikes exist at expiry ' + expiry + '...');
+            const chain = await window.fetchOptionsChain(ticker);
+            if (chain) {
+                const isPut = tradeType.includes('put');
+                const options = isPut ? chain.puts : chain.calls;
+                
+                // Filter to target expiry
+                const optsAtExpiry = options?.filter(o => o.expiration === expiry) || [];
+                
+                if (optsAtExpiry.length > 0) {
+                    const validStrikes = [...new Set(optsAtExpiry.map(o => parseFloat(o.strike)))].sort((a, b) => a - b);
+                    // Show only nearby strikes (±$20 from current strikes)
+                    const nearbyStrikes = validStrikes.filter(s => 
+                        Math.abs(s - strike) <= 20 || Math.abs(s - upperStrike) <= 20
+                    );
+                    console.log('[STAGE] Nearby valid strikes: $' + nearbyStrikes.join(', $'));
+                    
+                    // Helper to find nearest valid strike
+                    const findNearest = (target) => {
+                        return validStrikes.reduce((prev, curr) => 
+                            Math.abs(curr - target) < Math.abs(prev - target) ? curr : prev
+                        );
+                    };
+                    
+                    // Validate sell strike
+                    const originalSell = strike;
+                    if (!validStrikes.includes(strike)) {
+                        strike = findNearest(strike);
+                        console.log('[STAGE] ⚠️ Sell strike $' + originalSell + ' not available, using nearest: $' + strike);
+                    }
+                    
+                    // Validate buy strike
+                    const originalBuy = upperStrike;
+                    if (!validStrikes.includes(upperStrike)) {
+                        upperStrike = findNearest(upperStrike);
+                        console.log('[STAGE] ⚠️ Buy strike $' + originalBuy + ' not available, using nearest: $' + upperStrike);
+                    }
+                    
+                    // Recalculate premium based on actual strikes
+                    if (strike !== originalSell || upperStrike !== originalBuy) {
+                        const sellOpt = optsAtExpiry.find(o => parseFloat(o.strike) === strike);
+                        const buyOpt = optsAtExpiry.find(o => parseFloat(o.strike) === upperStrike);
+                        
+                        if (sellOpt && buyOpt) {
+                            const sellMid = (parseFloat(sellOpt.bid) + parseFloat(sellOpt.ask)) / 2;
+                            const buyMid = (parseFloat(buyOpt.bid) + parseFloat(buyOpt.ask)) / 2;
+                            const newPremium = isPut ? (sellMid - buyMid) : (buyMid - sellMid);
+                            premium = Math.max(0.01, newPremium);
+                            console.log('[STAGE] ✅ Recalculated premium with valid strikes: $' + premium.toFixed(2) + '/share');
+                        }
+                    }
+                } else {
+                    console.log('[STAGE] ⚠️ No options found at expiry ' + expiry + ', using AI strikes as-is');
+                }
+            }
+        } catch (err) {
+            console.log('[STAGE] Could not validate strikes: ' + err.message);
+        }
     }
     
     // Stage the trade - use same field names as other staging functions

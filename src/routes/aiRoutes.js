@@ -122,36 +122,49 @@ router.post('/strategy-advisor', async (req, res) => {
             const allOpts = [...callsWithType, ...putsWithType];
             console.log(`[STRATEGY-ADVISOR] Raw options from ${chain.source}: ${allOpts.length} total`);
             
-            // Target ~30 DTE for optimal theta decay
+            // Target ~30 DTE for optimal theta decay - FIND the best expiry FIRST
             const today = new Date();
             const targetDTE = 30;
             
-            // Deduplicate by strike+type, preferring ~30 DTE
-            const optionsByKey = new Map();
-            for (const opt of allOpts) {
-                const key = `${opt.option_type}_${opt.strike}`;
-                const expDate = new Date(opt.expiration);
+            // Find the best expiry (closest to 30 DTE, minimum 21 DTE)
+            let bestExpiry = null;
+            let bestExpiryDTE = null;
+            for (const exp of expirations) {
+                const expDate = new Date(exp);
                 const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
-                
-                if (!optionsByKey.has(key)) {
-                    optionsByKey.set(key, { ...opt, dte });
-                } else {
-                    const existing = optionsByKey.get(key);
-                    if (Math.abs(dte - targetDTE) < Math.abs(existing.dte - targetDTE)) {
-                        optionsByKey.set(key, { ...opt, dte });
+                if (dte >= 21) {
+                    if (!bestExpiry || Math.abs(dte - targetDTE) < Math.abs(bestExpiryDTE - targetDTE)) {
+                        bestExpiry = exp;
+                        bestExpiryDTE = dte;
                     }
                 }
             }
+            // Fallback to first expiry with 21+ DTE, or just the furthest available
+            if (!bestExpiry) {
+                bestExpiry = expirations.find(exp => {
+                    const dte = Math.ceil((new Date(exp) - today) / (1000 * 60 * 60 * 24));
+                    return dte >= 7;
+                }) || expirations[expirations.length - 1];
+                bestExpiryDTE = bestExpiry ? Math.ceil((new Date(bestExpiry) - today) / (1000 * 60 * 60 * 24)) : 30;
+            }
             
-            const uniqueOpts = Array.from(optionsByKey.values());
-            console.log(`[STRATEGY-ADVISOR] Unique strikes: ${uniqueOpts.length}`);
+            console.log(`[STRATEGY-ADVISOR] Target expiry: ${bestExpiry} (${bestExpiryDTE} DTE)`);
             
-            // Filter to ±$15 of spot
-            const strikeRange = 15;
+            // CRITICAL: Filter options to ONLY the target expiry - this ensures strikes actually exist!
+            const optsAtExpiry = allOpts.filter(o => o.expiration === bestExpiry);
+            console.log(`[STRATEGY-ADVISOR] Options at target expiry: ${optsAtExpiry.length}`);
+            
+            // Log available strike increments at this expiry
+            const strikesAtExpiry = [...new Set(optsAtExpiry.map(o => o.strike))].sort((a, b) => a - b);
+            const strikeIncrement = strikesAtExpiry.length > 1 ? strikesAtExpiry[1] - strikesAtExpiry[0] : 5;
+            console.log(`[STRATEGY-ADVISOR] Strike increment at ${bestExpiry}: $${strikeIncrement} (${strikesAtExpiry.length} unique strikes)`);
+            
+            // Filter to ±$20 of spot (wider range to ensure we have enough strikes)
+            const strikeRange = Math.max(20, strikeIncrement * 6); // At least 6 strikes each side
             const minStrike = quote.price - strikeRange;
             const maxStrike = quote.price + strikeRange;
             
-            const inRangeOpts = uniqueOpts.filter(o => o.strike >= minStrike && o.strike <= maxStrike);
+            const inRangeOpts = optsAtExpiry.filter(o => o.strike >= minStrike && o.strike <= maxStrike);
             inRangeOpts.sort((a, b) => a.strike - b.strike);
             
             sampleOptions = inRangeOpts.map(o => ({
@@ -162,10 +175,10 @@ router.post('/strategy-advisor', async (req, res) => {
                 ask: o.ask,
                 delta: o.delta,
                 iv: o.iv,
-                dte: o.dte
+                dte: bestExpiryDTE
             }));
             
-            console.log(`[STRATEGY-ADVISOR] ✅ Using ${sampleOptions.length} options for analysis`);
+            console.log(`[STRATEGY-ADVISOR] ✅ Using ${sampleOptions.length} options for analysis (strikes: $${strikesAtExpiry.filter(s => s >= minStrike && s <= maxStrike).join(', $')})`);
         }
         
         // 3. Build context for AI
@@ -205,25 +218,50 @@ router.post('/strategy-advisor', async (req, res) => {
         
         // 6. Post-process to fix math hallucinations
         const cv = calculatedValues;
-        const maxProfitStr = `$${cv.totalPutMaxProfit.toLocaleString()}`;
-        const maxLossStr = `$${cv.totalPutMaxLoss.toLocaleString()}`;
+        
+        // Per-contract values
+        const perContractMaxProfit = Math.round(cv.putSpreadCredit * 100);
+        const perContractMaxLoss = Math.round((cv.putSpreadWidth - cv.putSpreadCredit) * 100);
+        const perContractBP = Math.round(cv.putSpreadWidth * 100);
+        
+        // Total values (for N contracts)
+        const totalMaxProfit = cv.totalPutMaxProfit;
+        const totalMaxLoss = cv.totalPutMaxLoss;
+        const totalBP = cv.totalBuyingPower;
         
         // Fix doubled numbers
         aiResponse = aiResponse.replace(/\$?(\d{1,3}),(\d{3}),\2(?!\d)/g, (match, first, second) => {
             return `$${first},${second}`;
         });
         
-        // Fix 7-digit P/L numbers
+        // Fix 7-digit P/L numbers in P&L table
         aiResponse = aiResponse.replace(/(\+|-)\s*\$?(\d),(\d{3}),(\d{3})(?!\d)/g, (match, sign) => {
-            const correctVal = sign === '+' ? cv.totalPutMaxProfit : cv.totalPutMaxLoss;
+            const correctVal = sign === '+' ? totalMaxProfit : totalMaxLoss;
             return `${sign}$${correctVal.toLocaleString()}`;
         });
         
-        // Fix Max Profit/Loss labels
-        aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Profit[:\s]*\$?[\d,]+/gi, 
-            () => `Max Profit: ${maxProfitStr}`);
-        aiResponse = aiResponse.replace(/(Total\s+)?Max\s*Loss[:\s]*\$?[\d,]+/gi,
-            () => `Max Loss: ${maxLossStr}`);
+        // Fix TOTAL Max Profit/Loss (For N Contracts section) - match "Total" prefix
+        aiResponse = aiResponse.replace(/Total\s+Max\s*Profit[:\s]*\$?[\d,]+/gi, 
+            () => `Total Max Profit: $${totalMaxProfit.toLocaleString()}`);
+        aiResponse = aiResponse.replace(/Total\s+Max\s*Loss[:\s]*\$?[\d,]+/gi,
+            () => `Total Max Loss: $${totalMaxLoss.toLocaleString()}`);
+        aiResponse = aiResponse.replace(/Total\s+Buying\s*Power[:\s]*\$?[\d,]+/gi,
+            () => `Total Buying Power: $${totalBP.toLocaleString()}`);
+        
+        // Fix per-contract values (no "Total" prefix, match "Max Profit:" or "Max Profit :")
+        // Only replace if NOT preceded by "Total"
+        aiResponse = aiResponse.replace(/(?<!Total\s)Max\s*Profit[:\s]*\$?[\d,]+(?!\s*\|)/gi, 
+            () => `Max Profit: $${perContractMaxProfit.toLocaleString()}`);
+        aiResponse = aiResponse.replace(/(?<!Total\s)Max\s*Loss[:\s]*\$?[\d,]+(?!\s*\|)/gi,
+            () => `Max Loss: $${perContractMaxLoss.toLocaleString()}`);
+        aiResponse = aiResponse.replace(/(?<!Total\s)Buying\s*Power[:\s]*\$?[\d,]+(?!\s*\|)/gi,
+            () => `Buying Power: $${perContractBP.toLocaleString()}`);
+        
+        // Fix P&L table rows (Above strike = Max Profit, Below strike = Max Loss)
+        aiResponse = aiResponse.replace(/\|\s*Max\s*Profit\s*\|\s*\+?\$?[\d,]+\s*\|/gi,
+            () => `| Max Profit | +$${totalMaxProfit.toLocaleString()} |`);
+        aiResponse = aiResponse.replace(/\|\s*Max\s*Loss\s*\|\s*-?\$?[\d,]+\s*\|/gi,
+            () => `| Max Loss | -$${totalMaxLoss.toLocaleString()} |`);
         
         // Fix $1 hallucinations
         const dollarOneCount = (aiResponse.match(/\$1(?![0-9.])/g) || []).length;

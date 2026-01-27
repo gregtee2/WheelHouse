@@ -1397,11 +1397,11 @@ function buildStrategyAdvisorPrompt(context) {
         console.log(`[STRATEGY-ADVISOR] ✅ Found REAL OTM call: $${otmCall.strike} @ $${otmCall.bid}/$${otmCall.ask}`);
     }
     
-    // Pre-calculate strikes (rounded to valid increments)
-    const sellPutStrike = atmPut ? roundStrike(parseFloat(atmPut.strike)) : roundStrike(spot - 1);
-    const buyPutStrike = otmPut ? roundStrike(parseFloat(otmPut.strike)) : roundStrike(spot - spreadWidth - 1);
-    const sellCallStrike = atmCall ? roundStrike(parseFloat(atmCall.strike)) : roundStrike(spot + 1);
-    const buyCallStrike = otmCall ? roundStrike(parseFloat(otmCall.strike)) : roundStrike(spot + spreadWidth + 1);
+    // Use ACTUAL strikes from the chain (not rounded) - these are guaranteed to exist
+    const sellPutStrike = atmPut ? parseFloat(atmPut.strike) : roundStrike(spot - 1);
+    const buyPutStrike = otmPut ? parseFloat(otmPut.strike) : roundStrike(spot - spreadWidth - 1);
+    const sellCallStrike = atmCall ? parseFloat(atmCall.strike) : roundStrike(spot + 1);
+    const buyCallStrike = otmCall ? parseFloat(otmCall.strike) : roundStrike(spot + spreadWidth + 1);
     
     // Calculate ACTUAL spread width (may differ from target due to available strikes)
     const putSpreadWidth = sellPutStrike - buyPutStrike;
@@ -1560,20 +1560,36 @@ function buildStrategyAdvisorPrompt(context) {
     
     // Format sample options for context - CRYSTAL CLEAR format to prevent AI confusion
     let optionsContext = '';
+    let availableStrikes = { puts: [], calls: [] };
+    
     if (sampleOptions && sampleOptions.length > 0) {
         // Group by type for clarity
         const putOptions = sampleOptions.filter(o => o.option_type === 'P');
         const callOptions = sampleOptions.filter(o => o.option_type === 'C');
         
+        // Extract unique strikes for explicit constraint
+        availableStrikes.puts = [...new Set(putOptions.map(o => parseFloat(o.strike)))].sort((a, b) => b - a);
+        availableStrikes.calls = [...new Set(callOptions.map(o => parseFloat(o.strike)))].sort((a, b) => a - b);
+        
+        // Calculate strike increment
+        const strikeIncrement = availableStrikes.puts.length > 1 
+            ? Math.abs(availableStrikes.puts[0] - availableStrikes.puts[1]) 
+            : 5;
+        
         optionsContext = `═══════════════════════════════════════════════════════════════
 ⚠️ CRITICAL: STRIKE PRICE ≈ STOCK PRICE ($${spot.toFixed(0)}), PREMIUM = SMALL ($1-$5)
 ═══════════════════════════════════════════════════════════════
+
+🔒 AVAILABLE STRIKES (YOU MUST ONLY USE THESE - others don't exist!):
+   Strike increment: $${strikeIncrement}
+   PUT STRIKES: ${availableStrikes.puts.map(s => '$' + s).join(', ')}
+   CALL STRIKES: ${availableStrikes.calls.map(s => '$' + s).join(', ')}
 
 `;
         
         if (putOptions.length > 0) {
             optionsContext += `PUT OPTIONS (for selling puts or put spreads):\n`;
-            optionsContext += putOptions.slice(0, 6).map(o => {
+            optionsContext += putOptions.slice(0, 8).map(o => {
                 const strike = parseFloat(o.strike);
                 const bid = parseFloat(o.bid) || 0;
                 const ask = parseFloat(o.ask) || 0;
@@ -1586,7 +1602,7 @@ function buildStrategyAdvisorPrompt(context) {
         
         if (callOptions.length > 0) {
             optionsContext += `CALL OPTIONS (for covered calls or call spreads):\n`;
-            optionsContext += callOptions.slice(0, 6).map(o => {
+            optionsContext += callOptions.slice(0, 8).map(o => {
                 const strike = parseFloat(o.strike);
                 const bid = parseFloat(o.bid) || 0;
                 const ask = parseFloat(o.ask) || 0;
@@ -1596,7 +1612,7 @@ function buildStrategyAdvisorPrompt(context) {
             }).join('\n');
         }
         
-        optionsContext += `\n\n🚨 REMEMBER: Use strikes near $${spot.toFixed(0)}, NOT the premium amounts!`;
+        optionsContext += `\n\n🚨 REMEMBER: Use ONLY strikes from the list above! Do NOT invent strikes like $156 if only $155 and $160 exist.`;
     } else {
         optionsContext = 'No options data available - use estimated strikes near current price.';
     }
@@ -1686,38 +1702,47 @@ STRATEGIES TO EVALUATE (analyze ALL of these):
 ═══════════════════════════════════════════════════════════════════════════
 
 1. SHORT PUT (Cash-Secured Put)
+   📱 Schwab App: "Single" → Put → Sell
    - Sell a put, collect premium, may get assigned stock
    - Bullish strategy, unlimited risk if stock crashes
 
 2. COVERED CALL (if user owns shares)
+   📱 Schwab App: "Single" → Call → Sell (must own 100 shares)
    - Sell a call against shares you own
    - Neutral/slightly bullish, caps upside
 
 3. LONG CALL
+   📱 Schwab App: "Single" → Call → Buy
    - Buy a call for leveraged upside
    - Very bullish, lose entire premium if wrong
 
 4. PUT CREDIT SPREAD (Bull Put Spread)
+   📱 Schwab App: "Vertical" → Put → Sell higher strike, Buy lower strike
    - Sell higher put, buy lower put for protection
    - Bullish with DEFINED RISK (max loss = width - credit)
 
 5. CALL DEBIT SPREAD (Bull Call Spread)
+   📱 Schwab App: "Vertical" → Call → Buy lower strike, Sell higher strike
    - Buy lower call, sell higher call to reduce cost
    - Bullish with defined risk/reward
 
 6. CALL CREDIT SPREAD (Bear Call Spread)
+   📱 Schwab App: "Vertical" → Call → Sell lower strike, Buy higher strike
    - Sell lower call, buy higher call for protection
    - Bearish with defined risk
 
 7. PUT DEBIT SPREAD (Bear Put Spread)
+   📱 Schwab App: "Vertical" → Put → Buy higher strike, Sell lower strike
    - Buy higher put, sell lower put
    - Bearish with defined risk
 
 8. IRON CONDOR
+   📱 Schwab App: "Iron Condor" (4 legs)
    - Sell put spread + call spread
    - Neutral - profits if stock stays in range
 
 9. SKIP™ (Long LEAPS + Short-term Call)
+   📱 Schwab App: "Diagonal" (2 calls, different expirations)
    - Buy long-dated call (12+ months) + shorter call (3-6 months)
    - Long-term bullish with reduced cost basis
 
@@ -1733,7 +1758,7 @@ YOUR TASK: Recommend THE BEST strategy for this situation
 
 VALID TRADE SETUPS (these are the ONLY options - pick ONE):
 
-SETUP A - Short Put (Cash-Secured) - ALL MATH PRE-CALCULATED:
+SETUP A - Short Put (Cash-Secured) - Schwab: "Single" → Put → Sell:
   Trade: Sell ${ticker} $${sellPutStrike} Put, ${firstExpiry}
   Credit Received: $${atmPutMid.toFixed(2)}/share
   
@@ -1754,7 +1779,7 @@ SETUP A - Short Put (Cash-Secured) - ALL MATH PRE-CALCULATED:
   • Win Probability: ~${Math.round((1 - Math.abs(atmPutDelta)) * 100)}%
   ⚠️ RISK: Unlimited loss if stock crashes. Requires significant buying power.
 
-SETUP B - Put Credit Spread (Bull Put) - ALL MATH PRE-CALCULATED:
+SETUP B - Put Credit Spread (Bull Put) - Schwab: "Vertical" → Put:
   Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike} Put Spread, ${firstExpiry}
   Spread Width: $${putSpreadWidth.toFixed(2)}
   Credit Received: $${putSpreadCredit.toFixed(2)}/share (= $${atmPutMid.toFixed(2)} sell - $${otmPutMid.toFixed(2)} buy)
@@ -1775,7 +1800,7 @@ SETUP B - Put Credit Spread (Bull Put) - ALL MATH PRE-CALCULATED:
   • Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH)
   • Win Probability: ~${winProbability}%
 
-SETUP C - Covered Call (requires owning 100 shares per contract):
+SETUP C - Covered Call - Schwab: "Single" → Call → Sell (must own shares):
   Trade: Sell ${ticker} $${sellCallStrike} Call, ${firstExpiry}
   Credit: ~$${atmCallMid.toFixed(2)}/share
   ⚠️ REQUIREMENT: Must own 100 shares of ${ticker} per contract
@@ -1793,7 +1818,7 @@ SETUP C - Covered Call (requires owning 100 shares per contract):
   • Delta: -${Math.abs(atmCallDelta * 100).toFixed(0)} per contract (reduces long delta from shares)
   ⚠️ NOTE: Only valid if user OWNS ${ticker} shares. Caps upside above $${sellCallStrike}.
 
-SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
+SETUP D - Call Credit Spread (Bear Call) - Schwab: "Vertical" → Call:
   Trade: Sell ${ticker} $${sellCallStrike}/$${buyCallStrike} Call Spread, ${firstExpiry}
   Spread Width: $${callSpreadWidth.toFixed(2)}
   Credit Received: $${callSpreadCredit.toFixed(2)}/share
@@ -1814,7 +1839,7 @@ SETUP D - Call Credit Spread (Bear Call) - ALL MATH PRE-CALCULATED:
   • Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH)
   • Win Probability: ~${Math.round((1 - Math.abs(atmCallDelta)) * 100)}%
 
-SETUP E - Long Put (Bearish, Defined Risk) - ALL MATH PRE-CALCULATED:
+SETUP E - Long Put - Schwab: "Single" → Put → Buy:
   Trade: Buy ${ticker} $${longPutStrikeActual.toFixed(0)} Put, ${firstExpiry}
   Debit Paid: $${longPutPremium.toFixed(2)}/share
   
@@ -1833,7 +1858,7 @@ SETUP E - Long Put (Bearish, Defined Risk) - ALL MATH PRE-CALCULATED:
   ⚠️ RISK: Lose entire premium if stock doesn't drop. Time decay works AGAINST you.
   ✅ WHEN TO USE: Strong bearish conviction, expecting significant drop. Cheaper than shorting stock.
 
-SETUP F - Long Call (Bullish, Defined Risk) - ALL MATH PRE-CALCULATED:
+SETUP F - Long Call (Bullish, Defined Risk) - Schwab: "Single" → Call → Buy - ALL MATH PRE-CALCULATED:
   Trade: Buy ${ticker} $${longCallStrikeActual.toFixed(0)} Call, ${firstExpiry}
   Debit Paid: $${longCallPremium.toFixed(2)}/share
   
@@ -1852,7 +1877,7 @@ SETUP F - Long Call (Bullish, Defined Risk) - ALL MATH PRE-CALCULATED:
   ⚠️ RISK: Lose entire premium if stock doesn't rise. Time decay works AGAINST you.
   ✅ WHEN TO USE: Strong bullish conviction, expecting significant rise. Cheaper than buying stock.
 
-SETUP G - Iron Condor (Neutral, Range-Bound) - ALL MATH PRE-CALCULATED:
+SETUP G - Iron Condor (Neutral, Range-Bound) - Schwab: "Iron Condor" - ALL MATH PRE-CALCULATED:
   Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike}/$${sellCallStrike}/$${buyCallStrike} Iron Condor, ${firstExpiry}
   Put Spread: $${sellPutStrike}/$${buyPutStrike} (Bull Put)
   Call Spread: $${sellCallStrike}/$${buyCallStrike} (Bear Call)
@@ -1878,7 +1903,7 @@ SETUP G - Iron Condor (Neutral, Range-Bound) - ALL MATH PRE-CALCULATED:
   ⚠️ RISK: Lose on EITHER side if stock moves too much. Double exposure.
   ✅ WHEN TO USE: Low IV, expecting stock to stay in tight range. Collect double premium.
 
-SETUP H - SKIP™ Strategy (Long-Term Bullish with Cost Reduction):
+SETUP H - SKIP™ Strategy (Long-Term Bullish with Cost Reduction) - Schwab: Two "Single" Calls at different expirations:
   Trade: Buy ${ticker} $${leapsStrike.toFixed(0)} LEAPS Call (${leapsExpiry}) + Buy $${skipStrike.toFixed(0)} SKIP Call (${skipCallExpiry})
   LEAPS Call: $${leapsStrike.toFixed(0)} strike, ~${leapsExpiry} expiry, ~$${leapsPremium.toFixed(2)}/share
   SKIP Call: $${skipStrike.toFixed(0)} strike, ~${skipCallExpiry} expiry, ~$${skipPremium.toFixed(2)}/share
