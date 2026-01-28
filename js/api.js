@@ -74,6 +74,11 @@ export async function fetchStockPricesBatch(tickers) {
         }));
     }
     
+    // Mark data refresh for live indicator
+    if (Object.keys(prices).length > 0 && window.markDataRefresh) {
+        window.markDataRefresh();
+    }
+    
     return prices;
 }
 
@@ -909,6 +914,9 @@ export async function syncLiveOptionsData() {
         
         // Store for later use
         state.liveOptionData = liveData;
+        
+        // Mark data refresh for live indicator
+        if (window.markDataRefresh) window.markDataRefresh();
         
         return liveData;
         

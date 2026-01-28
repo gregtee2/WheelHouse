@@ -45,6 +45,46 @@
     50% { opacity: 0.7; transform: scaleX(1.5); }
 }
 
+@keyframes pulse-glow {
+    0%, 100% { 
+        opacity: 1; 
+        box-shadow: 0 0 4px #00ff88, 0 0 8px #00ff88; 
+    }
+    50% { 
+        opacity: 0.6; 
+        box-shadow: 0 0 8px #00ff88, 0 0 16px #00ff88; 
+    }
+}
+
+.pulse-dot {
+    animation: pulse-glow 2s ease-in-out infinite !important;
+}
+
+/* Live indicator disconnected state */
+#liveIndicator.disconnected {
+    background: rgba(255,82,82,0.1) !important;
+    border-color: rgba(255,82,82,0.3) !important;
+}
+#liveIndicator.disconnected .pulse-dot {
+    background: #ff5252 !important;
+    animation: none !important;
+}
+#liveIndicator.disconnected span:nth-child(2) {
+    color: #ff5252 !important;
+}
+
+/* Live indicator stale state (data > 5 min old) */
+#liveIndicator.stale {
+    background: rgba(255,170,0,0.1) !important;
+    border-color: rgba(255,170,0,0.3) !important;
+}
+#liveIndicator.stale .pulse-dot {
+    background: #ffaa00 !important;
+}
+#liveIndicator.stale span:nth-child(2) {
+    color: #ffaa00 !important;
+}
+
 @keyframes shimmer {
     0% { transform: translateX(-100%); }
     100% { transform: translateX(100%); }

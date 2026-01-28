@@ -17,6 +17,12 @@
             <div class="header-right">
                 <p class="subtitle">Wheel Strategy Options Analyzer</p>
                 <div class="tabs">
+                    <!-- Live Status Indicator -->
+                    <div id="liveIndicator" style="display:inline-flex; align-items:center; margin-right:15px; padding:4px 10px; background:rgba(0,255,136,0.1); border-radius:6px; border:1px solid rgba(0,255,136,0.3);" title="App is running and connected">
+                        <span class="pulse-dot" style="width:8px; height:8px; background:#00ff88; border-radius:50%; margin-right:6px; animation:pulse 2s infinite;"></span>
+                        <span style="font-size:11px; color:#00ff88; margin-right:8px;">LIVE</span>
+                        <span id="lastRefreshTime" style="font-size:10px; color:#888;">--:--:--</span>
+                    </div>
                     <!-- Account Mode Switcher -->
                     <div style="display:inline-flex; align-items:center; margin-right:15px; padding:4px 8px; background:rgba(0,0,0,0.3); border-radius:6px; border:1px solid #333;" id="accountSwitcher">
                         <span style="font-size:11px; color:#888; margin-right:6px;">Account:</span>

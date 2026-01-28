@@ -105,6 +105,15 @@ app.use((req, res, next) => {
     next();
 });
 
+// Health check endpoint (for live indicator)
+app.get('/api/health', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        uptime: process.uptime(),
+        timestamp: Date.now()
+    });
+});
+
 // Mount settings API routes
 app.use('/api/settings', settingsRoutes);
 
