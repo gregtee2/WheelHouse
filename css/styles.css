@@ -16,6 +16,29 @@
     --border-color: rgba(255,255,255,0.1);
 }
 
+/* Help Icon - contextual documentation links */
+.help-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(0, 217, 255, 0.15);
+    color: var(--accent-cyan);
+    font-size: 10px;
+    font-weight: bold;
+    text-decoration: none;
+    margin-left: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid rgba(0, 217, 255, 0.3);
+}
+.help-link:hover {
+    background: rgba(0, 217, 255, 0.3);
+    transform: scale(1.1);
+}
+
 /* Animations */
 @keyframes pulse {
     0%, 100% { opacity: 1; transform: scaleX(1); }

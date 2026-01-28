@@ -50,6 +50,7 @@
                     <button class="tab-btn" data-tab="portfolio">💼 Portfolio</button>
                     <button class="tab-btn" data-tab="challenges">🏆</button>
                     <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
+                    <button onclick="window.open('docs/help.html', '_blank')" class="tab-btn" style="background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); margin-left:5px;" title="Open Documentation">❓ Help</button>
                     <button id="restartServerBtn" onclick="restartServer()" class="tab-btn" style="background:rgba(180,120,60,0.3); border:1px solid rgba(180,120,60,0.5); margin-left:10px;" title="Restart Server">🔄</button>
                 </div>
             </div>
@@ -152,6 +153,7 @@
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                             <div>
                                 <span style="color:#a78bfa; font-weight:bold; font-size:15px;">🎓 AI Strategy Advisor</span>
+                                <a href="docs/help.html#strategy-advisor" target="_blank" class="help-link" title="Learn how the Strategy Advisor works">?</a>
                                 <div style="font-size:11px; color:#8b5cf6; margin-top:2px;">Analyzes ALL strategies • Recommends the best one • Explains risks</div>
                             </div>
                             <select id="strategyAdvisorModel" style="font-size:11px; padding:4px 8px; background:#1a1a2e; color:#ddd; border:1px solid #6d28d9; border-radius:4px;">
@@ -223,6 +225,7 @@
                     <div style="background:rgba(122,138,148,0.08); border:1px solid rgba(122,138,148,0.3); border-radius:8px; padding:15px; margin-bottom:20px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                             <span style="color:#8a9aa8; font-weight:bold; font-size:14px;">📋 Paste Trade Callout</span>
+                            <a href="docs/help.html#discord-analyzer" target="_blank" class="help-link" title="Learn how to use the Discord Analyzer">?</a>
                             <div style="display:flex; align-items:center; gap:8px;">
                                 <select id="discordModelSelect2" style="font-size:11px; padding:4px 8px; background:#1a1a2e; color:#ddd; border:1px solid #444; border-radius:4px;" title="Override global model for Discord analysis">
                                     <option value="">(global)</option>
@@ -260,6 +263,7 @@ Examples:
                     <div style="background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.3); border-radius:8px; padding:15px; margin-bottom:20px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                             <span style="color:#22c55e; font-weight:bold; font-size:14px;">📚 Trading Wisdom</span>
+                            <a href="docs/help.html#wisdom" target="_blank" class="help-link" title="Learn how the Wisdom System works">?</a>
                             <span id="wisdomCount" style="font-size:11px; color:#666;">0 entries</span>
                         </div>
                         
@@ -753,7 +757,7 @@ Examples:
                 
                 <!-- MIDDLE: Roll Calculator & Suggestions -->
                 <div class="pnl-roll-calc">
-                    <h3 style="color:var(--accent-green); margin-bottom:8px; font-size:13px;">🔄 Roll Calculator</h3>
+                    <h3 style="color:var(--accent-green); margin-bottom:8px; font-size:13px;">🔄 Roll Calculator <a href="docs/help.html#roll-calculator" target="_blank" class="help-link" title="Learn how to use the Roll Calculator">?</a></h3>
                     
                     <!-- Current Position Info - Compact -->
                     <div style="background:rgba(255,170,0,0.15); padding:8px; border-radius:4px; margin-bottom:10px; font-size:12px;">
@@ -824,6 +828,7 @@ Examples:
                     <div id="aiInsightsPanel" style="margin-top:12px; padding:10px; background:rgba(0,217,255,0.08); border:1px solid rgba(0,217,255,0.3); border-radius:6px; max-height:400px; overflow-y:auto;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                             <span style="color:var(--accent-cyan); font-weight:bold; font-size:12px;">🧠 AI Trade Advisor</span>
+                            <a href="docs/help.html#ai-trade-advisor" target="_blank" class="help-link" title="Learn how the AI Trade Advisor works">?</a>
                             <button id="aiInsightBtn" onclick="getAIInsight()" class="btn-mini" style="font-size:10px; padding:3px 8px;">💡 Get Insight</button>
                         </div>
                         <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
@@ -864,7 +869,7 @@ Examples:
             <div class="main-grid">
                 <div class="canvas-section">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <h3 style="color:var(--accent-cyan); margin:0;">📋 Your Open Positions</h3>
+                        <h3 style="color:var(--accent-cyan); margin:0;">📋 Your Open Positions <a href="docs/help.html#positions" target="_blank" class="help-link" title="Learn about the Positions tab">?</a></h3>
                         <div style="display:flex; gap:6px; align-items:center;">
                             <span id="autoSaveStatus" style="font-size:10px; color:#666; padding:6px 8px;">⚪ Auto-save OFF</span>
                             <button onclick="setupAutoSave()" class="btn-toolbar" title="Pick a file location for automatic saving">💾 Enable Auto-save</button>

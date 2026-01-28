@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WheelHouse Documentation</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a15;
+            --bg-card: #0d0d1a;
+            --bg-surface: #1a1a2e;
+            --accent-cyan: #00d9ff;
+            --accent-green: #00ff88;
+            --accent-red: #ff5252;
+            --accent-orange: #ffaa00;
+            --accent-purple: #8b5cf6;
+            --text-primary: #fff;
+            --text-muted: #888;
+            --border: #333;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, var(--bg-surface), var(--bg-card));
+            padding: 40px 20px;
+            border-bottom: 1px solid var(--border);
+            text-align: center;
+        }
+        
+        header h1 {
+            color: var(--accent-cyan);
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            color: var(--text-muted);
+            font-size: 1.2em;
+        }
+        
+        nav {
+            background: var(--bg-card);
+            padding: 15px 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        nav ul {
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: center;
+        }
+        
+        nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        
+        nav a:hover {
+            color: var(--accent-cyan);
+            background: rgba(0, 217, 255, 0.1);
+        }
+        
+        section {
+            background: var(--bg-card);
+            margin: 20px 0;
+            padding: 30px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        
+        section h2 {
+            color: var(--accent-cyan);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        section h3 {
+            color: var(--accent-green);
+            margin: 25px 0 15px 0;
+        }
+        
+        section h4 {
+            color: var(--accent-orange);
+            margin: 20px 0 10px 0;
+        }
+        
+        p { margin-bottom: 15px; }
+        
+        ul, ol {
+            margin: 15px 0 15px 25px;
+        }
+        
+        li { margin-bottom: 8px; }
+        
+        code {
+            background: var(--bg-surface);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: var(--accent-orange);
+        }
+        
+        .highlight {
+            background: rgba(0, 217, 255, 0.1);
+            border-left: 3px solid var(--accent-cyan);
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .warning {
+            background: rgba(255, 170, 0, 0.1);
+            border-left: 3px solid var(--accent-orange);
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .tip {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 3px solid var(--accent-green);
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid var(--border);
+        }
+        
+        th {
+            background: var(--bg-surface);
+            color: var(--accent-cyan);
+        }
+        
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        
+        .emoji { font-size: 1.2em; margin-right: 8px; }
+        
+        .back-to-top {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--accent-cyan);
+            color: var(--bg-dark);
+            padding: 10px 15px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .flow-diagram {
+            background: var(--bg-surface);
+            padding: 20px;
+            border-radius: 8px;
+            font-family: monospace;
+            white-space: pre;
+            overflow-x: auto;
+            line-height: 1.4;
+            margin: 15px 0;
+        }
+        
+        @media (max-width: 768px) {
+            nav ul { flex-direction: column; align-items: center; }
+            .container { padding: 10px; }
+            section { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>🏠 WheelHouse Documentation</h1>
+    <p>The Wheel Strategy Options Analyzer & Position Tracker</p>
+    <p style="margin-top: 10px; color: #666;">Version 1.16.0</p>
+</header>
+
+<nav>
+    <ul>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#tabs">Tab Guide</a></li>
+        <li><a href="#ideas">Ideas Tab</a></li>
+        <li><a href="#analyze">Analyze Tab</a></li>
+        <li><a href="#pnl">P&L Tab</a></li>
+        <li><a href="#positions">Positions Tab</a></li>
+        <li><a href="#portfolio">Portfolio Tab</a></li>
+        <li><a href="#ai">AI System</a></li>
+        <li><a href="#wisdom">Wisdom System</a></li>
+        <li><a href="#strategies">Strategies</a></li>
+        <li><a href="#data">Data & Backup</a></li>
+    </ul>
+</nav>
+
+<div class="container">
+
+<!-- OVERVIEW -->
+<section id="overview">
+    <h2><span class="emoji">🎯</span>What is WheelHouse?</h2>
+    
+    <p>WheelHouse is a powerful options trading analyzer designed specifically for <strong>The Wheel Strategy</strong> - a popular income-generating options strategy that involves selling cash-secured puts and covered calls.</p>
+    
+    <h3>The Wheel Strategy in 30 Seconds</h3>
+    <div class="flow-diagram">
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        THE WHEEL STRATEGY                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  1. SELL PUT (Cash-Secured)                                              │
+│     └── You agree to BUY 100 shares at strike price                      │
+│     └── You collect premium upfront                                      │
+│              │                                                           │
+│              ├── PUT EXPIRES WORTHLESS → Keep premium, repeat ─────┐    │
+│              │                                                      │    │
+│              └── PUT ASSIGNED → You now own 100 shares              │    │
+│                        │                                            │    │
+│                        ▼                                            │    │
+│  2. SELL COVERED CALL                                               │    │
+│     └── You agree to SELL your shares at strike price               │    │
+│     └── You collect more premium                                    │    │
+│              │                                                      │    │
+│              ├── CALL EXPIRES WORTHLESS → Keep premium, repeat ───┐ │    │
+│              │                                                    │ │    │
+│              └── CALL ASSIGNED → Shares sold, back to step 1 ─────┴─┴────┘
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+    </div>
+    
+    <h3>What WheelHouse Does For You</h3>
+    <ul>
+        <li><strong>Track Positions</strong> - All your open puts, calls, and spreads in one place</li>
+        <li><strong>Calculate P&L</strong> - Real-time profit/loss with live market prices</li>
+        <li><strong>AI Analysis</strong> - Get insights on whether to hold, roll, or close</li>
+        <li><strong>Find Trades</strong> - Analyze Discord callouts and get AI-powered trade ideas</li>
+        <li><strong>Learn From History</strong> - AI remembers your past trades and warns about patterns</li>
+        <li><strong>Monte Carlo Simulation</strong> - Advanced probability analysis</li>
+    </ul>
+    
+    <div class="highlight">
+        <strong>💡 Pro Tip:</strong> WheelHouse works best when you connect your Schwab account in Settings. 
+        This enables real-time prices, position sync, and account balances.
+    </div>
+</section>
+
+<!-- TAB GUIDE -->
+<section id="tabs">
+    <h2><span class="emoji">📑</span>Tab Guide</h2>
+    
+    <p>WheelHouse has 6 main tabs. Here's what each one does:</p>
+    
+    <table>
+        <tr>
+            <th>Tab</th>
+            <th>Icon</th>
+            <th>Purpose</th>
+            <th>When to Use</th>
+        </tr>
+        <tr>
+            <td><strong>Ideas</strong></td>
+            <td>🎯</td>
+            <td>Find and analyze new trades</td>
+            <td>When looking for your next trade</td>
+        </tr>
+        <tr>
+            <td><strong>Analyze</strong></td>
+            <td>🔬</td>
+            <td>Option pricing simulator</td>
+            <td>Deep-dive into specific options</td>
+        </tr>
+        <tr>
+            <td><strong>P&L</strong></td>
+            <td>💰</td>
+            <td>Roll calculator & trade advisor</td>
+            <td>When managing existing positions</td>
+        </tr>
+        <tr>
+            <td><strong>Positions</strong></td>
+            <td>📋</td>
+            <td>View/edit open positions</td>
+            <td>Daily position monitoring</td>
+        </tr>
+        <tr>
+            <td><strong>Portfolio</strong></td>
+            <td>💼</td>
+            <td>Closed trades & analytics</td>
+            <td>Review performance history</td>
+        </tr>
+        <tr>
+            <td><strong>Settings</strong></td>
+            <td>⚙️</td>
+            <td>API keys & preferences</td>
+            <td>Initial setup, troubleshooting</td>
+        </tr>
+    </table>
+</section>
+
+<!-- IDEAS TAB -->
+<section id="ideas">
+    <h2><span class="emoji">🎯</span>Ideas Tab</h2>
+    
+    <p>The Ideas tab is your trade discovery center. It has three main features:</p>
+    
+    <h3 id="discord-analyzer">📝 Discord Analyzer</h3>
+    <p>Paste a trade callout from Discord (or anywhere) and get instant AI analysis.</p>
+    
+    <h4>How to Use:</h4>
+    <ol>
+        <li>Copy a trade callout like: <code>PLTR $80p 2/21 for $2.50</code></li>
+        <li>Paste it into the "Paste Trade Callout" box</li>
+        <li>Click <strong>🔍 Analyze Trade</strong></li>
+        <li>AI parses the trade, fetches live prices, and gives you a verdict</li>
+    </ol>
+    
+    <h4>What You Get:</h4>
+    <ul>
+        <li><strong>3-Perspective Analysis</strong> - Aggressive, Moderate, and Conservative views</li>
+        <li><strong>Win Probability</strong> - Chance the option expires worthless (your goal)</li>
+        <li><strong>Range Position</strong> - Where the stock is in its 3-month range (0% = low, 100% = high)</li>
+        <li><strong>Risk Metrics</strong> - Max loss, breakeven, etc.</li>
+    </ul>
+    
+    <div class="tip">
+        <strong>💚 Stage to Pending:</strong> If you like a trade, click "Stage to Pending" to save it. 
+        Later, when you execute the trade, click "Confirm" to add it to your positions.
+    </div>
+    
+    <h3 id="pending-trades">📋 Pending Trades</h3>
+    <p>Staged trades wait here until you execute them with your broker.</p>
+    
+    <ul>
+        <li><strong>✓ Confirm</strong> - You executed the trade → moves to Positions</li>
+        <li><strong>✕ Remove</strong> - You decided against it → deletes from pending</li>
+        <li><strong>💳 Check Margin</strong> - See if you can afford this trade</li>
+    </ul>
+    
+    <h3 id="strategy-advisor">🧠 Strategy Advisor</h3>
+    <p>Enter a ticker and get AI recommendations for the BEST strategy to use.</p>
+    
+    <h4>How It Works:</h4>
+    <ol>
+        <li>Enter a ticker (e.g., <code>AAPL</code>)</li>
+        <li>Optionally set your buying power limit</li>
+        <li>Click <strong>🎯 Analyze</strong></li>
+        <li>AI evaluates 9 different strategies and recommends the best one</li>
+    </ol>
+    
+    <h4>Strategies Evaluated:</h4>
+    <table>
+        <tr><th>Strategy</th><th>Direction</th><th>Best When</th></tr>
+        <tr><td>Short Put</td><td>Bullish</td><td>Stock you want to own is near support</td></tr>
+        <tr><td>Bull Put Spread</td><td>Bullish</td><td>Bullish but want limited risk</td></tr>
+        <tr><td>Covered Call</td><td>Neutral</td><td>You own shares, want income</td></tr>
+        <tr><td>Long Call</td><td>Bullish</td><td>Strong momentum, limited capital</td></tr>
+        <tr><td>Call Debit Spread</td><td>Bullish</td><td>Reduce cost of long call</td></tr>
+        <tr><td>SKIP™ Call</td><td>Bullish</td><td>LEAPS + shorter call combo</td></tr>
+        <tr><td>Bear Call Spread</td><td>Bearish</td><td>Expect stock to drop or stay flat</td></tr>
+        <tr><td>Long Put</td><td>Bearish</td><td>Expect significant drop</td></tr>
+        <tr><td>Put Debit Spread</td><td>Bearish</td><td>Bearish with limited risk</td></tr>
+    </table>
+    
+    <h3 id="ai-trade-ideas">💡 AI Trade Ideas Generator</h3>
+    <p>Let AI scan for trade opportunities based on your buying power.</p>
+    
+    <ol>
+        <li>Enter your available buying power</li>
+        <li>Select an AI model</li>
+        <li>Click <strong>🤖 Generate Ideas</strong></li>
+        <li>AI suggests trades with reasoning</li>
+    </ol>
+</section>
+
+<!-- ANALYZE TAB -->
+<section id="analyze">
+    <h2><span class="emoji">🔬</span>Analyze Tab</h2>
+    
+    <p>The Analyze tab has three sub-tabs for deep option analysis:</p>
+    
+    <h3>📈 Pricing Sub-Tab</h3>
+    <p>Enter option parameters to see theoretical pricing and payoff diagrams.</p>
+    
+    <h4>Key Inputs:</h4>
+    <ul>
+        <li><strong>Spot Price</strong> - Current stock price</li>
+        <li><strong>Strike Price</strong> - Your option strike</li>
+        <li><strong>Days to Expiration (DTE)</strong> - Days until expiry</li>
+        <li><strong>Implied Volatility (IV)</strong> - Expected volatility (as decimal, e.g., 0.35 = 35%)</li>
+        <li><strong>Risk-Free Rate</strong> - Usually ~5% currently</li>
+    </ul>
+    
+    <h4>The Payoff Chart:</h4>
+    <p>Shows your profit/loss at different stock prices at expiration.</p>
+    <ul>
+        <li><strong>Green area</strong> = Profit zone</li>
+        <li><strong>Red area</strong> = Loss zone</li>
+        <li><strong>Breakeven line</strong> = Where you neither make nor lose money</li>
+    </ul>
+    
+    <h3>🎲 Monte Carlo Sub-Tab</h3>
+    <p>Simulates thousands of possible price paths to estimate probabilities.</p>
+    
+    <div class="highlight">
+        <strong>🦴 Caveman Explanation:</strong> Instead of guessing what will happen, 
+        we run 10,000 simulations of possible futures. If 7,500 of them end profitably, 
+        your win probability is ~75%.
+    </div>
+    
+    <h4>Key Outputs:</h4>
+    <ul>
+        <li><strong>Probability of Profit</strong> - Chance of making money</li>
+        <li><strong>Expected Value</strong> - Average outcome across all simulations</li>
+        <li><strong>Probability Cone</strong> - Visual range of likely outcomes</li>
+    </ul>
+    
+    <h3>📊 Greeks Sub-Tab</h3>
+    <p>The "Greeks" measure how an option's price changes with different factors.</p>
+    
+    <table>
+        <tr><th>Greek</th><th>Measures</th><th>What It Means</th></tr>
+        <tr>
+            <td><strong>Delta (Δ)</strong></td>
+            <td>Price sensitivity to stock movement</td>
+            <td>If delta = 0.30, option gains $0.30 when stock rises $1</td>
+        </tr>
+        <tr>
+            <td><strong>Theta (Θ)</strong></td>
+            <td>Time decay per day</td>
+            <td>How much value you lose each day (sellers love this!)</td>
+        </tr>
+        <tr>
+            <td><strong>Gamma (Γ)</strong></td>
+            <td>Rate of delta change</td>
+            <td>How fast delta changes as stock moves</td>
+        </tr>
+        <tr>
+            <td><strong>Vega (ν)</strong></td>
+            <td>Sensitivity to volatility</td>
+            <td>How much option gains/loses when IV changes 1%</td>
+        </tr>
+    </table>
+    
+    <div class="tip">
+        <strong>💚 For Wheel Traders:</strong> As a premium seller, you WANT high theta 
+        (fast time decay) and low delta (less directional risk). Short puts typically 
+        have negative delta (you profit when stock goes up).
+    </div>
+</section>
+
+<!-- P&L TAB -->
+<section id="pnl">
+    <h2><span class="emoji">💰</span>P&L Tab</h2>
+    
+    <p>The P&L tab helps you manage existing positions.</p>
+    
+    <h3 id="roll-calculator">🔄 Roll Calculator</h3>
+    <p>When a position is in trouble (or you want to extend it), rolling lets you close the current option and open a new one.</p>
+    
+    <h4>How to Use:</h4>
+    <ol>
+        <li>Select a position from the dropdown</li>
+        <li>View available roll options (different strikes/expirations)</li>
+        <li>Compare credits, new risk %, and DTE</li>
+        <li>Click <strong>✨ AI Suggest</strong> for AI recommendation</li>
+    </ol>
+    
+    <h4>Roll Types:</h4>
+    <ul>
+        <li><strong>Roll Out</strong> - Same strike, later expiration (more time)</li>
+        <li><strong>Roll Down</strong> - Lower strike, same expiration (less risk)</li>
+        <li><strong>Roll Down & Out</strong> - Lower strike AND later expiration</li>
+    </ul>
+    
+    <div class="warning">
+        <strong>⚠️ Roll for CREDIT:</strong> Always try to roll for a net credit (you receive money). 
+        Paying to roll (debit) means you're reducing your profit.
+    </div>
+    
+    <h3 id="ai-trade-advisor">🧠 AI Trade Advisor</h3>
+    <p>Get AI analysis on what to do with a position.</p>
+    
+    <h4>How to Use:</h4>
+    <ol>
+        <li>Select a position</li>
+        <li>Click <strong>💡 Get Insight</strong></li>
+        <li>AI analyzes the position and gives a recommendation</li>
+    </ol>
+    
+    <h4>Recommendations:</h4>
+    <ul>
+        <li><strong>HOLD</strong> - Keep the position, it's fine</li>
+        <li><strong>ROLL</strong> - Consider rolling to reduce risk or extend</li>
+        <li><strong>CLOSE</strong> - Take profits or cut losses</li>
+    </ul>
+    
+    <h3 id="trade-metrics">📊 Trade Metrics Panel</h3>
+    <p>Shows key metrics for the selected position:</p>
+    
+    <ul>
+        <li><strong>Risk %</strong> - Probability of assignment (losing)</li>
+        <li><strong>Win Probability</strong> - Chance of expiring worthless</li>
+        <li><strong>ROC (Return on Capital)</strong> - Premium ÷ Capital at risk</li>
+        <li><strong>Ann% (Annualized)</strong> - ROC scaled to yearly return</li>
+        <li><strong>DTE</strong> - Days to expiration</li>
+    </ul>
+    
+    <div class="highlight">
+        <strong>🦴 Risk% Explained:</strong> This is probably the most important number. 
+        It's the probability that the stock will be BELOW your strike at expiration (for puts). 
+        Higher risk% = more danger. Under 30% is usually comfortable.
+    </div>
+</section>
+
+<!-- POSITIONS TAB -->
+<section id="positions">
+    <h2><span class="emoji">📋</span>Positions Tab</h2>
+    
+    <p>Your dashboard for all open positions.</p>
+    
+    <h3>Position Table Columns</h3>
+    <table>
+        <tr><th>Column</th><th>Meaning</th></tr>
+        <tr><td><strong>Ticker</strong></td><td>Stock symbol</td></tr>
+        <tr><td><strong>Type</strong></td><td>Short Put, Covered Call, Spread, etc.</td></tr>
+        <tr><td><strong>Strike</strong></td><td>Your option strike price</td></tr>
+        <tr><td><strong>Exp</strong></td><td>Expiration date</td></tr>
+        <tr><td><strong>DTE</strong></td><td>Days to expiration (color-coded)</td></tr>
+        <tr><td><strong>Cr/Dr</strong></td><td>Current P/L (green = profit, red = loss)</td></tr>
+        <tr><td><strong>Spot</strong></td><td>Current stock price</td></tr>
+        <tr><td><strong>Risk%</strong></td><td>Probability of assignment</td></tr>
+        <tr><td><strong>Δ</strong></td><td>Delta (directional exposure)</td></tr>
+        <tr><td><strong>Θ/day</strong></td><td>Theta (daily time decay)</td></tr>
+        <tr><td><strong>Ann%</strong></td><td>Annualized return</td></tr>
+    </table>
+    
+    <h3>DTE Color Coding</h3>
+    <ul>
+        <li><span style="color: #00ff88;">🟢 Green (21+ DTE)</span> - Plenty of time</li>
+        <li><span style="color: #ffaa00;">🟠 Orange (7-21 DTE)</span> - Monitor closely</li>
+        <li><span style="color: #ff5252;">🔴 Red (0-7 DTE)</span> - Decision time!</li>
+    </ul>
+    
+    <h3>Position Actions</h3>
+    <ul>
+        <li><strong>🔄 (Roll icon)</strong> - Quick-roll to Roll Calculator</li>
+        <li><strong>📊 (Chart icon)</strong> - View payoff chart</li>
+        <li><strong>✏️ (Edit icon)</strong> - Edit position details</li>
+        <li><strong>✕ Close</strong> - Close the position (moves to Portfolio)</li>
+    </ul>
+    
+    <h3>Adding Positions</h3>
+    <p>Use the right panel to manually add positions, or:</p>
+    <ul>
+        <li><strong>🏦 From Broker</strong> - Import from Schwab CSV export</li>
+        <li><strong>📥 Import</strong> - Restore from JSON backup</li>
+        <li><strong>🔄 Reconcile</strong> - Sync with Schwab transactions</li>
+    </ul>
+    
+    <h3 id="autosave">💾 Auto-Save</h3>
+    <p>Click "Enable Auto-save" to automatically save your data to a local file whenever changes occur.</p>
+    
+    <div class="tip">
+        <strong>💚 Highly Recommended:</strong> Enable auto-save to protect against browser data loss. 
+        Pick a file like <code>C:\WheelHouse\saved_positions\wheelhouse_autosave.json</code>
+    </div>
+</section>
+
+<!-- PORTFOLIO TAB -->
+<section id="portfolio">
+    <h2><span class="emoji">💼</span>Portfolio Tab</h2>
+    
+    <p>Track your trading history and performance.</p>
+    
+    <h3>Account Balances Banner</h3>
+    <p>Shows real-time Schwab account info:</p>
+    <ul>
+        <li><strong>Cash Available</strong> - Settled cash</li>
+        <li><strong>Buying Power</strong> - Total available for trades</li>
+        <li><strong>Account Value</strong> - Total equity</li>
+    </ul>
+    
+    <h3>Holdings Section</h3>
+    <p>Stocks you own (usually from put assignments). These can have covered calls sold against them.</p>
+    
+    <h3>Closed Positions Table</h3>
+    <p>Every trade you've closed, with full P&L details.</p>
+    
+    <h4>Filtering:</h4>
+    <ul>
+        <li><strong>Year dropdown</strong> - Filter by year or "All Time"</li>
+        <li><strong>Custom Range</strong> - Pick specific dates</li>
+    </ul>
+    
+    <h3 id="cumulative-pnl">📈 Cumulative P&L Chart</h3>
+    <p>Visual timeline of your profits/losses over time. Green line = winning, red = losing.</p>
+    
+    <h3 id="advanced-analytics">📊 Advanced Analytics</h3>
+    <p>Click to see detailed statistics:</p>
+    <ul>
+        <li><strong>Win Rate</strong> - % of trades that were profitable</li>
+        <li><strong>Average Win/Loss</strong> - Typical profit/loss amounts</li>
+        <li><strong>Profit Factor</strong> - Total wins ÷ Total losses</li>
+        <li><strong>Biggest Win/Loss</strong> - Your extremes</li>
+        <li><strong>Performance by Ticker</strong> - Which stocks work best for you</li>
+    </ul>
+    
+    <h3 id="chain-linking">🔗 Chain Linking (Roll History)</h3>
+    <p>When you roll a position, WheelHouse links them together in a "chain" so you can see the full history.</p>
+    
+    <ul>
+        <li>Look for the 🔗 icon on closed positions</li>
+        <li>Click to see all related rolls</li>
+        <li>Shows total premium collected across all rolls</li>
+    </ul>
+    
+    <h3 id="portfolio-audit">🤖 AI Portfolio Audit</h3>
+    <p>AI analyzes your entire closed position history and gives you a grade + recommendations.</p>
+</section>
+
+<!-- AI SYSTEM -->
+<section id="ai">
+    <h2><span class="emoji">🤖</span>AI System</h2>
+    
+    <p>WheelHouse integrates with multiple AI models for trade analysis.</p>
+    
+    <h3>Available Models</h3>
+    <table>
+        <tr><th>Model</th><th>Type</th><th>Best For</th></tr>
+        <tr>
+            <td><strong>Grok-3</strong></td>
+            <td>Cloud (xAI)</td>
+            <td>Fast, high-quality analysis</td>
+        </tr>
+        <tr>
+            <td><strong>Grok-4</strong></td>
+            <td>Cloud (xAI)</td>
+            <td>Most advanced reasoning</td>
+        </tr>
+        <tr>
+            <td><strong>Qwen 7B/14B/32B</strong></td>
+            <td>Local (Ollama)</td>
+            <td>Free, runs on your GPU</td>
+        </tr>
+        <tr>
+            <td><strong>DeepSeek-R1</strong></td>
+            <td>Local (Ollama)</td>
+            <td>Advanced reasoning, free</td>
+        </tr>
+    </table>
+    
+    <h3>Global Model Selector</h3>
+    <p>The AI dropdown in the header sets the default model for all features. Individual features can override this if needed.</p>
+    
+    <h3>AI Features Overview</h3>
+    <ul>
+        <li><strong>Discord Analyzer</strong> - Parse and analyze trade callouts</li>
+        <li><strong>Strategy Advisor</strong> - Recommend best strategy for a ticker</li>
+        <li><strong>Trade Advisor</strong> - Analyze existing positions (hold/roll/close)</li>
+        <li><strong>Roll Suggestions</strong> - AI picks the best roll option</li>
+        <li><strong>Position Checkup</strong> - Compare current state to opening thesis</li>
+        <li><strong>Trade Critique</strong> - Review closed trades for lessons</li>
+        <li><strong>Portfolio Audit</strong> - Grade your overall trading</li>
+    </ul>
+    
+    <h3 id="warmup">🔥 Model Warmup</h3>
+    <p>Local models (Ollama) need to load into GPU memory before first use. Click the "Warm Up" button to preload a model for faster responses.</p>
+</section>
+
+<!-- WISDOM SYSTEM -->
+<section id="wisdom">
+    <h2><span class="emoji">📚</span>Wisdom System</h2>
+    
+    <p>The Wisdom System lets AI learn YOUR trading rules and apply them to analysis.</p>
+    
+    <h3>How It Works</h3>
+    <div class="flow-diagram">
+You add trading wisdom
+        ↓
+AI extracts structured rules
+        ↓
+Rules are converted to vector embeddings
+        ↓
+When analyzing a trade, AI searches for relevant wisdom
+        ↓
+Matched rules are included in the AI prompt
+        ↓
+AI MUST cite rules or explain why it disagrees
+    </div>
+    
+    <h3>Adding Wisdom</h3>
+    <ol>
+        <li>Go to <strong>Ideas</strong> tab → scroll to "Trading Wisdom" section</li>
+        <li>Type or paste your trading rule</li>
+        <li>Click <strong>🧠 Process & Save</strong></li>
+        <li>AI extracts the rule and generates an embedding</li>
+    </ol>
+    
+    <h4>Example Wisdom Entries:</h4>
+    <ul>
+        <li>"Close short puts at 50% profit to redeploy capital"</li>
+        <li>"Never sell puts on stocks I wouldn't want to own"</li>
+        <li>"If IV rank is above 50%, that's a good time to sell premium"</li>
+        <li>"TSLA is too volatile for my risk tolerance"</li>
+    </ul>
+    
+    <h3>📖 View All</h3>
+    <p>See all your saved wisdom entries and delete unwanted ones.</p>
+    
+    <h3>🔍 Test</h3>
+    <p>See which wisdom entries apply to different position types (short puts, covered calls, etc.)</p>
+    
+    <h3>🔄 Regenerate Embeddings</h3>
+    <p>If you edit existing wisdom entries, click this to refresh the vector embeddings so semantic search works correctly.</p>
+    
+    <h3>⚡ Pure Mode Toggle</h3>
+    <p>In the AI Trade Advisor, you can toggle "📚 Apply Wisdom" off to get raw AI analysis without your trading rules. Useful for comparing perspectives.</p>
+    
+    <div class="highlight">
+        <strong>🦴 Caveman Explanation:</strong> You teach the AI your rules. When it analyzes a trade, 
+        it remembers your rules and either follows them OR explains why it's breaking them. 
+        It's like having a trading assistant who actually listens to you!
+    </div>
+</section>
+
+<!-- STRATEGIES -->
+<section id="strategies">
+    <h2><span class="emoji">📖</span>Position Types & Strategies</h2>
+    
+    <h3>Short Put (Cash-Secured)</h3>
+    <p><strong>You're selling insurance.</strong> You agree to buy 100 shares at the strike price if the stock drops. You collect premium upfront.</p>
+    <ul>
+        <li><strong>Max Profit:</strong> Premium received</li>
+        <li><strong>Max Loss:</strong> Strike × 100 - Premium (if stock goes to $0)</li>
+        <li><strong>Goal:</strong> Stock stays above strike, put expires worthless</li>
+    </ul>
+    
+    <h3>Covered Call</h3>
+    <p><strong>You own shares and sell upside potential.</strong> If stock rises above strike, your shares get "called away" (sold).</p>
+    <ul>
+        <li><strong>Max Profit:</strong> (Strike - Cost Basis) × 100 + Premium</li>
+        <li><strong>Max Loss:</strong> Stock could drop to $0 (you still own shares)</li>
+        <li><strong>Goal:</strong> Stock stays flat or rises slightly, call expires worthless</li>
+    </ul>
+    
+    <h3>Bull Put Spread</h3>
+    <p><strong>Limited risk bullish bet.</strong> Sell a put AND buy a lower strike put for protection.</p>
+    <ul>
+        <li><strong>Max Profit:</strong> Net premium received</li>
+        <li><strong>Max Loss:</strong> (Spread width - Premium) × 100</li>
+        <li><strong>Goal:</strong> Stock stays above higher strike</li>
+    </ul>
+    
+    <h3>Call Debit Spread</h3>
+    <p><strong>Reduced-cost bullish bet.</strong> Buy a call AND sell a higher strike call to offset cost.</p>
+    <ul>
+        <li><strong>Max Profit:</strong> (Spread width - Premium paid) × 100</li>
+        <li><strong>Max Loss:</strong> Premium paid</li>
+        <li><strong>Goal:</strong> Stock rises above higher strike</li>
+    </ul>
+    
+    <h3>SKIP™ Call Strategy</h3>
+    <p><strong>LEAPS + shorter call combo.</strong> Buy a long-dated LEAPS call, then buy a shorter "SKIP" call at higher strike.</p>
+    <ul>
+        <li><strong>LEAPS:</strong> 12+ months out, acts as stock proxy</li>
+        <li><strong>SKIP Call:</strong> 3-9 months out, higher strike, exit at 45-60 DTE</li>
+        <li><strong>Goal:</strong> Capture gains on SKIP call, keep riding LEAPS</li>
+    </ul>
+    
+    <h3>Buy/Write</h3>
+    <p><strong>Buy stock + immediately sell covered call.</strong> Also called "covered call at inception."</p>
+</section>
+
+<!-- DATA & BACKUP -->
+<section id="data">
+    <h2><span class="emoji">💾</span>Data & Backup</h2>
+    
+    <h3>Where Data is Stored</h3>
+    <p>WheelHouse stores all data in your browser's <strong>localStorage</strong>. This means:</p>
+    <ul>
+        <li>Data is local to your computer</li>
+        <li>Clearing browser data can delete your positions!</li>
+        <li>Different browsers have separate data</li>
+    </ul>
+    
+    <h3>Storage Keys</h3>
+    <table>
+        <tr><th>Key</th><th>Contents</th></tr>
+        <tr><td><code>wheelhouse_positions</code></td><td>Open positions (real account)</td></tr>
+        <tr><td><code>wheelhouse_closed_positions</code></td><td>Closed positions (real account)</td></tr>
+        <tr><td><code>wheelhouse_holdings</code></td><td>Stock holdings</td></tr>
+        <tr><td><code>wheelhouse_challenges</code></td><td>Trading challenges</td></tr>
+        <tr><td><code>wheelhouse_positions_paper</code></td><td>Paper trading positions</td></tr>
+    </table>
+    
+    <h3>Backup Methods</h3>
+    
+    <h4>1. Auto-Save (Recommended)</h4>
+    <p>Positions tab → "💾 Enable Auto-save" → Pick a file location. Data saves automatically on every change.</p>
+    
+    <h4>2. Manual Export</h4>
+    <p>Positions tab → "📤 Export" → Downloads a JSON backup file.</p>
+    
+    <h4>3. From Broker</h4>
+    <p>Sync with Schwab to reimport positions from your brokerage.</p>
+    
+    <h3>Restoring Data</h3>
+    <ol>
+        <li>Go to Positions tab</li>
+        <li>Click "📥 Import"</li>
+        <li>Select your backup JSON file</li>
+        <li>Confirm to replace current data</li>
+    </ol>
+    
+    <div class="warning">
+        <strong>⚠️ Backup Regularly!</strong> Browser localStorage can be cleared by:
+        <ul style="margin-top: 10px;">
+            <li>Clearing browser cache/cookies</li>
+            <li>Browser updates</li>
+            <li>Antivirus/cleanup software</li>
+            <li>Switching to a different browser</li>
+        </ul>
+    </div>
+    
+    <h3>Real vs Paper Trading</h3>
+    <p>Use the Account dropdown in the header to switch between:</p>
+    <ul>
+        <li><strong>💰 Real Trades</strong> - Your actual positions</li>
+        <li><strong>📝 Paper Trading</strong> - Simulated practice account</li>
+    </ul>
+    <p>Each mode has completely separate data storage.</p>
+</section>
+
+<!-- KEYBOARD SHORTCUTS -->
+<section id="shortcuts">
+    <h2><span class="emoji">⌨️</span>Keyboard Shortcuts</h2>
+    
+    <table>
+        <tr><th>Shortcut</th><th>Action</th></tr>
+        <tr><td><code>1-6</code></td><td>Switch to tab 1-6</td></tr>
+        <tr><td><code>Ctrl+S</code></td><td>Manual save (if auto-save enabled)</td></tr>
+        <tr><td><code>Escape</code></td><td>Close modal dialogs</td></tr>
+    </table>
+</section>
+
+</div>
+
+<a href="#" class="back-to-top">↑ Top</a>
+
+<footer style="text-align: center; padding: 40px; color: #666; border-top: 1px solid #333; margin-top: 40px;">
+    <p>WheelHouse Documentation • Version 1.16.0</p>
+    <p style="margin-top: 10px; font-size: 12px;">
+        Built for wheel traders who want data-driven decisions. 🎰
+    </p>
+</footer>
+
+</body>
+</html>
