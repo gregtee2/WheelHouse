@@ -2,6 +2,16 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.1] - 2026-01-28
+
+### Added
+- **Spot Price Color Coding**: Spot prices in Positions table now use same color logic as ITM field
+  - Green: Safe zone (OTM for shorts, ITM for longs)
+  - Red: Danger zone (ITM for shorts, OTM for longs)  
+  - Orange: At-the-money zone
+  - Gray: Neutral OTM for longs
+  - Works for both regular positions and spreads
+
 ## [1.17.0] - 2026-01-28
 
 ### Fixed
