@@ -12,8 +12,11 @@ function getStorageKey() { return getPositionsKey(); }
 function getHoldingsStorageKey() { return getHoldingsKey(); }
 function getClosedStorageKey() { return getClosedKey(); }
 
-// Legacy static keys for checkpoint (shared across modes)
-const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
+// Dynamic checkpoint key based on account mode
+function getCheckpointKey() {
+    const mode = state.accountMode || 'real';
+    return mode === 'paper' ? 'wheelhouse_data_checkpoint_paper' : 'wheelhouse_data_checkpoint';
+}
 
 // Theme color helpers - read from CSS variables at render time
 function getThemeColor(varName, fallback) {
@@ -1289,14 +1292,14 @@ function saveDataCheckpoint() {
         closedPositions: (state.closedPositions || []).length,
         timestamp: Date.now()
     };
-    localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(checkpoint));
+    localStorage.setItem(getCheckpointKey(), JSON.stringify(checkpoint));
 }
 
 /**
  * Check for data loss on startup
  */
 function checkDataIntegrity() {
-    const checkpointStr = localStorage.getItem(CHECKPOINT_KEY);
+    const checkpointStr = localStorage.getItem(getCheckpointKey());
     if (!checkpointStr) return; // No checkpoint, first run
     
     try {
@@ -1343,7 +1346,7 @@ function showDataRecoveryPrompt(expected, actual) {
                                border-radius: 4px; font-weight: bold; cursor: pointer;">
                     📥 Restore from Backup
                 </button>
-                <button onclick="document.getElementById('dataRecoveryBanner')?.remove(); localStorage.setItem('${CHECKPOINT_KEY}', JSON.stringify({closedPositions: ${actual}, timestamp: Date.now()}));" 
+                <button onclick="document.getElementById('dataRecoveryBanner')?.remove(); localStorage.setItem('${getCheckpointKey()}', JSON.stringify({closedPositions: ${actual}, timestamp: Date.now()}));" 
                         style="background: transparent; color: white; border: 1px solid white; 
                                padding: 8px 16px; border-radius: 4px; cursor: pointer;">
                     ✕ Dismiss

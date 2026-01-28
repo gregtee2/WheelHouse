@@ -10,7 +10,12 @@ import AccountService from './services/AccountService.js';
 // Dynamic storage key based on account mode
 function getClosedStorageKey() { return getClosedKey(); }
 
-const CHECKPOINT_KEY = 'wheelhouse_data_checkpoint';
+// Dynamic checkpoint key based on account mode
+function getCheckpointKey() {
+    const mode = state.accountMode || 'real';
+    return mode === 'paper' ? 'wheelhouse_data_checkpoint_paper' : 'wheelhouse_data_checkpoint';
+}
+
 const AI_LOG_KEY = 'wheelhouse_ai_predictions';
 
 // Set to true for verbose price refresh logging
@@ -322,7 +327,7 @@ function saveDataCheckpoint() {
         closedPositions: (state.closedPositions || []).length,
         timestamp: Date.now()
     };
-    localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(checkpoint));
+    localStorage.setItem(getCheckpointKey(), JSON.stringify(checkpoint));
 }
 
 /**
