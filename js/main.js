@@ -340,25 +340,29 @@ export function init() {
  */
 let liveIndicatorInterval = null;
 let lastDataRefresh = Date.now();
+let serverConnected = true;
 
 function initLiveIndicator() {
-    // Update timestamp every second
+    // Update timestamp display every second
     liveIndicatorInterval = setInterval(updateLiveIndicator, 1000);
     
     // Mark initial connection
     markDataRefresh();
     
-    // Check server health every 30 seconds
+    // Check server health immediately, then every 30 seconds
+    checkServerHealth();
     setInterval(checkServerHealth, 30000);
 }
 
 function updateLiveIndicator() {
     const timeEl = document.getElementById('lastRefreshTime');
-    if (!timeEl) return;
+    const indicator = document.getElementById('liveIndicator');
+    if (!timeEl || !indicator) return;
     
     const now = Date.now();
     const secondsAgo = Math.floor((now - lastDataRefresh) / 1000);
     
+    // Update timestamp display
     if (secondsAgo < 60) {
         timeEl.textContent = `${secondsAgo}s ago`;
     } else if (secondsAgo < 3600) {
@@ -367,25 +371,29 @@ function updateLiveIndicator() {
         timeEl.textContent = `${Math.floor(secondsAgo / 3600)}h ago`;
     }
     
-    // If no refresh in 5 minutes, show stale warning
-    const indicator = document.getElementById('liveIndicator');
-    if (indicator) {
-        if (secondsAgo > 300) {
-            indicator.classList.add('stale');
-            indicator.title = 'Data may be stale - no refresh in 5+ minutes';
-        } else {
-            indicator.classList.remove('stale');
-            indicator.title = 'App is running and connected';
-        }
+    // Only show stale warning if connected but no data refresh in 5+ minutes
+    // Don't change color based on time - only health check changes connection status
+    if (serverConnected && secondsAgo > 300) {
+        indicator.classList.add('stale');
+        indicator.classList.remove('disconnected');
+        indicator.title = 'Connected but data may be stale - no refresh in 5+ minutes';
+    } else if (serverConnected) {
+        indicator.classList.remove('stale', 'disconnected');
+        indicator.title = 'App is running and connected';
     }
+    // If not connected, checkServerHealth manages the disconnected class
 }
 
 // Call this whenever data is fetched from server
 window.markDataRefresh = function() {
     lastDataRefresh = Date.now();
+    serverConnected = true;
     const indicator = document.getElementById('liveIndicator');
     if (indicator) {
         indicator.classList.remove('disconnected', 'stale');
+        // Reset text to LIVE in case it was OFFLINE
+        const liveText = indicator.querySelector('span:nth-child(2)');
+        if (liveText) liveText.textContent = 'LIVE';
     }
 }
 
@@ -394,14 +402,27 @@ async function checkServerHealth() {
     if (!indicator) return;
     
     try {
-        const res = await fetch('/api/health', { method: 'GET', timeout: 5000 });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        const res = await fetch('/api/health', { 
+            method: 'GET',
+            signal: controller.signal 
+        });
+        clearTimeout(timeoutId);
+        
         if (res.ok) {
+            serverConnected = true;
             indicator.classList.remove('disconnected');
-            window.markDataRefresh();
+            // Reset text to LIVE
+            const liveText = indicator.querySelector('span:nth-child(2)');
+            if (liveText) liveText.textContent = 'LIVE';
         } else {
+            serverConnected = false;
             indicator.classList.add('disconnected');
         }
     } catch (e) {
+        serverConnected = false;
         indicator.classList.add('disconnected');
         const liveText = indicator.querySelector('span:nth-child(2)');
         if (liveText) liveText.textContent = 'OFFLINE';
