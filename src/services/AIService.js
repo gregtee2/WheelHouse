@@ -57,8 +57,16 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
         throw new Error('Grok API key not configured. Add GROK_API_KEY to Settings.');
     }
     
-    // Model-specific timeouts (grok-4 is slower but smarter)
-    const timeoutMs = model.includes('grok-4') ? 180000 : 90000;
+    // Model-specific timeouts
+    // grok-4: Most capable but slowest (can take 3-5 min for complex prompts)
+    // grok-4-1-fast: Speed-optimized, nearly as good (recommended default)
+    // grok-3: Good balance
+    let timeoutMs = 90000;  // Default: 90s
+    if (model === 'grok-4') {
+        timeoutMs = 300000;  // 5 min for deep thinking
+    } else if (model.includes('grok-4')) {
+        timeoutMs = 180000;  // 3 min for grok-4 variants
+    }
     const timeoutSec = timeoutMs / 1000;
     
     console.log(`[AI] Using Grok model: ${model}, maxTokens: ${maxTokens}, timeout: ${timeoutSec}s`);
@@ -122,7 +130,7 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
         clearTimeout(timeoutId);
         
         if (e.name === 'AbortError') {
-            throw new Error(`Grok request timed out after ${timeoutSec} seconds. Try grok-3 for faster responses.`);
+            throw new Error(`Grok request timed out after ${timeoutSec} seconds. Try grok-4-1-fast for faster responses.`);
         }
         
         console.log(`[AI] ❌ Grok call failed: ${e.message}`);

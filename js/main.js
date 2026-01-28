@@ -4585,6 +4585,7 @@ window.runStrategyAdvisor = async function() {
     
     // Auto-enable Wall Street Mode for capable models (Grok, GPT-4, Claude)
     // User can still manually override via checkbox
+    // Note: grok-4 is slowest (3-5 min), grok-4-1-fast is recommended
     const isCapableModel = model.includes('grok') || model.includes('gpt-4') || model.includes('claude');
     const expertMode = expertModeCheckbox?.checked || isCapableModel;
     
