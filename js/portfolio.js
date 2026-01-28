@@ -109,12 +109,58 @@ const PREFERRED_ACCOUNT_KEY = 'wheelhouse_preferred_account';
 
 /**
  * Fetch and display Schwab account balances
+ * Now respects state.selectedAccount from the header account switcher
  */
 export async function fetchAccountBalances() {
     const banner = document.getElementById('accountBalancesBanner');
     if (!banner) return;
     
     try {
+        // Check if we have a selected account from the header dropdown
+        const selectedAcct = state.selectedAccount;
+        
+        // If user selected a specific account, fetch ONLY that account's balances
+        if (selectedAcct && selectedAcct.hashValue && selectedAcct.hashValue !== 'paper') {
+            console.log('[BALANCES] Using selected account from header:', selectedAcct.accountNumber?.slice(-4));
+            
+            const res = await fetch(`/api/schwab/accounts/${selectedAcct.hashValue}`);
+            if (!res.ok) {
+                console.log('[BALANCES] Failed to fetch selected account');
+                return;
+            }
+            
+            const data = await res.json();
+            const bal = data.securitiesAccount?.currentBalances || {};
+            
+            // Update display
+            const fmt = (v) => {
+                if (v === undefined || v === null) return '—';
+                return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            };
+            
+            document.getElementById('balCashAvailable').textContent = fmt(bal.availableFunds ?? bal.cashBalance);
+            document.getElementById('balBuyingPower').textContent = fmt(bal.buyingPower);
+            document.getElementById('balAccountValue').textContent = fmt(bal.equity ?? bal.liquidationValue);
+            document.getElementById('balMarginUsed').textContent = fmt(bal.marginBalance || 0);
+            document.getElementById('balDayTradeBP').textContent = fmt(bal.dayTradingBuyingPower);
+            
+            // Update AccountService cache
+            AccountService.updateCache({
+                buyingPower: bal.buyingPower,
+                accountValue: bal.equity || bal.liquidationValue,
+                cashAvailable: bal.availableFunds || bal.cashBalance,
+                marginUsed: bal.marginBalance,
+                dayTradeBP: bal.dayTradingBuyingPower,
+                accountType: selectedAcct.type,
+                accountNumber: selectedAcct.accountNumber
+            });
+            
+            // Show banner
+            banner.style.display = 'block';
+            return;
+        }
+        
+        // Fallback: No specific account selected, use old logic
         const res = await fetch('/api/schwab/accounts');
         if (!res.ok) {
             console.log('[BALANCES] Schwab not connected or auth failed');
