@@ -3342,10 +3342,19 @@ async function updatePositionGreeksDisplay(positions, spotPrices, ivData = {}) {
                 ? `Net theta: Collecting $${Math.abs(netTheta).toFixed(2)}/day from time decay`
                 : `Net theta: Paying $${Math.abs(netTheta).toFixed(2)}/day in time decay`;
             
+            // Add IV information to tooltip
+            let ivInfo = '';
+            if (ivTimestamp) {
+                const ivAge = Math.floor((Date.now() - ivTimestamp) / (1000 * 60));
+                const ivTimeStr = ivAge < 1 ? 'just now' : `${ivAge}m ago`;
+                ivInfo = `\nIV: ${(iv * 100).toFixed(1)}% (${ivTimeStr})`;
+            }
+            const fullThetaTooltip = thetaTooltip + ivInfo;
+            
             // Format theta - show cents if under $1 for clarity
             const absNetTheta = Math.abs(netTheta);
             const netThetaDisplay = absNetTheta < 1 ? `$${absNetTheta.toFixed(2)}` : `$${absNetTheta.toFixed(0)}`;
-            thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${thetaTooltip}">${netTheta >= 0 ? '+' : '-'}${netThetaDisplay}</span>`;
+            thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${fullThetaTooltip}">${netTheta >= 0 ? '+' : '-'}${netThetaDisplay}</span>`;
             
             // Store on position
             pos._delta = netDelta;
@@ -3405,6 +3414,15 @@ async function updatePositionGreeksDisplay(positions, spotPrices, ivData = {}) {
             thetaTooltip = `Time decay cost: $${Math.abs(theta).toFixed(2)}/day (expected for long options - you profit from DELTA, not theta)`;
         }
         
+        // Add IV information to tooltip
+        let ivInfo = '';
+        if (ivTimestamp) {
+            const ivAge = Math.floor((Date.now() - ivTimestamp) / (1000 * 60));
+            const ivTimeStr = ivAge < 1 ? 'just now' : `${ivAge}m ago`;
+            ivInfo = `\nIV: ${(iv * 100).toFixed(1)}% (${ivTimeStr})`;
+        }
+        const fullThetaTooltip = thetaTooltip + ivInfo;
+        
         // Format theta - show cents if under $1 for clarity
         const absTheta = Math.abs(theta);
         const thetaDisplay = absTheta < 1 ? `$${absTheta.toFixed(2)}` : `$${absTheta.toFixed(0)}`;
@@ -3422,7 +3440,7 @@ async function updatePositionGreeksDisplay(positions, spotPrices, ivData = {}) {
             ivTimeDisplay = `<span style="color:#ffaa00;font-size:9px;">IV fallback</span>`;
         }
         // Tooltip fallback
-        let thetaTooltipFinal = thetaTooltip;
+        let thetaTooltipFinal = fullThetaTooltip;
         if (!ivLive) {
             thetaTooltipFinal += ' (Using last known IV – refresh for latest)';
         }
