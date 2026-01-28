@@ -119,15 +119,25 @@ const SchwabAPI = {
      * @param {string} accountHash - Optional account hash. If not provided, uses first account.
      */
     async getPositions(accountHash = null) {
+        console.log('[SchwabAPI.getPositions] Called with hash:', accountHash);
+        
         if (accountHash) {
             // Get specific account
+            console.log('[SchwabAPI.getPositions] Fetching specific account...');
             const account = await this.getAccount(accountHash, 'positions');
-            if (!account || !account.securitiesAccount) return [];
+            console.log('[SchwabAPI.getPositions] Account response:', account?.securitiesAccount?.accountNumber, 'positions:', account?.securitiesAccount?.positions?.length);
+            
+            if (!account || !account.securitiesAccount) {
+                console.log('[SchwabAPI.getPositions] No account data returned');
+                return [];
+            }
             const positions = account.securitiesAccount.positions || [];
+            console.log('[SchwabAPI.getPositions] Returning', positions.length, 'positions');
             return positions.map(pos => this._normalizePosition(pos));
         }
         
         // Default: use first account
+        console.log('[SchwabAPI.getPositions] No hash provided, using first account');
         const accounts = await this.getAccounts('positions');
         if (!accounts || accounts.length === 0) return [];
         

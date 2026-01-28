@@ -12,10 +12,18 @@ function getStorageKey() { return getPositionsKey(); }
 function getHoldingsStorageKey() { return getHoldingsKey(); }
 function getClosedStorageKey() { return getClosedKey(); }
 
-// Dynamic checkpoint key based on account mode
+// Dynamic checkpoint key - now account-aware to prevent false "data loss" warnings when switching accounts
 function getCheckpointKey() {
     const mode = state.accountMode || 'real';
-    return mode === 'paper' ? 'wheelhouse_data_checkpoint_paper' : 'wheelhouse_data_checkpoint';
+    if (mode === 'paper') {
+        return 'wheelhouse_data_checkpoint_paper';
+    }
+    // For real accounts, include the account number to avoid false warnings
+    const acct = state.selectedAccount;
+    if (acct && acct.accountNumber) {
+        return `wheelhouse_data_checkpoint_${acct.type || 'ACCT'}_${acct.accountNumber.slice(-4)}`;
+    }
+    return 'wheelhouse_data_checkpoint';
 }
 
 // Theme color helpers - read from CSS variables at render time

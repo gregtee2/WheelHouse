@@ -302,6 +302,8 @@ window.refreshAccountFromSchwab = async function() {
         return;
     }
     
+    console.log('[Sync] Starting sync for account:', acct.accountNumber, 'hash:', acct.hashValue);
+    
     const syncBtn = document.getElementById('syncAccountBtn');
     if (syncBtn) {
         syncBtn.disabled = true;
@@ -310,11 +312,28 @@ window.refreshAccountFromSchwab = async function() {
     
     try {
         // Use SchwabAPI to fetch and normalize positions
-        const parsed = await window.SchwabAPI?.getPositions(acct.hashValue) || [];
+        if (!window.SchwabAPI) {
+            throw new Error('SchwabAPI not loaded');
+        }
+        
+        console.log('[Sync] Fetching positions with hash:', acct.hashValue);
+        const parsed = await window.SchwabAPI.getPositions(acct.hashValue);
+        console.log('[Sync] Received positions:', parsed?.length || 0, parsed);
+        
+        if (!parsed || parsed.length === 0) {
+            showNotification(`ℹ️ No positions found in Schwab account ...${acct.accountNumber.slice(-4)}`, 'info');
+            if (syncBtn) {
+                syncBtn.disabled = false;
+                syncBtn.textContent = '🔄 Sync';
+            }
+            return;
+        }
         
         // Separate options from stocks
         const optionPositions = parsed.filter(p => p.type !== 'stock');
         const stockPositions = parsed.filter(p => p.type === 'stock');
+        
+        console.log('[Sync] Options:', optionPositions.length, 'Stocks:', stockPositions.length);
         
         // Get current saved positions for this account
         let existingPositions = [...(state.positions || [])];
