@@ -674,6 +674,33 @@ router.post('/parse-trade', async (req, res) => {
             }
         }
         
+        // Fix expiry if it's in the past (AI might have parsed wrong year)
+        if (parsed.expiry) {
+            const parsedExpiry = new Date(parsed.expiry);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            if (parsedExpiry < today) {
+                // Expiry is in the past - this is likely a parsing error
+                // Try to fix by using current or next year
+                const originalYear = parsedExpiry.getFullYear();
+                const currentYear = today.getFullYear();
+                
+                // Try current year first
+                let fixedExpiry = new Date(parsedExpiry);
+                fixedExpiry.setFullYear(currentYear);
+                
+                // If still in the past, try next year
+                if (fixedExpiry < today) {
+                    fixedExpiry.setFullYear(currentYear + 1);
+                }
+                
+                const fixedDateStr = fixedExpiry.toISOString().split('T')[0];
+                console.log(`[AI] ⚠️ Fixed expired date: ${parsed.expiry} → ${fixedDateStr}`);
+                parsed.expiry = fixedDateStr;
+            }
+        }
+        
         // Step 2: Fetch ticker data
         sendProgress(2, `Fetching market data for ${parsed.ticker}...`);
         const tickerData = await DataService.fetchDeepDiveData(parsed.ticker);

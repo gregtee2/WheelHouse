@@ -475,7 +475,12 @@ RATIONALE: Roll up to capture additional upside while collecting new premium
  * @returns {string} Formatted prompt
  */
 function buildTradeParsePrompt(tradeText) {
+    const currentYear = new Date().getFullYear();
+    const nextYear = currentYear + 1;
+    
     return `Parse this trade callout into JSON. Extract the key fields.
+
+TODAY'S DATE: ${new Date().toISOString().split('T')[0]} (use this for context)
 
 TRADE CALLOUT:
 ${tradeText}
@@ -487,9 +492,11 @@ INSTRUCTIONS:
    - Do NOT swap or reorder the strikes
 3. Normalize strategy to: "short_put", "short_call", "covered_call", "bull_put_spread", "bear_call_spread", "call_debit_spread", "put_debit_spread", "long_call", "long_put", "long_call_leaps", "long_put_leaps"
    - LEAPS are options with expiry 1+ year out - use "long_call_leaps" or "long_put_leaps" if mentioned
-4. Format expiry as "YYYY-MM-DD" (e.g., "2026-02-21" or "2028-01-21")
-   - ALWAYS include the full year, especially for LEAPS (1+ year out)
-   - If year is "26" or "28", interpret as 2026 or 2028
+4. Format expiry as "YYYY-MM-DD" - EXPIRY MUST BE IN THE FUTURE!
+   - We are in ${currentYear}. Use ${currentYear} or ${nextYear} for the year unless explicitly stated otherwise.
+   - If date says "2/9" or "Feb 9" without year, assume ${currentYear} (or ${nextYear} if that date has passed)
+   - If year is "26", interpret as 2026. If "27", interpret as 2027. If "28", interpret as 2028.
+   - NEVER return a date in the past like 2024 or 2025 unless explicitly stated
 5. Premium should be the OPTION premium (what you pay/receive for the option), NOT the stock price
    - If callout says "PLTR @ $167 - Sell $150 put" → $167 is STOCK PRICE, not premium. Premium is unknown.
    - If callout says "Sell $150 put for $4.85" → Premium is 4.85
@@ -501,7 +508,7 @@ RESPOND WITH ONLY JSON, no explanation:
 {
     "ticker": "SYMBOL",
     "strategy": "strategy_type",
-    "expiry": "2026-02-21",
+    "expiry": "${currentYear}-02-21",
     "strike": 100,
     "buyStrike": null,
     "sellStrike": null,
