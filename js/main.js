@@ -2544,8 +2544,10 @@ window.renderPendingTrades = function() {
         const credit = p.premium ? (p.premium * 100) : null;
         
         // Calculate annualized return based on trade type
+        // Use minimum 1 DTE to avoid division by zero for 0 DTE trades
         let annReturn = null;
-        if (p.premium && dte > 0) {
+        const safeDte = Math.max(dte || 1, 1);
+        if (p.premium && safeDte > 0) {
             const isSpread = p.type?.includes('_spread') || p.upperStrike;
             const isDebitSpread = p.isDebit || p.type?.includes('debit');
             
@@ -2558,18 +2560,18 @@ window.renderPendingTrades = function() {
                     const maxProfit = (spreadWidth - p.premium) * 100;
                     const debitPaid = p.premium * 100;
                     if (debitPaid > 0) {
-                        annReturn = ((maxProfit / debitPaid) * (365 / dte) * 100).toFixed(1);
+                        annReturn = ((maxProfit / debitPaid) * (365 / safeDte) * 100).toFixed(1);
                     }
                 } else {
                     // For CREDIT spreads: (Premium / Spread Width) × (365 / DTE) × 100
                     const buyingPowerPerContract = spreadWidth * 100;
                     if (buyingPowerPerContract > 0) {
-                        annReturn = ((p.premium * 100) / buyingPowerPerContract * (365 / dte) * 100).toFixed(1);
+                        annReturn = ((p.premium * 100) / buyingPowerPerContract * (365 / safeDte) * 100).toFixed(1);
                     }
                 }
             } else if (p.strike) {
                 // For single legs: (premium / strike) × (365 / DTE) × 100
-                annReturn = ((p.premium / p.strike) * (365 / dte) * 100).toFixed(1);
+                annReturn = ((p.premium / p.strike) * (365 / safeDte) * 100).toFixed(1);
             }
         }
         
