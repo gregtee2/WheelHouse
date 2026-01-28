@@ -1,7 +1,7 @@
 // WheelHouse - Main Entry Point
 // Initialization and tab management
 
-import { state, resetSimulation, setAccountMode, updatePaperModeIndicator, setPaperAccountBalance, getPaperAccountBalance } from './state.js';
+import { state, resetSimulation, setAccountMode, updatePaperModeIndicator, setPaperAccountBalance, getPaperAccountBalance, setSelectedAccount, getAccountDisplayName } from './state.js';
 import { draw, drawPayoffChart, drawHistogram, drawPnLChart, drawProbabilityCone, drawHeatMap, drawGreeksChart } from './charts.js';
 import { runSingle, runBatch, resetAll } from './simulation.js';
 import { priceOptions, calcGreeks } from './pricing.js';
@@ -16,45 +16,413 @@ import AccountService from './services/AccountService.js';
 
 /**
  * Switch between Real and Paper trading accounts
+ * LEGACY: Kept for backwards compatibility, now redirects to handleAccountChange
  */
 window.switchAccountMode = function(mode) {
-    if (mode === state.accountMode) return;
+    if (mode === 'paper') {
+        handleAccountChange('paper');
+    } else {
+        // For 'real', we need an account selected - just ignore this old call
+        console.log('[Account] Legacy switchAccountMode called with:', mode);
+    }
+};
+
+// =============================================================================
+// MULTI-ACCOUNT SYSTEM
+// =============================================================================
+
+/**
+ * Initialize account dropdown on page load
+ * Fetches available Schwab accounts and populates the dropdown
+ */
+async function initAccountDropdown() {
+    const select = document.getElementById('accountModeSelect');
+    if (!select) return;
     
-    // Confirm switch if in paper mode with positions
-    if (state.accountMode === 'paper' && state.positions.length > 0) {
-        // Just switch - positions are saved to paper storage
+    select.innerHTML = '<option value="loading" disabled selected>Loading...</option>';
+    
+    try {
+        // Fetch account numbers and full account data
+        const [numbersRes, accountsRes] = await Promise.all([
+            fetch('/api/schwab/accounts/numbers'),
+            fetch('/api/schwab/accounts')
+        ]);
+        
+        // Build dropdown options
+        select.innerHTML = '';
+        
+        // Always add Paper Trading option first
+        const paperOpt = document.createElement('option');
+        paperOpt.value = 'paper';
+        paperOpt.textContent = '📝 Paper Trading';
+        select.appendChild(paperOpt);
+        
+        // Add separator
+        const sep = document.createElement('option');
+        sep.disabled = true;
+        sep.textContent = '── Schwab Accounts ──';
+        select.appendChild(sep);
+        
+        if (numbersRes.ok && accountsRes.ok) {
+            const numbers = await numbersRes.json();
+            const accounts = await accountsRes.json();
+            
+            state.availableAccounts = [];
+            
+            for (const num of (numbers || [])) {
+                const fullAcct = accounts.find(a => a.securitiesAccount?.accountNumber === num.accountNumber);
+                const type = fullAcct?.securitiesAccount?.type || 'Account';
+                const bal = fullAcct?.securitiesAccount?.currentBalances;
+                const equity = bal?.equity || bal?.liquidationValue || 0;
+                const posCount = fullAcct?.securitiesAccount?.positions?.length || 0;
+                
+                const acctData = {
+                    accountNumber: num.accountNumber,
+                    hashValue: num.hashValue,
+                    type: type,
+                    equity: equity,
+                    positionCount: posCount,
+                    nickname: localStorage.getItem(`wheelhouse_acct_nickname_${num.accountNumber}`) || ''
+                };
+                state.availableAccounts.push(acctData);
+                
+                const opt = document.createElement('option');
+                opt.value = num.accountNumber;
+                opt.dataset.hash = num.hashValue;
+                opt.dataset.type = type;
+                
+                const nickname = acctData.nickname ? ` "${acctData.nickname}"` : '';
+                const equityStr = equity > 0 ? ` ($${Math.round(equity/1000)}k)` : '';
+                opt.textContent = `${type === 'MARGIN' ? '💰' : type === 'IRA' ? '🏦' : '📊'} ${type} ...${num.accountNumber.slice(-4)}${nickname}${equityStr}`;
+                
+                select.appendChild(opt);
+            }
+        } else {
+            // Schwab not connected - add message option
+            const noAcct = document.createElement('option');
+            noAcct.value = '';
+            noAcct.disabled = true;
+            noAcct.textContent = '⚠️ Connect Schwab in Settings';
+            select.appendChild(noAcct);
+        }
+        
+        // Restore saved selection
+        if (state.accountMode === 'paper') {
+            select.value = 'paper';
+            showPaperModeUI(true);
+        } else if (state.selectedAccount?.accountNumber) {
+            select.value = state.selectedAccount.accountNumber;
+            showPaperModeUI(false);
+        } else {
+            // Default to first real account if available
+            const firstRealAcct = state.availableAccounts[0];
+            if (firstRealAcct) {
+                select.value = firstRealAcct.accountNumber;
+                handleAccountChange(firstRealAcct.accountNumber, false); // Don't sync on first load
+            } else {
+                select.value = 'paper';
+            }
+        }
+        
+    } catch (e) {
+        console.error('[Account] Failed to load accounts:', e);
+        select.innerHTML = `
+            <option value="paper">📝 Paper Trading</option>
+            <option disabled>── Schwab Accounts ──</option>
+            <option value="" disabled>⚠️ Error loading accounts</option>
+        `;
+        select.value = 'paper';
+    }
+}
+
+/**
+ * Handle account dropdown change
+ * @param {string} value - 'paper' or accountNumber
+ * @param {boolean} autoSync - Whether to auto-sync from Schwab (default true)
+ */
+window.handleAccountChange = async function(value, autoSync = true) {
+    const select = document.getElementById('accountModeSelect');
+    const syncBtn = document.getElementById('syncAccountBtn');
+    
+    if (value === 'paper') {
+        // Switch to paper trading
+        setAccountMode('paper');
+        setSelectedAccount(null);
+        showPaperModeUI(true);
+        
+        // Load paper positions
+        loadPositions();
+        loadClosedPositions();
+        renderPortfolio();
+        renderHoldings();
+        initChallenges();
+        
+        // Show paper balance
+        const bp = getPaperAccountBalance();
+        updateBalanceDisplay(bp, bp, 0, 0, 0, 'Paper', 'PAPER');
+        
+        showNotification(`📝 Switched to Paper Trading - $${bp.toLocaleString()} balance`, 'info');
+        
+    } else {
+        // Switch to a real Schwab account
+        const acct = state.availableAccounts.find(a => a.accountNumber === value);
+        if (!acct) {
+            console.error('[Account] Account not found:', value);
+            return;
+        }
+        
+        setAccountMode('real');
+        setSelectedAccount(acct);
+        showPaperModeUI(false);
+        
+        // Load saved positions for this account (from localStorage)
+        loadPositions();
+        loadClosedPositions();
+        renderPortfolio();
+        renderHoldings();
+        initChallenges();
+        
+        // Fetch fresh balances for this account
+        await fetchAccountBalancesForAccount(acct);
+        
+        // Auto-sync from Schwab if requested and no local positions exist
+        const currentPositions = state.positions || [];
+        if (autoSync && currentPositions.length === 0) {
+            showNotification(`🔄 New account detected - syncing from Schwab...`, 'info');
+            await refreshAccountFromSchwab();
+        } else if (autoSync) {
+            showNotification(`💰 Switched to ${acct.type} ...${acct.accountNumber.slice(-4)} (${currentPositions.length} positions)`, 'success');
+        }
+    }
+};
+
+/**
+ * Show/hide paper mode UI elements
+ */
+function showPaperModeUI(isPaper) {
+    const paperBtn = document.getElementById('setPaperBalanceBtn');
+    const syncBtn = document.getElementById('syncAccountBtn');
+    const accountDiv = document.getElementById('accountSwitcherHeader');
+    
+    if (paperBtn) paperBtn.style.display = isPaper ? 'inline-block' : 'none';
+    if (syncBtn) syncBtn.style.display = isPaper ? 'none' : 'inline-block';
+    
+    // Update border color
+    if (accountDiv) {
+        accountDiv.style.borderColor = isPaper ? '#8b5cf6' : '#333';
     }
     
-    // Set the mode
-    setAccountMode(mode);
-    
-    // Reload all data from the new storage
-    loadPositions();
-    loadClosedPositions();
-    renderPortfolio();
-    renderHoldings();
-    initChallenges();
-    
-    // Update balances display
-    if (mode === 'paper') {
-        // Show paper account balance
-        const bp = getPaperAccountBalance();
-        const balBP = document.getElementById('balBuyingPower');
-        const balValue = document.getElementById('balAccountValue');
-        if (balBP) balBP.textContent = `$${bp.toLocaleString()}`;
-        if (balValue) balValue.textContent = `$${bp.toLocaleString()}`;
-        showNotification(`📝 Switched to Paper Trading - $${bp.toLocaleString()} starting balance`, 'info');
-    } else {
-        // Refresh real account balances
-        AccountService.refresh().then(() => {
-            const bp = AccountService.getBuyingPower();
-            const value = AccountService.getAccountValue();
-            const balBP = document.getElementById('balBuyingPower');
-            const balValue = document.getElementById('balAccountValue');
-            if (balBP && bp) balBP.textContent = `$${bp.toLocaleString()}`;
-            if (balValue && value) balValue.textContent = `$${value.toLocaleString()}`;
+    updatePaperModeIndicator();
+}
+
+/**
+ * Fetch and display balances for a specific account
+ */
+async function fetchAccountBalancesForAccount(acct) {
+    try {
+        const res = await fetch(`/api/schwab/accounts/${acct.hashValue}?fields=positions`);
+        if (!res.ok) return;
+        
+        const data = await res.json();
+        const bal = data.securitiesAccount?.currentBalances || {};
+        
+        updateBalanceDisplay(
+            bal.buyingPower || 0,
+            bal.equity || bal.liquidationValue || 0,
+            bal.availableFunds || bal.cashBalance || 0,
+            bal.marginBalance || 0,
+            bal.dayTradingBuyingPower || 0,
+            acct.type,
+            acct.accountNumber
+        );
+        
+        // Update AccountService cache
+        AccountService.updateCache({
+            buyingPower: bal.buyingPower,
+            accountValue: bal.equity || bal.liquidationValue,
+            cashAvailable: bal.availableFunds || bal.cashBalance,
+            marginUsed: bal.marginBalance,
+            dayTradeBP: bal.dayTradingBuyingPower,
+            accountType: acct.type,
+            accountNumber: acct.accountNumber
         });
-        showNotification('💰 Switched to Real Trading Account', 'success');
+        
+    } catch (e) {
+        console.error('[Account] Failed to fetch balances:', e);
+    }
+}
+
+/**
+ * Update the balance display in the banner
+ */
+function updateBalanceDisplay(buyingPower, accountValue, cashAvailable, marginUsed, dayTradeBP, type, accountNumber) {
+    const fmt = (v) => {
+        if (v === undefined || v === null) return '—';
+        return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+    
+    const balBP = document.getElementById('balBuyingPower');
+    const balValue = document.getElementById('balAccountValue');
+    const balCash = document.getElementById('balCashAvailable');
+    const balMargin = document.getElementById('balMarginUsed');
+    const balDayTrade = document.getElementById('balDayTradeBP');
+    const balUpdated = document.getElementById('balanceLastUpdated');
+    
+    if (balBP) balBP.textContent = fmt(buyingPower);
+    if (balValue) balValue.textContent = fmt(accountValue);
+    if (balCash) balCash.textContent = fmt(cashAvailable);
+    if (balMargin) balMargin.textContent = fmt(marginUsed);
+    if (balDayTrade) balDayTrade.textContent = fmt(dayTradeBP);
+    
+    if (balUpdated) {
+        const now = new Date();
+        const lastDigits = accountNumber ? `...${accountNumber.slice(-4)}` : '';
+        balUpdated.innerHTML = `
+            <span style="color:#00d9ff;">${type}</span> ${lastDigits} · Updated ${now.toLocaleTimeString()}
+        `;
+    }
+    
+    // Show banner if hidden
+    const banner = document.getElementById('accountBalancesBanner');
+    if (banner) banner.style.display = 'block';
+}
+
+/**
+ * Refresh positions from Schwab for current account
+ */
+window.refreshAccountFromSchwab = async function() {
+    if (state.accountMode === 'paper') {
+        showNotification('📝 Paper trading mode - no Schwab sync needed', 'info');
+        return;
+    }
+    
+    const acct = state.selectedAccount;
+    if (!acct) {
+        showNotification('⚠️ No account selected', 'error');
+        return;
+    }
+    
+    const syncBtn = document.getElementById('syncAccountBtn');
+    if (syncBtn) {
+        syncBtn.disabled = true;
+        syncBtn.textContent = '⏳ Syncing...';
+    }
+    
+    try {
+        // Use SchwabAPI to fetch and normalize positions
+        const parsed = await window.SchwabAPI?.getPositions(acct.hashValue) || [];
+        
+        // Separate options from stocks
+        const optionPositions = parsed.filter(p => p.type !== 'stock');
+        const stockPositions = parsed.filter(p => p.type === 'stock');
+        
+        // Get current saved positions for this account
+        let existingPositions = [...(state.positions || [])];
+        let existingHoldings = [...(state.holdings || [])];
+        
+        let imported = 0, skipped = 0, holdingsImported = 0;
+        
+        // Import option positions
+        for (const schwabPos of optionPositions) {
+            const existingMatch = existingPositions.find(p => 
+                p.ticker === schwabPos.ticker &&
+                p.strike === schwabPos.strike &&
+                p.expiry === schwabPos.expiry &&
+                p.status !== 'closed'
+            );
+            
+            if (existingMatch) {
+                // Update prices but preserve user data
+                existingMatch.lastOptionPrice = schwabPos.currentPrice || existingMatch.lastOptionPrice;
+                existingMatch.markedPrice = schwabPos.currentPrice || existingMatch.markedPrice;
+                existingMatch.contracts = schwabPos.contracts;
+                skipped++;
+            } else {
+                // New position
+                const newPosition = {
+                    id: Date.now() + imported,
+                    chainId: Date.now() + imported,
+                    ticker: schwabPos.ticker,
+                    type: schwabPos.type,
+                    strike: schwabPos.strike,
+                    contracts: schwabPos.contracts,
+                    premium: schwabPos.averagePrice,
+                    expiry: schwabPos.expiry,
+                    openDate: new Date().toISOString().split('T')[0],
+                    status: 'open',
+                    broker: 'Schwab',
+                    source: 'schwab_sync',
+                    schwabSymbol: schwabPos.symbol,
+                    lastOptionPrice: schwabPos.currentPrice || null,
+                    markedPrice: schwabPos.currentPrice || null
+                };
+                
+                // Calculate DTE
+                const expiryDate = new Date(schwabPos.expiry + 'T16:00:00');
+                const now = new Date();
+                newPosition.dte = Math.max(0, Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24)));
+                
+                existingPositions.push(newPosition);
+                imported++;
+            }
+        }
+        
+        // Import stock holdings
+        for (const schwabStock of stockPositions) {
+            const existingHolding = existingHoldings.find(h => h.ticker === schwabStock.ticker);
+            
+            if (existingHolding) {
+                existingHolding.shares = schwabStock.shares;
+                existingHolding.costBasis = schwabStock.averagePrice;
+                existingHolding.totalCost = schwabStock.shares * schwabStock.averagePrice;
+                existingHolding.currentPrice = schwabStock.currentPrice;
+                existingHolding.marketValue = schwabStock.marketValue;
+            } else {
+                const newHolding = {
+                    id: Date.now() + imported + holdingsImported,
+                    ticker: schwabStock.ticker,
+                    shares: schwabStock.shares,
+                    costBasis: schwabStock.averagePrice,
+                    totalCost: schwabStock.shares * schwabStock.averagePrice,
+                    currentPrice: schwabStock.currentPrice,
+                    marketValue: schwabStock.marketValue,
+                    source: 'schwab_sync',
+                    acquiredDate: new Date().toISOString().split('T')[0]
+                };
+                existingHoldings.push(newHolding);
+            }
+            holdingsImported++;
+        }
+        
+        // Save to account-specific storage
+        state.positions = existingPositions;
+        state.holdings = existingHoldings;
+        
+        const { getPositionsKey, getHoldingsKey } = await import('./state.js');
+        localStorage.setItem(getPositionsKey(), JSON.stringify(existingPositions));
+        localStorage.setItem(getHoldingsKey(), JSON.stringify(existingHoldings));
+        
+        // Refresh UI
+        loadPositions();
+        renderHoldings();
+        await fetchAccountBalancesForAccount(acct);
+        
+        // Show result
+        const msg = [];
+        if (imported > 0) msg.push(`${imported} new positions`);
+        if (skipped > 0) msg.push(`${skipped} updated`);
+        if (holdingsImported > 0) msg.push(`${holdingsImported} holdings`);
+        
+        showNotification(`✅ Schwab Sync: ${msg.join(', ') || 'No changes'}`, 'success');
+        
+    } catch (e) {
+        console.error('[Account] Sync error:', e);
+        showNotification(`❌ Sync failed: ${e.message}`, 'error');
+    } finally {
+        if (syncBtn) {
+            syncBtn.disabled = false;
+            syncBtn.textContent = '🔄 Sync';
+        }
     }
 };
 
@@ -138,13 +506,15 @@ function initGlobalAIModel() {
 
 /**
  * Initialize account mode on page load
- * Sets the dropdown value and shows paper mode indicator if needed
+ * Now uses the multi-account dropdown system
  */
 function initAccountMode() {
-    const select = document.getElementById('accountModeSelect');
-    if (select) {
-        select.value = state.accountMode;
-    }
+    // Initialize multi-account dropdown (async)
+    initAccountDropdown().then(() => {
+        console.log('[Account] Dropdown initialized');
+    }).catch(e => {
+        console.error('[Account] Dropdown init failed:', e);
+    });
     
     // Show paper mode indicator if in paper mode
     updatePaperModeIndicator();
@@ -153,10 +523,7 @@ function initAccountMode() {
     if (state.accountMode === 'paper') {
         const bp = getPaperAccountBalance();
         setTimeout(() => {
-            const balBP = document.getElementById('balBuyingPower');
-            const balValue = document.getElementById('balAccountValue');
-            if (balBP) balBP.textContent = `$${bp.toLocaleString()}`;
-            if (balValue) balValue.textContent = `$${bp.toLocaleString()}`;
+            updateBalanceDisplay(bp, bp, 0, 0, 0, 'Paper', 'PAPER');
         }, 500);
     }
 }

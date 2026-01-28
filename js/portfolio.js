@@ -278,12 +278,23 @@ window.showAccountSwitcher = function() {
 
 /**
  * Select a Schwab account as preferred
+ * Now integrates with the main account switching system
  */
 window.selectAccount = function(accountNumber) {
-    localStorage.setItem(PREFERRED_ACCOUNT_KEY, accountNumber);
+    // Close the modal
     document.getElementById('accountSwitcher')?.remove();
-    fetchAccountBalances();
-    showNotification(`Switched to account ...${accountNumber.slice(-4)}`, 'success');
+    
+    // Use the main account switcher
+    const select = document.getElementById('accountModeSelect');
+    if (select) {
+        select.value = accountNumber;
+        window.handleAccountChange?.(accountNumber);
+    } else {
+        // Fallback to old behavior if main switcher not available
+        localStorage.setItem(PREFERRED_ACCOUNT_KEY, accountNumber);
+        fetchAccountBalances();
+        showNotification(`Switched to account ...${accountNumber.slice(-4)}`, 'success');
+    }
 };
 
 // Initialize balance refresh button

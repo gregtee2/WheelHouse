@@ -60,14 +60,30 @@ export const state = {
     
     // Paper account settings
     paperAccountBalance: parseFloat(localStorage.getItem('wheelhouse_paper_balance')) || 50000,
-    paperAccountStartingBalance: parseFloat(localStorage.getItem('wheelhouse_paper_starting_balance')) || 50000
+    paperAccountStartingBalance: parseFloat(localStorage.getItem('wheelhouse_paper_starting_balance')) || 50000,
+    
+    // Multi-Account System (Schwab accounts)
+    // selectedAccount: { accountNumber, hashValue, type, nickname } or null for paper
+    selectedAccount: JSON.parse(localStorage.getItem('wheelhouse_selected_account') || 'null'),
+    availableAccounts: []  // Populated on load from Schwab
 };
 
-// Storage key helpers - returns appropriate key based on account mode
+// Storage key helpers - returns appropriate key based on account mode AND selected account
 export function getStorageKey(baseKey) {
+    // Paper trading uses its own prefix
     if (state.accountMode === 'paper') {
         return `wheelhouse_paper_${baseKey}`;
     }
+    
+    // Real trading: use account-specific key if available
+    const acct = state.selectedAccount;
+    if (acct && acct.accountNumber) {
+        // Format: wheelhouse_MARGIN_1234_positions
+        const suffix = `${acct.type || 'ACCT'}_${acct.accountNumber.slice(-4)}`;
+        return `wheelhouse_${suffix}_${baseKey}`;
+    }
+    
+    // Fallback to default (legacy)
     return `wheelhouse_${baseKey}`;
 }
 
@@ -85,6 +101,32 @@ export function setAccountMode(mode) {
     
     // Update paper mode indicator
     updatePaperModeIndicator();
+}
+
+/**
+ * Set the selected Schwab account
+ * @param {Object|null} account - { accountNumber, hashValue, type, nickname } or null for paper
+ */
+export function setSelectedAccount(account) {
+    state.selectedAccount = account;
+    if (account) {
+        localStorage.setItem('wheelhouse_selected_account', JSON.stringify(account));
+    } else {
+        localStorage.removeItem('wheelhouse_selected_account');
+    }
+}
+
+/**
+ * Get display name for current account
+ */
+export function getAccountDisplayName() {
+    if (state.accountMode === 'paper') {
+        return '📝 Paper Trading';
+    }
+    const acct = state.selectedAccount;
+    if (!acct) return '💰 Real (No Account)';
+    const nickname = acct.nickname ? ` - ${acct.nickname}` : '';
+    return `${acct.type || 'Account'} ...${acct.accountNumber?.slice(-4) || '????'}${nickname}`;
 }
 
 // Paper account balance management
