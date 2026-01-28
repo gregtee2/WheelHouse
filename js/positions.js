@@ -3028,8 +3028,23 @@ async function updatePositionRiskStatuses(openPositions) {
         spotPriceCache.set(ticker, { price, timestamp: Date.now() });
     }
     
+    // Fetch IV data for each ticker (for accurate theta calculation)
+    const ivData = {};
+    await Promise.all(tickers.map(async ticker => {
+        try {
+            const res = await fetch(`/api/iv/${ticker}`);
+            if (res.ok) {
+                const data = await res.json();
+                ivData[ticker] = parseFloat(data.atmIV) / 100 || 0.50;  // Default to 50% if missing
+            }
+        } catch (e) {
+            // Use higher default for volatile stocks
+            ivData[ticker] = 0.50;
+        }
+    }));
+    
     // Calculate and update Greeks for each position
-    updatePositionGreeksDisplay(openPositions, spotPrices);
+    updatePositionGreeksDisplay(openPositions, spotPrices, ivData);
     
     // Update each position's risk status in the DOM
     for (const pos of openPositions) {
@@ -3168,14 +3183,14 @@ async function updatePositionRiskStatuses(openPositions) {
  * Update Greeks display for each position in the table
  * Calculates per-position delta and theta with current spot prices
  */
-async function updatePositionGreeksDisplay(positions, spotPrices) {
+async function updatePositionGreeksDisplay(positions, spotPrices, ivData = {}) {
     for (const pos of positions) {
         const deltaCell = document.getElementById(`delta-${pos.id}`);
         const thetaCell = document.getElementById(`theta-${pos.id}`);
         if (!deltaCell || !thetaCell) continue;
         
         const spot = spotPrices[pos.ticker] || pos.currentSpot || 100;
-        const iv = pos.iv || 0.30;  // Default 30% IV
+        const iv = ivData[pos.ticker] || pos.iv || 0.50;  // Use fetched IV, position IV, or 50% default
         const contracts = pos.contracts || 1;
         
         // Calculate DTE
@@ -3227,7 +3242,11 @@ async function updatePositionGreeksDisplay(positions, spotPrices) {
             const thetaTooltip = netTheta > 0 
                 ? `Net theta: Collecting $${Math.abs(netTheta).toFixed(2)}/day from time decay`
                 : `Net theta: Paying $${Math.abs(netTheta).toFixed(2)}/day in time decay`;
-            thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${thetaTooltip}">${netTheta >= 0 ? '+' : ''}$${netTheta.toFixed(0)}</span>`;
+            
+            // Format theta - show cents if under $1 for clarity
+            const absNetTheta = Math.abs(netTheta);
+            const netThetaDisplay = absNetTheta < 1 ? `$${absNetTheta.toFixed(2)}` : `$${absNetTheta.toFixed(0)}`;
+            thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${thetaTooltip}">${netTheta >= 0 ? '+' : '-'}${netThetaDisplay}</span>`;
             
             // Store on position
             pos._delta = netDelta;
@@ -3267,16 +3286,30 @@ async function updatePositionGreeksDisplay(positions, spotPrices) {
         // Theta: Different display for short (collect) vs long (pay)
         // Long options: theta is a COST but NOT a red flag - it's the expected cost of holding
         let thetaColor, thetaTooltip;
+        
+        // Detect deep ITM/OTM options - they have minimal extrinsic value → low theta
+        const moneyness = isPut ? (strike - spot) / spot : (spot - strike) / spot;
+        const isDeepITM = moneyness > 0.25;  // > 25% ITM
+        const isDeepOTM = moneyness < -0.25; // > 25% OTM
+        
         if (isShort) {
             // Short options COLLECT theta - green is good
             thetaColor = theta > 0 ? '#00ff88' : '#ff5252';
-            thetaTooltip = `You collect $${Math.abs(theta).toFixed(2)}/day from time decay`;
+            if (isDeepITM || isDeepOTM) {
+                thetaTooltip = `You collect $${Math.abs(theta).toFixed(2)}/day from time decay (low because ${isDeepITM ? 'deep ITM - mostly intrinsic value' : 'deep OTM - low premium'})`;
+            } else {
+                thetaTooltip = `You collect $${Math.abs(theta).toFixed(2)}/day from time decay`;
+            }
         } else {
             // Long options PAY theta - use muted gold color (expected cost, not bad)
             thetaColor = '#ffaa00';  // Neutral amber - cost but not a warning
             thetaTooltip = `Time decay cost: $${Math.abs(theta).toFixed(2)}/day (expected for long options - you profit from DELTA, not theta)`;
         }
-        thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${thetaTooltip}">${theta >= 0 ? '+' : ''}$${theta.toFixed(0)}</span>`;
+        
+        // Format theta - show cents if under $1 for clarity
+        const absTheta = Math.abs(theta);
+        const thetaDisplay = absTheta < 1 ? `$${absTheta.toFixed(2)}` : `$${absTheta.toFixed(0)}`;
+        thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${thetaTooltip}">${theta >= 0 ? '+' : '-'}${thetaDisplay}</span>`;
         
         // Store on position object for reference
         pos._delta = delta;
