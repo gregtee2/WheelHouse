@@ -578,7 +578,7 @@ router.post('/checkup', async (req, res) => {
         const currentPremium = await DataService.fetchOptionPremium(ticker, parseFloat(strike), formatExpiryForCBOE(expiry), optionType);
         
         const prompt = promptBuilders.buildCheckupPrompt(data, openingThesis, currentData, currentPremium);
-        const response = await AIService.callAI(prompt, selectedModel, 800);
+        const response = await AIService.callAI(prompt, selectedModel, 1500);  // Increased from 800 for full suggested trade block
         
         res.json({ 
             success: true, 

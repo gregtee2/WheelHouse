@@ -144,14 +144,27 @@ Be specific with numbers. Use the data provided. DO NOT hedge with "it depends" 
  * @returns {string} Formatted prompt
  */
 function buildCheckupPrompt(tradeData, openingThesis, currentData, currentPremium) {
-    const { ticker, strike, expiry, positionType } = tradeData;
+    const { ticker, strike, expiry, positionType, buyStrike, spreadWidth, isSpread } = tradeData;
     const o = openingThesis; // Opening state
     const c = currentData;   // Current state
     
     // Determine if this is a LONG (debit) position - different evaluation!
     const isLongPosition = ['long_call', 'long_put', 'long_call_leaps', 'skip_call', 'call_debit_spread', 'put_debit_spread'].includes(positionType);
     const isCall = positionType?.includes('call');
-    const positionDesc = isLongPosition ? `Long $${strike} ${isCall ? 'call' : 'put'}` : `Short $${strike} ${isCall ? 'call' : 'put'}`;
+    const isCreditSpread = ['call_credit_spread', 'put_credit_spread'].includes(positionType);
+    const isDebitSpread = ['call_debit_spread', 'put_debit_spread'].includes(positionType);
+    
+    // Build position description - handle spreads
+    let positionDesc;
+    if (isSpread || isCreditSpread || isDebitSpread) {
+        // For spreads, show both strikes
+        const spreadName = positionType?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        positionDesc = `${spreadName} - Sell $${strike} / Buy $${buyStrike} (${spreadWidth || Math.abs(strike - buyStrike)}w)`;
+    } else if (isLongPosition) {
+        positionDesc = `Long $${strike} ${isCall ? 'call' : 'put'}`;
+    } else {
+        positionDesc = `Short $${strike} ${isCall ? 'call' : 'put'}`;
+    }
     
     // Parse prices as numbers (they might come as strings from API)
     const currentPrice = parseFloat(c.price) || 0;
@@ -199,7 +212,25 @@ ${profitMessage}`;
     const isPut = positionType?.toLowerCase().includes('put');
     const isShortPosition = !isLongPosition;
     let winCondition = '';
-    if (isShortPosition && isPut) {
+    
+    // Handle spreads first
+    if (isCreditSpread) {
+        if (isPut) {
+            // Put credit spread - win if stock stays ABOVE the short put strike
+            winCondition = `🎯 WIN CONDITION (Credit Spread): Stock must stay ABOVE $${strike} (short strike) for max profit ($${spreadWidth || Math.abs(strike - buyStrike)} per share). Currently ${currentPrice > strike ? '✅ ABOVE short strike (good!)' : '⚠️ BELOW short strike (in trouble!)'}`;
+        } else {
+            // Call credit spread - win if stock stays BELOW the short call strike
+            winCondition = `🎯 WIN CONDITION (Credit Spread): Stock must stay BELOW $${strike} (short strike) for max profit. Currently ${currentPrice < strike ? '✅ BELOW short strike (good!)' : '⚠️ ABOVE short strike (in trouble!)'}`;
+        }
+    } else if (isDebitSpread) {
+        if (isPut) {
+            // Put debit spread - win if stock goes BELOW the short put strike
+            winCondition = `🎯 WIN CONDITION (Debit Spread): Stock must fall BELOW $${buyStrike} for max profit. Currently ${currentPrice < buyStrike ? '✅ BELOW long strike (max profit!)' : '⚠️ ABOVE long strike'}`;
+        } else {
+            // Call debit spread - win if stock goes ABOVE the short call strike
+            winCondition = `🎯 WIN CONDITION (Debit Spread): Stock must rise ABOVE $${strike} for max profit. Currently ${currentPrice > strike ? '✅ ABOVE short strike (max profit!)' : '⚠️ BELOW short strike'}`;
+        }
+    } else if (isShortPosition && isPut) {
         winCondition = `🎯 WIN CONDITION: Stock must stay ABOVE $${strike} for put to expire worthless. Currently ${currentPrice > strike ? '✅ ABOVE strike (good!)' : '⚠️ BELOW strike (in trouble!)'}`;
     } else if (isShortPosition && !isPut) {
         winCondition = `🎯 WIN CONDITION: Stock must stay BELOW $${strike} for call to expire worthless. Currently ${currentPrice < strike ? '✅ BELOW strike (good!)' : '⚠️ ABOVE strike (in trouble!)'}`;
@@ -211,7 +242,29 @@ ${profitMessage}`;
     
     // Build instruction block (for AI understanding, NOT to be echoed in output)
     let aiInstructions = '';
-    if (isShortPosition && isPut) {
+    if (isCreditSpread && isPut) {
+        aiInstructions = `
+═══ IMPORTANT INSTRUCTIONS (DO NOT ECHO THESE IN YOUR RESPONSE) ═══
+For this PUT CREDIT SPREAD position (Sell $${strike} / Buy $${buyStrike}):
+- Max profit achieved if stock stays ABOVE $${strike} (short strike) at expiry
+- Max loss if stock falls BELOW $${buyStrike} (long strike) at expiry
+- The thesis is VALID if stock is ABOVE $${strike}, at risk if between strikes, INVALID if BELOW $${buyStrike}
+- Current stock: $${currentPrice} → ${currentPrice > strike ? 'ABOVE short strike = MAX PROFIT ZONE' : currentPrice > buyStrike ? 'BETWEEN strikes = PARTIAL' : 'BELOW long strike = MAX LOSS'}
+- In your response, state the current profit/loss status based on where stock is relative to BOTH strikes
+═══ END INSTRUCTIONS ═══
+`;
+    } else if (isCreditSpread && !isPut) {
+        aiInstructions = `
+═══ IMPORTANT INSTRUCTIONS (DO NOT ECHO THESE IN YOUR RESPONSE) ═══
+For this CALL CREDIT SPREAD position (Sell $${strike} / Buy $${buyStrike}):
+- Max profit achieved if stock stays BELOW $${strike} (short strike) at expiry
+- Max loss if stock rises ABOVE $${buyStrike} (long strike) at expiry
+- The thesis is VALID if stock is BELOW $${strike}, at risk if between strikes, INVALID if ABOVE $${buyStrike}
+- Current stock: $${currentPrice} → ${currentPrice < strike ? 'BELOW short strike = MAX PROFIT ZONE' : currentPrice < buyStrike ? 'BETWEEN strikes = PARTIAL' : 'ABOVE long strike = MAX LOSS'}
+- In your response, state the current profit/loss status based on where stock is relative to BOTH strikes
+═══ END INSTRUCTIONS ═══
+`;
+    } else if (isShortPosition && isPut) {
         aiInstructions = `
 ═══ IMPORTANT INSTRUCTIONS (DO NOT ECHO THESE IN YOUR RESPONSE) ═══
 For this SHORT PUT position:
@@ -234,14 +287,19 @@ For this SHORT CALL position:
 `;
     }
     
-    return `You are conducting a POSITION CHECKUP for ${isLongPosition ? 'a LONG option position' : 'a wheel trade'}. Compare the opening thesis to current conditions.
+    // Build strikes display based on position type
+    const strikesDisplay = (isSpread || isCreditSpread || isDebitSpread)
+        ? `Sell Strike: $${strike}\nBuy Strike: $${buyStrike}\nSpread Width: $${spreadWidth || Math.abs(strike - buyStrike)}`
+        : `Strike: $${strike}`;
+    
+    return `You are conducting a POSITION CHECKUP for ${isLongPosition ? 'a LONG option position' : isCreditSpread || isDebitSpread ? 'an option spread' : 'a wheel trade'}. Compare the opening thesis to current conditions.
 ${aiInstructions}
 ═══ THE POSITION ═══
 Ticker: ${ticker}
 Trade: ${positionDesc}, expiry ${expiry}
-Position Type: ${isLongPosition ? '🟠 LONG (debit) - You PAID premium and profit from DIRECTION, not theta!' : '🟢 SHORT (credit) - You collected premium and profit from theta decay'}
+Position Type: ${isCreditSpread ? '🔷 CREDIT SPREAD - Collected premium, max profit if expires OTM' : isDebitSpread ? '🔶 DEBIT SPREAD - Paid premium, max profit if expires deep ITM' : isLongPosition ? '🟠 LONG (debit) - You PAID premium and profit from DIRECTION, not theta!' : '🟢 SHORT (credit) - You collected premium and profit from theta decay'}
 ${winCondition}
-Strike: $${strike}
+${strikesDisplay}
 Days to Expiry: ${dte}
 Days Held: ${daysSinceOpen}
 
