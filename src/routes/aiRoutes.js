@@ -206,16 +206,23 @@ router.post('/strategy-advisor', async (req, res) => {
             kellyBase: kellyBase || null,
             riskTolerance: riskTolerance || 'moderate',
             existingPositions: existingPositions || [],
-            dataSource
+            dataSource,
+            model: selectedModel  // For Expert Mode to decide lite vs full prompt
         };
         
         // 4. Build AI prompt - Expert Mode or Guided Mode
         let prompt, calculatedValues;
         if (expertMode) {
-            console.log(`[STRATEGY-ADVISOR] 🎯 Using EXPERT MODE - AI has full analytical freedom`);
             const result = promptBuilders.buildExpertModePrompt(context);
             prompt = result.prompt;
             calculatedValues = null;  // Expert mode - AI does its own math
+            
+            // Log mode selection
+            if (result.liteMode) {
+                console.log(`[STRATEGY-ADVISOR] 🎯 EXPERT MODE (LITE) - No options chain sent, faster response`);
+            } else {
+                console.log(`[STRATEGY-ADVISOR] 🎯 EXPERT MODE (FULL) - AI has complete options chain`);
+            }
         } else {
             const result = promptBuilders.buildStrategyAdvisorPrompt(context);
             prompt = result.prompt;

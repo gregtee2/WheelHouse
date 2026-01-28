@@ -2206,38 +2206,45 @@ For each rejected strategy, include letter AND name:
 // EXPERT MODE STRATEGY ADVISOR - Maximum AI freedom with structured output
 // ═══════════════════════════════════════════════════════════════════════════
 function buildExpertModePrompt(context) {
-    const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, accountValue, riskTolerance, existingPositions, dataSource } = context;
+    const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, accountValue, riskTolerance, existingPositions, dataSource, model } = context;
     
-    // Build full options chain summary
-    const puts = sampleOptions?.filter(o => o.option_type === 'P').sort((a, b) => parseFloat(b.strike) - parseFloat(a.strike)) || [];
-    const calls = sampleOptions?.filter(o => o.option_type === 'C').sort((a, b) => parseFloat(a.strike) - parseFloat(b.strike)) || [];
+    // Detect if this is a Grok model - use "lite" mode (no options chain) for faster response
+    // Grok 4 is incredibly smart but also slow when given huge prompts
+    // Lite mode: AI picks strategy based on spot/IV/range, staging validates strikes
+    const isGrokModel = model?.toLowerCase().includes('grok');
+    const useLiteMode = isGrokModel;
     
-    // Format options chain for AI
+    // Build full options chain summary (only for non-Grok models)
     let chainSummary = '';
-    if (puts.length > 0) {
-        chainSummary += 'PUT OPTIONS (sorted high to low strike):\n';
-        chainSummary += puts.slice(0, 15).map(o => {
-            const strike = parseFloat(o.strike);
-            const bid = parseFloat(o.bid) || 0;
-            const ask = parseFloat(o.ask) || 0;
-            const mid = ((bid + ask) / 2).toFixed(2);
-            const delta = o.delta ? parseFloat(o.delta).toFixed(2) : 'N/A';
-            const iv = o.iv ? (parseFloat(o.iv) * 100).toFixed(1) + '%' : 'N/A';
-            return `  $${strike.toFixed(0)} PUT: bid $${bid.toFixed(2)} / ask $${ask.toFixed(2)} (mid $${mid}) | Δ${delta} | IV ${iv}`;
-        }).join('\n');
-    }
-    
-    if (calls.length > 0) {
-        chainSummary += '\n\nCALL OPTIONS (sorted low to high strike):\n';
-        chainSummary += calls.slice(0, 15).map(o => {
-            const strike = parseFloat(o.strike);
-            const bid = parseFloat(o.bid) || 0;
-            const ask = parseFloat(o.ask) || 0;
-            const mid = ((bid + ask) / 2).toFixed(2);
-            const delta = o.delta ? parseFloat(o.delta).toFixed(2) : 'N/A';
-            const iv = o.iv ? (parseFloat(o.iv) * 100).toFixed(1) + '%' : 'N/A';
-            return `  $${strike.toFixed(0)} CALL: bid $${bid.toFixed(2)} / ask $${ask.toFixed(2)} (mid $${mid}) | Δ${delta} | IV ${iv}`;
-        }).join('\n');
+    if (!useLiteMode && sampleOptions?.length > 0) {
+        const puts = sampleOptions.filter(o => o.option_type === 'P').sort((a, b) => parseFloat(b.strike) - parseFloat(a.strike));
+        const calls = sampleOptions.filter(o => o.option_type === 'C').sort((a, b) => parseFloat(a.strike) - parseFloat(b.strike));
+        
+        if (puts.length > 0) {
+            chainSummary += 'PUT OPTIONS (sorted high to low strike):\n';
+            chainSummary += puts.slice(0, 15).map(o => {
+                const strike = parseFloat(o.strike);
+                const bid = parseFloat(o.bid) || 0;
+                const ask = parseFloat(o.ask) || 0;
+                const mid = ((bid + ask) / 2).toFixed(2);
+                const delta = o.delta ? parseFloat(o.delta).toFixed(2) : 'N/A';
+                const iv = o.iv ? (parseFloat(o.iv) * 100).toFixed(1) + '%' : 'N/A';
+                return `  $${strike.toFixed(0)} PUT: bid $${bid.toFixed(2)} / ask $${ask.toFixed(2)} (mid $${mid}) | Δ${delta} | IV ${iv}`;
+            }).join('\n');
+        }
+        
+        if (calls.length > 0) {
+            chainSummary += '\n\nCALL OPTIONS (sorted low to high strike):\n';
+            chainSummary += calls.slice(0, 15).map(o => {
+                const strike = parseFloat(o.strike);
+                const bid = parseFloat(o.bid) || 0;
+                const ask = parseFloat(o.ask) || 0;
+                const mid = ((bid + ask) / 2).toFixed(2);
+                const delta = o.delta ? parseFloat(o.delta).toFixed(2) : 'N/A';
+                const iv = o.iv ? (parseFloat(o.iv) * 100).toFixed(1) + '%' : 'N/A';
+                return `  $${strike.toFixed(0)} CALL: bid $${bid.toFixed(2)} / ask $${ask.toFixed(2)} (mid $${mid}) | Δ${delta} | IV ${iv}`;
+            }).join('\n');
+        }
     }
     
     // Format existing positions
@@ -2256,6 +2263,26 @@ function buildExpertModePrompt(context) {
         const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
         return `${exp} (${dte} DTE)`;
     }).join(', ') || 'Not available';
+    
+    // Lite mode: explain that we'll validate strikes later
+    const liteModeNote = useLiteMode ? `
+
+NOTE: You are running in LITE MODE (faster response). I don't have the exact options chain, 
+but I know ${ticker} is a liquid stock with standard strike intervals. Pick strikes that make 
+sense for the current price ($${spot.toFixed(2)}). Our trading desk will validate and 
+adjust strikes to actual available options before execution.
+
+For premium estimates, use these rules of thumb based on IV Rank ${ivRank || 50}%:
+• ATM options: ~2-4% of stock price for 30-45 DTE
+• 1 strike OTM: ~1-2% of stock price
+• 2 strikes OTM: ~0.5-1% of stock price
+• Credit spreads: typically $1-3 wide, collecting 25-35% of spread width
+` : '';
+    
+    // Build options chain section
+    const optionsChainSection = useLiteMode 
+        ? `OPTIONS CHAIN: Not provided (LITE MODE - pick reasonable strikes based on spot price)${liteModeNote}`
+        : `OPTIONS CHAIN (First Available Expiration):\n${chainSummary || 'No options data available'}`;
     
     const prompt = `════════════════════════════════════════════════════════════════════════════════
                       WALL STREET DERIVATIVES DESK - TRADE RECOMMENDATION
@@ -2288,8 +2315,7 @@ VOLATILITY:
 AVAILABLE EXPIRATIONS:
 ${expirationsText}
 
-OPTIONS CHAIN (First Available Expiration):
-${chainSummary || 'No options data available'}
+${optionsChainSection}
 
 ════════════════════════════════════════════════════════════════════════════════
                               CLIENT CONSTRAINTS
@@ -2377,9 +2403,16 @@ You MUST structure your response EXACTLY as follows (this format is parsed by ou
 ════════════════════════════════════════════════════════════════════════════════
                               FINAL NOTES
 ════════════════════════════════════════════════════════════════════════════════
+${useLiteMode ? `
+⚠️ LITE MODE: Pick strikes that make sense for $${spot.toFixed(2)} spot price. Use standard intervals 
+   ($1 for stocks under $50, $2.50 or $5 for $50-200, $5 or $10 for $200+).
+   Our trading desk will validate and adjust to actual available strikes.
 
+⚠️ PREMIUM ESTIMATES: Your estimates don't need to be exact - we'll fetch real bid/ask at execution.
+   Focus on strategy selection and strike positioning.
+` : `
 ⚠️ CRITICAL: Use ONLY strikes from the options chain provided above. Do not invent strikes that don't exist.
-
+`}
 ⚠️ MATH CHECK: Double-check all P&L calculations. For credit spreads:
    Max Profit = Credit Received × 100
    Max Loss = (Spread Width - Credit) × 100
@@ -2389,7 +2422,8 @@ Think like the senior trader you are. What would you actually recommend to a cli
     return {
         prompt,
         calculatedValues: null,  // Expert mode doesn't pre-calculate - AI does the math
-        expertMode: true
+        expertMode: true,
+        liteMode: useLiteMode  // Track if lite mode was used
     };
 }
 
