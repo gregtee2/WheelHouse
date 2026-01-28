@@ -2079,8 +2079,16 @@ Copy the numbers from your chosen SETUP above. Format as:
 | Below $[lower strike] | Max Loss | -$X |
 
 ### OTHER STRATEGIES CONSIDERED
-• [Letter]: [1-line reason why not ideal here]
-• [Letter]: [1-line reason why not ideal here]
+For each rejected strategy, include letter AND name:
+• A (Short Put): [1-line reason why not ideal]
+• B (Put Credit Spread): [1-line reason why not ideal]
+• C (Covered Call): [1-line reason why not ideal]
+• D (Call Credit Spread): [1-line reason why not ideal]
+• E (Long Put): [1-line reason why not ideal]
+• F (Long Call): [1-line reason why not ideal]
+• G (Iron Condor): [1-line reason why not ideal]
+• H (SKIP™): [1-line reason why not ideal]
+(Skip the one you recommended - only list rejected strategies)
 
 ### 💡 FOR BEGINNERS
 [2-3 sentences explaining this strategy in plain English for someone new to options]`;
