@@ -2380,6 +2380,12 @@ Provide 2-3 RANKED trade options: a primary high-probability play AND 1-2 altern
 
 You MUST structure your response EXACTLY as follows (this format is parsed by our system):
 
+## 🧠 CHANSPLANATION (TL;DR)
+
+[2-3 sentences MAX. Explain like you're texting a friend who asked "what's the play?" Include: the trade direction (bullish/bearish/neutral), the strategy in plain English, and why it makes sense RIGHT NOW. No jargon, no numbers - just the vibe.]
+
+---
+
 ## 📊 MARKET ANALYSIS
 
 [2-3 paragraphs explaining your read on the stock: price action, range, momentum, any known catalysts. Is this a good wheel candidate (would you want to own shares)? What does IV suggest about strategy selection?]
