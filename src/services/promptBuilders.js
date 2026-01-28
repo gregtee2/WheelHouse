@@ -195,12 +195,28 @@ Now: $${currMid.toFixed(2)} mid (${pctChange >= 0 ? '+' : ''}${pctChange}%)
 ${profitMessage}`;
     }
     
+    // Determine win condition based on position type
+    const isPut = type?.toLowerCase().includes('put');
+    const isShortPosition = !isLongPosition;
+    let winCondition = '';
+    if (isShortPosition && isPut) {
+        winCondition = `🎯 WIN CONDITION: Stock must stay ABOVE $${strike} for put to expire worthless. Currently ${currentPrice > strike ? '✅ ABOVE strike (good!)' : '⚠️ BELOW strike (in trouble!)'}`;
+    } else if (isShortPosition && !isPut) {
+        winCondition = `🎯 WIN CONDITION: Stock must stay BELOW $${strike} for call to expire worthless. Currently ${currentPrice < strike ? '✅ BELOW strike (good!)' : '⚠️ ABOVE strike (in trouble!)'}`;
+    } else if (isLongPosition && isCall) {
+        winCondition = `🎯 WIN CONDITION: Stock must rise ABOVE $${strike} + premium for profit. Currently ${currentPrice > strike ? '✅ ITM' : '⚠️ OTM'}`;
+    } else if (isLongPosition && !isCall) {
+        winCondition = `🎯 WIN CONDITION: Stock must fall BELOW $${strike} - premium for profit. Currently ${currentPrice < strike ? '✅ ITM' : '⚠️ OTM'}`;
+    }
+    
     return `You are conducting a POSITION CHECKUP for ${isLongPosition ? 'a LONG option position' : 'a wheel trade'}. Compare the opening thesis to current conditions.
 
 ═══ THE POSITION ═══
 Ticker: ${ticker}
 Trade: ${positionDesc}, expiry ${expiry}
 Position Type: ${isLongPosition ? '🟠 LONG (debit) - You PAID premium and profit from DIRECTION, not theta!' : '🟢 SHORT (credit) - You collected premium and profit from theta decay'}
+${winCondition}
+Strike: $${strike}
 Days to Expiry: ${dte}
 Days Held: ${daysSinceOpen}
 
@@ -244,9 +260,21 @@ Summary: ${o.aiSummary?.summary || 'N/A'}
 Has the original reason for entry been validated, invalidated, or is it still playing out?
 
 **2. RISK ASSESSMENT**
-- Distance from strike: Is the stock now closer or further from $${strike}?
+${isShortPosition && isPut ? `
+🎯 SHORT PUT RISK CHECK: 
+- Stock MUST STAY ABOVE $${strike} for put to expire worthless!
+- Current: $${currentPrice} | Strike: $${strike} | Buffer: $${(currentPrice - strike).toFixed(2)} ${currentPrice > strike ? '✅ (safe zone)' : '❌ (IN THE MONEY - assignment risk!)'}
+- Entry price was: $${o.priceAtAnalysis || 'unknown'} → Stock moved ${currentPrice > (o.priceAtAnalysis || currentPrice) ? '⬆️ UP (good for short put)' : '⬇️ DOWN (bad for short put)'}
+- Key question: Are support levels holding? If stock breaks below $${strike}, you WILL be assigned.`
+: isShortPosition && isCall ? `
+🎯 SHORT CALL RISK CHECK:
+- Stock MUST STAY BELOW $${strike} for call to expire worthless!
+- Current: $${currentPrice} | Strike: $${strike} | Buffer: $${(strike - currentPrice).toFixed(2)} ${currentPrice < strike ? '✅ (safe zone)' : '❌ (IN THE MONEY - assignment risk!)'}
+- Key question: Will the stock stay below $${strike}?`
+: `
+- Distance from strike: Is the stock now closer or further from $${strike}?`}
 - Support levels: Have they held or broken?
-- Probability of assignment: Higher, lower, or same as at entry?
+- Probability of assignment: ${isShortPosition ? 'Higher, lower, or same as at entry?' : 'N/A for long positions'}
 
 **3. TIME DECAY / THETA**
 With ${dte} days remaining:
