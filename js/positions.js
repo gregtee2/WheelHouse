@@ -1451,7 +1451,7 @@ export function loadPositions() {
             });
             
             if (needsSave) {
-                localStorage.setItem(HOLDINGS_KEY, JSON.stringify(state.holdings));
+                localStorage.setItem(getHoldingsStorageKey(), JSON.stringify(state.holdings));
                 console.log('Migrated holdings with new fields from linked positions');
             }
         } else {
@@ -1900,7 +1900,7 @@ export function addPosition() {
             }
             // Also store holding ID on the position for cross-reference
             position.linkedHoldingId = holdingId;
-            localStorage.setItem(HOLDINGS_KEY, JSON.stringify(state.holdings));
+            localStorage.setItem(getHoldingsStorageKey(), JSON.stringify(state.holdings));
         }
         
         state.positions.push(position);
