@@ -2271,7 +2271,7 @@ For each rejected strategy, include letter AND name:
 // EXPERT MODE STRATEGY ADVISOR - Maximum AI freedom with structured output
 // ═══════════════════════════════════════════════════════════════════════════
 function buildExpertModePrompt(context) {
-    const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, accountValue, riskTolerance, existingPositions, dataSource, model } = context;
+    const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, accountValue, riskTolerance, existingPositions, sharesOwned, costBasis, dataSource, model } = context;
     
     // Detect if this is a Grok model - use "lite" mode (no options chain) for faster response
     // Grok 4 is incredibly smart but also slow when given huge prompts
@@ -2319,6 +2319,22 @@ function buildExpertModePrompt(context) {
         if (tickerPositions.length > 0) {
             positionsContext = tickerPositions.map(p => `  • ${p.type}: $${p.strike} exp ${p.expiry}`).join('\n');
         }
+    }
+    
+    // Format share holdings (enables covered call recommendations)
+    let sharesContext = '';
+    if (sharesOwned > 0) {
+        const coveredCallContracts = Math.floor(sharesOwned / 100);
+        sharesContext = `
+🎯 IMPORTANT - CLIENT OWNS SHARES:
+• Shares Owned: ${sharesOwned} shares of ${ticker}
+• Cost Basis: $${costBasis?.toFixed(2) || 'Unknown'}
+• Covered Call Eligibility: ${coveredCallContracts} contract${coveredCallContracts !== 1 ? 's' : ''} (${coveredCallContracts * 100} shares)
+${sharesOwned % 100 > 0 ? `• Uncovered Shares: ${sharesOwned % 100} (not enough for another contract)` : ''}
+• Assignment Breakeven: $${costBasis?.toFixed(2) || 'Unknown'} (strike must be ABOVE this to profit on assignment)
+
+→ COVERED CALLS should be your PRIMARY or TOP ALTERNATIVE recommendation when client owns shares!
+→ Strike selection: Above cost basis = guaranteed profit if called away`;
     }
     
     // Available expirations
@@ -2423,6 +2439,7 @@ ${optionsChainSection}
 
 EXISTING POSITIONS IN ${ticker}:
 ${positionsContext}
+${sharesContext}
 
 ════════════════════════════════════════════════════════════════════════════════
                               YOUR TASK

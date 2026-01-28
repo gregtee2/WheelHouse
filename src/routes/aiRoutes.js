@@ -88,12 +88,16 @@ router.post('/critique', async (req, res) => {
 router.post('/strategy-advisor', async (req, res) => {
     try {
         const data = req.body;
-        const { ticker, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, model, expertMode } = data;
+        const { ticker, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, model, expertMode, sharesOwned, costBasis } = data;
         const selectedModel = model || 'qwen2.5:32b';
         
         console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with model ${selectedModel}${expertMode ? ' (EXPERT MODE)' : ''}`);
         console.log(`[STRATEGY-ADVISOR] Buying power from request: ${buyingPower} (type: ${typeof buyingPower})`);
         
+        // Log share holdings if present (enables covered call recommendations)
+        if (sharesOwned > 0) {
+            console.log(`[STRATEGY-ADVISOR] 📦 User owns ${sharesOwned} shares @ $${costBasis?.toFixed(2) || '?'} cost basis`);
+        }        
         // 1. Get stock quote
         const quote = await MarketDataService.getQuote(ticker);
         if (!quote) {
@@ -206,6 +210,8 @@ router.post('/strategy-advisor', async (req, res) => {
             kellyBase: kellyBase || null,
             riskTolerance: riskTolerance || 'moderate',
             existingPositions: existingPositions || [],
+            sharesOwned: sharesOwned || 0,       // NEW: Enables covered call recommendations
+            costBasis: costBasis || 0,           // NEW: For breakeven calculations
             dataSource,
             model: selectedModel  // For Expert Mode to decide lite vs full prompt
         };

@@ -5182,6 +5182,16 @@ window.runStrategyAdvisor = async function() {
         // Get existing positions for context
         const existingPositions = state.positions || [];
         
+        // Check if user has holdings (shares) for this ticker - enables covered call recommendations
+        const holdings = state.holdings || [];
+        const tickerHolding = holdings.find(h => h.ticker?.toUpperCase() === ticker);
+        const sharesOwned = tickerHolding?.shares || 0;
+        const costBasis = tickerHolding?.costBasis || tickerHolding?.averageCost || 0;
+        
+        if (sharesOwned > 0) {
+            console.log(`[STRATEGY-ADVISOR] User owns ${sharesOwned} shares of ${ticker} @ $${costBasis.toFixed(2)} cost basis`);
+        }
+        
         console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with Kelly-capped BP=$${perTradeCap.toLocaleString()}${expertMode ? ' (EXPERT MODE)' : ''}...`);
         
         const response = await fetch('/api/ai/strategy-advisor', {
@@ -5193,6 +5203,8 @@ window.runStrategyAdvisor = async function() {
                 buyingPower: perTradeCap,  // Send Kelly-capped amount, not raw BP
                 accountValue,               // For context in prompt
                 kellyBase,                  // For display
+                sharesOwned,                // NEW: Share holdings for covered call eligibility
+                costBasis,                  // NEW: Cost basis for breakeven calcs
                 riskTolerance,
                 existingPositions,
                 expertMode                  // Wall Street Mode - free AI analysis
