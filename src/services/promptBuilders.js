@@ -196,7 +196,7 @@ ${profitMessage}`;
     }
     
     // Determine win condition based on position type
-    const isPut = type?.toLowerCase().includes('put');
+    const isPut = positionType?.toLowerCase().includes('put');
     const isShortPosition = !isLongPosition;
     let winCondition = '';
     if (isShortPosition && isPut) {
