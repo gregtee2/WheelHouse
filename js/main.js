@@ -2540,19 +2540,32 @@ window.renderPendingTrades = function() {
         const expDate = expiryDate ? new Date(expiryDate) : null;
         const dte = expDate ? Math.ceil((expDate - today) / (1000 * 60 * 60 * 24)) : null;
         
-        // Calculate credit (premium × 100)
+        // Calculate credit/debit display (premium × 100)
         const credit = p.premium ? (p.premium * 100) : null;
         
         // Calculate annualized return based on trade type
         let annReturn = null;
         if (p.premium && dte > 0) {
             const isSpread = p.type?.includes('_spread') || p.upperStrike;
+            const isDebitSpread = p.isDebit || p.type?.includes('debit');
+            
             if (isSpread && p.strike && p.upperStrike) {
-                // For spreads: return on buying power (spread width)
                 const spreadWidth = Math.abs(p.strike - p.upperStrike);
-                const buyingPowerPerContract = spreadWidth * 100;  // Full spread width is buying power
-                if (buyingPowerPerContract > 0) {
-                    annReturn = ((p.premium * 100) / buyingPowerPerContract * (365 / dte) * 100).toFixed(1);
+                
+                if (isDebitSpread) {
+                    // For DEBIT spreads: (Max Profit / Debit Paid) × (365 / DTE) × 100
+                    // Max Profit = Spread Width - Debit
+                    const maxProfit = (spreadWidth - p.premium) * 100;
+                    const debitPaid = p.premium * 100;
+                    if (debitPaid > 0) {
+                        annReturn = ((maxProfit / debitPaid) * (365 / dte) * 100).toFixed(1);
+                    }
+                } else {
+                    // For CREDIT spreads: (Premium / Spread Width) × (365 / DTE) × 100
+                    const buyingPowerPerContract = spreadWidth * 100;
+                    if (buyingPowerPerContract > 0) {
+                        annReturn = ((p.premium * 100) / buyingPowerPerContract * (365 / dte) * 100).toFixed(1);
+                    }
                 }
             } else if (p.strike) {
                 // For single legs: (premium / strike) × (365 / DTE) × 100
@@ -4812,11 +4825,65 @@ window.stageStrategyAdvisorTrade = async function() {
         console.log('[STAGE] Detected spread from header: ' + tradeType + ' $' + strike + '/$' + upperStrike + ' exp ' + (expiry || 'TBD'));
     }
     
+    // Method 1b: Look for DEBIT spread format "Buy TICKER $XX Put / Sell TICKER $XX Put"
+    // This is the Bear Put Spread or Bull Call Spread format (you pay to open)
+    if (!spreadMatch) {
+        const debitSpreadMatch = recommendation?.match(/Buy\s+\w+\s+\$(\d+(?:\.\d+)?)\s+(Put|Call)\s*\/\s*Sell\s+\w+\s+\$(\d+(?:\.\d+)?)\s+(Put|Call)[,.]?\s*(\d{4}-\d{2}-\d{2})?/i);
+        if (debitSpreadMatch) {
+            const buyStrike = parseFloat(debitSpreadMatch[1]);
+            const buyType = debitSpreadMatch[2].toLowerCase();
+            const sellStrike = parseFloat(debitSpreadMatch[3]);
+            let expDate = debitSpreadMatch[5];
+            
+            // If no date in the header line, look for date elsewhere
+            if (!expDate) {
+                const dateMatch = recommendation?.match(/(\d{4}-\d{2}-\d{2})\s*(?:expir|exp)/i);
+                if (dateMatch) expDate = dateMatch[1];
+            }
+            
+            if (buyType === 'put') {
+                // Bear Put Spread: Buy higher put, sell lower put
+                tradeType = 'put_debit_spread';
+                strike = buyStrike;      // Buy strike (higher for bear put)
+                upperStrike = sellStrike; // Sell strike (lower for bear put)
+                isDebit = true;
+            } else {
+                // Bull Call Spread: Buy lower call, sell higher call
+                tradeType = 'call_debit_spread';
+                isCall = true;
+                strike = buyStrike;      // Buy strike (lower for bull call)
+                upperStrike = sellStrike; // Sell strike (higher for bull call)
+                isDebit = true;
+            }
+            
+            if (expDate) expiry = expDate;
+            console.log('[STAGE] Detected DEBIT spread: ' + tradeType + ' $' + strike + '/$' + upperStrike + ' exp ' + (expiry || 'TBD'));
+        }
+    }
+    
     // Method 2: Look for "Credit Received: $X.XX/share" or "Credit Received: $X.XX"
     const creditMatch = recommendation?.match(/Credit\s+Received:\s*\$(\d+(?:\.\d+)?)(?:\/share)?/i);
     if (creditMatch) {
         premium = parseFloat(creditMatch[1]);
         console.log('[STAGE] Found credit received: $' + premium);
+    }
+    
+    // Method 2b: Look for "Net Debit: $X.XX" for debit spreads
+    if (!premium && isDebit) {
+        const debitMatch = recommendation?.match(/Net\s+Debit:\s*\$(\d+(?:\.\d+)?)(?:\s*per\s*share)?/i);
+        if (debitMatch) {
+            premium = parseFloat(debitMatch[1]);
+            console.log('[STAGE] Found net debit: $' + premium);
+        }
+    }
+    
+    // Method 2c: Look for "Net Credit: $X.XX" (alternate format for credit spreads)
+    if (!premium) {
+        const netCreditMatch = recommendation?.match(/Net\s+Credit:\s*\$(\d+(?:\.\d+)?)(?:\s*per\s*share)?/i);
+        if (netCreditMatch) {
+            premium = parseFloat(netCreditMatch[1]);
+            console.log('[STAGE] Found net credit: $' + premium);
+        }
     }
     
     // Method 3: Look for "Sell: $XX put @ $X.XX" pattern (alternate format)
