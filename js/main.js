@@ -5538,6 +5538,10 @@ window.stageStrategyAdvisorTrade = async function() {
         if (!maxProfitMatch) {
             maxProfitMatch = recommendation?.match(/Max\s+Profit:\s*\$?(\d+(?:,\d{3})*)/i);
         }
+        // Try table format "| Max Profit | $35 |" (Wall Street Mode)
+        if (!maxProfitMatch) {
+            maxProfitMatch = recommendation?.match(/\|\s*Max\s+Profit\s*\|\s*\$?(\d+(?:,\d{3})*)/i);
+        }
         if (maxProfitMatch) {
             const maxProfitPerContract = parseFloat(maxProfitMatch[1].replace(/,/g, ''));
             premium = maxProfitPerContract / 100;  // Convert back to per-share
