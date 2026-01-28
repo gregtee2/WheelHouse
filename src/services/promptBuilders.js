@@ -2444,6 +2444,16 @@ You MUST structure your response EXACTLY as follows (this format is parsed by ou
 
 ---
 
+## 🦴 CAVEMAN CORNER (ELI5)
+
+[Explain this trade like you're talking to someone who has ZERO financial knowledge. Use analogies to everyday things. NO JARGON ALLOWED - don't say: IV, spot, delta, premium, strike, expiry, OTM, ITM, theta, credit, debit, spread, contracts. Instead use plain words like: price, bet, win, lose, money, stock goes up/down, waiting, time. Example format:
+
+"We're betting that [COMPANY] stock stays above $XX. Think of it like getting paid to promise you'll buy something if it goes on sale - but you don't think it will. If the stock stays where it is or goes up, we keep the money we got paid. If it crashes below $XX, we have to buy shares at that price. We have until [DATE] to find out."
+
+Keep it to 3-4 sentences. Use "we" not "you". Make a 10-year-old understand it.]
+
+---
+
 ## 📊 MARKET ANALYSIS
 
 [2-3 paragraphs explaining your read on the stock: price action, range, momentum, any known catalysts. Is this a good wheel candidate (would you want to own shares)? What does IV suggest about strategy selection?]
