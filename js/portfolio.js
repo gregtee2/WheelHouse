@@ -119,8 +119,16 @@ export async function fetchAccountBalances() {
         // Check if we have a selected account from the header dropdown
         const selectedAcct = state.selectedAccount;
         
+        // Handle Paper Trading mode - don't fetch real balances
+        if (selectedAcct && selectedAcct.hashValue === 'paper') {
+            console.log('[BALANCES] Paper Trading mode - skipping Schwab fetch');
+            // Paper trading balances are managed by showPaperModeUI() in main.js
+            // Just return without overwriting
+            return;
+        }
+        
         // If user selected a specific account, fetch ONLY that account's balances
-        if (selectedAcct && selectedAcct.hashValue && selectedAcct.hashValue !== 'paper') {
+        if (selectedAcct && selectedAcct.hashValue) {
             console.log('[BALANCES] Using selected account from header:', selectedAcct.accountNumber?.slice(-4));
             
             const res = await fetch(`/api/schwab/accounts/${selectedAcct.hashValue}`);
