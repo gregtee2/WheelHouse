@@ -209,8 +209,33 @@ ${profitMessage}`;
         winCondition = `🎯 WIN CONDITION: Stock must fall BELOW $${strike} - premium for profit. Currently ${currentPrice < strike ? '✅ ITM' : '⚠️ OTM'}`;
     }
     
+    // Build instruction block (for AI understanding, NOT to be echoed in output)
+    let aiInstructions = '';
+    if (isShortPosition && isPut) {
+        aiInstructions = `
+═══ IMPORTANT INSTRUCTIONS (DO NOT ECHO THESE IN YOUR RESPONSE) ═══
+For this SHORT PUT position:
+- The thesis is VALID if stock is ABOVE $${strike}, INVALID if BELOW $${strike}
+- Current stock: $${currentPrice} → ${currentPrice > strike ? 'ABOVE strike = THESIS VALID' : 'BELOW strike = THESIS BROKEN'}
+- Price movement from entry is NOT relevant to thesis validity - only the strike matters
+- Do NOT say "thesis invalidated because price dropped" if stock is still above strike
+- In your response, simply state whether thesis is valid/invalid based on stock vs strike
+═══ END INSTRUCTIONS ═══
+`;
+    } else if (isShortPosition && !isPut) {
+        aiInstructions = `
+═══ IMPORTANT INSTRUCTIONS (DO NOT ECHO THESE IN YOUR RESPONSE) ═══
+For this SHORT CALL position:
+- The thesis is VALID if stock is BELOW $${strike}, INVALID if ABOVE $${strike}
+- Current stock: $${currentPrice} → ${currentPrice < strike ? 'BELOW strike = THESIS VALID' : 'ABOVE strike = THESIS BROKEN'}
+- Price movement from entry is NOT relevant to thesis validity - only the strike matters
+- In your response, simply state whether thesis is valid/invalid based on stock vs strike
+═══ END INSTRUCTIONS ═══
+`;
+    }
+    
     return `You are conducting a POSITION CHECKUP for ${isLongPosition ? 'a LONG option position' : 'a wheel trade'}. Compare the opening thesis to current conditions.
-
+${aiInstructions}
 ═══ THE POSITION ═══
 Ticker: ${ticker}
 Trade: ${positionDesc}, expiry ${expiry}
@@ -257,17 +282,14 @@ Summary: ${o.aiSummary?.summary || 'N/A'}
 ═══ YOUR CHECKUP ASSESSMENT ═══
 
 **1. THESIS STATUS**
-${isShortPosition && isPut ? `
-⚠️ CRITICAL FOR SHORT PUT: The ONLY thing that matters is whether stock is ABOVE or BELOW $${strike}!
-- Current: $${currentPrice} vs Strike: $${strike}
-- ${currentPrice > strike ? `✅ Stock is ABOVE strike → THESIS IS VALID (you are winning!)` : `❌ Stock is BELOW strike → THESIS IS BROKEN (assignment risk!)`}
-- Whether stock moved up or down from ENTRY PRICE is IRRELEVANT. Only the strike matters!
-- Do NOT say "thesis invalidated because price dropped" if stock is still above strike!` 
-: isShortPosition && !isPut ? `
-⚠️ CRITICAL FOR SHORT CALL: The ONLY thing that matters is whether stock is ABOVE or BELOW $${strike}!
-- Current: $${currentPrice} vs Strike: $${strike}
-- ${currentPrice < strike ? `✅ Stock is BELOW strike → THESIS IS VALID (you are winning!)` : `❌ Stock is ABOVE strike → THESIS IS BROKEN (assignment risk!)`}
-- Whether stock moved up or down from ENTRY PRICE is IRRELEVANT. Only the strike matters!`
+${isShortPosition && isPut ? 
+    (currentPrice > strike ? 
+        `Stock at $${currentPrice} is ABOVE $${strike} strike → Thesis is VALID. Assess if it will stay above strike through expiry.` : 
+        `Stock at $${currentPrice} is BELOW $${strike} strike → Thesis is BROKEN. Assignment risk is high.`)
+: isShortPosition && !isPut ? 
+    (currentPrice < strike ? 
+        `Stock at $${currentPrice} is BELOW $${strike} strike → Thesis is VALID. Assess if it will stay below strike through expiry.` : 
+        `Stock at $${currentPrice} is ABOVE $${strike} strike → Thesis is BROKEN. Assignment risk is high.`)
 : `Has the original reason for entry been validated, invalidated, or is it still playing out?`}
 
 **2. RISK ASSESSMENT**
