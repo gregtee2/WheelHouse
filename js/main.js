@@ -3477,9 +3477,8 @@ window.runPositionCheckup = async function(positionId) {
         return;
     }
     
-    // Get selected model
-    const modelSelect = document.getElementById('ollamaModel');
-    const model = modelSelect?.value || 'qwen2.5:7b';
+    // Use global model selector (with local aiModelSelect as override)
+    const model = window.getSelectedAIModel?.('aiModelSelect') || 'deepseek-r1:32b';
     
     // Create loading modal
     const modal = document.createElement('div');
@@ -3552,26 +3551,38 @@ window.runPositionCheckup = async function(positionId) {
         // Parse suggested trade from AI response
         let suggestedTrade = null;
         const tradeMatch = checkupText.match(/===SUGGESTED_TRADE===([\s\S]*?)===END_TRADE===/);
-        if (tradeMatch) {
+        if (tradeMatch && recommendation !== 'HOLD') {
             const tradeBlock = tradeMatch[1];
-            suggestedTrade = {
-                action: tradeBlock.match(/ACTION:\s*(\S+)/)?.[1] || 'NONE',
-                closeStrike: parseFloat(tradeBlock.match(/CLOSE_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
-                closeExpiry: tradeBlock.match(/CLOSE_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
-                closeType: tradeBlock.match(/CLOSE_TYPE:\s*(\S+)/)?.[1] || null,
-                newStrike: parseFloat(tradeBlock.match(/NEW_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
-                newExpiry: tradeBlock.match(/NEW_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
-                newType: tradeBlock.match(/NEW_TYPE:\s*(\S+)/)?.[1] || null,
-                estimatedDebit: tradeBlock.match(/ESTIMATED_DEBIT:\s*(.+)/)?.[1]?.trim() || null,
-                estimatedCredit: tradeBlock.match(/ESTIMATED_CREDIT:\s*(.+)/)?.[1]?.trim() || null,
-                netCost: tradeBlock.match(/NET_COST:\s*(.+)/)?.[1]?.trim() || null,
-                rationale: tradeBlock.match(/RATIONALE:\s*(.+)/)?.[1]?.trim() || null,
-                ticker: pos.ticker,
-                originalPositionId: positionId
-            };
-            console.log('[CHECKUP] Parsed suggested trade:', suggestedTrade);
-            // Store for staging
-            window._lastCheckupSuggestedTrade = suggestedTrade;
+            const action = tradeBlock.match(/ACTION:\s*(\S+)/)?.[1] || 'NONE';
+            
+            // Skip if action is NONE or HOLD
+            if (action !== 'NONE' && action !== 'HOLD') {
+                // Helper to filter out placeholder text (starts with [ or contains "e.g.")
+                const cleanValue = (val) => {
+                    if (!val) return null;
+                    if (val.startsWith('[') || val.includes('e.g.') || val === 'N/A') return null;
+                    return val;
+                };
+                
+                suggestedTrade = {
+                    action: action,
+                    closeStrike: parseFloat(tradeBlock.match(/CLOSE_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
+                    closeExpiry: tradeBlock.match(/CLOSE_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
+                    closeType: tradeBlock.match(/CLOSE_TYPE:\s*(\S+)/)?.[1] || null,
+                    newStrike: parseFloat(tradeBlock.match(/NEW_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
+                    newExpiry: tradeBlock.match(/NEW_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
+                    newType: tradeBlock.match(/NEW_TYPE:\s*(\S+)/)?.[1] || null,
+                    estimatedDebit: cleanValue(tradeBlock.match(/ESTIMATED_DEBIT:\s*(.+)/)?.[1]?.trim()),
+                    estimatedCredit: cleanValue(tradeBlock.match(/ESTIMATED_CREDIT:\s*(.+)/)?.[1]?.trim()),
+                    netCost: cleanValue(tradeBlock.match(/NET_COST:\s*(.+)/)?.[1]?.trim()),
+                    rationale: cleanValue(tradeBlock.match(/RATIONALE:\s*(.+)/)?.[1]?.trim()),
+                    ticker: pos.ticker,
+                    originalPositionId: positionId
+                };
+                console.log('[CHECKUP] Parsed suggested trade:', suggestedTrade);
+                // Store for staging
+                window._lastCheckupSuggestedTrade = suggestedTrade;
+            }
         }
         
         // Log AI prediction for accuracy tracking
@@ -5367,6 +5378,31 @@ window.testWisdomForType = async function() {
     `;
     
     document.body.appendChild(modal);
+};
+
+/**
+ * Regenerate vector embeddings for all wisdom entries
+ * Use this if you've edited existing wisdom text or if embeddings are missing
+ */
+window.regenerateWisdomEmbeddings = async function() {
+    if (!confirm('This will regenerate vector embeddings for all wisdom entries.\n\nThis is only needed if:\n• You edited existing wisdom text\n• Embeddings are missing (Ollama was down when added)\n\nContinue?')) {
+        return;
+    }
+    
+    showNotification('🔄 Regenerating embeddings...', 'info');
+    
+    try {
+        const res = await fetch('/api/wisdom/regenerate-embeddings', { method: 'POST' });
+        const data = await res.json();
+        
+        if (data.error) {
+            showNotification(`❌ Error: ${data.error}`, 'error');
+        } else {
+            showNotification(`✅ Regenerated ${data.updated} embeddings`, 'success');
+        }
+    } catch (e) {
+        showNotification(`❌ Failed: ${e.message}`, 'error');
+    }
 };
 
 /**
