@@ -15,7 +15,6 @@
                 <h1>🏠<br>WheelHouse</h1>
             </div>
             <div class="header-right">
-                <button id="settingsBtn" onclick="showSettingsModal()" style="background:none; border:none; font-size:18px; cursor:pointer; opacity:0.4; transition:opacity 0.2s; position:absolute; top:10px; right:10px;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.4" title="Theme Settings">⚙️</button>
                 <p class="subtitle">Wheel Strategy Options Analyzer</p>
                 <div class="tabs">
                     <!-- Account Mode Switcher -->
@@ -50,8 +49,13 @@
                     <button class="tab-btn" data-tab="portfolio">💼 Portfolio</button>
                     <button class="tab-btn" data-tab="challenges">🏆</button>
                     <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
-                    <button onclick="window.open('docs/help.html', '_blank')" class="tab-btn" style="background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); margin-left:5px;" title="Open Documentation">❓ Help</button>
-                    <button id="restartServerBtn" onclick="restartServer()" class="tab-btn" style="background:rgba(180,120,60,0.3); border:1px solid rgba(180,120,60,0.5); margin-left:10px;" title="Restart Server">🔄</button>
+                    
+                    <!-- Utility buttons group -->
+                    <span style="display:inline-flex; align-items:center; margin-left:15px; gap:8px;">
+                        <button onclick="window.open('docs/help.html', '_blank')" class="tab-btn" style="background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3);" title="Open Documentation">❓ Help</button>
+                        <button id="restartServerBtn" onclick="restartServer()" class="tab-btn" style="background:rgba(180,120,60,0.3); border:1px solid rgba(180,120,60,0.5);" title="Restart Server">🔄 Restart</button>
+                        <button id="settingsBtn" onclick="showSettingsModal()" class="tab-btn" style="background:rgba(100,100,100,0.2); border:1px solid rgba(100,100,100,0.4);" title="Theme Settings">⚙️ Theme</button>
+                    </span>
                 </div>
             </div>
         </div>
