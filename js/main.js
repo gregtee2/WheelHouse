@@ -3500,9 +3500,18 @@ window.checkMarginForTrade = async function(ticker, strike, premium, isCall = fa
  * Run a checkup on a position - compares opening thesis to current market conditions
  */
 window.runPositionCheckup = async function(positionId) {
-    // Find the position
-    const positions = JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
-    const pos = positions.find(p => p.id === positionId);
+    // Find the position - check both real and paper accounts
+    const isPaperMode = window.state?.accountMode === 'paper';
+    const storageKey = isPaperMode ? 'wheelhouse_paper_positions' : 'wheelhouse_positions';
+    let positions = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    let pos = positions.find(p => p.id === positionId);
+    
+    // If not found in current mode, try the other storage (position might have been created in different mode)
+    if (!pos) {
+        const altKey = isPaperMode ? 'wheelhouse_positions' : 'wheelhouse_paper_positions';
+        const altPositions = JSON.parse(localStorage.getItem(altKey) || '[]');
+        pos = altPositions.find(p => p.id === positionId);
+    }
     
     if (!pos) {
         showNotification('Position not found', 'error');
