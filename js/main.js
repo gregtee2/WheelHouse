@@ -5294,10 +5294,37 @@ window.stageStrategyAdvisorTrade = async function() {
     
     console.log('[STAGE] Parsing recommendation...');
     
+    // Helper: Convert human-readable dates like "Feb 27 '26" or "Feb 27, 2026" to YYYY-MM-DD
+    const parseHumanDate = (text) => {
+        if (!text) return null;
+        const months = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+                         jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' };
+        
+        // Match "Feb 27 '26" or "Feb 27, 2026" or "February 27, 2026"
+        const match = text.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2})(?:,?\s*'?(\d{2,4}))?/i);
+        if (match) {
+            const month = months[match[1].toLowerCase().substring(0, 3)];
+            const day = match[2].padStart(2, '0');
+            let year = match[3] || new Date().getFullYear().toString();
+            if (year.length === 2) year = '20' + year;
+            return `${year}-${month}-${day}`;
+        }
+        return null;
+    };
+    
     // Method 1: Look for "Sell TICKER $XX/$XX Put Spread, DATE" format
     // Also handles "Bear Call Spread" and "Bull Put Spread" variations
     // Date can appear with or without "expiry" after it
-    const spreadMatch = recommendation?.match(/Sell\s+\w+\s+\$(\d+(?:\.\d+)?)\/\$(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread[,.]?\s*(\d{4}-\d{2}-\d{2})?/i);
+    // NEW: Also handles Wall Street format "Sell BITO Feb 27 '26 $11/$10 Put Credit Spread"
+    let spreadMatch = recommendation?.match(/Sell\s+\w+\s+\$(\d+(?:\.\d+)?)\/\$(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread[,.]?\s*(\d{4}-\d{2}-\d{2})?/i);
+    
+    // Try Wall Street format if standard didn't match: "Sell TICKER DATE $XX/$XX..."
+    if (!spreadMatch) {
+        spreadMatch = recommendation?.match(/Sell\s+\w+\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}[,']?\s*'?\d{2,4}\s+\$(\d+(?:\.\d+)?)\/\$(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread/i);
+        if (spreadMatch) {
+            console.log('[STAGE] Matched Wall Street date format');
+        }
+    }
     if (spreadMatch) {
         const strike1 = parseFloat(spreadMatch[1]);
         const strike2 = parseFloat(spreadMatch[2]);
@@ -5383,6 +5410,15 @@ window.stageStrategyAdvisorTrade = async function() {
         if (netCreditMatch) {
             premium = parseFloat(netCreditMatch[1]);
             console.log('[STAGE] Found net credit: $' + premium);
+        }
+    }
+    
+    // Method 2d: Look for "Net Credit/Debit: $X.XX per share" (Wall Street Mode format)
+    if (!premium) {
+        const netCreditDebitMatch = recommendation?.match(/Net\s+Credit\/Debit:\s*\$(\d+(?:\.\d+)?)\s*per\s*share/i);
+        if (netCreditDebitMatch) {
+            premium = parseFloat(netCreditDebitMatch[1]);
+            console.log('[STAGE] Found net credit/debit: $' + premium);
         }
     }
     
@@ -5549,6 +5585,15 @@ window.stageStrategyAdvisorTrade = async function() {
         if (anyDateMatch) {
             expiry = anyDateMatch[1];
             console.log('[STAGE] Found date: ' + expiry);
+        }
+    }
+    
+    // NEW: Try human-readable dates like "Feb 27 '26" or "Feb 27, 2026" (Wall Street Mode)
+    if (!expiry) {
+        const humanDate = parseHumanDate(recommendation);
+        if (humanDate) {
+            expiry = humanDate;
+            console.log('[STAGE] Found human-readable date: ' + expiry);
         }
     }
     
