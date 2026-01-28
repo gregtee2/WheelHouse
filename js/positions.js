@@ -870,6 +870,10 @@ window.showSpreadExplanation = async function(posId) {
     const shortStrike = pos.type?.includes('credit') 
         ? (pos.type?.includes('put') ? pos.sellStrike : pos.sellStrike)
         : (pos.type?.includes('put') ? pos.buyStrike : pos.buyStrike);
+
+        // Get ITM color logic for spot price
+        const spotRisk = calculatePositionRisk(pos, spotPrice);
+        const spotColor = spotRisk?.color || colors.text;
     
     const modal = document.createElement('div');
     modal.id = 'spreadExplanationModal';
@@ -914,7 +918,7 @@ window.showSpreadExplanation = async function(posId) {
                     </div>
                     <div style="text-align:center;">
                         <div style="color:${colors.muted}; font-size:11px; margin-bottom:4px;">Current</div>
-                        <div style="color:${colors.text}; font-size:16px; font-weight:bold;">${currentSpread !== null ? '$' + currentSpread.toFixed(2) : '—'}</div>
+                            <div style="color:${spotColor}; font-size:16px; font-weight:bold;">${spotPrice ? '$' + spotPrice.toFixed(2) : '—'}</div>
                     </div>
                     <div style="text-align:center;">
                         <div style="color:${colors.muted}; font-size:11px; margin-bottom:4px;">Unrealized P/L</div>
@@ -3031,18 +3035,25 @@ async function updatePositionRiskStatuses(openPositions) {
     // Fetch IV data for each ticker (for accurate theta calculation)
     const ivData = {};
     await Promise.all(tickers.map(async ticker => {
+        let ivValue = 0.50;
+        let ivTimestamp = null;
+        let ivLive = false;
         try {
             const res = await fetch(`/api/iv/${ticker}`);
             if (res.ok) {
                 const data = await res.json();
-                ivData[ticker] = parseFloat(data.atmIV) / 100 || 0.50;  // Default to 50% if missing
+                ivValue = parseFloat(data.atmIV) / 100 || 0.50;
+                ivTimestamp = Date.now();
+                ivLive = true;
             }
         } catch (e) {
             // Use higher default for volatile stocks
-            ivData[ticker] = 0.50;
+            ivValue = 0.50;
+            ivTimestamp = null;
+            ivLive = false;
         }
+        ivData[ticker] = { value: ivValue, timestamp: ivTimestamp, live: ivLive };
     }));
-    
     // Calculate and update Greeks for each position
     updatePositionGreeksDisplay(openPositions, spotPrices, ivData);
     
@@ -3059,7 +3070,55 @@ async function updatePositionRiskStatuses(openPositions) {
         if (pos.type?.includes('_spread')) {
             // Update Spot Price cell for spreads too
             if (spotCell && spotPrice) {
-                spotCell.innerHTML = `<span style="color:#ccc;">$${spotPrice.toFixed(2)}</span>`;
+                // Use same color logic as ITM field for spreads
+                const isPut = pos.type?.includes('put');
+                const isCall = pos.type?.includes('call');
+                const isLong = pos.type?.startsWith('long_') || pos.type === 'long_call_leaps' || pos.type === 'skip_call';
+                const isShort = !isLong;
+                
+                // For spreads, use the short leg strike for color determination
+                const shortStrike = pos.type?.includes('credit') 
+                    ? (pos.type?.includes('put') ? pos.sellStrike : pos.sellStrike)
+                    : (pos.type?.includes('put') ? pos.buyStrike : pos.buyStrike);
+                
+                if (shortStrike) {
+                    // Determine ITM/OTM for color coding
+                    // Puts: ITM when spot < strike
+                    // Calls: ITM when spot > strike
+                    let isITM = isPut ? spotPrice < shortStrike : spotPrice > shortStrike;
+                    const distancePct = Math.abs((spotPrice - shortStrike) / shortStrike * 100);
+                    const isATM = distancePct < 2; // Within 2% is "at the money"
+                    
+                    // Determine if ITM is GOOD or BAD for you
+                    // Long options: ITM is GOOD (you can exercise profitably)
+                    // Short options: ITM is BAD (you may get assigned)
+                    let spotColor;
+                    
+                    if (isATM) {
+                        spotColor = '#ffaa00'; // Orange for ATM
+                    } else if (isITM) {
+                        if (isLong) {
+                            // Long + ITM = GOOD for you
+                            spotColor = '#00ff88'; // Green
+                        } else {
+                            // Short + ITM = BAD for you (assignment risk)
+                            spotColor = '#ff5252'; // Red
+                        }
+                    } else {
+                        // OTM
+                        if (isLong) {
+                            // Long + OTM = not great (no intrinsic value yet)
+                            spotColor = '#888'; // Gray/neutral
+                        } else {
+                            // Short + OTM = GOOD for you (will expire worthless)
+                            spotColor = '#00ff88'; // Green
+                        }
+                    }
+                    
+                    spotCell.innerHTML = `<span style="color:${spotColor};">$${spotPrice.toFixed(2)}</span>`;
+                } else {
+                    spotCell.innerHTML = `<span style="color:#ccc;">$${spotPrice.toFixed(2)}</span>`;
+                }
             }
             // ITM is complex for spreads - skip it
             if (itmCell) itmCell.innerHTML = '<span style="color:#888;font-size:10px;">—</span>';
@@ -3092,10 +3151,47 @@ async function updatePositionRiskStatuses(openPositions) {
         }
         
         // Update Spot Price cell
-        
-        // Update Spot Price cell
         if (spotCell && spotPrice) {
-            spotCell.innerHTML = `<span style="color:#ccc;">$${spotPrice.toFixed(2)}</span>`;
+            // Use same color logic as ITM field
+            const isPut = pos.type?.includes('put');
+            const isCall = pos.type?.includes('call');
+            const isLong = pos.type?.startsWith('long_') || pos.type === 'long_call_leaps' || pos.type === 'skip_call';
+            const isShort = !isLong;
+            
+            // Determine ITM/OTM for color coding
+            // Puts: ITM when spot < strike
+            // Calls: ITM when spot > strike
+            let isITM = isPut ? spotPrice < pos.strike : spotPrice > pos.strike;
+            const distancePct = Math.abs((spotPrice - pos.strike) / pos.strike * 100);
+            const isATM = distancePct < 2; // Within 2% is "at the money"
+            
+            // Determine if ITM is GOOD or BAD for you
+            // Long options: ITM is GOOD (you can exercise profitably)
+            // Short options: ITM is BAD (you may get assigned)
+            let spotColor;
+            
+            if (isATM) {
+                spotColor = '#ffaa00'; // Orange for ATM
+            } else if (isITM) {
+                if (isLong) {
+                    // Long + ITM = GOOD for you
+                    spotColor = '#00ff88'; // Green
+                } else {
+                    // Short + ITM = BAD for you (assignment risk)
+                    spotColor = '#ff5252'; // Red
+                }
+            } else {
+                // OTM
+                if (isLong) {
+                    // Long + OTM = not great (no intrinsic value yet)
+                    spotColor = '#888'; // Gray/neutral
+                } else {
+                    // Short + OTM = GOOD for you (will expire worthless)
+                    spotColor = '#00ff88'; // Green
+                }
+            }
+            
+            spotCell.innerHTML = `<span style="color:${spotColor};">$${spotPrice.toFixed(2)}</span>`;
         }
         
         // Calculate ITM/OTM status and update cell
@@ -3190,7 +3286,10 @@ async function updatePositionGreeksDisplay(positions, spotPrices, ivData = {}) {
         if (!deltaCell || !thetaCell) continue;
         
         const spot = spotPrices[pos.ticker] || pos.currentSpot || 100;
-        const iv = ivData[pos.ticker] || pos.iv || 0.50;  // Use fetched IV, position IV, or 50% default
+        const ivObj = ivData[pos.ticker] || { value: 0.50, timestamp: null, live: false };
+        const iv = ivObj.value;
+        const ivTimestamp = ivObj.timestamp;
+        const ivLive = ivObj.live;
         const contracts = pos.contracts || 1;
         
         // Calculate DTE
@@ -3309,7 +3408,25 @@ async function updatePositionGreeksDisplay(positions, spotPrices, ivData = {}) {
         // Format theta - show cents if under $1 for clarity
         const absTheta = Math.abs(theta);
         const thetaDisplay = absTheta < 1 ? `$${absTheta.toFixed(2)}` : `$${absTheta.toFixed(0)}`;
-        thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${thetaTooltip}">${theta >= 0 ? '+' : '-'}${thetaDisplay}</span>`;
+        // IV timestamp display
+        let ivTimeDisplay = '';
+        if (ivLive && ivTimestamp) {
+            const ageSec = (Date.now() - ivTimestamp) / 1000;
+            if (ageSec < 120) {
+                ivTimeDisplay = `<span style="color:#00d9ff;font-size:9px;font-weight:bold;animation:pulse 1s infinite alternate;">LIVE</span>`;
+            } else {
+                const mins = Math.floor(ageSec / 60);
+                ivTimeDisplay = `<span style="color:#888;font-size:9px;">${mins}m ago</span>`;
+            }
+        } else {
+            ivTimeDisplay = `<span style="color:#ffaa00;font-size:9px;">IV fallback</span>`;
+        }
+        // Tooltip fallback
+        let thetaTooltipFinal = thetaTooltip;
+        if (!ivLive) {
+            thetaTooltipFinal += ' (Using last known IV – refresh for latest)';
+        }
+        thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${thetaTooltipFinal}">${theta >= 0 ? '+' : '-'}${thetaDisplay}</span> ${ivTimeDisplay}`;
         
         // Store on position object for reference
         pos._delta = delta;
