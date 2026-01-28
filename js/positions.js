@@ -3195,16 +3195,24 @@ async function updatePositionGreeksDisplay(positions, spotPrices) {
             continue;
         }
         
-        const strike = pos.strike || 0;
+        const strike = parseFloat(pos.strike) || 0;
         const isPut = pos.type?.includes('put');
         const isShort = pos.type?.includes('short') || pos.type === 'covered_call';
+        const isLong = pos.type?.includes('long') || pos.type === 'LEAPS_Call';
         
-        // DTE already calculated above (expiry, now, dte, T)
+        // Skip if no valid strike
+        if (strike <= 0) {
+            deltaCell.innerHTML = '<span style="color:#888;font-size:10px;">—</span>';
+            thetaCell.innerHTML = '<span style="color:#888;font-size:10px;">—</span>';
+            continue;
+        }
         
         // Calculate Greeks
         const greeks = calculateGreeks(spot, strike, T, 0.05, iv, isPut, contracts);
         
         // Sign: short positions have inverted Greeks
+        // For short puts: we want positive delta (stock goes up = good)
+        // For long calls: delta is already positive from the function
         const sign = isShort ? -1 : 1;
         const delta = greeks.delta * sign;
         const theta = greeks.theta * sign;  // Short positions collect theta (positive), long positions pay (negative)
@@ -3212,8 +3220,8 @@ async function updatePositionGreeksDisplay(positions, spotPrices) {
         // Delta: neutral color (pro style) - just show the number
         // For long options, delta is your directional exposure (how you profit)
         const deltaTooltip = isShort 
-            ? `If ${pos.ticker} moves $1, your P&L changes by $${Math.abs(delta).toFixed(0)}`
-            : `If ${pos.ticker} moves $1 in your favor, you gain $${Math.abs(delta).toFixed(0)} (this is how long options profit!)`;
+            ? `If ${pos.ticker} moves $1, your P&L changes by ~$${Math.abs(delta).toFixed(0)}`
+            : `If ${pos.ticker} moves $1 ${isPut ? 'down' : 'up'}, you gain ~$${Math.abs(delta).toFixed(0)}`;
         deltaCell.innerHTML = `<span style="color:#ccc;font-size:10px;" title="${deltaTooltip}">${delta >= 0 ? '+' : ''}${delta.toFixed(0)}</span>`;
         
         // Theta: Different display for short (collect) vs long (pay)
