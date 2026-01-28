@@ -2,6 +2,15 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.2] - 2026-01-28
+
+### Added
+- **Theta Tooltip Enhancement**: Θ/day tooltips now show IV value and timestamp
+  - Displays current IV percentage (e.g., "IV: 45.2%") and when it was last updated
+  - Shows "just now" for live data or "Xm ago" for cached data
+  - Works for both regular positions and spreads
+  - Helps users understand the volatility assumptions behind theta calculations
+
 ## [1.17.1] - 2026-01-28
 
 ### Added
