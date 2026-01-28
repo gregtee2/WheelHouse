@@ -88,10 +88,10 @@ router.post('/critique', async (req, res) => {
 router.post('/strategy-advisor', async (req, res) => {
     try {
         const data = req.body;
-        const { ticker, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, model } = data;
+        const { ticker, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, model, expertMode } = data;
         const selectedModel = model || 'qwen2.5:32b';
         
-        console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with model ${selectedModel}`);
+        console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with model ${selectedModel}${expertMode ? ' (EXPERT MODE)' : ''}`);
         console.log(`[STRATEGY-ADVISOR] Buying power from request: ${buyingPower} (type: ${typeof buyingPower})`);
         
         // 1. Get stock quote
@@ -209,100 +209,115 @@ router.post('/strategy-advisor', async (req, res) => {
             dataSource
         };
         
-        // 4. Build AI prompt
-        const { prompt, calculatedValues } = promptBuilders.buildStrategyAdvisorPrompt(context);
-        
-        // 5. Call AI
-        console.log(`[STRATEGY-ADVISOR] Calling AI for recommendation...`);
-        let aiResponse = await AIService.callAI(prompt, selectedModel, 2000);
-        
-        // 6. Post-process to fix math hallucinations
-        const cv = calculatedValues;
-        
-        // Per-contract values
-        const perContractMaxProfit = Math.round(cv.putSpreadCredit * 100);
-        const perContractMaxLoss = Math.round((cv.putSpreadWidth - cv.putSpreadCredit) * 100);
-        const perContractBP = Math.round(cv.putSpreadWidth * 100);
-        
-        // Total values (for N contracts)
-        const totalMaxProfit = cv.totalPutMaxProfit;
-        const totalMaxLoss = cv.totalPutMaxLoss;
-        const totalBP = cv.totalBuyingPower;
-        
-        // Fix doubled numbers
-        aiResponse = aiResponse.replace(/\$?(\d{1,3}),(\d{3}),\2(?!\d)/g, (match, first, second) => {
-            return `$${first},${second}`;
-        });
-        
-        // Fix 7-digit P/L numbers in P&L table
-        aiResponse = aiResponse.replace(/(\+|-)\s*\$?(\d),(\d{3}),(\d{3})(?!\d)/g, (match, sign) => {
-            const correctVal = sign === '+' ? totalMaxProfit : totalMaxLoss;
-            return `${sign}$${correctVal.toLocaleString()}`;
-        });
-        
-        // Fix TOTAL Max Profit/Loss (For N Contracts section) - match "Total" prefix
-        aiResponse = aiResponse.replace(/Total\s+Max\s*Profit[:\s]*\$?[\d,]+/gi, 
-            () => `Total Max Profit: $${totalMaxProfit.toLocaleString()}`);
-        aiResponse = aiResponse.replace(/Total\s+Max\s*Loss[:\s]*\$?[\d,]+/gi,
-            () => `Total Max Loss: $${totalMaxLoss.toLocaleString()}`);
-        aiResponse = aiResponse.replace(/Total\s+Buying\s*Power[:\s]*\$?[\d,]+/gi,
-            () => `Total Buying Power: $${totalBP.toLocaleString()}`);
-        
-        // Fix per-contract values (no "Total" prefix, match "Max Profit:" or "Max Profit :")
-        // Only replace if NOT preceded by "Total"
-        aiResponse = aiResponse.replace(/(?<!Total\s)Max\s*Profit[:\s]*\$?[\d,]+(?!\s*\|)/gi, 
-            () => `Max Profit: $${perContractMaxProfit.toLocaleString()}`);
-        aiResponse = aiResponse.replace(/(?<!Total\s)Max\s*Loss[:\s]*\$?[\d,]+(?!\s*\|)/gi,
-            () => `Max Loss: $${perContractMaxLoss.toLocaleString()}`);
-        aiResponse = aiResponse.replace(/(?<!Total\s)Buying\s*Power[:\s]*\$?[\d,]+(?!\s*\|)/gi,
-            () => `Buying Power: $${perContractBP.toLocaleString()}`);
-        
-        // Fix P&L table rows (Above strike = Max Profit, Below strike = Max Loss)
-        aiResponse = aiResponse.replace(/\|\s*Max\s*Profit\s*\|\s*\+?\$?[\d,]+\s*\|/gi,
-            () => `| Max Profit | +$${totalMaxProfit.toLocaleString()} |`);
-        aiResponse = aiResponse.replace(/\|\s*Max\s*Loss\s*\|\s*-?\$?[\d,]+\s*\|/gi,
-            () => `| Max Loss | -$${totalMaxLoss.toLocaleString()} |`);
-        
-        // Fix $1 hallucinations
-        const dollarOneCount = (aiResponse.match(/\$1(?![0-9.])/g) || []).length;
-        if (quote.price > 10 && dollarOneCount >= 1) {
-            const puts = sampleOptions.filter(o => o.option_type === 'P');
-            const atmPut = puts.find(p => parseFloat(p.strike) <= quote.price) || puts[0];
-            const sellPutStrike = atmPut ? parseFloat(atmPut.strike).toFixed(0) : Math.floor(quote.price);
-            const buyPutStrike = Math.floor(quote.price - 5);
-            const premium = atmPut ? ((parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2).toFixed(2) : '2.50';
-            const stockPrice = quote.price.toFixed(0);
-            
-            // Apply $1 fixes
-            aiResponse = aiResponse.replace(/\$1\s*\/\s*\$1\s+Put\s+Spread/gi, `$${sellPutStrike}/$${buyPutStrike} Put Spread`);
-            aiResponse = aiResponse.replace(/~\$1\/share/gi, `~$${premium}/share`);
-            aiResponse = aiResponse.replace(/\$1\s+strike/gi, `$${sellPutStrike} strike`);
-            aiResponse = aiResponse.replace(/\$1(?![0-9.,])/g, `$${stockPrice}`);
+        // 4. Build AI prompt - Expert Mode or Guided Mode
+        let prompt, calculatedValues;
+        if (expertMode) {
+            console.log(`[STRATEGY-ADVISOR] 🎯 Using EXPERT MODE - AI has full analytical freedom`);
+            const result = promptBuilders.buildExpertModePrompt(context);
+            prompt = result.prompt;
+            calculatedValues = null;  // Expert mode - AI does its own math
+        } else {
+            const result = promptBuilders.buildStrategyAdvisorPrompt(context);
+            prompt = result.prompt;
+            calculatedValues = result.calculatedValues;
         }
         
-        // Range position sanity check - warn if AI ignores directional guidance
+        // 5. Call AI (more tokens for Expert Mode since it writes more)
+        console.log(`[STRATEGY-ADVISOR] Calling AI for recommendation...`);
+        const maxTokens = expertMode ? 3000 : 2000;
+        let aiResponse = await AIService.callAI(prompt, selectedModel, maxTokens);
+        
+        // 6. Post-process to fix math hallucinations (only for Guided Mode)
+        if (!expertMode && calculatedValues) {
+            const cv = calculatedValues;
+            
+            // Per-contract values
+            const perContractMaxProfit = Math.round(cv.putSpreadCredit * 100);
+            const perContractMaxLoss = Math.round((cv.putSpreadWidth - cv.putSpreadCredit) * 100);
+            const perContractBP = Math.round(cv.putSpreadWidth * 100);
+        
+            // Total values (for N contracts)
+            const totalMaxProfit = cv.totalPutMaxProfit;
+            const totalMaxLoss = cv.totalPutMaxLoss;
+            const totalBP = cv.totalBuyingPower;
+        
+            // Fix doubled numbers
+            aiResponse = aiResponse.replace(/\$?(\d{1,3}),(\d{3}),\2(?!\d)/g, (match, first, second) => {
+                return `$${first},${second}`;
+            });
+        
+            // Fix 7-digit P/L numbers in P&L table
+            aiResponse = aiResponse.replace(/(\+|-)\s*\$?(\d),(\d{3}),(\d{3})(?!\d)/g, (match, sign) => {
+                const correctVal = sign === '+' ? totalMaxProfit : totalMaxLoss;
+                return `${sign}$${correctVal.toLocaleString()}`;
+            });
+        
+            // Fix TOTAL Max Profit/Loss (For N Contracts section) - match "Total" prefix
+            aiResponse = aiResponse.replace(/Total\s+Max\s*Profit[:\s]*\$?[\d,]+/gi, 
+                () => `Total Max Profit: $${totalMaxProfit.toLocaleString()}`);
+            aiResponse = aiResponse.replace(/Total\s+Max\s*Loss[:\s]*\$?[\d,]+/gi,
+                () => `Total Max Loss: $${totalMaxLoss.toLocaleString()}`);
+            aiResponse = aiResponse.replace(/Total\s+Buying\s*Power[:\s]*\$?[\d,]+/gi,
+                () => `Total Buying Power: $${totalBP.toLocaleString()}`);
+        
+            // Fix per-contract values (no "Total" prefix, match "Max Profit:" or "Max Profit :")
+            // Only replace if NOT preceded by "Total"
+            aiResponse = aiResponse.replace(/(?<!Total\s)Max\s*Profit[:\s]*\$?[\d,]+(?!\s*\|)/gi, 
+                () => `Max Profit: $${perContractMaxProfit.toLocaleString()}`);
+            aiResponse = aiResponse.replace(/(?<!Total\s)Max\s*Loss[:\s]*\$?[\d,]+(?!\s*\|)/gi,
+                () => `Max Loss: $${perContractMaxLoss.toLocaleString()}`);
+            aiResponse = aiResponse.replace(/(?<!Total\s)Buying\s*Power[:\s]*\$?[\d,]+(?!\s*\|)/gi,
+                () => `Buying Power: $${perContractBP.toLocaleString()}`);
+        
+            // Fix P&L table rows (Above strike = Max Profit, Below strike = Max Loss)
+            aiResponse = aiResponse.replace(/\|\s*Max\s*Profit\s*\|\s*\+?\$?[\d,]+\s*\|/gi,
+                () => `| Max Profit | +$${totalMaxProfit.toLocaleString()} |`);
+            aiResponse = aiResponse.replace(/\|\s*Max\s*Loss\s*\|\s*-?\$?[\d,]+\s*\|/gi,
+                () => `| Max Loss | -$${totalMaxLoss.toLocaleString()} |`);
+        
+            // Fix $1 hallucinations
+            const dollarOneCount = (aiResponse.match(/\$1(?![0-9.])/g) || []).length;
+            if (quote.price > 10 && dollarOneCount >= 1) {
+                const puts = sampleOptions.filter(o => o.option_type === 'P');
+                const atmPut = puts.find(p => parseFloat(p.strike) <= quote.price) || puts[0];
+                const sellPutStrike = atmPut ? parseFloat(atmPut.strike).toFixed(0) : Math.floor(quote.price);
+                const buyPutStrike = Math.floor(quote.price - 5);
+                const premium = atmPut ? ((parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2).toFixed(2) : '2.50';
+                const stockPrice = quote.price.toFixed(0);
+            
+                // Apply $1 fixes
+                aiResponse = aiResponse.replace(/\$1\s*\/\s*\$1\s+Put\s+Spread/gi, `$${sellPutStrike}/$${buyPutStrike} Put Spread`);
+                aiResponse = aiResponse.replace(/~\$1\/share/gi, `~$${premium}/share`);
+                aiResponse = aiResponse.replace(/\$1\s+strike/gi, `$${sellPutStrike} strike`);
+                aiResponse = aiResponse.replace(/\$1(?![0-9.,])/g, `$${stockPrice}`);
+            }
+        }  // End Guided Mode post-processing
+        
+        // Range position sanity check - warn if AI ignores directional guidance (Guided Mode only)
         let rangeWarning = null;
-        const rangePos = quote.rangePosition;
-        if (rangePos !== undefined && rangePos !== null) {
-            // Detect which setup AI recommended
-            const recMatch = aiResponse.match(/RECOMMENDED:\s*([A-H])\s*-?\s*([^\n]*)/i);
-            const recLetter = recMatch ? recMatch[1].toUpperCase() : null;
+        if (!expertMode) {
+            const rangePos = quote.rangePosition;
+            if (rangePos !== undefined && rangePos !== null) {
+                // Detect which setup AI recommended
+                const recMatch = aiResponse.match(/RECOMMENDED:\s*([A-H])\s*-?\s*([^\n]*)/i);
+                const recLetter = recMatch ? recMatch[1].toUpperCase() : null;
             
-            const bullishSetups = ['A', 'B', 'F', 'H'];
-            const bearishSetups = ['D', 'E'];
-            const neutralSetups = ['G'];
+                const bullishSetups = ['A', 'B', 'F', 'H'];
+                const bearishSetups = ['D', 'E'];
+                const neutralSetups = ['G'];
             
-            if (rangePos < 25 && recLetter) {
-                // Near low - should be bullish
-                if (bearishSetups.includes(recLetter) || neutralSetups.includes(recLetter)) {
-                    rangeWarning = `⚠️ RANGE CONFLICT: Stock is at ${rangePos}% of 3-month range (near LOW = oversold), but AI recommended ${recLetter} (${neutralSetups.includes(recLetter) ? 'neutral' : 'bearish'}). Consider bullish strategies (A, B, F, H) for oversold stocks.`;
-                    console.log(`[STRATEGY-ADVISOR] ⚠️ Range conflict: ${rangePos}% (oversold) but recommended ${recLetter}`);
-                }
-            } else if (rangePos > 75 && recLetter) {
-                // Near high - should be bearish/neutral
-                if (bullishSetups.includes(recLetter)) {
-                    rangeWarning = `⚠️ RANGE CONFLICT: Stock is at ${rangePos}% of 3-month range (near HIGH = overbought), but AI recommended ${recLetter} (bullish). Consider bearish or neutral strategies (D, E, G) for extended stocks.`;
-                    console.log(`[STRATEGY-ADVISOR] ⚠️ Range conflict: ${rangePos}% (overbought) but recommended ${recLetter}`);
+                if (rangePos < 25 && recLetter) {
+                    // Near low - should be bullish
+                    if (bearishSetups.includes(recLetter) || neutralSetups.includes(recLetter)) {
+                        rangeWarning = `⚠️ RANGE CONFLICT: Stock is at ${rangePos}% of 3-month range (near LOW = oversold), but AI recommended ${recLetter} (${neutralSetups.includes(recLetter) ? 'neutral' : 'bearish'}). Consider bullish strategies (A, B, F, H) for oversold stocks.`;
+                        console.log(`[STRATEGY-ADVISOR] ⚠️ Range conflict: ${rangePos}% (oversold) but recommended ${recLetter}`);
+                    }
+                } else if (rangePos > 75 && recLetter) {
+                    // Near high - should be bearish/neutral
+                    if (bullishSetups.includes(recLetter)) {
+                        rangeWarning = `⚠️ RANGE CONFLICT: Stock is at ${rangePos}% of 3-month range (near HIGH = overbought), but AI recommended ${recLetter} (bullish). Consider bearish or neutral strategies (D, E, G) for extended stocks.`;
+                        console.log(`[STRATEGY-ADVISOR] ⚠️ Range conflict: ${rangePos}% (overbought) but recommended ${recLetter}`);
+                    }
                 }
             }
         }
@@ -315,6 +330,7 @@ router.post('/strategy-advisor', async (req, res) => {
             ivRank,
             expirations,
             dataSource,
+            expertMode: !!expertMode,
             recommendation: aiResponse,
             rangeWarning,
             model: selectedModel

@@ -2440,6 +2440,28 @@ function extractThesisSummary(analysis) {
     };
 }
 
+/**
+ * Extract a section from Wall Street Mode analysis by header name
+ * Looks for patterns like "MARKET ANALYSIS\n..." or "THE RISKS\n..."
+ */
+function extractSection(text, sectionName) {
+    if (!text || !sectionName) return null;
+    
+    // Create pattern to match section header and capture content until next section or end
+    // Sections typically end with a blank line + next header in ALL CAPS
+    const pattern = new RegExp(
+        sectionName + '[\\s\\n]+([\\s\\S]*?)(?=\\n(?:THE TRADE|MARKET ANALYSIS|WHY THIS STRATEGY|THE RISKS|THE NUMBERS|STRATEGIES I CONSIDERED|TRADE MANAGEMENT|$))',
+        'i'
+    );
+    
+    const match = text.match(pattern);
+    if (match && match[1]) {
+        // Clean up the extracted section
+        return match[1].trim().substring(0, 1000);  // Limit to 1000 chars per section
+    }
+    return null;
+}
+
 // ============================================================
 // SECTION: TRADE STAGING (Pending Trades Queue)
 // Functions: stageTrade, renderPendingTrades, showTickerChart,
@@ -4534,6 +4556,7 @@ window.runStrategyAdvisor = async function() {
     const modelSelect = document.getElementById('strategyAdvisorModel');
     const bpInput = document.getElementById('strategyAdvisorBP');
     const riskSelect = document.getElementById('strategyAdvisorRisk');
+    const expertModeCheckbox = document.getElementById('strategyAdvisorExpertMode');
     
     const ticker = tickerInput?.value?.trim().toUpperCase();
     if (!ticker) {
@@ -4544,6 +4567,17 @@ window.runStrategyAdvisor = async function() {
     
     const model = modelSelect?.value || 'deepseek-r1:32b';
     const riskTolerance = riskSelect?.value || 'moderate';
+    
+    // Auto-enable Wall Street Mode for capable models (Grok, GPT-4, Claude)
+    // User can still manually override via checkbox
+    const isCapableModel = model.includes('grok') || model.includes('gpt-4') || model.includes('claude');
+    const expertMode = expertModeCheckbox?.checked || isCapableModel;
+    
+    // Sync checkbox state if auto-enabled
+    if (isCapableModel && expertModeCheckbox && !expertModeCheckbox.checked) {
+        expertModeCheckbox.checked = true;
+        console.log(`[STRATEGY-ADVISOR] Auto-enabled Wall Street Mode for ${model}`);
+    }
     
     // =========================================================================
     // PROP DESK SIZING: Use Conservative Kelly Base, NOT raw buying power
@@ -4585,27 +4619,27 @@ window.runStrategyAdvisor = async function() {
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
     modal.innerHTML = `
-        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #0d0d1a 100%); border-radius:16px; max-width:900px; width:100%; max-height:90vh; display:flex; flex-direction:column; border:2px solid #6d28d9; box-shadow:0 0 40px rgba(147,51,234,0.3);">
-            <div style="background:linear-gradient(135deg, rgba(147,51,234,0.3) 0%, rgba(79,70,229,0.2) 100%); padding:16px 24px; border-bottom:1px solid #6d28d9; flex-shrink:0;">
+        <div style="background:linear-gradient(135deg, #1a1a2e 0%, #0d0d1a 100%); border-radius:16px; max-width:900px; width:100%; max-height:90vh; display:flex; flex-direction:column; border:2px solid ${expertMode ? '#ffd700' : '#6d28d9'}; box-shadow:0 0 40px ${expertMode ? 'rgba(255,215,0,0.3)' : 'rgba(147,51,234,0.3)'};">
+            <div style="background:linear-gradient(135deg, ${expertMode ? 'rgba(255,215,0,0.2)' : 'rgba(147,51,234,0.3)'} 0%, ${expertMode ? 'rgba(255,140,0,0.15)' : 'rgba(79,70,229,0.2)'} 100%); padding:16px 24px; border-bottom:1px solid ${expertMode ? '#ffd700' : '#6d28d9'}; flex-shrink:0;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div>
-                        <h2 style="margin:0; color:#a78bfa; font-size:20px;">🎓 Strategy Advisor: ${ticker}</h2>
-                        <div id="strategyAdvisorMeta" style="font-size:11px; color:#888; margin-top:4px;">Analyzing with ${model}...</div>
+                        <h2 style="margin:0; color:${expertMode ? '#ffd700' : '#a78bfa'}; font-size:20px;">${expertMode ? '🏛️ Wall Street Mode' : '🎓 Strategy Advisor'}: ${ticker}</h2>
+                        <div id="strategyAdvisorMeta" style="font-size:11px; color:#888; margin-top:4px;">${expertMode ? 'Expert analysis' : 'Analyzing'} with ${model}...</div>
                     </div>
                     <button onclick="document.getElementById('strategyAdvisorModal').remove()" style="background:none; border:none; color:#888; font-size:28px; cursor:pointer; line-height:1;">&times;</button>
                 </div>
             </div>
             <div id="strategyAdvisorContent" style="padding:24px; color:#ddd; font-size:13px; line-height:1.7; overflow-y:auto; flex:1;">
                 <div style="text-align:center; padding:60px 20px;">
-                    <div style="font-size:48px; margin-bottom:16px;">🔮</div>
-                    <div style="color:#a78bfa; font-weight:bold; font-size:16px;">Analyzing All Strategies for ${ticker}...</div>
-                    <div style="color:#666; font-size:12px; margin-top:8px;">Fetching real-time data from Schwab • Calculating optimal position size</div>
+                    <div style="font-size:48px; margin-bottom:16px;">${expertMode ? '🏛️' : '🔮'}</div>
+                    <div style="color:${expertMode ? '#ffd700' : '#a78bfa'}; font-weight:bold; font-size:16px;">${expertMode ? 'Senior Trader Analysis' : 'Analyzing All Strategies'} for ${ticker}...</div>
+                    <div style="color:#666; font-size:12px; margin-top:8px;">${expertMode ? 'Wall Street methodology • Free-form analysis' : 'Fetching real-time data from Schwab • Calculating optimal position size'}</div>
                     <div style="margin-top:20px; height:4px; background:#333; border-radius:2px; overflow:hidden;">
-                        <div style="height:100%; width:30%; background:linear-gradient(90deg, #9333ea, #6d28d9); animation:pulse 1.5s ease-in-out infinite;"></div>
+                        <div style="height:100%; width:30%; background:linear-gradient(90deg, ${expertMode ? '#ffd700, #ff8c00' : '#9333ea, #6d28d9'}); animation:pulse 1.5s ease-in-out infinite;"></div>
                     </div>
                 </div>
             </div>
-            <div id="strategyAdvisorFooter" style="display:none; background:rgba(0,0,0,0.5); padding:16px 24px; border-top:1px solid #6d28d9; flex-shrink:0;">
+            <div id="strategyAdvisorFooter" style="display:none; background:rgba(0,0,0,0.5); padding:16px 24px; border-top:1px solid ${expertMode ? '#ffd700' : '#6d28d9'}; flex-shrink:0;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div style="font-size:11px; color:#888;">Click outside or press Escape to close</div>
                     <div style="display:flex; gap:12px;">
@@ -4635,7 +4669,7 @@ window.runStrategyAdvisor = async function() {
         // Get existing positions for context
         const existingPositions = state.positions || [];
         
-        console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with Kelly-capped BP=$${perTradeCap.toLocaleString()}...`);
+        console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with Kelly-capped BP=$${perTradeCap.toLocaleString()}${expertMode ? ' (EXPERT MODE)' : ''}...`);
         
         const response = await fetch('/api/ai/strategy-advisor', {
             method: 'POST',
@@ -4647,7 +4681,8 @@ window.runStrategyAdvisor = async function() {
                 accountValue,               // For context in prompt
                 kellyBase,                  // For display
                 riskTolerance,
-                existingPositions
+                existingPositions,
+                expertMode                  // Wall Street Mode - free AI analysis
             })
         });
         
@@ -4668,7 +4703,11 @@ window.runStrategyAdvisor = async function() {
         const footerDiv = document.getElementById('strategyAdvisorFooter');
         
         // Build meta info with range position
-        let metaHtml = `<span>Spot: $${data.spot?.toFixed(2) || '?'}</span>`;
+        let metaHtml = '';
+        if (data.expertMode) {
+            metaHtml += `<span style="background:linear-gradient(90deg, #ffd700, #ff8c00); color:#000; padding:2px 6px; border-radius:4px; font-weight:bold; margin-right:8px;">🏛️ WALL STREET</span>`;
+        }
+        metaHtml += `<span>Spot: $${data.spot?.toFixed(2) || '?'}</span>`;
         if (data.stockData?.rangePosition !== undefined) {
             const rp = data.stockData.rangePosition;
             const rangeColor = rp < 25 ? '#22c55e' : (rp > 75 ? '#ff5252' : '#ffaa00');
@@ -5025,6 +5064,30 @@ window.stageStrategyAdvisorTrade = async function() {
     
     // Stage the trade - use same field names as other staging functions
     const now = Date.now();
+    const isExpertMode = lastStrategyAdvisorResult?.expertMode || false;
+    
+    // For Wall Street Mode, build a thesis structure that preserves the full analysis
+    // For Guided Mode, use the existing extractThesisSummary which parses spectrum format
+    const openingThesis = {
+        analyzedAt: new Date().toISOString(),
+        priceAtAnalysis: spot,
+        rangePosition: stockData?.rangePosition || null,
+        iv: ivRank || null,  // IV rank at time of analysis
+        modelUsed: model || 'unknown',
+        expertMode: isExpertMode,
+        aiSummary: isExpertMode 
+            ? {
+                // Wall Street Mode: store structured sections
+                fullAnalysis: recommendation,
+                marketAnalysis: extractSection(recommendation, 'MARKET ANALYSIS'),
+                whyThisStrategy: extractSection(recommendation, 'WHY THIS STRATEGY'),
+                theRisks: extractSection(recommendation, 'THE RISKS'),
+                tradeManagement: extractSection(recommendation, 'TRADE MANAGEMENT'),
+                rejectedStrategies: extractSection(recommendation, 'STRATEGIES I CONSIDERED BUT REJECTED')
+            }
+            : extractThesisSummary(recommendation)
+    };
+    
     const stagedTrade = {
         id: now,
         ticker,
@@ -5036,18 +5099,10 @@ window.stageStrategyAdvisorTrade = async function() {
         contracts: contracts,
         isCall,
         isDebit,
-        source: 'Strategy Advisor',
+        source: isExpertMode ? 'Wall Street Mode' : 'Strategy Advisor',
         stagedAt: now,  // For display in render
         currentPrice: spot,
-        // Proper openingThesis structure (same as Discord Analyzer)
-        openingThesis: {
-            analyzedAt: new Date().toISOString(),
-            priceAtAnalysis: spot,
-            rangePosition: stockData?.rangePosition || null,
-            iv: ivRank || null,  // IV rank at time of analysis
-            modelUsed: model || 'unknown',
-            aiSummary: extractThesisSummary(recommendation)
-        }
+        openingThesis
     };
     
     // Add to pending trades in localStorage (not just window.pendingTrades)

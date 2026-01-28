@@ -276,8 +276,29 @@ ${o.earnings && !c.earnings ? '✅ Earnings have PASSED - thesis event resolved'
 ${!o.earnings && c.earnings ? '⚠️ NEW earnings date appeared!' : ''}
 
 ═══ ORIGINAL ENTRY THESIS ═══
+${o.expertMode ? `
+📊 WALL STREET MODE ANALYSIS (Entry)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Model Used: ${o.modelUsed || 'Unknown'}
+
+MARKET ANALYSIS AT ENTRY:
+${o.aiSummary?.marketAnalysis || 'N/A'}
+
+WHY THIS STRATEGY WAS CHOSEN:
+${o.aiSummary?.whyThisStrategy || 'N/A'}
+
+RISKS IDENTIFIED AT ENTRY:
+${o.aiSummary?.theRisks || 'N/A'}
+
+TRADE MANAGEMENT PLAN:
+${o.aiSummary?.tradeManagement || 'N/A'}
+
+STRATEGIES REJECTED:
+${o.aiSummary?.rejectedStrategies || 'N/A'}
+` : `
 Verdict at Entry: ${o.aiSummary?.verdict || 'N/A'}
 Summary: ${o.aiSummary?.summary || 'N/A'}
+`}
 
 ═══ YOUR CHECKUP ASSESSMENT ═══
 
@@ -2182,6 +2203,197 @@ For each rejected strategy, include letter AND name:
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// EXPERT MODE STRATEGY ADVISOR - Maximum AI freedom with structured output
+// ═══════════════════════════════════════════════════════════════════════════
+function buildExpertModePrompt(context) {
+    const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, accountValue, riskTolerance, existingPositions, dataSource } = context;
+    
+    // Build full options chain summary
+    const puts = sampleOptions?.filter(o => o.option_type === 'P').sort((a, b) => parseFloat(b.strike) - parseFloat(a.strike)) || [];
+    const calls = sampleOptions?.filter(o => o.option_type === 'C').sort((a, b) => parseFloat(a.strike) - parseFloat(b.strike)) || [];
+    
+    // Format options chain for AI
+    let chainSummary = '';
+    if (puts.length > 0) {
+        chainSummary += 'PUT OPTIONS (sorted high to low strike):\n';
+        chainSummary += puts.slice(0, 15).map(o => {
+            const strike = parseFloat(o.strike);
+            const bid = parseFloat(o.bid) || 0;
+            const ask = parseFloat(o.ask) || 0;
+            const mid = ((bid + ask) / 2).toFixed(2);
+            const delta = o.delta ? parseFloat(o.delta).toFixed(2) : 'N/A';
+            const iv = o.iv ? (parseFloat(o.iv) * 100).toFixed(1) + '%' : 'N/A';
+            return `  $${strike.toFixed(0)} PUT: bid $${bid.toFixed(2)} / ask $${ask.toFixed(2)} (mid $${mid}) | Δ${delta} | IV ${iv}`;
+        }).join('\n');
+    }
+    
+    if (calls.length > 0) {
+        chainSummary += '\n\nCALL OPTIONS (sorted low to high strike):\n';
+        chainSummary += calls.slice(0, 15).map(o => {
+            const strike = parseFloat(o.strike);
+            const bid = parseFloat(o.bid) || 0;
+            const ask = parseFloat(o.ask) || 0;
+            const mid = ((bid + ask) / 2).toFixed(2);
+            const delta = o.delta ? parseFloat(o.delta).toFixed(2) : 'N/A';
+            const iv = o.iv ? (parseFloat(o.iv) * 100).toFixed(1) + '%' : 'N/A';
+            return `  $${strike.toFixed(0)} CALL: bid $${bid.toFixed(2)} / ask $${ask.toFixed(2)} (mid $${mid}) | Δ${delta} | IV ${iv}`;
+        }).join('\n');
+    }
+    
+    // Format existing positions
+    let positionsContext = 'None';
+    if (existingPositions && existingPositions.length > 0) {
+        const tickerPositions = existingPositions.filter(p => p.ticker?.toUpperCase() === ticker.toUpperCase());
+        if (tickerPositions.length > 0) {
+            positionsContext = tickerPositions.map(p => `  • ${p.type}: $${p.strike} exp ${p.expiry}`).join('\n');
+        }
+    }
+    
+    // Available expirations
+    const expirationsText = expirations?.slice(0, 6).map(exp => {
+        const expDate = new Date(exp);
+        const today = new Date();
+        const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+        return `${exp} (${dte} DTE)`;
+    }).join(', ') || 'Not available';
+    
+    const prompt = `════════════════════════════════════════════════════════════════════════════════
+                      WALL STREET DERIVATIVES DESK - TRADE RECOMMENDATION
+════════════════════════════════════════════════════════════════════════════════
+
+You are a Senior Options Strategist with 20 years of experience at a major Wall Street derivatives desk (Goldman Sachs, Morgan Stanley, or JPMorgan level). You've traded through multiple market cycles, managed institutional portfolios, and specialized in volatility strategies, earnings plays, and risk-defined income trades.
+
+A high-net-worth client has asked you to analyze ${ticker} and recommend THE SINGLE BEST options trade given current market conditions.
+
+════════════════════════════════════════════════════════════════════════════════
+                              RAW MARKET DATA
+════════════════════════════════════════════════════════════════════════════════
+
+TICKER: ${ticker}
+CURRENT SPOT PRICE: $${spot.toFixed(2)}
+DATA SOURCE: ${dataSource} (${dataSource === 'schwab' ? 'Real-time' : 'Delayed 15-20 min'})
+
+PRICE ACTION & RANGE:
+• 52-Week High: $${stockData.high52?.toFixed(2) || 'N/A'}
+• 52-Week Low: $${stockData.low52?.toFixed(2) || 'N/A'}
+• 3-Month High: $${stockData.high3mo?.toFixed(2) || 'N/A'}
+• 3-Month Low: $${stockData.low3mo?.toFixed(2) || 'N/A'}
+• Position in 3-Month Range: ${stockData.rangePosition?.toFixed(1) || 'N/A'}% (0% = at low, 100% = at high)
+• Recent Price Change: ${stockData.changePercent?.toFixed(2) || 'N/A'}%
+
+VOLATILITY:
+• IV Rank: ${ivRank !== null ? ivRank + '%' : 'N/A'} (percentile vs past year)
+• Interpretation: ${ivRank !== null ? (ivRank < 30 ? 'LOW - options are cheap, consider buying' : ivRank < 50 ? 'MODERATE - neutral' : ivRank < 70 ? 'ELEVATED - favor selling premium' : 'HIGH - options expensive, strongly favor selling') : 'Unknown'}
+
+AVAILABLE EXPIRATIONS:
+${expirationsText}
+
+OPTIONS CHAIN (First Available Expiration):
+${chainSummary || 'No options data available'}
+
+════════════════════════════════════════════════════════════════════════════════
+                              CLIENT CONSTRAINTS
+════════════════════════════════════════════════════════════════════════════════
+
+• Available Buying Power: $${buyingPower?.toLocaleString() || '25,000'}
+• Account Value: $${accountValue?.toLocaleString() || 'N/A'}
+• Risk Tolerance: ${riskTolerance || 'Moderate'}
+• HARD REQUIREMENTS:
+  1. NO INFINITE RISK - Position must have defined max loss (no naked calls, no naked puts on margin)
+  2. DTE ≤ 45 days preferred (can go longer only with strong justification)
+  3. Must be executable as a single strategy (not multiple unrelated trades)
+
+EXISTING POSITIONS IN ${ticker}:
+${positionsContext}
+
+════════════════════════════════════════════════════════════════════════════════
+                              YOUR TASK
+════════════════════════════════════════════════════════════════════════════════
+
+Analyze this situation using your 20 years of derivatives expertise. Consider:
+
+1. DIRECTIONAL BIAS: Is this stock bullish, bearish, or range-bound? Why?
+2. VOLATILITY PLAY: Is IV high enough to sell premium, or low enough to buy options?
+3. RISK/REWARD: What's the optimal balance for this client's constraints?
+4. TIMING: Any known catalysts (earnings, events) that affect DTE selection?
+5. STRIKE SELECTION: Based on the range and support/resistance, where should strikes be placed?
+
+You may recommend ANY options strategy: spreads, condors, butterflies, calendars, diagonals, or single legs - whatever your professional judgment says is the BEST play.
+
+════════════════════════════════════════════════════════════════════════════════
+                         REQUIRED OUTPUT FORMAT
+════════════════════════════════════════════════════════════════════════════════
+
+You MUST structure your response EXACTLY as follows (this format is parsed by our system):
+
+## 🏆 RECOMMENDED: [Strategy Name]
+
+### THE TRADE
+**Trade:** [Exact order to execute, e.g., "Sell PLTR $155/$150 Put Spread, Feb 20 expiry"]
+**Contracts:** [Number of contracts recommended]
+**Net Credit/Debit:** $X.XX per share ($XXX per contract)
+
+### MARKET ANALYSIS
+[2-3 paragraphs explaining your read on the stock: price action, range, momentum, any known catalysts, and how this informed your strategy choice. Be specific about WHY you chose this strategy over alternatives.]
+
+### WHY THIS STRATEGY
+• [Reason 1 - tie to current market conditions]
+• [Reason 2 - tie to IV/volatility environment]
+• [Reason 3 - tie to risk management / position sizing]
+
+### THE RISKS
+• ⚠️ [Primary risk - what scenario causes max loss]
+• ⚠️ [Secondary risk - what could go wrong]
+• ⚠️ [Market risk - broader concerns]
+
+### THE NUMBERS
+**Per Contract:**
+• Max Profit: $XXX
+• Max Loss: $XXX
+• Breakeven: $XXX.XX
+• Buying Power Required: $XXX
+
+**For [N] Contracts (Your Recommendation):**
+• Total Max Profit: $X,XXX
+• Total Max Loss: $X,XXX
+• Total Buying Power: $X,XXX
+• Win Probability: ~XX%
+
+### 📊 P&L AT EXPIRATION
+| Stock Price | Result | P&L |
+|-------------|--------|-----|
+| Above $XXX | [Outcome] | +/- $X,XXX |
+| At $XXX.XX | Breakeven | $0 |
+| Below $XXX | [Outcome] | +/- $X,XXX |
+
+### STRATEGIES I CONSIDERED BUT REJECTED
+• [Strategy 1]: [Why not optimal for this situation]
+• [Strategy 2]: [Why not optimal for this situation]
+• [Strategy 3]: [Why not optimal for this situation]
+
+### 💡 TRADE MANAGEMENT
+[How to manage this trade: when to take profits, when to cut losses, any adjustments if the trade goes against you]
+
+════════════════════════════════════════════════════════════════════════════════
+                              FINAL NOTES
+════════════════════════════════════════════════════════════════════════════════
+
+⚠️ CRITICAL: Use ONLY strikes from the options chain provided above. Do not invent strikes that don't exist.
+
+⚠️ MATH CHECK: Double-check all P&L calculations. For credit spreads:
+   Max Profit = Credit Received × 100
+   Max Loss = (Spread Width - Credit) × 100
+
+Think like the senior trader you are. What would you actually recommend to a client sitting across your desk right now?`;
+
+    return {
+        prompt,
+        calculatedValues: null,  // Expert mode doesn't pre-calculate - AI does the math
+        expertMode: true
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2193,5 +2405,6 @@ module.exports = {
     buildCritiquePrompt,
     buildTradePrompt,
     buildIdeaPrompt,
-    buildStrategyAdvisorPrompt
+    buildStrategyAdvisorPrompt,
+    buildExpertModePrompt
 };

@@ -178,7 +178,7 @@
                                 🔮 Analyze All Strategies
                             </button>
                         </div>
-                        <div style="display:flex; gap:15px; font-size:11px; color:#888;">
+                        <div style="display:flex; gap:15px; font-size:11px; color:#888; flex-wrap:wrap; align-items:center;">
                             <label style="display:flex; align-items:center; gap:4px;">
                                 <span>Buying Power: $</span>
                                 <input type="number" id="strategyAdvisorBP" value="25000" style="width:70px; background:#0d0d1a; border:1px solid #444; border-radius:4px; color:#ddd; padding:3px 6px;">
@@ -190,6 +190,10 @@
                                     <option value="moderate" selected>Moderate</option>
                                     <option value="aggressive">Aggressive</option>
                                 </select>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; margin-left:auto; cursor:pointer;" title="Expert Mode: Gives AI full freedom to analyze and recommend any strategy. Best with Grok-4 or GPT-4 class models.">
+                                <input type="checkbox" id="strategyAdvisorExpertMode" style="cursor:pointer;">
+                                <span style="background:linear-gradient(90deg, #ffd700, #ff8c00); -webkit-background-clip:text; -webkit-text-fill-color:transparent; font-weight:bold;">🏛️ Wall Street Mode</span>
                             </label>
                         </div>
                         <!-- Results now show in popup modal - no inline container needed -->
