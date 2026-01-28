@@ -1,6 +1,6 @@
 {
   "name": "wheelhouse",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "description": "Wheel Strategy Options Analyzer - Monte Carlo-based options pricing and position tracking",
   "main": "electron/main.js",
   "scripts": {

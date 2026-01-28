@@ -5,8 +5,19 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.15.0-blue)
+![Version](https://img.shields.io/badge/version-1.17.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
+
+---
+
+
+## 🆕 What's New in v1.17.0
+
+### 🟢 Theta Decay Now Accurate
+- **Theta decay now uses real IV from the options chain for each ticker**
+- Deep OTM/ITM options show correct (small) theta, with tooltips explaining why
+- Values under $1 now show cents (e.g. `+$0.45` instead of `+$0`)
+- All positions fetch actual IV for Greeks, making theta/delta more accurate for volatile stocks
 
 ---
 

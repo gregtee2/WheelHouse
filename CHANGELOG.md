@@ -2,6 +2,16 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.0] - 2026-01-28
+
+### Fixed
+- **Theta Decay Display** now uses real IV from the options chain for each ticker, not a 30% default.
+- Deep OTM/ITM options now show correct (small) theta, with tooltips explaining why.
+- Theta values under $1 now show cents (e.g. `+$0.45` instead of `+$0`).
+
+### Improved
+- All positions now fetch actual IV for Greeks, making theta/delta more accurate for volatile stocks.
+
 ## [1.16.0] - 2026-01-27
 
 ### Added
