@@ -2897,8 +2897,40 @@ function renderPositionsTable(container, openPositions) {
                         return `<td style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">⏳</span></td>`;
                     }
                     const pnlColor = unrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
-                    return `<td style="padding: 6px; text-align: right; font-size: 11px;" title="${pos.priceUpdatedAt ? 'Updated: ' + new Date(pos.priceUpdatedAt).toLocaleTimeString() : ''}">
+                    
+                    // For spreads, add explanation tooltip
+                    let spreadPnLTooltip = '';
+                    if (isSpread) {
+                        const isCreditSpread = pos.type.includes('credit');
+                        const isPutSpread = pos.type.includes('put');
+                        const shortStrike = isCreditSpread ? (isPutSpread ? pos.sellStrike || pos.strike : pos.sellStrike || pos.strike) : pos.buyStrike;
+                        const longStrike = isCreditSpread ? pos.buyStrike : (pos.sellStrike || pos.strike);
+                        
+                        // For credit spreads:
+                        // - Short leg: You SOLD, want it to decay (your profit)
+                        // - Long leg: You BOUGHT, it decays too (your cost/protection)
+                        // Net P&L = Short leg decay - Long leg decay
+                        spreadPnLTooltip = isCreditSpread
+                            ? `CREDIT SPREAD P&L Breakdown:&#10;&#10;` +
+                              `📉 Short $${shortStrike} leg: You SOLD this (profit from decay)&#10;` +
+                              `📈 Long $${longStrike} leg: You BOUGHT this (cost/protection)&#10;&#10;` +
+                              `The short leg (closer to money) decays FASTER than the long leg.&#10;` +
+                              `Net profit = Short decay - Long decay&#10;&#10;` +
+                              `Current Net P&L: ${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)}`
+                            : `DEBIT SPREAD P&L Breakdown:&#10;&#10;` +
+                              `📈 Long $${longStrike} leg: You BOUGHT this (your profit source)&#10;` +
+                              `📉 Short $${shortStrike} leg: You SOLD this (offset cost)&#10;&#10;` +
+                              `You profit when the spread WIDENS (stock moves in your favor).&#10;&#10;` +
+                              `Current Net P&L: ${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)}`;
+                    }
+                    
+                    const tooltip = isSpread 
+                        ? spreadPnLTooltip
+                        : (pos.priceUpdatedAt ? 'Updated: ' + new Date(pos.priceUpdatedAt).toLocaleTimeString() : '');
+                    
+                    return `<td style="padding: 6px; text-align: right; font-size: 11px; ${isSpread ? 'cursor:help;' : ''}" title="${tooltip}">
                         <span style="color:${pnlColor}">${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)}</span>
+                        ${isSpread ? '<span style="margin-left:2px;font-size:9px;opacity:0.6;">ⓘ</span>' : ''}
                     </td>`;
                 })()}
                 <td style="padding: 6px; text-align: right; color: ${isLongPosition ? '#ffaa00' : '#00ff88'};" title="${isLongPosition ? `Paid: $${credit.toFixed(0)}` : (isChainCredit ? `Chain NET: $${displayCredit.toFixed(0)}` : `Premium: $${credit.toFixed(0)}`)}">
