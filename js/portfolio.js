@@ -330,7 +330,7 @@ function saveDataCheckpoint() {
  */
 export function loadClosedPositions() {
     try {
-        const saved = localStorage.getItem(STORAGE_KEY_CLOSED);
+        const saved = localStorage.getItem(getClosedStorageKey());
         state.closedPositions = saved ? JSON.parse(saved) : [];
     } catch (e) {
         state.closedPositions = [];
