@@ -1397,85 +1397,142 @@ function buildStrategyAdvisorPrompt(context) {
     const putStrikes = puts.map(p => `$${p.strike}`).join(', ');
     console.log(`[STRATEGY-ADVISOR] Available put strikes: ${putStrikes || 'NONE'}`);
     
-    // Find ATM put (just below spot, rounded to valid strike)
+    // =========================================================================
+    // OTM BUFFER: Ensure short strikes are properly OTM for credit spreads
+    // For puts: sell 3-5% below spot (not ATM!)
+    // For calls: sell 3-5% above spot (not ATM!)
+    // =========================================================================
+    const otmBuffer = spot >= 100 ? 0.03 : 0.05; // 3% for stocks >$100, 5% for cheaper stocks
+    const targetSellPutStrike = roundStrike(spot * (1 - otmBuffer)); // e.g., $165 * 0.97 = $160
+    const targetSellCallStrike = roundStrike(spot * (1 + otmBuffer)); // e.g., $165 * 1.03 = $170
+    
+    console.log(`[STRATEGY-ADVISOR] OTM targets: Sell Put @ $${targetSellPutStrike}, Sell Call @ $${targetSellCallStrike} (${(otmBuffer * 100).toFixed(0)}% buffer)`);
+    
+    // Find ATM put (just below spot) - used for cash-secured puts (Setup A)
     const atmPut = puts.find(p => parseFloat(p.strike) <= spot) || puts[0];
     if (atmPut) {
         console.log(`[STRATEGY-ADVISOR] ATM put: $${atmPut.strike} @ $${atmPut.bid}/$${atmPut.ask}`);
     }
     
-    // For spreads, find a put ~$5 OTM (standard spread width)
-    // OTM put should be $5 below the ATM put strike, not below spot
+    // Find OTM put for SELLING in credit spreads (3-5% below spot)
     const spreadWidth = spot >= 100 ? 5 : (spot >= 50 ? 5 : 2.5);
-    const targetOtmStrike = atmPut ? parseFloat(atmPut.strike) - spreadWidth : spot - spreadWidth;
-    console.log(`[STRATEGY-ADVISOR] Target OTM strike: $${targetOtmStrike} (ATM $${atmPut?.strike} - $${spreadWidth} spread)`);
-    
-    // Find closest put to target OTM strike
-    let otmPut = puts.find(p => {
+    let otmPutToSell = puts.find(p => {
         const strike = parseFloat(p.strike);
-        // Look for a put within $1 of our target OTM strike, and not the ATM put
-        return Math.abs(strike - targetOtmStrike) <= 1 && p !== atmPut && (p.bid > 0 || p.ask > 0);
+        return Math.abs(strike - targetSellPutStrike) <= 2 && (p.bid > 0 || p.ask > 0);
     });
+    // Fallback: find any put 3%+ below spot
+    if (!otmPutToSell) {
+        otmPutToSell = puts.find(p => parseFloat(p.strike) <= targetSellPutStrike && (p.bid > 0 || p.ask > 0));
+    }
+    // Last resort: use ATM (but log warning)
+    if (!otmPutToSell) {
+        otmPutToSell = atmPut;
+        console.log(`[STRATEGY-ADVISOR] ⚠️ No OTM puts found, falling back to ATM for spread`);
+    } else {
+        console.log(`[STRATEGY-ADVISOR] ✅ OTM put to SELL: $${otmPutToSell.strike} @ $${otmPutToSell.bid}/$${otmPutToSell.ask}`);
+    }
     
-    // If exact match not found, get the next lower strike put with valid pricing
-    if (!otmPut) {
-        otmPut = puts.find(p => {
+    // Find further OTM put for BUYING in credit spreads ($5 below sell strike)
+    const targetBuyPutStrike = otmPutToSell ? parseFloat(otmPutToSell.strike) - spreadWidth : targetSellPutStrike - spreadWidth;
+    let otmPutToBuy = puts.find(p => {
+        const strike = parseFloat(p.strike);
+        return Math.abs(strike - targetBuyPutStrike) <= 1 && p !== otmPutToSell && (p.bid > 0 || p.ask > 0);
+    });
+    // Fallback: find next lower strike
+    if (!otmPutToBuy) {
+        otmPutToBuy = puts.find(p => {
             const strike = parseFloat(p.strike);
-            return strike < parseFloat(atmPut?.strike || spot) - 2 && p !== atmPut && (p.bid > 0 || p.ask > 0);
+            return strike < parseFloat(otmPutToSell?.strike || spot) - 2 && p !== otmPutToSell && (p.bid > 0 || p.ask > 0);
         });
     }
-    
-    // If STILL no OTM put in chain, create synthetic based on ATM
-    if (!otmPut && atmPut) {
-        const otmStrike = roundStrike(parseFloat(atmPut.strike) - spreadWidth);
-        // Estimate OTM premium as ~60% of ATM premium (better estimate for $5 OTM)
-        const atmMid = (parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2;
-        otmPut = { strike: otmStrike, bid: atmMid * 0.55, ask: atmMid * 0.65, synthetic: true };
-        console.log(`[STRATEGY-ADVISOR] ⚠️ Created SYNTHETIC OTM put: $${otmStrike} with estimated premium $${(atmMid * 0.6).toFixed(2)}`);
-    } else if (otmPut) {
-        console.log(`[STRATEGY-ADVISOR] ✅ Found REAL OTM put: $${otmPut.strike} @ $${otmPut.bid}/$${otmPut.ask}`);
+    // If STILL no OTM put, create synthetic
+    if (!otmPutToBuy && otmPutToSell) {
+        const syntheticStrike = roundStrike(parseFloat(otmPutToSell.strike) - spreadWidth);
+        const sellMid = (parseFloat(otmPutToSell.bid) + parseFloat(otmPutToSell.ask)) / 2;
+        otmPutToBuy = { strike: syntheticStrike, bid: sellMid * 0.55, ask: sellMid * 0.65, synthetic: true };
+        console.log(`[STRATEGY-ADVISOR] ⚠️ Created SYNTHETIC buy put: $${syntheticStrike}`);
+    } else if (otmPutToBuy) {
+        console.log(`[STRATEGY-ADVISOR] ✅ OTM put to BUY: $${otmPutToBuy.strike} @ $${otmPutToBuy.bid}/$${otmPutToBuy.ask}`);
     }
     
-    // Find ATM call (just above spot)
+    // Find ATM call (just above spot) - used for covered calls (Setup C)
     const atmCall = calls.find(c => parseFloat(c.strike) >= spot) || calls[0];
-    // Find OTM call for spread - look for strike $5 above ATM call
-    const targetOtmCallStrike = atmCall ? parseFloat(atmCall.strike) + spreadWidth : spot + spreadWidth;
-    let otmCall = calls.find(c => {
+    
+    // Find OTM call for SELLING in credit spreads (3-5% above spot)
+    let otmCallToSell = calls.find(c => {
         const strike = parseFloat(c.strike);
-        return Math.abs(strike - targetOtmCallStrike) <= 1 && c !== atmCall && (c.bid > 0 || c.ask > 0);
+        return Math.abs(strike - targetSellCallStrike) <= 2 && (c.bid > 0 || c.ask > 0);
     });
-    if (!otmCall) {
-        otmCall = calls.find(c => {
-            const strike = parseFloat(c.strike);
-            return strike > parseFloat(atmCall?.strike || spot) + 2 && c !== atmCall && (c.bid > 0 || c.ask > 0);
-        });
+    if (!otmCallToSell) {
+        otmCallToSell = calls.find(c => parseFloat(c.strike) >= targetSellCallStrike && (c.bid > 0 || c.ask > 0));
     }
-    if (!otmCall && atmCall) {
-        const otmStrike = roundStrike(parseFloat(atmCall.strike) + spreadWidth);
-        const atmMid = (parseFloat(atmCall.bid) + parseFloat(atmCall.ask)) / 2;
-        otmCall = { strike: otmStrike, bid: atmMid * 0.55, ask: atmMid * 0.65, synthetic: true };
-        console.log(`[STRATEGY-ADVISOR] ⚠️ Created SYNTHETIC OTM call: $${otmStrike} with estimated premium $${(atmMid * 0.6).toFixed(2)}`);
-    } else if (otmCall) {
-        console.log(`[STRATEGY-ADVISOR] ✅ Found REAL OTM call: $${otmCall.strike} @ $${otmCall.bid}/$${otmCall.ask}`);
+    if (!otmCallToSell) {
+        otmCallToSell = atmCall;
+        console.log(`[STRATEGY-ADVISOR] ⚠️ No OTM calls found, falling back to ATM for spread`);
+    } else {
+        console.log(`[STRATEGY-ADVISOR] ✅ OTM call to SELL: $${otmCallToSell.strike} @ $${otmCallToSell.bid}/$${otmCallToSell.ask}`);
     }
     
-    // Use ACTUAL strikes from the chain (not rounded) - these are guaranteed to exist
-    const sellPutStrike = atmPut ? parseFloat(atmPut.strike) : roundStrike(spot - 1);
-    const buyPutStrike = otmPut ? parseFloat(otmPut.strike) : roundStrike(spot - spreadWidth - 1);
-    const sellCallStrike = atmCall ? parseFloat(atmCall.strike) : roundStrike(spot + 1);
-    const buyCallStrike = otmCall ? parseFloat(otmCall.strike) : roundStrike(spot + spreadWidth + 1);
+    // Find further OTM call for BUYING in credit spreads ($5 above sell strike)
+    const targetBuyCallStrike = otmCallToSell ? parseFloat(otmCallToSell.strike) + spreadWidth : targetSellCallStrike + spreadWidth;
+    let otmCallToBuy = calls.find(c => {
+        const strike = parseFloat(c.strike);
+        return Math.abs(strike - targetBuyCallStrike) <= 1 && c !== otmCallToSell && (c.bid > 0 || c.ask > 0);
+    });
+    if (!otmCallToBuy) {
+        otmCallToBuy = calls.find(c => {
+            const strike = parseFloat(c.strike);
+            return strike > parseFloat(otmCallToSell?.strike || spot) + 2 && c !== otmCallToSell && (c.bid > 0 || c.ask > 0);
+        });
+    }
+    if (!otmCallToBuy && otmCallToSell) {
+        const syntheticStrike = roundStrike(parseFloat(otmCallToSell.strike) + spreadWidth);
+        const sellMid = (parseFloat(otmCallToSell.bid) + parseFloat(otmCallToSell.ask)) / 2;
+        otmCallToBuy = { strike: syntheticStrike, bid: sellMid * 0.55, ask: sellMid * 0.65, synthetic: true };
+        console.log(`[STRATEGY-ADVISOR] ⚠️ Created SYNTHETIC buy call: $${syntheticStrike}`);
+    } else if (otmCallToBuy) {
+        console.log(`[STRATEGY-ADVISOR] ✅ OTM call to BUY: $${otmCallToBuy.strike} @ $${otmCallToBuy.bid}/$${otmCallToBuy.ask}`);
+    }
+    
+    // =========================================================================
+    // FINAL STRIKE ASSIGNMENTS
+    // - Setup A (Cash-Secured Put): Uses ATM put
+    // - Setup B (Put Credit Spread): Sell OTM put, Buy further OTM put
+    // - Setup C (Covered Call): Uses ATM call
+    // - Setup D (Call Credit Spread): Sell OTM call, Buy further OTM call
+    // =========================================================================
+    const sellPutStrike = otmPutToSell ? parseFloat(otmPutToSell.strike) : roundStrike(spot * 0.97);
+    const buyPutStrike = otmPutToBuy ? parseFloat(otmPutToBuy.strike) : roundStrike(sellPutStrike - spreadWidth);
+    const sellCallStrike = otmCallToSell ? parseFloat(otmCallToSell.strike) : roundStrike(spot * 1.03);
+    const buyCallStrike = otmCallToBuy ? parseFloat(otmCallToBuy.strike) : roundStrike(sellCallStrike + spreadWidth);
+    
+    // For Setup A (cash-secured put), use ATM strike for higher premium
+    const cashSecuredPutStrike = atmPut ? parseFloat(atmPut.strike) : roundStrike(spot - 1);
+    // For Setup C (covered call), use ATM strike
+    const coveredCallStrike = atmCall ? parseFloat(atmCall.strike) : roundStrike(spot + 1);
+    
+    console.log(`[STRATEGY-ADVISOR] Final strikes:`);
+    console.log(`  Put Credit Spread: Sell $${sellPutStrike} / Buy $${buyPutStrike}`);
+    console.log(`  Call Credit Spread: Sell $${sellCallStrike} / Buy $${buyCallStrike}`);
+    console.log(`  Cash-Secured Put: $${cashSecuredPutStrike}`);
+    console.log(`  Covered Call: $${coveredCallStrike}`);
     
     // Calculate ACTUAL spread width (may differ from target due to available strikes)
     const putSpreadWidth = sellPutStrike - buyPutStrike;
     const callSpreadWidth = buyCallStrike - sellCallStrike;
     
-    // Calculate premiums for spreads (NET credit = sell premium - buy premium)
-    const atmPutMid = atmPut ? (parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2 : 2.00;
-    const otmPutMid = otmPut ? (parseFloat(otmPut.bid) + parseFloat(otmPut.ask)) / 2 : atmPutMid * 0.4;
-    const putSpreadCredit = Math.max(0.10, atmPutMid - otmPutMid); // Net credit received
+    // Calculate premiums - use the OTM options for spreads
+    const otmPutSellMid = otmPutToSell ? (parseFloat(otmPutToSell.bid) + parseFloat(otmPutToSell.ask)) / 2 : 1.50;
+    const otmPutBuyMid = otmPutToBuy ? (parseFloat(otmPutToBuy.bid) + parseFloat(otmPutToBuy.ask)) / 2 : otmPutSellMid * 0.5;
+    const putSpreadCredit = Math.max(0.10, otmPutSellMid - otmPutBuyMid);
     
+    const otmCallSellMid = otmCallToSell ? (parseFloat(otmCallToSell.bid) + parseFloat(otmCallToSell.ask)) / 2 : 1.50;
+    const otmCallBuyMid = otmCallToBuy ? (parseFloat(otmCallToBuy.bid) + parseFloat(otmCallToBuy.ask)) / 2 : otmCallSellMid * 0.5;
+    const callSpreadCredit = Math.max(0.10, otmCallSellMid - otmCallBuyMid);
+    
+    // ATM premiums for cash-secured put and covered call
+    const atmPutMid = atmPut ? (parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2 : 2.00;
     const atmCallMid = atmCall ? (parseFloat(atmCall.bid) + parseFloat(atmCall.ask)) / 2 : 2.00;
-    const otmCallMid = otmCall ? (parseFloat(otmCall.bid) + parseFloat(otmCall.ask)) / 2 : atmCallMid * 0.4;
-    const callSpreadCredit = Math.max(0.10, atmCallMid - otmCallMid); // Net credit received
     
     // =========================================================================
     // NEW STRATEGIES: Additional strike calculations for E, F, G, H
@@ -1820,21 +1877,22 @@ YOUR TASK: Recommend THE BEST strategy for this situation
 VALID TRADE SETUPS (these are the ONLY options - pick ONE):
 
 SETUP A - Short Put (Cash-Secured) - Schwab: "Single" → Put → Sell:
-  Trade: Sell ${ticker} $${sellPutStrike} Put, ${firstExpiry}
+  Trade: Sell ${ticker} $${cashSecuredPutStrike} Put, ${firstExpiry}
   Credit Received: $${atmPutMid.toFixed(2)}/share
+  ⚠️ NOTE: Uses ATM strike ($${cashSecuredPutStrike}) for higher premium. More aggressive than spread.
   
   📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
   • Max Profit per contract: $${(atmPutMid * 100).toFixed(0)} (keep all premium)
-  • Max Loss per contract: $${((sellPutStrike - atmPutMid) * 100).toFixed(0)} (assigned at $${sellPutStrike} minus premium)
-  • Breakeven: $${(sellPutStrike - atmPutMid).toFixed(2)}
-  • Buying Power per contract: $${(sellPutStrike * 100).toLocaleString()} (cash-secured)
-  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (sellPutStrike * 100))}
-  • Recommended contracts: ${Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))} (60% of max)
+  • Max Loss per contract: $${((cashSecuredPutStrike - atmPutMid) * 100).toFixed(0)} (assigned at $${cashSecuredPutStrike} minus premium)
+  • Breakeven: $${(cashSecuredPutStrike - atmPutMid).toFixed(2)}
+  • Buying Power per contract: $${(cashSecuredPutStrike * 100).toLocaleString()} (cash-secured)
+  • Max contracts with $${buyingPower.toLocaleString()}: ${Math.floor(buyingPower / (cashSecuredPutStrike * 100))}
+  • Recommended contracts: ${Math.max(1, Math.floor(Math.floor(buyingPower / (cashSecuredPutStrike * 100)) * 0.6))} (60% of max)
   
-  💰 TOTALS FOR ${Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))} CONTRACTS (COPY EXACTLY):
-  • TOTAL MAX PROFIT: $${(atmPutMid * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))).toLocaleString()}
-  • TOTAL MAX LOSS: $${((sellPutStrike - atmPutMid) * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))).toLocaleString()} (if stock goes to $0)
-  • TOTAL BUYING POWER USED: $${(sellPutStrike * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (sellPutStrike * 100)) * 0.6))).toLocaleString()}
+  💰 TOTALS FOR ${Math.max(1, Math.floor(Math.floor(buyingPower / (cashSecuredPutStrike * 100)) * 0.6))} CONTRACTS (COPY EXACTLY):
+  • TOTAL MAX PROFIT: $${(atmPutMid * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (cashSecuredPutStrike * 100)) * 0.6))).toLocaleString()}
+  • TOTAL MAX LOSS: $${((cashSecuredPutStrike - atmPutMid) * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (cashSecuredPutStrike * 100)) * 0.6))).toLocaleString()} (if stock goes to $0)
+  • TOTAL BUYING POWER USED: $${(cashSecuredPutStrike * 100 * Math.max(1, Math.floor(Math.floor(buyingPower / (cashSecuredPutStrike * 100)) * 0.6))).toLocaleString()}
   
   • Delta: +${Math.abs(atmPutDelta * 100).toFixed(0)} per contract (BULLISH)
   • Win Probability: ~${Math.round((1 - Math.abs(atmPutDelta)) * 100)}%
@@ -1843,7 +1901,8 @@ SETUP A - Short Put (Cash-Secured) - Schwab: "Single" → Put → Sell:
 SETUP B - Put Credit Spread (Bull Put) - Schwab: "Vertical" → Put:
   Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike} Put Spread, ${firstExpiry}
   Spread Width: $${putSpreadWidth.toFixed(2)}
-  Credit Received: $${putSpreadCredit.toFixed(2)}/share (= $${atmPutMid.toFixed(2)} sell - $${otmPutMid.toFixed(2)} buy)
+  Credit Received: $${putSpreadCredit.toFixed(2)}/share
+  ✅ OTM BUFFER: Short strike $${sellPutStrike} is ${((1 - sellPutStrike/spot) * 100).toFixed(1)}% below spot ($${spot.toFixed(2)})
   
   📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
   • Max Profit per contract: $${(putSpreadCredit * 100).toFixed(0)}
@@ -1862,27 +1921,28 @@ SETUP B - Put Credit Spread (Bull Put) - Schwab: "Vertical" → Put:
   • Win Probability: ~${winProbability}%
 
 SETUP C - Covered Call - Schwab: "Single" → Call → Sell (must own shares):
-  Trade: Sell ${ticker} $${sellCallStrike} Call, ${firstExpiry}
+  Trade: Sell ${ticker} $${coveredCallStrike} Call, ${firstExpiry}
   Credit: ~$${atmCallMid.toFixed(2)}/share
   ⚠️ REQUIREMENT: Must own 100 shares of ${ticker} per contract
   
   📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
   • Max Profit per contract: $${(atmCallMid * 100).toFixed(0)} premium + stock gains up to strike
-  • Max upside if called: $${((sellCallStrike - spot + atmCallMid) * 100).toFixed(0)} (stock at $${sellCallStrike} + premium)
+  • Max upside if called: $${((coveredCallStrike - spot + atmCallMid) * 100).toFixed(0)} (stock at $${coveredCallStrike} + premium)
   • Breakeven: $${(spot - atmCallMid).toFixed(2)} (stock cost - premium)
   • Stock ownership required: 100 shares at ~$${spot.toFixed(2)} = $${(spot * 100).toLocaleString()} per contract
   
   💰 FOR 1 CONTRACT (100 shares):
   • PREMIUM COLLECTED: $${(atmCallMid * 100).toFixed(0)}
-  • MAX PROFIT IF CALLED: $${((sellCallStrike - spot + atmCallMid) * 100).toFixed(0)}
+  • MAX PROFIT IF CALLED: $${((coveredCallStrike - spot + atmCallMid) * 100).toFixed(0)}
   
   • Delta: -${Math.abs(atmCallDelta * 100).toFixed(0)} per contract (reduces long delta from shares)
-  ⚠️ NOTE: Only valid if user OWNS ${ticker} shares. Caps upside above $${sellCallStrike}.
+  ⚠️ NOTE: Only valid if user OWNS ${ticker} shares. Caps upside above $${coveredCallStrike}.
 
 SETUP D - Call Credit Spread (Bear Call) - Schwab: "Vertical" → Call:
   Trade: Sell ${ticker} $${sellCallStrike}/$${buyCallStrike} Call Spread, ${firstExpiry}
   Spread Width: $${callSpreadWidth.toFixed(2)}
   Credit Received: $${callSpreadCredit.toFixed(2)}/share
+  ✅ OTM BUFFER: Short strike $${sellCallStrike} is ${((sellCallStrike/spot - 1) * 100).toFixed(1)}% above spot ($${spot.toFixed(2)})
   
   📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
   • Max Profit per contract: $${(callSpreadCredit * 100).toFixed(0)}
@@ -1940,9 +2000,10 @@ SETUP F - Long Call (Bullish, Defined Risk) - Schwab: "Single" → Call → Buy 
 
 SETUP G - Iron Condor (Neutral, Range-Bound) - Schwab: "Iron Condor" - ALL MATH PRE-CALCULATED:
   Trade: Sell ${ticker} $${sellPutStrike}/$${buyPutStrike}/$${sellCallStrike}/$${buyCallStrike} Iron Condor, ${firstExpiry}
-  Put Spread: $${sellPutStrike}/$${buyPutStrike} (Bull Put)
-  Call Spread: $${sellCallStrike}/$${buyCallStrike} (Bear Call)
+  Put Spread: $${sellPutStrike}/$${buyPutStrike} (Bull Put) - ${((1 - sellPutStrike/spot) * 100).toFixed(1)}% below spot
+  Call Spread: $${sellCallStrike}/$${buyCallStrike} (Bear Call) - ${((sellCallStrike/spot - 1) * 100).toFixed(1)}% above spot
   Total Credit: $${ironCondorCredit.toFixed(2)}/share
+  ✅ OTM BUFFER: Both short strikes are ~3% away from spot ($${spot.toFixed(2)})
   
   📐 EXACT NUMBERS (COPY THESE VERBATIM - do NOT recalculate!):
   • Max Profit per contract: $${(ironCondorCredit * 100).toFixed(0)} (keep all premium if stock stays in range)
