@@ -3134,17 +3134,68 @@ async function updatePositionGreeksDisplay(positions, spotPrices) {
         const thetaCell = document.getElementById(`theta-${pos.id}`);
         if (!deltaCell || !thetaCell) continue;
         
-        // Skip spreads for now - they need more complex calculations
+        const spot = spotPrices[pos.ticker] || pos.currentSpot || 100;
+        const iv = pos.iv || 0.30;  // Default 30% IV
+        const contracts = pos.contracts || 1;
+        
+        // Calculate DTE
+        const expiry = new Date(pos.expiry);
+        const now = new Date();
+        const dte = Math.max(0, (expiry - now) / (1000 * 60 * 60 * 24));
+        const T = dte / 365;
+        
+        // Handle spreads - calculate net Greeks from both legs
         if (pos.type?.includes('_spread')) {
-            deltaCell.innerHTML = '<span style="color:#8b5cf6;font-size:10px;">—</span>';
-            thetaCell.innerHTML = '<span style="color:#8b5cf6;font-size:10px;">—</span>';
+            const sellStrike = pos.sellStrike || 0;
+            const buyStrike = pos.buyStrike || 0;
+            const isPutSpread = pos.type.includes('put');
+            const isCredit = pos.type.includes('credit');
+            
+            if (!sellStrike || !buyStrike) {
+                deltaCell.innerHTML = '<span style="color:#8b5cf6;font-size:10px;">—</span>';
+                thetaCell.innerHTML = '<span style="color:#8b5cf6;font-size:10px;">—</span>';
+                continue;
+            }
+            
+            // Calculate Greeks for each leg
+            // Short leg (we sold this - we're short)
+            const shortGreeks = calculateGreeks(spot, sellStrike, T, 0.05, iv, isPutSpread, contracts);
+            // Long leg (we bought this - we're long)
+            const longGreeks = calculateGreeks(spot, buyStrike, T, 0.05, iv, isPutSpread, contracts);
+            
+            // Net Greeks: short leg is negative (we're short), long leg is positive (we're long)
+            // For credit spreads: short the higher-premium option, long the lower-premium (protection)
+            // For debit spreads: long the higher-premium option, short the lower-premium
+            let netDelta, netTheta;
+            if (isCredit) {
+                // Credit spread: short sellStrike, long buyStrike
+                netDelta = -shortGreeks.delta + longGreeks.delta;
+                netTheta = -shortGreeks.theta + longGreeks.theta;
+            } else {
+                // Debit spread: long sellStrike (confusing naming), short buyStrike
+                // Actually for debit spreads, we buy the more expensive option
+                netDelta = shortGreeks.delta - longGreeks.delta;
+                netTheta = shortGreeks.theta - longGreeks.theta;
+            }
+            
+            // Delta tooltip for spreads
+            const deltaTooltip = `Net spread delta: If ${pos.ticker} moves $1, P&L changes by ~$${Math.abs(netDelta).toFixed(0)}`;
+            deltaCell.innerHTML = `<span style="color:#8b5cf6;font-size:10px;" title="${deltaTooltip}">${netDelta >= 0 ? '+' : ''}${netDelta.toFixed(0)}</span>`;
+            
+            // Theta tooltip for spreads
+            const thetaColor = netTheta > 0 ? '#00ff88' : '#ffaa00';
+            const thetaTooltip = netTheta > 0 
+                ? `Net theta: Collecting $${Math.abs(netTheta).toFixed(2)}/day from time decay`
+                : `Net theta: Paying $${Math.abs(netTheta).toFixed(2)}/day in time decay`;
+            thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${thetaTooltip}">${netTheta >= 0 ? '+' : ''}$${netTheta.toFixed(0)}</span>`;
+            
+            // Store on position
+            pos._delta = netDelta;
+            pos._theta = netTheta;
             continue;
         }
         
-        const spot = spotPrices[pos.ticker] || pos.currentSpot || 100;
-        const iv = pos.iv || 0.30;  // Default 30% IV - will be updated when portfolio Greeks refresh
         const strike = pos.strike || 0;
-        const contracts = pos.contracts || 1;
         const isPut = pos.type?.includes('put');
         const isShort = pos.type?.includes('short') || pos.type === 'covered_call';
         
