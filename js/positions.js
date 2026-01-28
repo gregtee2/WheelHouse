@@ -3199,11 +3199,7 @@ async function updatePositionGreeksDisplay(positions, spotPrices) {
         const isPut = pos.type?.includes('put');
         const isShort = pos.type?.includes('short') || pos.type === 'covered_call';
         
-        // Calculate DTE
-        const expiry = new Date(pos.expiry);
-        const now = new Date();
-        const dte = Math.max(0, (expiry - now) / (1000 * 60 * 60 * 24));
-        const T = dte / 365;
+        // DTE already calculated above (expiry, now, dte, T)
         
         // Calculate Greeks
         const greeks = calculateGreeks(spot, strike, T, 0.05, iv, isPut, contracts);
