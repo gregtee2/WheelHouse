@@ -257,7 +257,18 @@ Summary: ${o.aiSummary?.summary || 'N/A'}
 ═══ YOUR CHECKUP ASSESSMENT ═══
 
 **1. THESIS STATUS**
-Has the original reason for entry been validated, invalidated, or is it still playing out?
+${isShortPosition && isPut ? `
+⚠️ CRITICAL FOR SHORT PUT: The ONLY thing that matters is whether stock is ABOVE or BELOW $${strike}!
+- Current: $${currentPrice} vs Strike: $${strike}
+- ${currentPrice > strike ? `✅ Stock is ABOVE strike → THESIS IS VALID (you are winning!)` : `❌ Stock is BELOW strike → THESIS IS BROKEN (assignment risk!)`}
+- Whether stock moved up or down from ENTRY PRICE is IRRELEVANT. Only the strike matters!
+- Do NOT say "thesis invalidated because price dropped" if stock is still above strike!` 
+: isShortPosition && !isPut ? `
+⚠️ CRITICAL FOR SHORT CALL: The ONLY thing that matters is whether stock is ABOVE or BELOW $${strike}!
+- Current: $${currentPrice} vs Strike: $${strike}
+- ${currentPrice < strike ? `✅ Stock is BELOW strike → THESIS IS VALID (you are winning!)` : `❌ Stock is ABOVE strike → THESIS IS BROKEN (assignment risk!)`}
+- Whether stock moved up or down from ENTRY PRICE is IRRELEVANT. Only the strike matters!`
+: `Has the original reason for entry been validated, invalidated, or is it still playing out?`}
 
 **2. RISK ASSESSMENT**
 ${isShortPosition && isPut ? `
