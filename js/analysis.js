@@ -1057,8 +1057,6 @@ export async function suggestOptimalRoll() {
     
     // Show IV summary bar
     showRollIvSummary(optionChain, currentStrike);
-        return;
-    }
     
     listEl.innerHTML = '<div style="color:#888;">🔄 Analyzing real strikes...</div>';
     await new Promise(r => setTimeout(r, 50));
