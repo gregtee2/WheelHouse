@@ -2,6 +2,31 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.19] - 2026-01-30
+
+### Added
+- **Unified AI Context System (Phase 2)**: All AI analysis calls now share position lifecycle context
+  - Created `/api/ai/holding-suggestion` backend endpoint for covered call analysis
+  - Created `/api/ai/spread-advisor` backend endpoint for spread position advice
+  - Both endpoints use `buildPositionFlowContext()` for consistent context injection
+  - AI now sees chain history, previous AI recommendations, and opening thesis in every call
+  - Each AI call knows its position in the lifecycle: DISCOVERY → ANALYSIS → ENTRY → ACTIVE → CLOSING → REVIEW
+  - Frontend functions refactored to call backend endpoints (no more inline prompts)
+
+### Changed
+- **aiHoldingSuggestion()**: Now calls `/api/ai/holding-suggestion` instead of building inline prompt
+  - Shows chain history count in modal if position is part of a wheel chain
+  - Price fetching moved to backend via MarketDataService (Schwab→CBOE→Yahoo)
+  
+- **askSpreadAI()**: Now calls `/api/ai/spread-advisor` instead of building inline prompt  
+  - Chain history and analysis history included in context
+  - Response now includes spot price, DTE, ITM status, and max profit/loss
+
+### Technical
+- Migrated 2 inline prompts from frontend to backend for unified context awareness
+- All AI calls can now reference previous recommendations and adjust accordingly
+- Reduced frontend complexity by moving prompt building to `promptBuilders.js`
+
 ## [1.17.9] - 2026-01-29
 
 ### Added

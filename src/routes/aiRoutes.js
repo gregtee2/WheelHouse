@@ -915,6 +915,325 @@ End your response with one of these exact phrases:
 });
 
 // =============================================================================
+// HOLDING SUGGESTION - AI suggestion for covered call holdings (ACTIVE stage)
+// =============================================================================
+
+router.post('/holding-suggestion', async (req, res) => {
+    try {
+        const { 
+            ticker, shares, costBasis, strike, expiry, premium, 
+            model, chainHistory, analysisHistory, openingThesis, portfolioContext
+        } = req.body;
+        
+        if (!ticker || !strike) {
+            return res.status(400).json({ error: 'Missing required fields: ticker, strike' });
+        }
+        
+        const selectedModel = model || 'qwen2.5:32b';
+        console.log(`[AI] 📊 Holding suggestion for ${ticker} $${strike} via ${selectedModel}`);
+        
+        // Fetch current price via MarketDataService
+        let currentPrice = 0;
+        try {
+            const quote = await MarketDataService.getQuote(ticker);
+            currentPrice = quote?.price || 0;
+            console.log(`[AI] Price for ${ticker}: $${currentPrice} via ${quote?.source || 'unknown'}`);
+        } catch (e) {
+            console.log('[AI] Price fetch error:', e.message);
+        }
+        
+        if (!currentPrice) {
+            return res.status(400).json({ error: `Could not fetch price for ${ticker}` });
+        }
+        
+        // Calculate key metrics
+        const dte = expiry ? Math.max(0, Math.round((new Date(expiry) - new Date()) / 86400000)) : 0;
+        const shareCount = shares || 100;
+        const stockValue = currentPrice * shareCount;
+        const stockGainLoss = costBasis > 0 ? (currentPrice - costBasis) * shareCount : 0;
+        const isITM = currentPrice > strike;
+        const onTable = isITM ? (currentPrice - strike) * shareCount : 0;
+        const cushion = !isITM ? (strike - currentPrice) * shareCount : 0;
+        const ifCalled = (strike - costBasis) * shareCount + (premium || 0);
+        const breakeven = costBasis - ((premium || 0) / shareCount);
+        
+        // Calculate wheel continuation put strikes
+        const wheelPutStrike = Math.floor((strike * 0.95) / 5) * 5;
+        const wheelPutStrikeAlt = Math.floor((strike * 0.90) / 5) * 5;
+        
+        // Build unified context
+        const positionFlowContext = promptBuilders.buildPositionFlowContext({
+            stage: 'ACTIVE',
+            positionType: 'covered_call',
+            ticker,
+            strike,
+            expiry,
+            dte,
+            currentSpot: currentPrice,
+            costBasis,
+            premium: premium || 0,
+            chainHistory: chainHistory || [],
+            analysisHistory: analysisHistory || [],
+            openingThesis: openingThesis || null,
+            portfolioContext: portfolioContext || null,
+            isITM
+        });
+        
+        // Build prompt
+        const prompt = `You are a wheel strategy options expert analyzing a COVERED CALL position. This is an ACTIVE position needing actionable advice.
+
+${positionFlowContext}
+
+=== POSITION DETAILS ===
+Ticker: ${ticker}
+Shares: ${shareCount} @ $${costBasis?.toFixed(2) || 'unknown'} cost basis
+Current stock price: $${currentPrice.toFixed(2)}
+Covered call: $${strike.toFixed(2)} strike, expires ${expiry} (${dte} DTE)
+Premium collected: $${(premium || 0).toFixed(0)} total
+Breakeven: $${breakeven.toFixed(2)}
+
+=== CURRENT STATUS ===
+Stock P&L: ${stockGainLoss >= 0 ? '+' : ''}$${stockGainLoss.toFixed(0)} (${costBasis > 0 ? ((stockGainLoss / (costBasis * shareCount)) * 100).toFixed(1) : '0'}%)
+Option status: ${isITM ? 'IN THE MONEY (ITM)' : 'OUT OF THE MONEY (OTM)'}
+${isITM ? `Money on table (above strike): $${onTable.toFixed(0)}` : `Cushion to strike: $${cushion.toFixed(0)} (${((strike - currentPrice) / currentPrice * 100).toFixed(1)}%)`}
+If called at expiry: +$${ifCalled.toFixed(0)} total profit
+
+=== YOUR TASK ===
+Provide a COMPLETE analysis with these sections:
+
+**SITUATION SUMMARY**
+Explain what's happening with this position in 2-3 sentences.
+
+**RECOMMENDATION** 
+Choose ONE: HOLD / ROLL UP / ROLL OUT / ROLL UP & OUT / LET IT GET CALLED / WHEEL CONTINUATION / BUY BACK THE CALL
+- WHEEL CONTINUATION means: LET IT GET CALLED + immediately SELL A PUT at $${wheelPutStrike} or $${wheelPutStrikeAlt}
+Explain WHY your choice is the best action right now.
+
+**SPECIFIC ACTION**
+If rolling: Suggest specific new strike and timeframe.
+If WHEEL CONTINUATION: Specify the put strike, expiry, and expected premium.
+
+**KEY RISK**
+One important risk or thing to watch.
+
+**SUGGESTED TRADE (REQUIRED if recommending ROLL, WHEEL CONTINUATION, or BUY BACK)**
+If recommending an action other than HOLD, provide specific trade details:
+
+===SUGGESTED_TRADE===
+ACTION: ROLL|WHEEL_CONTINUATION|CLOSE|HOLD
+CLOSE_STRIKE: ${strike.toFixed(0)}
+CLOSE_EXPIRY: ${expiry}
+CLOSE_TYPE: CALL
+NEW_STRIKE: [new strike price - for WHEEL_CONTINUATION this is the PUT strike]
+NEW_EXPIRY: [new expiry YYYY-MM-DD]
+NEW_TYPE: [CALL for rolls, PUT for WHEEL_CONTINUATION]
+ESTIMATED_DEBIT: [cost to buy back current call, or N/A for LET ASSIGN]
+ESTIMATED_CREDIT: [credit from selling new option]
+NET_COST: [net result, e.g. "-$10.00 debit" or "+$2.00 credit"]
+RATIONALE: [One sentence explaining why]
+===END_TRADE===
+
+Be specific with dollar amounts. Reference any previous AI recommendations if they exist.`;
+
+        // Call AI
+        let response;
+        const isGrok = selectedModel.toLowerCase().includes('grok');
+        
+        if (isGrok) {
+            response = await AIService.callGrok(prompt, { maxTokens: 1200 });
+        } else {
+            response = await AIService.callAI(prompt, selectedModel, { maxTokens: 1200 });
+        }
+        
+        // Parse suggested trade
+        let suggestedTrade = null;
+        const tradeMatch = response.match(/===SUGGESTED_TRADE===([\s\S]*?)===END_TRADE===/);
+        if (tradeMatch) {
+            const tradeBlock = tradeMatch[1];
+            suggestedTrade = {
+                action: tradeBlock.match(/ACTION:\s*(\S+)/)?.[1] || 'HOLD',
+                closeStrike: parseFloat(tradeBlock.match(/CLOSE_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
+                closeExpiry: tradeBlock.match(/CLOSE_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
+                closeType: tradeBlock.match(/CLOSE_TYPE:\s*(\S+)/)?.[1] || null,
+                newStrike: parseFloat(tradeBlock.match(/NEW_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
+                newExpiry: tradeBlock.match(/NEW_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
+                newType: tradeBlock.match(/NEW_TYPE:\s*(\S+)/)?.[1] || null,
+                estimatedDebit: tradeBlock.match(/ESTIMATED_DEBIT:\s*(.+)/)?.[1]?.trim() || null,
+                estimatedCredit: tradeBlock.match(/ESTIMATED_CREDIT:\s*(.+)/)?.[1]?.trim() || null,
+                netCost: tradeBlock.match(/NET_COST:\s*(.+)/)?.[1]?.trim() || null,
+                rationale: tradeBlock.match(/RATIONALE:\s*(.+)/)?.[1]?.trim() || null
+            };
+            console.log('[AI] Parsed suggested trade:', suggestedTrade.action);
+        }
+        
+        // Parse recommendation from response
+        let newRecommendation = 'HOLD';
+        const responseUpper = response.toUpperCase();
+        if (responseUpper.includes('WHEEL CONTINUATION')) {
+            newRecommendation = 'WHEEL_CONTINUATION';
+        } else if (responseUpper.includes('ROLL UP & OUT') || responseUpper.includes('ROLL UP AND OUT')) {
+            newRecommendation = 'ROLL_UP_OUT';
+        } else if (responseUpper.includes('ROLL UP')) {
+            newRecommendation = 'ROLL_UP';
+        } else if (responseUpper.includes('ROLL OUT')) {
+            newRecommendation = 'ROLL_OUT';
+        } else if (responseUpper.includes('LET IT GET CALLED') || responseUpper.includes('LET ASSIGN')) {
+            newRecommendation = 'LET_ASSIGN';
+        } else if (responseUpper.includes('BUY BACK')) {
+            newRecommendation = 'BUY_BACK';
+        }
+        
+        res.json({
+            success: true,
+            analysis: response,
+            model: selectedModel,
+            currentPrice,
+            costBasis,
+            strike,
+            dte,
+            isITM,
+            stockGainLoss,
+            onTable,
+            cushion,
+            ifCalled,
+            breakeven,
+            wheelPutStrike,
+            wheelPutStrikeAlt,
+            suggestedTrade,
+            newRecommendation
+        });
+        console.log(`[AI] ✅ Holding suggestion complete: ${newRecommendation}`);
+    } catch (e) {
+        console.log('[AI] ❌ Holding suggestion error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
+// SPREAD ADVISOR - AI advice for spread positions (ACTIVE stage)
+// =============================================================================
+
+router.post('/spread-advisor', async (req, res) => {
+    try {
+        const { 
+            ticker, positionType, sellStrike, buyStrike, contracts, entryPremium,
+            expiry, model, chainHistory, analysisHistory, openingThesis, portfolioContext
+        } = req.body;
+        
+        if (!ticker || !sellStrike || !buyStrike) {
+            return res.status(400).json({ error: 'Missing required fields: ticker, sellStrike, buyStrike' });
+        }
+        
+        const selectedModel = model || 'qwen2.5:14b';
+        console.log(`[AI] 📊 Spread advisor for ${ticker} $${sellStrike}/$${buyStrike} via ${selectedModel}`);
+        
+        // Fetch current price via MarketDataService
+        let spotPrice = 0;
+        try {
+            const quote = await MarketDataService.getQuote(ticker);
+            spotPrice = quote?.price || 0;
+            console.log(`[AI] Price for ${ticker}: $${spotPrice} via ${quote?.source || 'unknown'}`);
+        } catch (e) {
+            console.log('[AI] Price fetch error:', e.message);
+        }
+        
+        // Parse position type
+        const isPut = positionType?.includes('put');
+        const isCredit = positionType?.includes('credit');
+        
+        // Calculate metrics
+        const dte = expiry ? Math.max(0, Math.round((new Date(expiry) - new Date()) / 86400000)) : 0;
+        const spreadWidth = Math.abs(sellStrike - buyStrike);
+        const entry = entryPremium || 0;
+        const maxProfit = isCredit ? entry * 100 * (contracts || 1) : (spreadWidth - entry) * 100 * (contracts || 1);
+        const maxLoss = isCredit ? (spreadWidth - entry) * 100 * (contracts || 1) : entry * 100 * (contracts || 1);
+        
+        // Determine ITM status
+        let isITM = false;
+        if (spotPrice > 0) {
+            if (isPut && isCredit) {
+                isITM = spotPrice < sellStrike;
+            } else if (!isPut && isCredit) {
+                isITM = spotPrice > sellStrike;
+            } else if (isPut && !isCredit) {
+                isITM = spotPrice < buyStrike;
+            } else {
+                isITM = spotPrice > buyStrike;
+            }
+        }
+        const itmStatus = spotPrice > 0 ? (isITM ? 'ITM (in trouble)' : 'OTM (safe zone)') : 'unknown';
+        
+        // Build unified context (simpler for spreads)
+        const positionFlowContext = promptBuilders.buildPositionFlowContext({
+            stage: 'ACTIVE',
+            positionType: positionType || 'spread',
+            ticker,
+            strike: sellStrike,
+            expiry,
+            dte,
+            currentSpot: spotPrice,
+            chainHistory: chainHistory || [],
+            analysisHistory: analysisHistory || [],
+            openingThesis: openingThesis || null,
+            portfolioContext: portfolioContext || null,
+            isITM
+        });
+        
+        // Build concise prompt
+        const prompt = `You are a concise options trading advisor. Analyze this spread position and give a SHORT recommendation (3-4 sentences MAX).
+
+${positionFlowContext}
+
+POSITION:
+- ${ticker} ${isPut ? 'PUT' : 'CALL'} ${isCredit ? 'CREDIT' : 'DEBIT'} SPREAD
+- Short strike: $${sellStrike}, Long strike: $${buyStrike}
+- Contracts: ${contracts || 1}
+- Entry premium: $${entry.toFixed(2)} ${isCredit ? 'credit received' : 'debit paid'}
+- Stock price: ${spotPrice > 0 ? '$' + spotPrice.toFixed(2) : 'not available'}
+- Status: ${itmStatus}
+- DTE: ${dte} days
+- Max Profit potential: $${maxProfit.toFixed(0)}
+- Max Loss risk: $${maxLoss.toFixed(0)}
+
+RULES TO FOLLOW:
+- If >50% of max profit realized: Consider CLOSE to lock in gains
+- If DTE < 7 and profitable: CLOSE to avoid gamma risk
+- If ITM and losing: Consider CLOSE to limit loss
+- Credit spreads profit when stock stays ${isPut ? 'ABOVE' : 'BELOW'} short strike ($${sellStrike})
+
+Give ONE clear verdict: HOLD, CLOSE, or CLOSE EARLY. Explain in 2-3 sentences why.`;
+
+        // Call AI
+        const response = await AIService.callAI(prompt, selectedModel, { maxTokens: 300 });
+        
+        // Parse recommendation
+        let recommendation = 'HOLD';
+        const responseUpper = response.toUpperCase();
+        if (responseUpper.includes('CLOSE EARLY') || responseUpper.includes('CLOSE NOW')) {
+            recommendation = 'CLOSE_EARLY';
+        } else if (responseUpper.includes('CLOSE')) {
+            recommendation = 'CLOSE';
+        }
+        
+        res.json({
+            success: true,
+            insight: response,
+            model: selectedModel,
+            spotPrice,
+            dte,
+            isITM,
+            maxProfit,
+            maxLoss,
+            recommendation
+        });
+        console.log(`[AI] ✅ Spread advisor complete: ${recommendation}`);
+    } catch (e) {
+        console.log('[AI] ❌ Spread advisor error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
 // PARSE TRADE - Discord trade parsing with SSE progress
 // =============================================================================
 

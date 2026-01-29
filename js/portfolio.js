@@ -2899,6 +2899,7 @@ function updateHoldingSummary(sumCapital, sumCurrentValue, sumStockPnL, sumPremi
 
 /**
  * Get AI suggestions for a holding (roll up, sell, hold, etc.)
+ * Now calls backend /api/ai/holding-suggestion endpoint with unified context
  */
 window.aiHoldingSuggestion = async function(holdingId) {
     const holding = (state.holdings || []).find(h => h.id === holdingId);
@@ -2929,10 +2930,11 @@ window.aiHoldingSuggestion = async function(holdingId) {
     const shares = holding.shares || 100;
     const strike = position?.strike || holding.strike || 0;
     const costBasis = holding.stockPrice || holding.costBasis || 0;
+    const expiry = position?.expiry || holding.expiry || null;
     
     // Calculate NET premium from entire chain (all rolls, minus buyback costs)
-    // This matches the Portfolio card calculation
     let premium = 0;
+    let chainHistory = [];
     if (position) {
         const chainId = position.chainId || position.id;
         const closedPositions = state.closedPositions || [];
@@ -2961,16 +2963,27 @@ window.aiHoldingSuggestion = async function(holdingId) {
             if (cp.closeReason === 'rolled' && cp.closePrice) {
                 premiumPaid += cp.closePrice * 100 * (cp.contracts || 1);
             }
+            
+            // Build chain history for AI context
+            chainHistory.push({
+                strike: cp.strike,
+                expiry: cp.expiry,
+                premium: cp.premium,
+                closeReason: cp.closeReason || 'open',
+                openDate: cp.openDate,
+                closeDate: cp.closeDate
+            });
         });
         
         premium = premiumCollected - premiumPaid;
         console.log(`[AI] Chain premium for ${holding.ticker}: collected $${premiumCollected}, paid $${premiumPaid}, net $${premium}`);
     } else {
-        // Fallback to holding's premiumCredit if no position found
         premium = holding.premiumCredit || 0;
     }
-    const dte = position?.expiry ? Math.max(0, Math.round((new Date(position.expiry) - new Date()) / 86400000)) : 0;
-    const expiry = position?.expiry || 'unknown';
+    
+    // Get analysis history from position
+    const analysisHistory = position?.analysisHistory || [];
+    const openingThesis = position?.openingThesis || null;
     
     // Show loading modal immediately
     const modal = document.createElement('div');
@@ -2987,160 +3000,23 @@ window.aiHoldingSuggestion = async function(holdingId) {
             </div>
             <div style="text-align:center;padding:40px;color:#888;">
                 <div style="font-size:24px;margin-bottom:10px;">🔄</div>
-                <div>Fetching current price...</div>
+                <div>Choose AI model to analyze...</div>
             </div>
         </div>
     `;
     document.body.appendChild(modal);
     
-    // Fetch current stock price
-    let currentPrice = 0;
-    try {
-        const quoteRes = await fetch(`/api/schwab/quote/${holding.ticker}`);
-        if (quoteRes.ok) {
-            const quoteData = await quoteRes.json();
-            currentPrice = quoteData.lastPrice || quoteData.price || quoteData.regularMarketLastPrice || 0;
-        }
-    } catch (e) {
-        console.warn('Failed to fetch Schwab quote, trying Yahoo');
-    }
-    
-    // Try Yahoo Finance (different endpoint format)
-    if (!currentPrice) {
-        try {
-            const yahooRes = await fetch(`/api/yahoo/${holding.ticker}`);
-            if (yahooRes.ok) {
-                const yahooData = await yahooRes.json();
-                // Yahoo returns nested structure
-                currentPrice = yahooData.chart?.result?.[0]?.meta?.regularMarketPrice || 0;
-            }
-        } catch (e) {
-            console.warn('Failed to fetch Yahoo quote');
-        }
-    }
-    
-    // Try CBOE as last resort (the same endpoint used for options)
-    if (!currentPrice) {
-        try {
-            const cboeRes = await fetch(`/api/cboe/quote/${holding.ticker}`);
-            if (cboeRes.ok) {
-                const cboeData = await cboeRes.json();
-                currentPrice = cboeData.currentPrice || cboeData.underlyingPrice || cboeData.data?.underlying_price || 0;
-            }
-        } catch (e) {
-            console.warn('Failed to fetch CBOE quote');
-        }
-    }
-    
-    if (!currentPrice) {
-        document.querySelector('#aiHoldingModal > div').innerHTML = `
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-                <h3 style="margin:0;color:#ff5252;">❌ Price Error</h3>
-                <button onclick="this.closest('#aiHoldingModal').remove()" 
-                    style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
-            </div>
-            <p style="color:#888;">Could not fetch current price for ${holding.ticker}.</p>
-            <p style="color:#666;font-size:11px;">Check your Schwab connection or try again.</p>
-        `;
-        return;
-    }
-    
-    // Calculate metrics with real per-share price
-    const stockValue = currentPrice * shares;
-    const stockGainLoss = costBasis > 0 ? (currentPrice - costBasis) * shares : 0;
-    const onTable = strike && currentPrice > strike ? (currentPrice - strike) * shares : 0;
-    const cushion = strike && currentPrice < strike ? (strike - currentPrice) * shares : 0;
-    const ifCalled = strike ? (strike - costBasis) * shares + premium : 0;
-    const breakeven = costBasis - (premium / shares);
-    
-    // Determine situation
-    const isITM = currentPrice > strike;
-    const isOTM = currentPrice < strike;
-    const isDeep = isITM ? (currentPrice - strike) / strike > 0.05 : (strike - currentPrice) / strike > 0.1;
-    
-    // Calculate wheel continuation put strikes
-    const wheelPutStrike = Math.floor((strike * 0.95) / 5) * 5;  // ~5% below call strike
-    const wheelPutStrikeAlt = Math.floor((strike * 0.90) / 5) * 5;  // ~10% below for more cushion
-    
-    // Build detailed prompt
-    const prompt = `You are a wheel strategy options expert. Analyze this covered call position and give SPECIFIC, ACTIONABLE advice.
-
-=== POSITION DETAILS ===
-Ticker: ${holding.ticker}
-Shares: ${shares} @ $${costBasis.toFixed(2)} cost basis (Total: $${(costBasis * shares).toFixed(0)})
-Current stock price: $${currentPrice.toFixed(2)}
-Covered call: $${strike.toFixed(2)} strike, expires ${expiry} (${dte} DTE)
-Premium collected: $${premium.toFixed(0)} total ($${(premium/shares).toFixed(2)}/share)
-Breakeven: $${breakeven.toFixed(2)}
-
-=== CURRENT STATUS ===
-Stock P&L: ${stockGainLoss >= 0 ? '+' : ''}$${stockGainLoss.toFixed(0)} (${((stockGainLoss / (costBasis * shares)) * 100).toFixed(1)}%)
-Option status: ${isITM ? 'IN THE MONEY (ITM)' : 'OUT OF THE MONEY (OTM)'}
-${isITM ? `Money on table (above strike): $${onTable.toFixed(0)}` : `Cushion to strike: $${cushion.toFixed(0)} (${((strike - currentPrice) / currentPrice * 100).toFixed(1)}%)`}
-If called at expiry: +$${ifCalled.toFixed(0)} total profit
-
-=== YOUR TASK ===
-Provide a COMPLETE analysis with these sections:
-
-**SITUATION SUMMARY**
-Explain what's happening with this position in 2-3 sentences. Is the covered call working as intended? What's the risk?
-
-**RECOMMENDATION** 
-Choose ONE: HOLD / ROLL UP / ROLL OUT / ROLL UP & OUT / LET IT GET CALLED / WHEEL CONTINUATION / BUY BACK THE CALL
-- WHEEL CONTINUATION means: LET IT GET CALLED + immediately SELL A PUT at $${wheelPutStrike} or $${wheelPutStrikeAlt}
-  This is often the SMARTEST play for ITM covered calls because:
-  1. You take your profit from assignment (stock gain + call premium)
-  2. You collect ADDITIONAL premium from the put NOW
-  3. If stock stays high: put expires worthless, you keep both premiums
-  4. If stock drops to put strike: you re-enter at LOWER cost basis, continue the wheel
-  5. Your assignment cash covers the put obligation if assigned
-Explain WHY your choice is the best action right now.
-
-**SPECIFIC ACTION**
-If holding: Explain what price levels would change your recommendation.
-If rolling: Suggest specific new strike (e.g., "$31 or $32") and timeframe (e.g., "30-45 DTE").
-If WHEEL CONTINUATION: Specify the put strike ($${wheelPutStrike} or $${wheelPutStrikeAlt}), expiry (30-45 DTE ideal), and expected premium.
-If letting call expire: Explain what to expect at expiration.
-
-**KEY RISK**
-One important risk or thing to watch.
-
-**SUGGESTED TRADE (REQUIRED if recommending ROLL, WHEEL CONTINUATION, or BUY BACK)**
-If you recommend ROLL UP, ROLL OUT, ROLL UP & OUT, WHEEL CONTINUATION, or BUY BACK, you MUST provide specific trade details.
-Format EXACTLY like this (we will parse it to create a stageable trade):
-
-===SUGGESTED_TRADE===
-ACTION: ROLL|WHEEL_CONTINUATION|CLOSE|HOLD
-CLOSE_STRIKE: ${strike.toFixed(0)}
-CLOSE_EXPIRY: ${expiry}
-CLOSE_TYPE: CALL
-NEW_STRIKE: [new strike price - for WHEEL_CONTINUATION this is the PUT strike, e.g. ${wheelPutStrike}]
-NEW_EXPIRY: [new expiry YYYY-MM-DD, e.g. 2026-05-15]
-NEW_TYPE: [CALL for rolls, PUT for WHEEL_CONTINUATION]
-ESTIMATED_DEBIT: [cost to buy back current call, or N/A for LET ASSIGN]
-ESTIMATED_CREDIT: [credit from selling new option, e.g. $4.00]
-NET_COST: [net result, e.g. "-$10.00 debit" or "+$2.00 credit"]
-RATIONALE: [One sentence explaining why this specific trade]
-===END_TRADE===
-
-If you recommend HOLD or LET IT GET CALLED (without selling a put), use ACTION: HOLD and leave the other fields as N/A.
-
-Be specific with dollar amounts and percentages. Don't be vague.`;
-
-    // Store context for retry with different model
+    // Store context for model selection
     window._aiHoldingContext = {
-        holding, position, currentPrice, strike, premium, costBasis, dte, expiry,
-        shares, stockValue, stockGainLoss, onTable, cushion, ifCalled, breakeven,
-        isITM, isOTM, isDeep, prompt
+        holding, position, strike, premium, costBasis, expiry, shares,
+        chainHistory, analysisHistory, openingThesis
     };
     
-    // Show model picker instead of auto-running
+    // Show model picker
     const contentDiv = document.querySelector('#aiHoldingModal > div');
     contentDiv.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <div>
-                <h3 style="margin:0;color:#ffaa00;">🤖 AI Suggestion: ${holding.ticker}</h3>
-            </div>
+            <h3 style="margin:0;color:#ffaa00;">🤖 AI Suggestion: ${holding.ticker}</h3>
             <button onclick="this.closest('#aiHoldingModal').remove()" 
                 style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
         </div>
@@ -3148,29 +3024,12 @@ Be specific with dollar amounts and percentages. Don't be vague.`;
         <!-- Position Summary -->
         <div style="background:#0d0d1a;padding:12px;border-radius:8px;margin-bottom:16px;">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px;">
-                <div>
-                    <span style="color:#888;">Stock:</span> 
-                    <span style="color:#fff;font-weight:bold;">$${currentPrice.toFixed(2)}</span>
-                </div>
-                <div>
-                    <span style="color:#888;">Strike:</span> 
-                    <span style="color:#fff;font-weight:bold;">$${strike.toFixed(2)}</span>
-                </div>
-                <div>
-                    <span style="color:#888;">Cost:</span> 
-                    <span style="color:#fff;">$${costBasis.toFixed(2)}</span>
-                </div>
-                <div>
-                    <span style="color:#888;">DTE:</span> 
-                    <span style="color:#fff;">${dte} days</span>
-                </div>
+                <div><span style="color:#888;">Strike:</span> <span style="color:#fff;font-weight:bold;">$${strike?.toFixed(2) || '?'}</span></div>
+                <div><span style="color:#888;">Cost:</span> <span style="color:#fff;">$${costBasis?.toFixed(2) || '?'}</span></div>
+                <div><span style="color:#888;">Expiry:</span> <span style="color:#fff;">${expiry || '?'}</span></div>
+                <div><span style="color:#888;">Premium:</span> <span style="color:#00ff88;">$${premium.toFixed(0)}</span></div>
             </div>
-            <div style="margin-top:10px;padding-top:10px;border-top:1px solid #333;">
-                ${isITM ? '<span style="background:#ffaa00;color:#000;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold;">⚠️ IN THE MONEY</span>' : '<span style="background:#00ff88;color:#000;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold;">✅ OUT OF THE MONEY</span>'}
-                <span style="color:#888;margin-left:12px;font-size:11px;">
-                    ${isITM ? `$${onTable.toFixed(0)} on table` : `$${cushion.toFixed(0)} cushion`}
-                </span>
-            </div>
+            ${chainHistory.length > 1 ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #333;font-size:11px;color:#888;">📊 Part of wheel chain (${chainHistory.length} positions)</div>` : ''}
         </div>
         
         <!-- Model Selection -->
@@ -3191,42 +3050,25 @@ Be specific with dollar amounts and percentages. Don't be vague.`;
 };
 
 /**
- * Run the holding analysis with specified model (called by toggle)
+ * Run the holding analysis with specified model - calls backend endpoint
  */
 async function runHoldingAnalysis(modelType) {
     const ctx = window._aiHoldingContext;
     if (!ctx) return;
     
-    const { holding, position, currentPrice, strike, premium, costBasis, dte, 
-            stockGainLoss, onTable, cushion, ifCalled, isITM, prompt, shares } = ctx;
+    const { holding, position, strike, premium, costBasis, expiry, shares,
+            chainHistory, analysisHistory, openingThesis } = ctx;
     
-    // Update modal to show loading
     const contentDiv = document.querySelector('#aiHoldingModal > div');
     if (!contentDiv) return;
     
+    // Show loading
     contentDiv.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
             <h3 style="margin:0;color:#ffaa00;">🤖 AI Suggestion: ${holding.ticker}</h3>
             <button onclick="this.closest('#aiHoldingModal').remove()" 
                 style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
         </div>
-        
-        <!-- Model toggle -->
-        <div style="display:flex;gap:8px;margin-bottom:16px;">
-            <button id="btnOllama" onclick="runHoldingAnalysis('ollama')" 
-                style="flex:1;padding:8px;border:1px solid ${modelType === 'ollama' ? '#00ff88' : '#444'};
-                       background:${modelType === 'ollama' ? 'rgba(0,255,136,0.15)' : '#252540'};
-                       color:${modelType === 'ollama' ? '#00ff88' : '#888'};border-radius:6px;cursor:pointer;font-size:11px;">
-                🦙 Ollama (32B) - Free
-            </button>
-            <button id="btnGrok" onclick="runHoldingAnalysis('grok')" 
-                style="flex:1;padding:8px;border:1px solid ${modelType === 'grok' ? '#1da1f2' : '#444'};
-                       background:${modelType === 'grok' ? 'rgba(29,161,242,0.15)' : '#252540'};
-                       color:${modelType === 'grok' ? '#1da1f2' : '#888'};border-radius:6px;cursor:pointer;font-size:11px;">
-                🔥 Grok - ~$0.02
-            </button>
-        </div>
-        
         <div style="text-align:center;padding:40px;color:#888;">
             <div style="font-size:24px;margin-bottom:10px;">🔄</div>
             <div>Analyzing with ${modelType === 'grok' ? 'Grok' : 'Ollama 32B'}...</div>
@@ -3234,84 +3076,45 @@ async function runHoldingAnalysis(modelType) {
     `;
     
     try {
-        let response, result, analysis;
-        
-        if (modelType === 'grok') {
-            response = await fetch('/api/ai/grok', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt, maxTokens: 1200 })
-            });
-        } else {
-            // Send complete position data along with custom prompt
-            response = await fetch('/api/ai/analyze', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ticker: holding.ticker,
-                    positionType: position?.type || 'covered_call',
-                    strike: strike,
-                    spot: currentPrice,
-                    dte: dte,
-                    premium: premium / 100,  // Convert total premium to per-share
-                    contracts: shares / 100,
-                    costBasis: costBasis,
-                    customPrompt: prompt,
-                    model: 'deepseek-r1:32b'
-                })
-            });
-        }
-        
-        if (!response.ok) throw new Error('AI analysis failed');
-        
-        result = await response.json();
-        analysis = result.insight || result.analysis || 'No analysis returned';
-        
-        // Parse suggested trade from AI response
-        let suggestedTrade = null;
-        const tradeMatch = analysis.match(/===SUGGESTED_TRADE===([\s\S]*?)===END_TRADE===/);
-        if (tradeMatch) {
-            const tradeBlock = tradeMatch[1];
-            suggestedTrade = {
-                action: tradeBlock.match(/ACTION:\s*(\S+)/)?.[1] || 'HOLD',
-                closeStrike: parseFloat(tradeBlock.match(/CLOSE_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
-                closeExpiry: tradeBlock.match(/CLOSE_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
-                closeType: tradeBlock.match(/CLOSE_TYPE:\s*(\S+)/)?.[1] || null,
-                newStrike: parseFloat(tradeBlock.match(/NEW_STRIKE:\s*(\d+(?:\.\d+)?)/)?.[1]) || null,
-                newExpiry: tradeBlock.match(/NEW_EXPIRY:\s*(\d{4}-\d{2}-\d{2})/)?.[1] || null,
-                newType: tradeBlock.match(/NEW_TYPE:\s*(\S+)/)?.[1] || null,
-                estimatedDebit: tradeBlock.match(/ESTIMATED_DEBIT:\s*(.+)/)?.[1]?.trim() || null,
-                estimatedCredit: tradeBlock.match(/ESTIMATED_CREDIT:\s*(.+)/)?.[1]?.trim() || null,
-                netCost: tradeBlock.match(/NET_COST:\s*(.+)/)?.[1]?.trim() || null,
-                rationale: tradeBlock.match(/RATIONALE:\s*(.+)/)?.[1]?.trim() || null,
+        // Call backend endpoint
+        const response = await fetch('/api/ai/holding-suggestion', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
                 ticker: holding.ticker,
-                originalPositionId: position?.id,
-                holdingId: holding.id
-            };
-            console.log('[AI-HOLDING] Parsed suggested trade:', suggestedTrade);
-            window._lastHoldingSuggestedTrade = suggestedTrade;
+                shares,
+                costBasis,
+                strike,
+                expiry,
+                premium,
+                model: modelType === 'grok' ? 'grok' : 'deepseek-r1:32b',
+                chainHistory,
+                analysisHistory,
+                openingThesis
+            })
+        });
+        
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || 'AI analysis failed');
         }
         
-        // Store the raw analysis for saving
+        const result = await response.json();
+        const { analysis, currentPrice, isITM, stockGainLoss, onTable, cushion, ifCalled, 
+                wheelPutStrike, wheelPutStrikeAlt, suggestedTrade, newRecommendation, dte } = result;
+        
+        // Store for staging
+        window._aiHoldingContext.currentPrice = currentPrice;
+        window._aiHoldingContext.suggestedTrade = suggestedTrade;
         window._aiHoldingContext.lastAnalysis = analysis;
         window._aiHoldingContext.lastModel = modelType;
-        window._aiHoldingContext.lastAnalyzedAt = new Date().toISOString();
-        window._aiHoldingContext.suggestedTrade = suggestedTrade;
         
-        // Remove the raw trade block from display, format the rest
+        // Format analysis for display (remove trade block)
         const displayAnalysis = analysis.replace(/===SUGGESTED_TRADE===[\s\S]*?===END_TRADE===/g, '');
-        
-        // Better formatting for section headers
         const formatted = displayAnalysis
-            // Bold text
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#ffaa00;">$1</strong>')
-            // Section headers like "**SITUATION SUMMARY**" or "SITUATION SUMMARY"
             .replace(/^[\*]*\s*(SITUATION SUMMARY|RECOMMENDATION|SPECIFIC ACTION|KEY RISK)[:\*]*/gim, 
                 '<div style="color:#00d9ff;font-weight:bold;font-size:14px;margin-top:16px;margin-bottom:6px;border-bottom:1px solid #333;padding-bottom:4px;">$1</div>')
-            // Numbered headers like "1. SITUATION"
-            .replace(/^(\d+)\.\s*(SITUATION|RECOMMENDATION|SPECIFIC|KEY|RISK)/gim,
-                '<div style="color:#00d9ff;font-weight:bold;font-size:14px;margin-top:16px;margin-bottom:6px;border-bottom:1px solid #333;padding-bottom:4px;">$2</div>')
-            // Line breaks
             .replace(/\n/g, '<br>');
         
         const modelBadge = modelType === 'grok' 
@@ -3331,7 +3134,7 @@ async function runHoldingAnalysis(modelType) {
                     style="flex:1;padding:8px;border:1px solid ${modelType === 'ollama' ? '#00ff88' : '#444'};
                            background:${modelType === 'ollama' ? 'rgba(0,255,136,0.15)' : '#252540'};
                            color:${modelType === 'ollama' ? '#00ff88' : '#888'};border-radius:6px;cursor:pointer;font-size:11px;">
-                    🦙 Ollama (32B) - Free
+                    🦙 Ollama - Free
                 </button>
                 <button onclick="runHoldingAnalysis('grok')" 
                     style="flex:1;padding:8px;border:1px solid ${modelType === 'grok' ? '#1da1f2' : '#444'};
@@ -3344,31 +3147,31 @@ async function runHoldingAnalysis(modelType) {
             <!-- Position snapshot -->
             <div style="background:#252540;padding:12px;border-radius:8px;margin-bottom:16px;">
                 <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:12px;margin-bottom:10px;">
-                    <div><span style="color:#666;">Stock:</span> <span style="color:#fff;">$${currentPrice.toFixed(2)}</span></div>
-                    <div><span style="color:#666;">Strike:</span> <span style="color:#fff;">$${strike.toFixed(2)}</span></div>
-                    <div><span style="color:#666;">Cost:</span> <span style="color:#fff;">$${costBasis.toFixed(2)}</span></div>
+                    <div><span style="color:#666;">Stock:</span> <span style="color:#fff;">$${currentPrice?.toFixed(2) || '?'}</span></div>
+                    <div><span style="color:#666;">Strike:</span> <span style="color:#fff;">$${strike?.toFixed(2) || '?'}</span></div>
+                    <div><span style="color:#666;">Cost:</span> <span style="color:#fff;">$${costBasis?.toFixed(2) || '?'}</span></div>
                     <div><span style="color:#666;">DTE:</span> <span style="color:#fff;">${dte} days</span></div>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center;padding-top:10px;border-top:1px solid #333;">
                     <div>
                         <div style="font-size:9px;color:#666;">STOCK P&L</div>
                         <div style="font-weight:bold;color:${stockGainLoss >= 0 ? '#00ff88' : '#ff5252'};">
-                            ${stockGainLoss >= 0 ? '+' : ''}$${stockGainLoss.toFixed(0)}
+                            ${stockGainLoss >= 0 ? '+' : ''}$${stockGainLoss?.toFixed(0) || '0'}
                         </div>
                     </div>
                     <div>
                         <div style="font-size:9px;color:#666;">PREMIUM</div>
-                        <div style="font-weight:bold;color:#00ff88;">+$${premium.toFixed(0)}</div>
+                        <div style="font-weight:bold;color:#00ff88;">+$${premium?.toFixed(0) || '0'}</div>
                     </div>
                     <div>
                         <div style="font-size:9px;color:#666;">${isITM ? 'ON TABLE' : 'CUSHION'}</div>
                         <div style="font-weight:bold;color:${isITM ? '#ffaa00' : '#00d9ff'};">
-                            ${isITM ? '$' + onTable.toFixed(0) : '$' + cushion.toFixed(0)}
+                            $${(isITM ? onTable : cushion)?.toFixed(0) || '0'}
                         </div>
                     </div>
                     <div>
                         <div style="font-size:9px;color:#666;">IF CALLED</div>
-                        <div style="font-weight:bold;color:#00ff88;">+$${ifCalled.toFixed(0)}</div>
+                        <div style="font-weight:bold;color:#00ff88;">+$${ifCalled?.toFixed(0) || '0'}</div>
                     </div>
                 </div>
             </div>
@@ -3383,9 +3186,7 @@ async function runHoldingAnalysis(modelType) {
             </div>
             
             <!-- AI Analysis -->
-            <div style="line-height:1.7;font-size:13px;">
-                ${formatted}
-            </div>
+            <div style="line-height:1.7;font-size:13px;">${formatted}</div>
             
             ${suggestedTrade && suggestedTrade.action !== 'HOLD' && suggestedTrade.newStrike ? `
             <!-- Suggested Trade Card -->
@@ -3393,21 +3194,11 @@ async function runHoldingAnalysis(modelType) {
                 <h4 style="margin:0 0 12px;color:#00d9ff;font-size:13px;">📋 Suggested Trade</h4>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <div style="background:#0d0d1a;padding:10px;border-radius:6px;">
-                        ${suggestedTrade.action === 'WHEEL_CONTINUATION' ? `
-                        <div style="font-size:10px;color:#888;margin-bottom:4px;">LET ASSIGN (Keep Premium)</div>
-                        <div style="font-size:14px;font-weight:bold;color:#00ff88;">
+                        <div style="font-size:10px;color:#888;margin-bottom:4px;">${suggestedTrade.action === 'WHEEL_CONTINUATION' ? 'LET ASSIGN' : 'CLOSE (Buy Back)'}</div>
+                        <div style="font-size:14px;font-weight:bold;color:${suggestedTrade.action === 'WHEEL_CONTINUATION' ? '#00ff88' : '#ff5252'};">
                             ${holding.ticker} $${suggestedTrade.closeStrike} ${suggestedTrade.closeType}
                         </div>
                         <div style="font-size:11px;color:#888;">Exp: ${suggestedTrade.closeExpiry}</div>
-                        <div style="font-size:11px;color:#00ff88;margin-top:4px;">Collect: $${suggestedTrade.closeStrike * 100} cash</div>
-                        ` : `
-                        <div style="font-size:10px;color:#888;margin-bottom:4px;">CLOSE (Buy Back)</div>
-                        <div style="font-size:14px;font-weight:bold;color:#ff5252;">
-                            ${holding.ticker} $${suggestedTrade.closeStrike} ${suggestedTrade.closeType}
-                        </div>
-                        <div style="font-size:11px;color:#888;">Exp: ${suggestedTrade.closeExpiry}</div>
-                        <div style="font-size:11px;color:#ffaa00;margin-top:4px;">Est: ${suggestedTrade.estimatedDebit || 'N/A'}</div>
-                        `}
                     </div>
                     <div style="background:#0d0d1a;padding:10px;border-radius:6px;">
                         <div style="font-size:10px;color:#888;margin-bottom:4px;">OPEN (Sell New)</div>
@@ -3415,20 +3206,15 @@ async function runHoldingAnalysis(modelType) {
                             ${holding.ticker} $${suggestedTrade.newStrike} ${suggestedTrade.newType}
                         </div>
                         <div style="font-size:11px;color:#888;">Exp: ${suggestedTrade.newExpiry}</div>
-                        <div style="font-size:11px;color:#00ff88;margin-top:4px;">Est: ${suggestedTrade.estimatedCredit || 'N/A'}</div>
                     </div>
                 </div>
-                <div style="margin-top:10px;padding:10px;background:#0d0d1a;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        <span style="font-size:11px;color:#888;">Net Cost:</span>
-                        <span style="font-size:16px;font-weight:bold;color:${suggestedTrade.netCost?.includes('credit') ? '#00ff88' : '#ffaa00'};margin-left:8px;">
-                            ${suggestedTrade.netCost || 'N/A'}
-                        </span>
-                    </div>
+                <div style="margin-top:10px;padding:10px;background:#0d0d1a;border-radius:6px;">
+                    <span style="font-size:11px;color:#888;">Net:</span>
+                    <span style="font-size:16px;font-weight:bold;color:${suggestedTrade.netCost?.includes('credit') ? '#00ff88' : '#ffaa00'};margin-left:8px;">
+                        ${suggestedTrade.netCost || 'N/A'}
+                    </span>
                 </div>
-                <div style="font-size:11px;color:#aaa;margin-top:8px;">
-                    💡 ${suggestedTrade.rationale || 'AI-suggested trade based on current conditions'}
-                </div>
+                <div style="font-size:11px;color:#aaa;margin-top:8px;">💡 ${suggestedTrade.rationale || 'AI-suggested trade'}</div>
             </div>
             ` : ''}
             
@@ -3436,13 +3222,9 @@ async function runHoldingAnalysis(modelType) {
                 ${suggestedTrade && suggestedTrade.action !== 'HOLD' && suggestedTrade.newStrike ? `
                 <button onclick="window.stageHoldingSuggestedTrade()" 
                     style="padding:10px 16px;background:linear-gradient(135deg, #00d9ff 0%, #0099cc 100%);border:none;border-radius:6px;color:#000;font-weight:bold;cursor:pointer;">
-                    📥 Stage Roll
+                    📥 Stage Trade
                 </button>
                 ` : ''}
-                <button onclick="window.saveHoldingStrategy(${holding.id})" 
-                    style="padding:10px 16px;background:rgba(0,217,255,0.2);border:1px solid #00d9ff;border-radius:6px;color:#00d9ff;font-weight:bold;cursor:pointer;">
-                    💾 Save Strategy
-                </button>
                 ${position ? `
                 <button onclick="window.rollPosition(${position.id});this.closest('#aiHoldingModal').remove();" 
                     style="padding:10px 16px;background:#ce93d8;border:none;border-radius:6px;color:#000;font-weight:bold;cursor:pointer;">
@@ -3463,8 +3245,6 @@ async function runHoldingAnalysis(modelType) {
                 <button onclick="this.closest('#aiHoldingModal').remove()" 
                     style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;">×</button>
             </div>
-            
-            <!-- Model toggle for retry -->
             <div style="display:flex;gap:8px;margin-bottom:16px;">
                 <button onclick="runHoldingAnalysis('ollama')" 
                     style="flex:1;padding:8px;border:1px solid #444;background:#252540;color:#888;border-radius:6px;cursor:pointer;font-size:11px;">
@@ -3475,9 +3255,8 @@ async function runHoldingAnalysis(modelType) {
                     🔥 Retry with Grok
                 </button>
             </div>
-            
             <p style="color:#888;">Failed to get AI analysis: ${e.message}</p>
-            <p style="color:#666;font-size:11px;">${modelType === 'grok' ? 'Check your Grok API key in Settings.' : 'Make sure Ollama is running with deepseek-r1:32b loaded.'}</p>
+            <p style="color:#666;font-size:11px;">${modelType === 'grok' ? 'Check your Grok API key in Settings.' : 'Make sure Ollama is running.'}</p>
         `;
     }
 }

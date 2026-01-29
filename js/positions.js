@@ -1094,7 +1094,7 @@ window.showSpreadExplanation = async function(posId) {
 };
 
 /**
- * Ask AI for spread position advice
+ * Ask AI for spread position advice - calls backend /api/ai/spread-advisor endpoint
  */
 window.askSpreadAI = async function(posId) {
     const pos = state.positions?.find(p => p.id === posId);
@@ -1108,121 +1108,66 @@ window.askSpreadAI = async function(posId) {
     
     // Show loading state
     btn.disabled = true;
-    btn.innerHTML = '⏳ Fetching data...';
+    btn.innerHTML = '⏳ Analyzing...';
     btn.style.opacity = '0.6';
     advisorSection.style.display = 'block';
-    contentDiv.innerHTML = '<em style="color:#888;">Fetching current prices...</em>';
+    contentDiv.innerHTML = '<em style="color:#888;">Analyzing your spread position...</em>';
     
     try {
-        // Fetch current spot price if not available
-        let spotPrice = pos.currentSpot || 0;
-        if (!spotPrice || spotPrice === 0) {
-            try {
-                const quoteRes = await fetch(`/api/cboe/quote/${pos.ticker}`);
-                if (quoteRes.ok) {
-                    const quoteData = await quoteRes.json();
-                    spotPrice = quoteData.last || quoteData.price || 0;
-                }
-            } catch (e) {
-                console.warn('Could not fetch spot price:', e);
-            }
-        }
-        
-        // Calculate key metrics
-        const currentSpread = pos.lastOptionPrice ?? pos.markedPrice ?? null;
-        const entrySpread = pos.premium || 0;
-        const isCredit = pos.type?.includes('credit');
-        const isPut = pos.type?.includes('put');
-        
-        // Calculate DTE
-        const today = new Date();
-        const expDate = new Date(pos.expiry);
-        const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
-        
-        // Calculate current P/L
-        let unrealizedPnL = 0;
-        if (currentSpread !== null && entrySpread > 0) {
-            if (isCredit) {
-                unrealizedPnL = (entrySpread - currentSpread) * 100 * (pos.contracts || 1);
-            } else {
-                unrealizedPnL = (currentSpread - entrySpread) * 100 * (pos.contracts || 1);
-            }
-        }
-        
-        // Determine position status
-        const spreadWidth = Math.abs((pos.sellStrike || 0) - (pos.buyStrike || 0));
-        const maxProfit = isCredit ? entrySpread * 100 * (pos.contracts || 1) : (spreadWidth - entrySpread) * 100 * (pos.contracts || 1);
-        const maxLoss = isCredit ? (spreadWidth - entrySpread) * 100 * (pos.contracts || 1) : entrySpread * 100 * (pos.contracts || 1);
-        const pnlPercent = maxProfit > 0 ? (unrealizedPnL / maxProfit * 100) : 0;
-        
-        // Determine ITM/OTM status
-        const shortStrike = pos.sellStrike || 0;
-        let isITM = false;
-        if (isPut && isCredit) {
-            // Put credit spread - short put is higher strike, ITM if spot < short strike
-            isITM = spotPrice > 0 && spotPrice < shortStrike;
-        } else if (!isPut && isCredit) {
-            // Call credit spread - short call is lower strike, ITM if spot > short strike
-            isITM = spotPrice > 0 && spotPrice > shortStrike;
-        }
-        
-        const itmStatus = spotPrice > 0 ? (isITM ? 'ITM (in trouble)' : 'OTM (safe zone)') : 'unknown';
-        
         // Get AI model (global with local override)
         const model = window.getSelectedAIModel?.('aiModelSelect') || 'qwen2.5:14b';
         
-        btn.innerHTML = '⏳ Thinking...';
-        contentDiv.innerHTML = '<em style="color:#888;">Analyzing your spread position...</em>';
+        // Get chain history if available
+        const chainId = pos.chainId || pos.id;
+        const chainHistory = [
+            ...(state.closedPositions || []).filter(p => p.chainId === chainId),
+            ...(state.positions || []).filter(p => p.chainId === chainId || p.id === chainId)
+        ].map(p => ({
+            strike: p.sellStrike || p.strike,
+            buyStrike: p.buyStrike,
+            expiry: p.expiry,
+            premium: p.premium,
+            closeReason: p.closeReason || 'open'
+        }));
         
-        // Build the prompt with all available data
-        const prompt = `You are a concise options trading advisor. Analyze this spread position and give a SHORT recommendation (3-4 sentences MAX).
-
-POSITION:
-- ${pos.ticker} ${isPut ? 'PUT' : 'CALL'} ${isCredit ? 'CREDIT' : 'DEBIT'} SPREAD
-- Short strike: $${pos.sellStrike}, Long strike: $${pos.buyStrike}
-- Contracts: ${pos.contracts}
-- Entry premium: $${entrySpread.toFixed(2)} ${isCredit ? 'credit received' : 'debit paid'}
-- Current spread price: ${currentSpread !== null ? '$' + currentSpread.toFixed(2) : 'not available'}
-- Stock price: ${spotPrice > 0 ? '$' + spotPrice.toFixed(2) : 'not available'}
-- Status: ${itmStatus}
-- DTE: ${dte} days
-- Unrealized P/L: $${unrealizedPnL.toFixed(0)} (${pnlPercent.toFixed(0)}% of max profit)
-- Max Profit potential: $${maxProfit.toFixed(0)}
-- Max Loss risk: $${maxLoss.toFixed(0)}
-
-RULES TO FOLLOW:
-- If P/L > 50% of max profit: CLOSE to lock in gains
-- If DTE < 7 and profitable: CLOSE to avoid gamma risk
-- If ITM and losing: Consider CLOSE to limit loss
-- Credit spreads profit when stock stays ${isPut ? 'ABOVE' : 'BELOW'} short strike ($${pos.sellStrike})
-
-Give ONE clear verdict: HOLD, CLOSE, or CLOSE EARLY. Explain in 2-3 sentences why.`;
-
-        const response = await fetch('/api/ai/simple', {
+        // Call backend endpoint
+        const response = await fetch('/api/ai/spread-advisor', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, model })
+            body: JSON.stringify({
+                ticker: pos.ticker,
+                positionType: pos.type,
+                sellStrike: pos.sellStrike,
+                buyStrike: pos.buyStrike,
+                contracts: pos.contracts || 1,
+                entryPremium: pos.premium || 0,
+                expiry: pos.expiry,
+                model,
+                chainHistory,
+                analysisHistory: pos.analysisHistory || [],
+                openingThesis: pos.openingThesis || null
+            })
         });
         
-        if (!response.ok) throw new Error('AI request failed');
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || 'AI request failed');
+        }
         
         const data = await response.json();
-        const insight = data.insight || data.analysis || 'No recommendation available';
+        const insight = data.insight || 'No recommendation available';
+        const { recommendation, spotPrice, dte, isITM, maxProfit, maxLoss } = data;
         
-        // Parse recommendation type from response
+        // Parse recommendation type from response for styling
         let recColor = colors.text;
         let recIcon = '💡';
-        const insightUpper = insight.toUpperCase();
-        if (insightUpper.includes('CLOSE') && (insightUpper.includes('PROFIT') || insightUpper.includes('LOCK IN') || insightUpper.includes('GAIN'))) {
+        if (recommendation === 'CLOSE') {
             recColor = colors.green;
             recIcon = '💰';
-        } else if (insightUpper.includes('CLOSE') && (insightUpper.includes('LOSS') || insightUpper.includes('LIMIT') || insightUpper.includes('CUT'))) {
-            recColor = colors.red;
-            recIcon = '🛑';
-        } else if (insightUpper.includes('CLOSE EARLY') || insightUpper.includes('CLOSE NOW')) {
+        } else if (recommendation === 'CLOSE_EARLY') {
             recColor = colors.orange;
             recIcon = '⚡';
-        } else if (insightUpper.includes('HOLD')) {
+        } else if (recommendation === 'HOLD') {
             recColor = colors.cyan;
             recIcon = '⏳';
         }
@@ -1232,13 +1177,19 @@ Give ONE clear verdict: HOLD, CLOSE, or CLOSE EARLY. Explain in 2-3 sentences wh
         const headline = sentences[0] || insight;
         const details = sentences.slice(1).join(' ');
         
-        // Get model name returned from API (or use what we sent)
-        const usedModel = data.model || model;
-        const modelDisplay = usedModel.replace('qwen2.5:', 'Qwen ').replace('deepseek-r1:', 'DeepSeek ').replace('grok-', 'Grok ');
+        const modelDisplay = (data.model || model).replace('qwen2.5:', 'Qwen ').replace('deepseek-r1:', 'DeepSeek ');
         
-        contentDiv.innerHTML = `<div style="color:${recColor}; font-weight:bold; font-size:16px; margin-bottom:8px;">${recIcon} ${headline}</div>
+        contentDiv.innerHTML = `
+            <div style="color:${recColor}; font-weight:bold; font-size:16px; margin-bottom:8px;">${recIcon} ${headline}</div>
             ${details ? `<div style="color:#bbb; font-size:13px; line-height:1.5;">${details}</div>` : ''}
-            <div style="color:#666; font-size:11px; margin-top:10px; text-align:right;">via ${modelDisplay}</div>`;
+            <div style="margin-top:10px; padding-top:10px; border-top:1px solid #333; font-size:11px; color:#666;">
+                <span>Stock: $${spotPrice?.toFixed(2) || '?'}</span> · 
+                <span>DTE: ${dte}</span> · 
+                <span>${isITM ? '⚠️ ITM' : '✅ OTM'}</span> · 
+                <span style="color:#00ff88;">Max Profit: $${maxProfit?.toFixed(0) || '?'}</span>
+            </div>
+            <div style="color:#666; font-size:11px; margin-top:8px; text-align:right;">via ${modelDisplay}</div>
+        `;
         
         btn.innerHTML = '✓ Got Advice';
         btn.style.background = colors.bgSecondary;
@@ -1246,7 +1197,7 @@ Give ONE clear verdict: HOLD, CLOSE, or CLOSE EARLY. Explain in 2-3 sentences wh
         
     } catch (err) {
         console.error('Spread AI error:', err);
-        contentDiv.innerHTML = `<span style="color:${colors.red};">❌ Could not get AI recommendation. Make sure Ollama is running.</span>`;
+        contentDiv.innerHTML = `<span style="color:${colors.red};">❌ ${err.message || 'Could not get AI recommendation. Make sure Ollama is running.'}</span>`;
         btn.innerHTML = '🧠 Try Again';
         btn.disabled = false;
         btn.style.opacity = '1';
