@@ -4451,16 +4451,27 @@ window.runPositionCheckup = async function(positionId) {
         let spotPrice = pos.currentSpot || pos.lastPrice || 0;
         let iv = 0.35;  // Default 35% IV
         
-        // Try to fetch current spot and IV if we don't have it
-        if (!spotPrice) {
-            try {
-                const quoteRes = await fetch(`/api/cboe/quote/${pos.ticker}`);
-                const quoteData = await quoteRes.json();
-                spotPrice = quoteData.current_price || quoteData.last || 0;
-                iv = (quoteData.iv || 35) / 100;  // Convert from percentage
-            } catch (e) {
-                console.warn('[Checkup] Could not fetch spot price, using fallback');
+        // Always fetch fresh spot price and IV for accurate Monte Carlo
+        try {
+            // Fetch stock quote from Yahoo
+            const quoteRes = await fetch(`/api/yahoo/${pos.ticker}`);
+            const quoteData = await quoteRes.json();
+            // Yahoo returns: { chart: { result: [{ meta: { regularMarketPrice: 123.45 } }] } }
+            const yahooPrice = quoteData.chart?.result?.[0]?.meta?.regularMarketPrice;
+            if (yahooPrice) {
+                spotPrice = yahooPrice;
+                console.log('[Checkup] Got spot price from Yahoo:', spotPrice);
             }
+            
+            // Fetch IV separately
+            const ivRes = await fetch(`/api/iv/${pos.ticker}`);
+            const ivData = await ivRes.json();
+            if (ivData.atmIV) {
+                iv = ivData.atmIV / 100;  // Convert from percentage (e.g., 45 -> 0.45)
+                console.log('[Checkup] Got IV:', (iv * 100).toFixed(1) + '%');
+            }
+        } catch (e) {
+            console.warn('[Checkup] Could not fetch market data, using fallback:', e.message);
         }
         
         // Run Monte Carlo simulation for probability estimates
@@ -4468,6 +4479,8 @@ window.runPositionCheckup = async function(positionId) {
         if (spotPrice > 0) {
             monteCarlo = runPositionMonteCarlo(pos, spotPrice, iv);
             console.log('[Checkup] Monte Carlo results:', monteCarlo);
+        } else {
+            console.warn('[Checkup] No spot price available, skipping Monte Carlo');
         }
         
         // Call checkup API - include positionType so AI knows if long or short!
