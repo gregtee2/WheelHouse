@@ -3853,6 +3853,9 @@ async function fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, 
         // Update net credit display
         window.updateNetCredit();
         
+        // Small delay to ensure DOM is updated before risk calculation
+        await new Promise(r => setTimeout(r, 50));
+        
         // Update risk analysis display
         window.updateSpreadRisk();
         
