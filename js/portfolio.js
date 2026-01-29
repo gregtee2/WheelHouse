@@ -3817,17 +3817,19 @@ CURRENT CONDITIONS:
 ORIGINAL FULL ANALYSIS:
 ${(strategy.fullAnalysis || strategy.recommendation || 'No detailed analysis saved').substring(0, 1500)}
 
-Based on how conditions have changed, should the trader:
-1. STICK WITH the original plan (${strategy.recommendation})?
-2. ADJUST the strategy? If so, what new action?
+Based on how conditions have changed, what should the trader do NOW?
 
-Be concise. Focus on what changed and whether it matters.
+IMPORTANT: Evaluate objectively. If the position is now ITM with high assignment probability, "LET ASSIGN" may be better than rolling again. Consider:
+- Is assignment now the most profitable outcome?
+- Has the situation changed enough to warrant a different strategy?
+- Don't stick with the old plan just because it was the old plan.
+
 End your response with one of these exact phrases:
-- "VERDICT: STICK WITH ${strategy.recommendation}"
-- "VERDICT: CHANGE TO ROLL"
-- "VERDICT: CHANGE TO HOLD"
-- "VERDICT: CHANGE TO LET CALL"
-- "VERDICT: CHANGE TO BUY BACK"`;
+- "VERDICT: STICK WITH ${strategy.recommendation}" (only if old plan is still best)
+- "VERDICT: CHANGE TO ROLL" (roll to new strike/expiry)
+- "VERDICT: CHANGE TO HOLD" (do nothing, wait)
+- "VERDICT: CHANGE TO LET ASSIGN" (let shares get called away)
+- "VERDICT: CHANGE TO BUY BACK" (close the call position)`;
 
     // Show modal with loading
     let modal = document.getElementById('aiHoldingModal');
@@ -3878,7 +3880,8 @@ End your response with one of these exact phrases:
                 const newRec = verdictMatch[2].toUpperCase().trim();
                 if (newRec.includes('ROLL')) newRecommendation = 'ROLL';
                 else if (newRec.includes('HOLD')) newRecommendation = 'HOLD';
-                else if (newRec.includes('LET') || newRec.includes('CALL')) newRecommendation = 'LET CALL';
+                else if (newRec.includes('ASSIGN')) newRecommendation = 'LET ASSIGN';
+                else if (newRec.includes('LET') || newRec.includes('CALL')) newRecommendation = 'LET ASSIGN';
                 else if (newRec.includes('BUY')) newRecommendation = 'BUY BACK';
                 else newRecommendation = newRec;
                 
