@@ -710,12 +710,15 @@ router.post('/deep-dive', async (req, res) => {
 router.post('/checkup', async (req, res) => {
     try {
         const data = req.body;
-        const { ticker, strike, expiry, openingThesis, analysisHistory, positionType, model } = data;
+        const { ticker, strike, expiry, openingThesis, analysisHistory, userNotes, positionType, model } = data;
         const selectedModel = model || 'qwen2.5:7b';
         
         // Log prior checkup count for debugging
         if (analysisHistory?.length > 0) {
             console.log(`[AI] Position has ${analysisHistory.length} prior checkup(s)`);
+        }
+        if (userNotes) {
+            console.log(`[AI] User strategy note: "${userNotes.substring(0, 50)}..."`);
         }
         
         // Determine option type
@@ -739,7 +742,7 @@ router.post('/checkup', async (req, res) => {
             console.log(`[AI] Current IV for ${ticker}: ${ivData.atmIV}% (${ivData.source})`);
         }
         
-        const prompt = promptBuilders.buildCheckupPrompt(data, openingThesis, currentData, currentPremium, analysisHistory);
+        const prompt = promptBuilders.buildCheckupPrompt(data, openingThesis, currentData, currentPremium, analysisHistory, userNotes);
         const response = await AIService.callAI(prompt, selectedModel, 2500);  // Increased to 2500 - need room for full analysis + suggested trade block
         
         res.json({ 

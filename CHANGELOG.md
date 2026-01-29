@@ -2,6 +2,25 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.8] - 2026-01-29
+
+### Added
+- **User Strategy Notes in Checkups**: Add your own notes to positions to guide AI recommendations
+  - New "📝 My Strategy Notes" section in checkup modal
+  - Notes are saved per-position and persist across sessions
+  - AI sees your notes prominently marked as "USER'S STRATEGY INTENT"
+  - AI will adjust recommendations based on your stated strategy
+  - Example: "Taking assignment to wheel the shares" tells AI not to suggest avoiding assignment
+  - Works for both localStorage positions AND Schwab-synced positions
+  - Visual feedback: button turns green "✅ SAVED!" on successful save
+  - Tooltip explains that notes override default AI recommendations
+
+### Fixed
+- **Schwab-synced Position Notes**: Notes now save correctly for positions from Schwab
+  - Previously only localStorage positions could save notes
+  - Now checks both localStorage and in-memory state for position
+  - Schwab positions are automatically added to localStorage when note is saved
+
 ## [1.17.7] - 2026-01-29
 
 ### Added

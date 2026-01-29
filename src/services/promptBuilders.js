@@ -107,13 +107,15 @@ Keep your ENTIRE response under 250 words. Be decisive.`;
  * @param {Object} currentData - Current market data
  * @param {Object} currentPremium - Current option pricing
  * @param {Array} analysisHistory - Prior checkup results (optional)
+ * @param {string} userNotes - User's strategy notes/intent (optional)
  * @returns {string} Formatted prompt
  */
-function buildCheckupPrompt(tradeData, openingThesis, currentData, currentPremium, analysisHistory = []) {
+function buildCheckupPrompt(tradeData, openingThesis, currentData, currentPremium, analysisHistory = [], userNotes = null) {
     const { ticker, strike, expiry, positionType, buyStrike, spreadWidth, isSpread } = tradeData;
     const o = openingThesis; // Opening state
     const c = currentData;   // Current state
     const history = analysisHistory || [];
+    const notes = userNotes?.trim() || null;
     
     // Determine if this is a LONG (debit) position - different evaluation!
     const isLongPosition = ['long_call', 'long_put', 'long_call_leaps', 'skip_call', 'call_debit_spread', 'put_debit_spread'].includes(positionType);
@@ -259,9 +261,22 @@ For this SHORT CALL position:
         ? `Sell Strike: $${strike}\nBuy Strike: $${buyStrike}\nSpread Width: $${spreadWidth || Math.abs(strike - buyStrike)}`
         : `Strike: $${strike}`;
     
+    // Build user notes section if present
+    const userNotesSection = notes ? `
+═══ ⚠️ USER'S STRATEGY INTENT ═══
+The trader has explicitly noted their strategy for this position:
+"${notes}"
+
+🚨 CRITICAL: This overrides default recommendations! 
+- If user says "take assignment and wheel", do NOT recommend closing to avoid assignment
+- If user says "letting it ride", do NOT suggest early exit unless catastrophic
+- Align your recommendation with THEIR stated strategy, not generic advice
+- You may WARN about risks, but respect their decision
+
+` : '';
+    
     return `You are conducting a POSITION CHECKUP for ${isLongPosition ? 'a LONG option position' : isCreditSpread || isDebitSpread ? 'an option spread' : 'a wheel trade'}. Compare the opening thesis to current conditions.
-${aiInstructions}
-═══ THE POSITION ═══
+${aiInstructions}${userNotesSection}═══ THE POSITION ═══
 Ticker: ${ticker}
 Trade: ${positionDesc}, expiry ${expiry}
 Position Type: ${isCreditSpread ? '🔷 CREDIT SPREAD - Collected premium, max profit if expires OTM' : isDebitSpread ? '🔶 DEBIT SPREAD - Paid premium, max profit if expires deep ITM' : isLongPosition ? '🟠 LONG (debit) - You PAID premium and profit from DIRECTION, not theta!' : '🟢 SHORT (credit) - You collected premium and profit from theta decay'}

@@ -4140,9 +4140,92 @@ window.checkMarginForTrade = async function(ticker, strike, premium, isCall = fa
 
 // ============================================================
 // SECTION: POSITION CHECKUP & UPDATES
-// Functions: runPositionCheckup, restartServer, applyUpdate
+// Functions: runPositionCheckup, savePositionNote, restartServer, applyUpdate
 // Lines: ~2488-3600
 // ============================================================
+
+/**
+ * Save a user note to a position (for strategy intent)
+ */
+window.savePositionNote = function(positionId) {
+    const noteInput = document.getElementById('positionNoteInput');
+    if (!noteInput) {
+        showNotification('Note input not found', 'error');
+        return;
+    }
+    
+    const note = noteInput.value.trim();
+    
+    // Find and update the position - check both localStorage AND in-memory state
+    const isPaperMode = window.state?.accountMode === 'paper';
+    const storageKey = isPaperMode ? 'wheelhouse_paper_positions' : 'wheelhouse_positions';
+    let positions = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    
+    let posIdx = positions.findIndex(p => String(p.id) === String(positionId));
+    
+    // If not found in localStorage, check window.state.positions (Schwab-synced positions)
+    if (posIdx < 0 && window.state?.positions) {
+        const statePos = window.state.positions.find(p => String(p.id) === String(positionId));
+        if (statePos) {
+            // Add this position to localStorage
+            statePos.userNotes = note || null;
+            positions.push(statePos);
+            posIdx = positions.length - 1;
+        }
+    }
+    
+    if (posIdx < 0) {
+        showNotification('Position not found in any source', 'error');
+        return;
+    }
+    
+    // Save the note
+    positions[posIdx].userNotes = note || null;
+    localStorage.setItem(storageKey, JSON.stringify(positions));
+    
+    // Also update in-memory state
+    if (window.state?.positions) {
+        const statePos = window.state.positions.find(p => String(p.id) === String(positionId));
+        if (statePos) {
+            statePos.userNotes = note || null;
+        }
+    }
+    
+    showNotification(note ? '📝 Strategy note saved!' : '📝 Note cleared', 'success');
+    
+    // Visual feedback using direct IDs
+    const noteSection = document.getElementById('notesSectionContainer');
+    const header = document.getElementById('notesHeader');
+    const saveBtn = document.getElementById('saveNoteBtn');
+    
+    // Flash the section green
+    if (noteSection) {
+        noteSection.style.borderColor = '#00ff88';
+        noteSection.style.boxShadow = '0 0 15px rgba(0,255,136,0.5)';
+        setTimeout(() => {
+            noteSection.style.borderColor = note ? '#00ff88' : '#333';
+            noteSection.style.boxShadow = 'none';
+        }, 1500);
+    }
+    
+    // Update header
+    if (header) {
+        header.innerHTML = `📝 My Strategy Notes <span style="color:#00ff88;font-weight:bold;">(✓ SAVED)</span>`;
+    }
+    
+    // Update button with confirmation
+    if (saveBtn) {
+        const originalText = saveBtn.innerHTML;
+        const originalBg = saveBtn.style.background;
+        saveBtn.innerHTML = '✅ SAVED!';
+        saveBtn.style.background = '#00ff88';
+        saveBtn.style.color = '#000';
+        setTimeout(() => {
+            saveBtn.innerHTML = originalText;
+            saveBtn.style.background = originalBg;
+        }, 2000);
+    }
+};
 
 /**
  * Run a checkup on a position - compares opening thesis to current market conditions
@@ -4183,12 +4266,12 @@ window.runPositionCheckup = async function(positionId) {
     // Use global model selector (with local aiModelSelect as override)
     const model = window.getSelectedAIModel?.('aiModelSelect') || 'deepseek-r1:32b';
     
-    // Create loading modal
+    // Create loading modal - does NOT close on outside click (user must click X)
     const modal = document.createElement('div');
     modal.id = 'checkupModal';
     modal.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);
         display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px;`;
-    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    // Removed: modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
     modal.innerHTML = `
         <div style="background:#1a1a2e;border-radius:12px;max-width:800px;width:100%;max-height:90vh;
@@ -4237,6 +4320,7 @@ window.runPositionCheckup = async function(positionId) {
                 expiry: pos.expiry,
                 openingThesis: pos.openingThesis,
                 analysisHistory: pos.analysisHistory || [],  // Include prior checkups!
+                userNotes: pos.userNotes || null,  // User's strategy intent
                 positionType: pos.type,  // Important for long vs short evaluation!
                 model
             })
@@ -4420,6 +4504,26 @@ ${pos.openingThesis.aiSummary.fullAnalysis}
                         </div>
                     </div>
                 ` : ''}
+            </div>
+            
+            <!-- User Notes Section -->
+            <div id="notesSectionContainer" style="background:#1a1a2e;padding:15px;border-radius:8px;margin-bottom:15px;border:1px solid ${pos.userNotes ? '#ffaa00' : '#333'};">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <h4 id="notesHeader" style="margin:0;color:#ffaa00;font-size:12px;text-transform:uppercase;">
+                        📝 My Strategy Notes ${pos.userNotes ? '(Saved)' : ''}
+                    </h4>
+                    <button id="saveNoteBtn" onclick="window.savePositionNote('${pos.id}')" 
+                        style="background:#ffaa00;border:none;color:#000;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">
+                        💾 Save Note
+                    </button>
+                </div>
+                <textarea id="positionNoteInput" 
+                    placeholder="Add your strategy intent here... e.g., 'Decided to take assignment and wheel the shares' or 'Letting this ride to expiry, comfortable with assignment'"
+                    style="width:100%;height:60px;background:#0d0d1a;border:1px solid #444;border-radius:6px;color:#ccc;padding:10px;font-size:12px;resize:vertical;box-sizing:border-box;"
+                >${pos.userNotes || ''}</textarea>
+                <div style="font-size:10px;color:#666;margin-top:5px;">
+                    💡 This note is shown to AI during checkups to adjust recommendations to your strategy.
+                </div>
             </div>
             
             <div style="background:#0d0d1a;padding:20px;border-radius:8px;">
