@@ -3225,6 +3225,12 @@ window.confirmStagedTrade = function(id) {
     
     if (!trade) return;
     
+    // For CLOSE trades, show a simpler close confirmation
+    if (trade.isClose) {
+        window.confirmClosePosition(id);
+        return;
+    }
+    
     // Detect if this is a spread trade
     const isSpread = trade.type?.includes('_spread') || trade.upperStrike;
     const isCredit = trade.type?.includes('credit') || (trade.type === 'put_credit_spread' || trade.type === 'call_credit_spread');
@@ -3738,6 +3744,190 @@ function parseExpiryToDate(expiry) {
     const year = match[3] || '2026';
     return `${year}-${month}-${day}`;
 }
+
+/**
+ * Confirm closing an existing position (from CLOSE staged trade)
+ */
+window.confirmClosePosition = function(id) {
+    const pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+    const trade = pending.find(p => p.id === id);
+    
+    if (!trade) return;
+    
+    // Find the original position we're closing
+    const positions = JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
+    const originalPos = positions.find(p => p.id === trade.rollFrom?.positionId);
+    
+    const isSpread = trade.type?.includes('_spread');
+    const isPut = trade.type?.includes('put') || trade.isCall === false;
+    const optionType = isPut ? 'PUT' : 'CALL';
+    
+    // Display details
+    let positionDetails = '';
+    if (isSpread) {
+        const sellStrike = trade.strike || trade.sellStrike;
+        const buyStrike = trade.buyStrike || trade.upperStrike;
+        positionDetails = `$${sellStrike}/$${buyStrike} ${optionType} Spread`;
+    } else {
+        positionDetails = `$${trade.strike} ${optionType}`;
+    }
+    
+    // Original premium received
+    const origPremium = originalPos?.premium || 0;
+    const contracts = trade.contracts || 1;
+    
+    // Create modal
+    const modal = document.createElement('div');
+    modal.id = 'confirmCloseModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:10000;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border-radius:12px; width:400px; padding:24px; border:1px solid #ff5252;">
+            <h2 style="color:#ff5252; margin:0 0 16px 0;">🔴 Close Position</h2>
+            
+            <div style="background:rgba(255,82,82,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
+                <div style="font-size:24px; font-weight:bold; color:#00ff88;">${trade.ticker}</div>
+                <div style="color:#888; font-size:14px;">${positionDetails}</div>
+                <div style="color:#666; font-size:12px;">Exp: ${trade.expiry}</div>
+            </div>
+            
+            <div style="margin-bottom:16px;">
+                <label style="color:#888; font-size:12px;">Original Premium Received (per share)</label>
+                <div style="color:#00ff88; font-size:18px; padding:8px; background:#0d0d1a; border-radius:4px;">
+                    $${origPremium.toFixed(2)} Cr
+                </div>
+            </div>
+            
+            <div style="margin-bottom:16px;">
+                <label style="color:#ff5252; font-size:12px;">Close Price (per share) - what you paid to buy back</label>
+                <input id="closePrice" type="number" step="0.01" value="${trade.premium?.toFixed(2) || ''}" placeholder="e.g., 4.95"
+                       oninput="window.updateClosePnL(${origPremium}, ${contracts})"
+                       style="width:100%; padding:12px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px; font-size:16px;">
+                ${trade.premium ? `<div style="color:#666; font-size:10px; margin-top:4px;">💡 AI estimated ~$${trade.premium.toFixed(2)}/share. Enter actual fill price.</div>` : ''}
+            </div>
+            
+            <div style="background:rgba(0,0,0,0.3); padding:12px; border-radius:8px; margin-bottom:16px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <span style="color:#888;">Net P&L (per share):</span>
+                    <span id="closePnLPerShare" style="color:#888;">-</span>
+                </div>
+                <div style="display:flex; justify-content:space-between;">
+                    <span style="color:#888; font-weight:bold;">Total P&L (${contracts} contracts):</span>
+                    <span id="closePnLTotal" style="font-size:20px; font-weight:bold; color:#888;">-</span>
+                </div>
+            </div>
+            
+            <div style="display:flex; gap:12px;">
+                <button onclick="window.executeClosePosition(${id})" 
+                        style="flex:1; padding:12px; background:linear-gradient(135deg, #ff5252, #ff1744); border:none; border-radius:8px; color:#fff; font-weight:bold; cursor:pointer;">
+                    Close Position
+                </button>
+                <button onclick="document.getElementById('confirmCloseModal').remove()" 
+                        style="flex:1; padding:12px; background:#333; border:none; border-radius:8px; color:#888; cursor:pointer;">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Trigger initial P&L calculation
+    setTimeout(() => window.updateClosePnL(origPremium, contracts), 100);
+};
+
+/**
+ * Update the close P&L display
+ */
+window.updateClosePnL = function(origPremium, contracts) {
+    const closePrice = parseFloat(document.getElementById('closePrice')?.value) || 0;
+    const pnlPerShare = origPremium - closePrice;  // Received - paid = profit
+    const totalPnL = pnlPerShare * 100 * contracts;
+    
+    const perShareEl = document.getElementById('closePnLPerShare');
+    const totalEl = document.getElementById('closePnLTotal');
+    
+    if (perShareEl) {
+        perShareEl.textContent = `$${pnlPerShare.toFixed(2)}`;
+        perShareEl.style.color = pnlPerShare >= 0 ? '#00ff88' : '#ff5252';
+    }
+    if (totalEl) {
+        totalEl.textContent = `${totalPnL >= 0 ? '+' : ''}$${totalPnL.toFixed(0)}`;
+        totalEl.style.color = totalPnL >= 0 ? '#00ff88' : '#ff5252';
+    }
+};
+
+/**
+ * Execute closing the position
+ */
+window.executeClosePosition = function(id) {
+    const pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+    const trade = pending.find(p => p.id === id);
+    
+    if (!trade) return;
+    
+    const closePrice = parseFloat(document.getElementById('closePrice')?.value);
+    if (!closePrice && closePrice !== 0) {
+        showNotification('Enter close price', 'error');
+        return;
+    }
+    
+    // Find and close the original position
+    const positions = JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
+    const posIndex = positions.findIndex(p => p.id === trade.rollFrom?.positionId);
+    
+    if (posIndex === -1) {
+        showNotification('Original position not found', 'error');
+        return;
+    }
+    
+    const pos = positions[posIndex];
+    const origPremium = pos.premium || 0;
+    const contracts = pos.contracts || 1;
+    const pnlPerShare = origPremium - closePrice;
+    const realizedPnL = pnlPerShare * 100 * contracts;
+    
+    // Move to closed positions
+    const closedPos = {
+        ...pos,
+        status: 'closed',
+        closeDate: new Date().toISOString().split('T')[0],
+        closePrice: closePrice,
+        closeReason: 'closed',
+        realizedPnL: realizedPnL,
+        daysHeld: Math.ceil((new Date() - new Date(pos.openDate || pos.stagedAt)) / (1000 * 60 * 60 * 24))
+    };
+    
+    // Add to closed positions
+    let closed = JSON.parse(localStorage.getItem('wheelhouse_closed') || '[]');
+    closed.unshift(closedPos);
+    localStorage.setItem('wheelhouse_closed', JSON.stringify(closed));
+    
+    // Remove from open positions
+    positions.splice(posIndex, 1);
+    localStorage.setItem('wheelhouse_positions', JSON.stringify(positions));
+    
+    // Remove from pending trades
+    const updatedPending = pending.filter(p => p.id !== id);
+    localStorage.setItem('wheelhouse_pending', JSON.stringify(updatedPending));
+    
+    // Update state
+    if (window.state) {
+        window.state.positions = positions;
+        window.state.closedPositions = closed;
+    }
+    
+    // Close modal
+    document.getElementById('confirmCloseModal')?.remove();
+    
+    // Refresh UI
+    if (typeof renderPositions === 'function') renderPositions();
+    if (typeof renderPendingTrades === 'function') renderPendingTrades();
+    
+    const pnlSign = realizedPnL >= 0 ? '+' : '';
+    showNotification(`✅ Closed ${trade.ticker} for ${pnlSign}$${realizedPnL.toFixed(0)}`, realizedPnL >= 0 ? 'success' : 'error');
+};
 
 /**
  * Finalize the confirmed trade - add to positions
@@ -4829,6 +5019,9 @@ window.stageCheckupSuggestedTrade = function() {
         if (match) premium = parseFloat(match[1]);
     }
     
+    // Check if original position is a spread
+    const isSpread = originalPos?.type?.includes('_spread');
+    
     // Create staged trade
     const now = Date.now();
     const stagedTrade = {
@@ -4848,6 +5041,11 @@ window.stageCheckupSuggestedTrade = function() {
         // Mark as close or roll
         isRoll: !isCloseOnly,
         isClose: isCloseOnly,
+        // For spreads: include both strikes from original position
+        upperStrike: isSpread ? originalPos.buyStrike : null,
+        sellStrike: isSpread ? originalPos.sellStrike : null,
+        buyStrike: isSpread ? originalPos.buyStrike : null,
+        spreadWidth: isSpread ? originalPos.spreadWidth : null,
         rollFrom: {
             positionId: trade.originalPositionId,
             strike: trade.closeStrike,
