@@ -5,11 +5,30 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.17.0-blue)
+![Version](https://img.shields.io/badge/version-1.17.24-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
+
+## 🆕 What's New in v1.17.24
+
+### 📊 Enhanced Trade Confirmation Modals
+- **Strike dropdowns show delta + bid**: `$95 ($2.85 | Δ0.30)` - see premium and assignment risk at a glance
+- **IV display with color coding**: Blue (<30% low), White (30-50% normal), Orange (>50% high)
+- **Consistent UI across all modals**: Single-leg, spreads, and roll calculator
+
+### 🎯 Single-Leg Trades: New Decision Metrics
+- **Cushion %**: How far stock can drop before breakeven (Green ≥15%, Orange 10-15%, Red <10%)
+- **Win Probability**: Delta-based probability of profit (Green ≥70%, Orange 50-70%, Red <50%)
+- Tooltips explain each metric on hover
+
+### 📈 Spread Trades: Risk:Reward Analysis
+- **R:R Ratio with rating**: 🎯 Excellent (<1.5:1), ✅ Good (<2:1), ⚠️ Marginal (2-3:1), ❌ Poor (>3:1)
+- **Rich tooltip**: Shows exact dollar amounts for risk/reward
+- **AI filtering**: Strategy Advisor now rejects spreads with R:R > 3:1
+
+---
 
 ## 🆕 What's New in v1.17.0
 
