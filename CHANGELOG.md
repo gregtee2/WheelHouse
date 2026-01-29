@@ -2,6 +2,24 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.9] - 2026-01-29
+
+### Added
+- **Monte Carlo Probability in Checkups**: AI now receives probability estimates for each position
+  - Runs 5,000 path Monte Carlo simulation before each checkup
+  - Provides AI with: max profit probability, profitable probability, max loss probability
+  - Shows simulated price distribution at expiry (10th, 25th, 50th, 75th, 90th percentiles)
+  - AI uses probabilities to inform HOLD/CLOSE/ROLL recommendations
+  - Example: "58.2% probability of max profit, 12.4% probability of max loss"
+  - Uses current IV for realistic volatility assumptions
+  - Works for single-leg options AND spreads
+
+### Technical
+- New `runPositionMonteCarlo()` function calculates position-specific probabilities
+- Monte Carlo data passed to backend via `/api/ai/checkup` endpoint
+- Prompt builder displays probability section with clear visual formatting
+- AI instructed to weight recommendations based on probability thresholds
+
 ## [1.17.8] - 2026-01-29
 
 ### Added

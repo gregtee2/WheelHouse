@@ -110,12 +110,13 @@ Keep your ENTIRE response under 250 words. Be decisive.`;
  * @param {string} userNotes - User's strategy notes/intent (optional)
  * @returns {string} Formatted prompt
  */
-function buildCheckupPrompt(tradeData, openingThesis, currentData, currentPremium, analysisHistory = [], userNotes = null) {
+function buildCheckupPrompt(tradeData, openingThesis, currentData, currentPremium, analysisHistory = [], userNotes = null, monteCarlo = null) {
     const { ticker, strike, expiry, positionType, buyStrike, spreadWidth, isSpread } = tradeData;
     const o = openingThesis; // Opening state
     const c = currentData;   // Current state
     const history = analysisHistory || [];
     const notes = userNotes?.trim() || null;
+    const mc = monteCarlo;   // Monte Carlo probability data
     
     // Determine if this is a LONG (debit) position - different evaluation!
     const isLongPosition = ['long_call', 'long_put', 'long_call_leaps', 'skip_call', 'call_debit_spread', 'put_debit_spread'].includes(positionType);
@@ -364,6 +365,39 @@ Insight: ${h.insight?.substring(0, 200) || 'N/A'}...`;
 }).join('\n')}
 
 ⚠️ IMPORTANT: Consider the TREND of prior checkups. Is the position getting healthier or deteriorating?
+` : ''}
+${mc ? `
+═══ 🎲 MONTE CARLO SIMULATION (${mc.numPaths?.toLocaleString() || '5,000'} paths) ═══
+📊 PROBABILITY ESTIMATES USING ${mc.iv || 'N/A'} IMPLIED VOLATILITY
+
+SIMULATED PRICE DISTRIBUTION AT EXPIRY (${mc.dte || 'N/A'} DTE):
+┌─────────────────────────────────────────┐
+│ 10th percentile: ${mc.priceRange?.p10 || 'N/A'} (bearish scenario)
+│ 25th percentile: ${mc.priceRange?.p25 || 'N/A'}
+│ 50th percentile: ${mc.priceRange?.median || 'N/A'} (expected/median)
+│ 75th percentile: ${mc.priceRange?.p75 || 'N/A'}
+│ 90th percentile: ${mc.priceRange?.p90 || 'N/A'} (bullish scenario)
+└─────────────────────────────────────────┘
+
+OUTCOME PROBABILITIES:
+🎯 Probability of MAX PROFIT: ${mc.probabilities?.maxProfit || 'N/A'}
+${isCreditSpread || isDebitSpread ? `   (Stock ${isPut ? 'stays above' : 'stays below'} short strike $${strike})` : 
+  `   (Option expires worthless, keep full premium)`}
+
+✅ Probability of PROFIT: ${mc.probabilities?.profitable || 'N/A'}
+   (Stock finishes ${isPut ? 'above' : 'below'} breakeven $${mc.strikes?.breakeven || 'N/A'})
+
+❌ Probability of MAX LOSS: ${mc.probabilities?.maxLoss || 'N/A'}
+${isCreditSpread || isDebitSpread ? `   (Stock ${isPut ? 'falls below' : 'rises above'} long strike $${buyStrike})` : 
+  `   (Deep ITM at expiry)`}
+
+📈 Stock finishes ABOVE short strike ($${strike}): ${mc.probabilities?.aboveShortStrike || 'N/A'}
+📉 Stock finishes BELOW short strike ($${strike}): ${mc.probabilities?.belowShortStrike || 'N/A'}
+
+🚨 USE THESE PROBABILITIES to inform your recommendation!
+- If max profit probability > 70%, likely HOLD
+- If max loss probability > 40%, consider CLOSE or ROLL
+- If profitable probability < 50%, position is at risk
 ` : ''}
 ═══ YOUR CHECKUP ASSESSMENT ═══
 

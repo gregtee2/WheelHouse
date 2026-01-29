@@ -710,7 +710,7 @@ router.post('/deep-dive', async (req, res) => {
 router.post('/checkup', async (req, res) => {
     try {
         const data = req.body;
-        const { ticker, strike, expiry, openingThesis, analysisHistory, userNotes, positionType, model } = data;
+        const { ticker, strike, expiry, openingThesis, analysisHistory, userNotes, positionType, monteCarlo, model } = data;
         const selectedModel = model || 'qwen2.5:7b';
         
         // Log prior checkup count for debugging
@@ -719,6 +719,9 @@ router.post('/checkup', async (req, res) => {
         }
         if (userNotes) {
             console.log(`[AI] User strategy note: "${userNotes.substring(0, 50)}..."`);
+        }
+        if (monteCarlo) {
+            console.log(`[AI] Monte Carlo: ${monteCarlo.probabilities?.profitable} profit probability, ${monteCarlo.probabilities?.maxProfit} max profit`);
         }
         
         // Determine option type
@@ -742,7 +745,7 @@ router.post('/checkup', async (req, res) => {
             console.log(`[AI] Current IV for ${ticker}: ${ivData.atmIV}% (${ivData.source})`);
         }
         
-        const prompt = promptBuilders.buildCheckupPrompt(data, openingThesis, currentData, currentPremium, analysisHistory, userNotes);
+        const prompt = promptBuilders.buildCheckupPrompt(data, openingThesis, currentData, currentPremium, analysisHistory, userNotes, monteCarlo);
         const response = await AIService.callAI(prompt, selectedModel, 2500);  // Increased to 2500 - need room for full analysis + suggested trade block
         
         res.json({ 

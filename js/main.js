@@ -4228,6 +4228,148 @@ window.savePositionNote = function(positionId) {
 };
 
 /**
+ * Run Monte Carlo simulation for a position to get probability estimates
+ * @param {Object} pos - The position object
+ * @param {number} spotPrice - Current spot price
+ * @param {number} iv - Implied volatility (decimal, e.g., 0.45 for 45%)
+ * @returns {Object} Probability data for AI
+ */
+function runPositionMonteCarlo(pos, spotPrice, iv = 0.35) {
+    const numPaths = 5000;  // Fast but accurate enough
+    const numSteps = 50;
+    
+    // Calculate DTE
+    const expDate = new Date(pos.expiry);
+    const dte = Math.max(1, Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24)));
+    const T = dte / 365.25;  // Time in years
+    const dt = T / numSteps;
+    const rate = 0.04;  // Risk-free rate ~4%
+    
+    const isSpread = pos.type?.includes('_spread');
+    const isPut = pos.type?.toLowerCase().includes('put');
+    const isCredit = pos.type?.includes('credit');
+    
+    // Determine key price levels
+    let shortStrike, longStrike, breakeven;
+    
+    if (isSpread) {
+        shortStrike = pos.sellStrike || pos.strike;
+        longStrike = pos.buyStrike;
+        
+        // Calculate breakeven for spreads
+        const netCredit = pos.premium || 2.00;  // Fallback if missing
+        if (isPut && isCredit) {
+            // Put credit spread: breakeven = short strike - net credit
+            breakeven = shortStrike - netCredit;
+        } else if (!isPut && isCredit) {
+            // Call credit spread: breakeven = short strike + net credit
+            breakeven = shortStrike + netCredit;
+        } else if (isPut && !isCredit) {
+            // Put debit spread: breakeven = long strike - net debit
+            breakeven = longStrike - netCredit;
+        } else {
+            // Call debit spread: breakeven = long strike + net debit
+            breakeven = longStrike + netCredit;
+        }
+    } else {
+        shortStrike = pos.strike;
+        longStrike = null;
+        breakeven = isPut ? pos.strike - (pos.premium || 0) : pos.strike + (pos.premium || 0);
+    }
+    
+    // Run simulation
+    let aboveShortStrike = 0;
+    let belowShortStrike = 0;
+    let maxProfitCount = 0;
+    let maxLossCount = 0;
+    let profitableCount = 0;
+    const finalPrices = [];
+    
+    for (let i = 0; i < numPaths; i++) {
+        let S = spotPrice;
+        
+        // Simulate GBM path
+        for (let step = 0; step < numSteps; step++) {
+            const dW = randomNormalMC() * Math.sqrt(dt);
+            S *= Math.exp((rate - 0.5 * iv * iv) * dt + iv * dW);
+        }
+        
+        finalPrices.push(S);
+        
+        if (S > shortStrike) aboveShortStrike++;
+        if (S < shortStrike) belowShortStrike++;
+        
+        // Calculate profit/loss scenarios
+        if (isSpread) {
+            if (isPut && isCredit) {
+                // Put credit spread
+                if (S >= shortStrike) maxProfitCount++;  // Keep full credit
+                if (S <= longStrike) maxLossCount++;      // Max loss
+                if (S >= breakeven) profitableCount++;
+            } else if (!isPut && isCredit) {
+                // Call credit spread
+                if (S <= shortStrike) maxProfitCount++;
+                if (S >= longStrike) maxLossCount++;
+                if (S <= breakeven) profitableCount++;
+            }
+        } else {
+            // Single leg options
+            if (isPut) {
+                if (S >= shortStrike) maxProfitCount++;  // Put expires worthless
+                if (S < breakeven) maxLossCount++;
+                if (S >= breakeven) profitableCount++;
+            } else {
+                if (S <= shortStrike) maxProfitCount++;  // Call expires worthless
+                if (S > breakeven) maxLossCount++;
+                if (S <= breakeven) profitableCount++;
+            }
+        }
+    }
+    
+    // Calculate percentiles
+    finalPrices.sort((a, b) => a - b);
+    const p10 = finalPrices[Math.floor(numPaths * 0.10)];
+    const p25 = finalPrices[Math.floor(numPaths * 0.25)];
+    const p50 = finalPrices[Math.floor(numPaths * 0.50)];  // Median
+    const p75 = finalPrices[Math.floor(numPaths * 0.75)];
+    const p90 = finalPrices[Math.floor(numPaths * 0.90)];
+    
+    return {
+        numPaths,
+        dte,
+        iv: (iv * 100).toFixed(0) + '%',
+        spotPrice: spotPrice.toFixed(2),
+        probabilities: {
+            aboveShortStrike: ((aboveShortStrike / numPaths) * 100).toFixed(1) + '%',
+            belowShortStrike: ((belowShortStrike / numPaths) * 100).toFixed(1) + '%',
+            maxProfit: ((maxProfitCount / numPaths) * 100).toFixed(1) + '%',
+            maxLoss: ((maxLossCount / numPaths) * 100).toFixed(1) + '%',
+            profitable: ((profitableCount / numPaths) * 100).toFixed(1) + '%'
+        },
+        priceRange: {
+            p10: '$' + p10.toFixed(2),
+            p25: '$' + p25.toFixed(2),
+            median: '$' + p50.toFixed(2),
+            p75: '$' + p75.toFixed(2),
+            p90: '$' + p90.toFixed(2)
+        },
+        strikes: {
+            short: shortStrike,
+            long: longStrike,
+            breakeven: breakeven?.toFixed(2)
+        }
+    };
+}
+
+// Simple normal random for Monte Carlo (Box-Muller)
+function randomNormalMC() {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+/**
  * Run a checkup on a position - compares opening thesis to current market conditions
  */
 window.runPositionCheckup = async function(positionId) {
@@ -4305,6 +4447,29 @@ window.runPositionCheckup = async function(positionId) {
     }
     
     try {
+        // First, get current spot price for Monte Carlo
+        let spotPrice = pos.currentSpot || pos.lastPrice || 0;
+        let iv = 0.35;  // Default 35% IV
+        
+        // Try to fetch current spot and IV if we don't have it
+        if (!spotPrice) {
+            try {
+                const quoteRes = await fetch(`/api/cboe/quote/${pos.ticker}`);
+                const quoteData = await quoteRes.json();
+                spotPrice = quoteData.current_price || quoteData.last || 0;
+                iv = (quoteData.iv || 35) / 100;  // Convert from percentage
+            } catch (e) {
+                console.warn('[Checkup] Could not fetch spot price, using fallback');
+            }
+        }
+        
+        // Run Monte Carlo simulation for probability estimates
+        let monteCarlo = null;
+        if (spotPrice > 0) {
+            monteCarlo = runPositionMonteCarlo(pos, spotPrice, iv);
+            console.log('[Checkup] Monte Carlo results:', monteCarlo);
+        }
+        
         // Call checkup API - include positionType so AI knows if long or short!
         // For spreads, send both strikes
         const isSpread = pos.type?.includes('_spread');
@@ -4322,6 +4487,7 @@ window.runPositionCheckup = async function(positionId) {
                 analysisHistory: pos.analysisHistory || [],  // Include prior checkups!
                 userNotes: pos.userNotes || null,  // User's strategy intent
                 positionType: pos.type,  // Important for long vs short evaluation!
+                monteCarlo: monteCarlo,  // Include probability data!
                 model
             })
         });
