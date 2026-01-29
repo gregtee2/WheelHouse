@@ -2,6 +2,26 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.23] - 2026-01-29
+
+### Fixed
+- **Spread Risk:Reward Ratio Display**: Fixed ratio not showing in spread confirm modal
+  - Root cause: Duplicate element ID collision with Trade Metrics panel
+  - Renamed modal element to `spreadRiskRewardRatio` for uniqueness
+  - Now correctly displays calculated ratio (e.g., "0.89:1")
+
+### Enhanced
+- **Risk:Reward Tooltip**: Rich tooltip explains the ratio with context
+  - Shows rating: 🎯 Excellent (<1.5:1), ✅ Good (<2:1), ⚠️ Marginal (2-3:1), ❌ Poor (>3:1)
+  - Displays actual dollar amounts: "You risk $0.89 to make $1"
+  - Shows potential profit: "If you win, you keep $2.65/share (113% return)"
+  - Shows potential loss: "If you lose, max loss is $2.35/share"
+  - Includes rating scale reference for quick understanding
+
+- **R:R Label with Help Icon**: Added ℹ️ icon to label with cursor hint
+  - Hover over label for quick explanation
+  - Hover over value for detailed breakdown
+
 ## [1.17.22] - 2026-01-30
 
 ### Added

@@ -3337,8 +3337,8 @@ window.confirmStagedTrade = function(id) {
                         <div id="spreadWidthDisplay" style="color:#ffaa00; font-size:14px; font-weight:bold;">$${Math.abs(sellStrike - buyStrike).toFixed(0)}</div>
                     </div>
                     <div>
-                        <span style="color:#888; font-size:11px;">Risk:Reward Ratio:</span>
-                        <div id="riskRewardRatio" style="color:#00d9ff; font-size:14px; font-weight:bold;">-</div>
+                        <span style="color:#888; font-size:11px; cursor:help;" title="Risk:Reward Ratio - How much you risk to make $1. Lower is better. < 2:1 is good, > 3:1 is risky.">R:R Ratio: ℹ️</span>
+                        <div id="spreadRiskRewardRatio" style="color:#00d9ff; font-size:14px; font-weight:bold; cursor:help;">-</div>
                     </div>
                     <div>
                         <span style="color:#888; font-size:11px;">Max Loss <span id="maxLossContractCount" style="color:#666;">(1 contract)</span>:</span>
@@ -3542,7 +3542,7 @@ window.updateSpreadRisk = function() {
     const widthEl = document.getElementById('spreadWidthDisplay');
     const totalMaxLossEl = document.getElementById('totalMaxLoss');
     const contractCountEl = document.getElementById('maxLossContractCount');
-    const ratioEl = document.getElementById('riskRewardRatio');
+    const ratioEl = document.getElementById('spreadRiskRewardRatio');
     const breakevenEl = document.getElementById('breakevenPrice');
     
     if (widthEl) widthEl.textContent = `$${spreadWidth.toFixed(0)}`;
@@ -3569,16 +3569,28 @@ window.updateSpreadRisk = function() {
             ratioEl.textContent = `${riskRewardRatio}:1`;
             // Color code: < 2:1 is good, 2-3:1 is ok, > 3:1 is concerning
             const ratio = parseFloat(riskRewardRatio);
-            if (ratio < 2) {
+            let ratingText, ratingEmoji;
+            if (ratio < 1.5) {
                 ratioEl.style.color = '#00ff88';
+                ratingText = 'Excellent';
+                ratingEmoji = '🎯';
+            } else if (ratio < 2) {
+                ratioEl.style.color = '#00ff88';
+                ratingText = 'Good';
+                ratingEmoji = '✅';
             } else if (ratio < 3) {
                 ratioEl.style.color = '#ffaa00';
+                ratingText = 'Marginal';
+                ratingEmoji = '⚠️';
             } else {
                 ratioEl.style.color = '#ff5252';
+                ratingText = 'Poor';
+                ratingEmoji = '❌';
             }
-            ratioEl.title = `You risk $${riskRewardRatio} to make $1. Return: ${rewardRiskRatio}% if max profit`;
+            ratioEl.title = `${ratingEmoji} ${ratingText} - You risk $${riskRewardRatio} to make $1.\n\nIf you win, you keep $${netCredit.toFixed(2)}/share (${rewardRiskRatio}% return).\nIf you lose, max loss is $${maxLossPerShare.toFixed(2)}/share.\n\n< 1.5:1 = Excellent | < 2:1 = Good | 2-3:1 = Marginal | > 3:1 = Poor`;
         } else {
             ratioEl.textContent = '-';
+            ratioEl.title = 'Risk:Reward ratio - Enter premium values to calculate';
         }
     }
     
