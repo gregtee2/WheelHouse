@@ -4551,7 +4551,9 @@ window.runPositionCheckup = async function(positionId) {
                     netCost: cleanValue(tradeBlock.match(/NET_COST:\s*(.+)/)?.[1]?.trim()),
                     rationale: cleanValue(tradeBlock.match(/RATIONALE:\s*(.+)/)?.[1]?.trim()),
                     ticker: pos.ticker,
-                    originalPositionId: positionId
+                    originalPositionId: positionId,
+                    // Include current option premium from API for staging
+                    currentPremium: data.currentPremium
                 };
                 console.log('[CHECKUP] Parsed suggested trade:', suggestedTrade);
                 // Store for staging
@@ -4807,6 +4809,26 @@ window.stageCheckupSuggestedTrade = function() {
         newType = 'short_put';
     }
     
+    // Parse premium from AI estimates
+    // For CLOSE: use estimatedDebit (cost to buy back), fallback to currentPremium from API
+    // For ROLL: try to parse netCost
+    let premium = null;
+    if (isCloseOnly) {
+        if (trade.estimatedDebit) {
+            // Parse "$1.20" or "1.20" to number
+            const parsed = parseFloat(trade.estimatedDebit.replace(/[$,]/g, ''));
+            if (!isNaN(parsed)) premium = parsed;
+        }
+        // Fallback to actual current premium from checkup API
+        if (!premium && trade.currentPremium) {
+            premium = trade.currentPremium;
+        }
+    } else if (trade.netCost) {
+        // Try to extract credit/debit amount from netCost like "$1.30 credit" or "$0.50 debit"
+        const match = trade.netCost.match(/\$?([\d.]+)/);
+        if (match) premium = parseFloat(match[1]);
+    }
+    
     // Create staged trade
     const now = Date.now();
     const stagedTrade = {
@@ -4816,7 +4838,7 @@ window.stageCheckupSuggestedTrade = function() {
         // For CLOSE: use closeStrike; for ROLL: use newStrike
         strike: isCloseOnly ? trade.closeStrike : trade.newStrike,
         expiry: isCloseOnly ? trade.closeExpiry : trade.newExpiry,
-        premium: null,  // Will be determined at execution
+        premium: premium,  // From AI estimates
         contracts: originalPos?.contracts || 1,
         isCall: isCloseOnly ? (trade.closeType === 'CALL') : (trade.newType === 'CALL'),
         isDebit: isCloseOnly ? true : false,  // Closing is a debit (buy back)
