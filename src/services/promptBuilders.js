@@ -11,6 +11,162 @@ const { parseExpiryDate } = require('../utils/dateHelpers');
 const { searchWisdom } = require('./WisdomService');
 
 // ═══════════════════════════════════════════════════════════════════════════
+// POSITION FLOW STAGES - Unified Context System
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Position Lifecycle Stages:
+ * 
+ * 1. DISCOVERY  - Finding trade ideas (Trade Ideas, Strategy Advisor, screeners)
+ * 2. ANALYSIS   - Evaluating a specific trade before entry (Deep Dive, Discord Analyzer)
+ * 3. ENTRY      - Position just opened, setting initial thesis
+ * 4. ACTIVE     - Position is open, monitoring (Holding checkups, roll decisions)
+ * 5. CLOSING    - Position being closed or assigned
+ * 6. REVIEW     - Position closed, learning from it (Critique)
+ * 
+ * Each AI prompt should know:
+ * - What stage we're in
+ * - What previous AI recommendations exist for this position/ticker
+ * - The full chain history if applicable
+ * - Portfolio context (other positions, buying power, risk exposure)
+ */
+
+const POSITION_STAGES = {
+    DISCOVERY: 'discovery',   // Finding ideas
+    ANALYSIS: 'analysis',     // Evaluating before entry
+    ENTRY: 'entry',           // Just opened
+    ACTIVE: 'active',         // Monitoring open position
+    CLOSING: 'closing',       // About to close/assign
+    REVIEW: 'review'          // Post-mortem
+};
+
+// Standard recommendation vocabulary by stage
+const RECOMMENDATIONS = {
+    // Pre-entry (DISCOVERY, ANALYSIS)
+    preEntry: ['STAGE', 'SKIP', 'WATCH', 'NEEDS_MORE_INFO'],
+    
+    // Active position (ENTRY, ACTIVE, CLOSING)
+    active: ['HOLD', 'ROLL', 'LET_ASSIGN', 'BUY_BACK', 'CLOSE', 'SELL_CALL', 'TAKE_PROFIT'],
+    
+    // Post-close (REVIEW)
+    review: ['GOOD_TRADE', 'LESSON_LEARNED', 'AVOID_PATTERN']
+};
+
+/**
+ * Build unified position context for any AI prompt
+ * This ensures all AI calls have awareness of the position's lifecycle
+ * 
+ * @param {Object} params
+ * @param {string} params.stage - Current lifecycle stage (DISCOVERY, ANALYSIS, ACTIVE, etc.)
+ * @param {string} params.ticker - The ticker symbol
+ * @param {Object} params.position - Current position data (if exists)
+ * @param {Object} params.portfolio - Portfolio context (optional)
+ * @param {Array} params.chainHistory - Previous positions in this wheel chain (optional)
+ * @param {Array} params.aiHistory - Previous AI recommendations for this position (optional)
+ * @param {Object} params.openingThesis - Original thesis when position was opened (optional)
+ * @returns {string} Formatted context block for prompts
+ */
+function buildPositionFlowContext(params) {
+    const { 
+        stage = POSITION_STAGES.ANALYSIS, 
+        ticker,
+        position,
+        portfolio,
+        chainHistory = [],
+        aiHistory = [],
+        openingThesis
+    } = params;
+    
+    let context = `\n═══ POSITION LIFECYCLE CONTEXT ═══\n`;
+    context += `CURRENT STAGE: ${stage.toUpperCase()}\n`;
+    
+    // Stage-specific guidance
+    const stageGuidance = {
+        [POSITION_STAGES.DISCOVERY]: 'You are helping find NEW trade opportunities. Focus on risk/reward and portfolio fit.',
+        [POSITION_STAGES.ANALYSIS]: 'You are evaluating a SPECIFIC trade before entry. Give clear STAGE or SKIP recommendation.',
+        [POSITION_STAGES.ENTRY]: 'Position just opened. Establish the thesis and key levels to watch.',
+        [POSITION_STAGES.ACTIVE]: 'Position is OPEN. Evaluate current conditions vs. entry thesis. What action now?',
+        [POSITION_STAGES.CLOSING]: 'Position is being closed or assigned. Focus on execution and next steps.',
+        [POSITION_STAGES.REVIEW]: 'Position is CLOSED. Focus on lessons learned, not regret.'
+    };
+    context += `GUIDANCE: ${stageGuidance[stage] || stageGuidance[POSITION_STAGES.ANALYSIS]}\n`;
+    
+    // Add valid recommendations for this stage
+    let validRecs = RECOMMENDATIONS.active;
+    if (stage === POSITION_STAGES.DISCOVERY || stage === POSITION_STAGES.ANALYSIS) {
+        validRecs = RECOMMENDATIONS.preEntry;
+    } else if (stage === POSITION_STAGES.REVIEW) {
+        validRecs = RECOMMENDATIONS.review;
+    }
+    context += `VALID RECOMMENDATIONS: ${validRecs.join(', ')}\n`;
+    
+    // Chain history (wheel continuity)
+    if (chainHistory.length > 0) {
+        context += `\n── WHEEL CHAIN HISTORY (${chainHistory.length} positions) ──\n`;
+        let totalPremium = 0;
+        chainHistory.forEach((p, i) => {
+            const prem = (p.premium || 0) * 100 * (p.contracts || 1);
+            const close = (p.closePrice || 0) * 100 * (p.contracts || 1);
+            totalPremium += prem - close;
+            context += `${i + 1}. ${p.type} $${p.strike} ${p.expiry} - Premium: $${prem.toFixed(0)}`;
+            if (p.status === 'closed') {
+                context += ` → ${p.closeReason || 'closed'} (P&L: $${(p.realizedPnL || p.closePnL || 0).toFixed(0)})`;
+            }
+            context += '\n';
+        });
+        context += `NET PREMIUM COLLECTED: $${totalPremium.toFixed(0)}\n`;
+        context += `ROLLS IN CHAIN: ${chainHistory.filter(p => p.closeReason === 'rolled').length}\n`;
+    }
+    
+    // Previous AI recommendations for this position
+    if (aiHistory.length > 0) {
+        context += `\n── PREVIOUS AI RECOMMENDATIONS ──\n`;
+        // Show last 3 AI calls
+        aiHistory.slice(-3).forEach((ai, i) => {
+            const date = ai.timestamp ? new Date(ai.timestamp).toLocaleDateString() : 'Unknown';
+            context += `${date}: ${ai.recommendation || 'N/A'}`;
+            if (ai.model) context += ` (${ai.model})`;
+            context += '\n';
+        });
+        
+        // Note if recommendation changed
+        if (aiHistory.length > 1) {
+            const last = aiHistory[aiHistory.length - 1]?.recommendation;
+            const prev = aiHistory[aiHistory.length - 2]?.recommendation;
+            if (last && prev && last !== prev) {
+                context += `⚠️ Last AI changed from ${prev} → ${last}\n`;
+            }
+        }
+    }
+    
+    // Opening thesis (what was the original plan?)
+    if (openingThesis) {
+        context += `\n── OPENING THESIS ──\n`;
+        context += `Opened: ${openingThesis.analyzedAt ? new Date(openingThesis.analyzedAt).toLocaleDateString() : 'Unknown'}\n`;
+        if (openingThesis.priceAtAnalysis) context += `Entry price: $${openingThesis.priceAtAnalysis}\n`;
+        if (openingThesis.iv) context += `Entry IV: ${openingThesis.iv}%\n`;
+        if (openingThesis.aiSummary?.bottomLine) {
+            context += `Original thesis: ${openingThesis.aiSummary.bottomLine}\n`;
+        }
+    }
+    
+    // Portfolio context (what else do we own?)
+    if (portfolio) {
+        context += `\n── PORTFOLIO CONTEXT ──\n`;
+        if (portfolio.buyingPower) context += `Buying Power: $${portfolio.buyingPower.toLocaleString()}\n`;
+        if (portfolio.netDelta !== undefined) context += `Portfolio Delta: ${portfolio.netDelta > 0 ? '+' : ''}${portfolio.netDelta}\n`;
+        if (portfolio.positionCount) context += `Open Positions: ${portfolio.positionCount}\n`;
+        
+        // Note if we already have positions in this ticker
+        if (portfolio.tickerPositions && portfolio.tickerPositions.length > 0) {
+            context += `⚠️ Already have ${portfolio.tickerPositions.length} position(s) in ${ticker}\n`;
+        }
+    }
+    
+    context += `═══════════════════════════════════\n\n`;
+    return context;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // DEEP DIVE ANALYSIS PROMPT
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2641,6 +2797,7 @@ Think like the senior trader you are. What would you actually recommend to a pre
 // ═══════════════════════════════════════════════════════════════════════════
 
 module.exports = {
+    // Core prompt builders
     buildDeepDivePrompt,
     buildCheckupPrompt,
     buildTradeParsePrompt,
@@ -2649,5 +2806,10 @@ module.exports = {
     buildTradePrompt,
     buildIdeaPrompt,
     buildStrategyAdvisorPrompt,
-    buildExpertModePrompt
+    buildExpertModePrompt,
+    
+    // Unified context system
+    buildPositionFlowContext,
+    POSITION_STAGES,
+    RECOMMENDATIONS
 };

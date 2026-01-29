@@ -763,6 +763,158 @@ router.post('/checkup', async (req, res) => {
 });
 
 // =============================================================================
+// HOLDING CHECKUP - Compare saved strategy to current conditions (unified context)
+// This replaces the inline prompt in portfolio.js holdingCheckup()
+// =============================================================================
+
+router.post('/holding-checkup', async (req, res) => {
+    try {
+        const { 
+            ticker, 
+            strike, 
+            expiry, 
+            costBasis, 
+            shares,
+            premium,
+            savedStrategy,      // { recommendation, savedAt, fullAnalysis, snapshot }
+            chainHistory,       // Array of previous positions in this wheel chain
+            model 
+        } = req.body;
+        
+        const selectedModel = model || 'qwen2.5:7b';
+        console.log(`[AI] Holding checkup for ${ticker} - comparing to saved ${savedStrategy?.recommendation || 'N/A'} recommendation`);
+        
+        // Fetch current market data
+        let currentPrice = 0;
+        try {
+            const quote = await MarketDataService.getQuote(ticker);
+            currentPrice = quote?.price || 0;
+        } catch (e) {
+            console.log(`[AI] Quote fetch failed for ${ticker}:`, e.message);
+        }
+        
+        if (!currentPrice) {
+            return res.status(400).json({ error: `Could not fetch current price for ${ticker}` });
+        }
+        
+        // Calculate key metrics
+        const strikeNum = parseFloat(strike) || 0;
+        const costBasisNum = parseFloat(costBasis) || 0;
+        const sharesNum = parseInt(shares) || 100;
+        const premiumTotal = parseFloat(premium) || 0;
+        const dte = expiry ? Math.ceil((new Date(expiry) - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+        const isITM = currentPrice > strikeNum;
+        const stockGainLoss = (currentPrice - costBasisNum) * sharesNum;
+        const ifCalled = ((strikeNum - costBasisNum) * sharesNum) + premiumTotal;
+        
+        // Extract saved strategy values
+        const snapshot = savedStrategy?.snapshot || {};
+        const savedStockPrice = snapshot.stockPrice || snapshot.spot || costBasisNum || 0;
+        const savedDte = snapshot.dte ?? 'N/A';
+        const savedIsITM = snapshot.isITM ?? false;
+        const savedRec = savedStrategy?.recommendation || 'HOLD';
+        const savedAt = savedStrategy?.savedAt ? new Date(savedStrategy.savedAt).toLocaleDateString() : 'Unknown';
+        const priceChange = savedStockPrice > 0 ? ((currentPrice - savedStockPrice) / savedStockPrice * 100).toFixed(1) : 'N/A';
+        
+        // Build position flow context
+        const flowContext = promptBuilders.buildPositionFlowContext({
+            stage: promptBuilders.POSITION_STAGES.ACTIVE,
+            ticker,
+            chainHistory: chainHistory || [],
+            aiHistory: savedStrategy ? [{ 
+                timestamp: savedStrategy.savedAt, 
+                recommendation: savedStrategy.recommendation,
+                model: savedStrategy.model 
+            }] : [],
+            openingThesis: savedStrategy?.snapshot ? {
+                analyzedAt: savedStrategy.savedAt,
+                priceAtAnalysis: savedStockPrice,
+                aiSummary: { bottomLine: savedStrategy.recommendation }
+            } : null
+        });
+        
+        // Build the prompt
+        const prompt = `${flowContext}You previously analyzed this covered call position. Compare current conditions to your original recommendation.
+
+ORIGINAL ANALYSIS (from ${savedAt}):
+- Stock was: $${savedStockPrice.toFixed(2)}
+- Recommendation: ${savedRec}
+- DTE was: ${savedDte} days
+- Was ITM: ${savedIsITM ? 'Yes' : 'No'}
+
+CURRENT CONDITIONS:
+- Ticker: ${ticker}
+- Stock NOW: $${currentPrice.toFixed(2)} (was $${savedStockPrice.toFixed(2)}, change: ${priceChange}%)
+- Strike: $${strikeNum.toFixed(2)}
+- Cost Basis: $${costBasisNum.toFixed(2)}
+- DTE NOW: ${dte} days (was ${savedDte})
+- Currently ITM: ${isITM ? 'Yes' : 'No'}
+- Stock P&L: $${stockGainLoss.toFixed(0)}
+- Premium Collected: $${premiumTotal.toFixed(0)}
+- If Called Profit: $${ifCalled.toFixed(0)}
+
+ORIGINAL FULL ANALYSIS:
+${(savedStrategy?.fullAnalysis || savedStrategy?.recommendation || 'No detailed analysis saved').substring(0, 1500)}
+
+Based on how conditions have changed, what should the trader do NOW?
+
+IMPORTANT: Evaluate objectively. If the position is now ITM with high assignment probability, "LET ASSIGN" may be better than rolling again. Consider:
+- Is assignment now the most profitable outcome?
+- Has the situation changed enough to warrant a different strategy?
+- Don't stick with the old plan just because it was the old plan.
+
+End your response with one of these exact phrases:
+- "VERDICT: STICK WITH ${savedRec}" (only if old plan is still best)
+- "VERDICT: CHANGE TO ROLL" (roll to new strike/expiry)
+- "VERDICT: CHANGE TO HOLD" (do nothing, wait)
+- "VERDICT: CHANGE TO LET ASSIGN" (let shares get called away)
+- "VERDICT: CHANGE TO BUY BACK" (close the call position)`;
+
+        const response = await AIService.callAI(prompt, selectedModel, 1500);
+        
+        // Parse verdict
+        let newRecommendation = savedRec;
+        let recommendationChanged = false;
+        const verdictMatch = response.match(/VERDICT:\s*(STICK WITH|CHANGE TO)\s*(\w+(?:\s+\w+)?)/i);
+        if (verdictMatch) {
+            if (verdictMatch[1].toUpperCase() === 'STICK WITH') {
+                newRecommendation = savedRec;
+            } else {
+                const newRec = verdictMatch[2].toUpperCase().trim();
+                if (newRec.includes('ROLL')) newRecommendation = 'ROLL';
+                else if (newRec.includes('HOLD')) newRecommendation = 'HOLD';
+                else if (newRec.includes('ASSIGN')) newRecommendation = 'LET ASSIGN';
+                else if (newRec.includes('LET') || newRec.includes('CALL')) newRecommendation = 'LET ASSIGN';
+                else if (newRec.includes('BUY')) newRecommendation = 'BUY BACK';
+                else newRecommendation = newRec;
+                
+                recommendationChanged = newRecommendation !== savedRec;
+            }
+        }
+        
+        res.json({
+            success: true,
+            checkup: response,
+            model: selectedModel,
+            currentPrice,
+            savedStockPrice,
+            priceChange,
+            dte,
+            isITM,
+            stockGainLoss,
+            ifCalled,
+            newRecommendation,
+            recommendationChanged,
+            savedRecommendation: savedRec
+        });
+        console.log(`[AI] ✅ Holding checkup complete: ${savedRec} → ${newRecommendation}`);
+    } catch (e) {
+        console.log('[AI] ❌ Holding checkup error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =============================================================================
 // PARSE TRADE - Discord trade parsing with SSE progress
 // =============================================================================
 

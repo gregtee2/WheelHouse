@@ -3692,6 +3692,7 @@ window.getHiddenTickers = function() {
 
 /**
  * Run a checkup on a holding - compares current conditions to saved strategy
+ * Uses the unified /api/ai/holding-checkup endpoint for position flow context
  */
 window.holdingCheckup = async function(holdingId) {
     const holding = state.holdings?.find(h => h.id === holdingId);
@@ -3722,115 +3723,16 @@ window.holdingCheckup = async function(holdingId) {
         return;
     }
     
-    // Fetch current price - try multiple sources
-    let currentPrice = 0;
-    const ticker = holding.ticker;
-    
-    // Try Schwab first
-    try {
-        const resp = await fetch(`/api/schwab/quote/${ticker}`);
-        if (resp.ok) {
-            const data = await resp.json();
-            // Schwab returns { TICKER: { quote: { lastPrice, mark } } }
-            const quote = data[ticker]?.quote || data.quote || data;
-            currentPrice = quote.lastPrice || quote.mark || quote.last || data.lastPrice || data.mark || 0;
-        }
-    } catch (e) {
-        console.error('Schwab price fetch failed:', e);
+    // Get chain history if this is part of a wheel
+    const chainId = holding.chainId || position?.chainId;
+    let chainHistory = [];
+    if (chainId) {
+        const allPositions = [...(state.positions || []), ...(state.closedPositions || [])];
+        chainHistory = allPositions.filter(p => p.chainId === chainId).sort((a, b) => 
+            new Date(a.openDate || a.createdAt || 0) - new Date(b.openDate || b.createdAt || 0)
+        );
     }
     
-    // Try CBOE if Schwab failed
-    if (!currentPrice) {
-        try {
-            const resp = await fetch(`/api/cboe/quote/${ticker}`);
-            if (resp.ok) {
-                const data = await resp.json();
-                currentPrice = data.data?.last_price || data.last_price || data.price || 0;
-            }
-        } catch (e) {
-            console.error('CBOE price fetch failed:', e);
-        }
-    }
-    
-    // Try Yahoo as last resort
-    if (!currentPrice) {
-        try {
-            const resp = await fetch(`/api/yahoo/${ticker}`);
-            if (resp.ok) {
-                const data = await resp.json();
-                currentPrice = data.quotes?.[ticker]?.price || data.price || 0;
-            }
-        } catch (e) { /* ignore */ }
-    }
-    
-    // Final fallback - use holding's last known price or cost basis
-    // Track if we're using fallback pricing
-    let priceSource = 'live';
-    if (!currentPrice) {
-        currentPrice = holding.currentPrice || holding.lastPrice || holding.costBasis || 0;
-        priceSource = 'fallback';
-        console.warn(`All price sources failed for ${ticker}, using fallback: $${currentPrice}`);
-    }
-    
-    // If still no price, show error
-    if (!currentPrice || currentPrice === 0) {
-        showNotification(`Could not fetch current price for ${ticker}. Please try again.`, 'error');
-        return;
-    }
-    
-    const strike = position.strike || holding.strike || 0;
-    const costBasis = holding.costBasis || 0;
-    const shares = holding.shares || 100;
-    const premium = (position.premium || 0) * 100 * (position.contracts || 1);
-    const dte = position.expiry ? Math.ceil((new Date(position.expiry) - new Date()) / (1000 * 60 * 60 * 24)) : 0;
-    const isITM = currentPrice > strike;
-    const stockGainLoss = (currentPrice - costBasis) * shares;
-    const ifCalled = ((strike - costBasis) * shares) + premium;
-    
-    // Extract snapshot values with null safety
-    const snapshot = strategy.snapshot || {};
-    const savedStockPrice = snapshot.stockPrice || snapshot.spot || holding.costBasis || 0;
-    const savedDte = snapshot.dte ?? 'N/A';
-    const savedIsITM = snapshot.isITM ?? false;
-    const priceChange = savedStockPrice > 0 ? ((currentPrice - savedStockPrice) / savedStockPrice * 100).toFixed(1) : 'N/A';
-    
-    // Build comparison prompt
-    const prompt = `You previously analyzed this covered call position. Compare current conditions to your original recommendation.
-
-ORIGINAL ANALYSIS (from ${new Date(strategy.savedAt).toLocaleDateString()}):
-- Stock was: $${savedStockPrice.toFixed(2)}
-- Recommendation: ${strategy.recommendation}
-- DTE was: ${savedDte} days
-- Was ITM: ${savedIsITM ? 'Yes' : 'No'}
-
-CURRENT CONDITIONS:
-- Ticker: ${holding.ticker}
-- Stock NOW: $${currentPrice.toFixed(2)} (was $${savedStockPrice.toFixed(2)}, change: ${priceChange}%)
-- Strike: $${strike.toFixed(2)}
-- Cost Basis: $${costBasis.toFixed(2)}
-- DTE NOW: ${dte} days (was ${savedDte})
-- Currently ITM: ${isITM ? 'Yes' : 'No'}
-- Stock P&L: $${stockGainLoss.toFixed(0)}
-- Premium: $${premium.toFixed(0)}
-- If Called Profit: $${ifCalled.toFixed(0)}
-
-ORIGINAL FULL ANALYSIS:
-${(strategy.fullAnalysis || strategy.recommendation || 'No detailed analysis saved').substring(0, 1500)}
-
-Based on how conditions have changed, what should the trader do NOW?
-
-IMPORTANT: Evaluate objectively. If the position is now ITM with high assignment probability, "LET ASSIGN" may be better than rolling again. Consider:
-- Is assignment now the most profitable outcome?
-- Has the situation changed enough to warrant a different strategy?
-- Don't stick with the old plan just because it was the old plan.
-
-End your response with one of these exact phrases:
-- "VERDICT: STICK WITH ${strategy.recommendation}" (only if old plan is still best)
-- "VERDICT: CHANGE TO ROLL" (roll to new strike/expiry)
-- "VERDICT: CHANGE TO HOLD" (do nothing, wait)
-- "VERDICT: CHANGE TO LET ASSIGN" (let shares get called away)
-- "VERDICT: CHANGE TO BUY BACK" (close the call position)`;
-
     // Show modal with loading
     let modal = document.getElementById('aiHoldingModal');
     if (modal) modal.remove();
@@ -3856,38 +3758,34 @@ End your response with one of these exact phrases:
     document.body.appendChild(modal);
     
     try {
-        const response = await fetch('/api/ai/grok', {
+        // Call the unified backend endpoint
+        const response = await fetch('/api/ai/holding-checkup', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, maxTokens: 600 })
+            body: JSON.stringify({
+                ticker: holding.ticker,
+                strike: position.strike || holding.strike,
+                expiry: position.expiry,
+                costBasis: holding.costBasis,
+                shares: holding.shares || 100,
+                premium: (position.premium || 0) * 100 * (position.contracts || 1),
+                savedStrategy: strategy,
+                chainHistory: chainHistory,
+                model: window.getSelectedAIModel?.('globalModelSelect') || 'qwen2.5:7b'
+            })
         });
         
-        if (!response.ok) throw new Error('Checkup failed');
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'Checkup failed');
+        }
         
         const result = await response.json();
-        const checkupAnalysis = result.insight || 'No checkup returned';
-        
-        // Parse the verdict from the response
-        let newRecommendation = null;
-        let recommendationChanged = false;
-        
-        const verdictMatch = checkupAnalysis.match(/VERDICT:\s*(STICK WITH|CHANGE TO)\s*(\w+(?:\s+\w+)?)/i);
-        if (verdictMatch) {
-            if (verdictMatch[1].toUpperCase() === 'STICK WITH') {
-                newRecommendation = strategy.recommendation;
-            } else {
-                // Parse the new recommendation
-                const newRec = verdictMatch[2].toUpperCase().trim();
-                if (newRec.includes('ROLL')) newRecommendation = 'ROLL';
-                else if (newRec.includes('HOLD')) newRecommendation = 'HOLD';
-                else if (newRec.includes('ASSIGN')) newRecommendation = 'LET ASSIGN';
-                else if (newRec.includes('LET') || newRec.includes('CALL')) newRecommendation = 'LET ASSIGN';
-                else if (newRec.includes('BUY')) newRecommendation = 'BUY BACK';
-                else newRecommendation = newRec;
-                
-                recommendationChanged = newRecommendation !== strategy.recommendation;
-            }
-        }
+        const checkupAnalysis = result.checkup || 'No checkup returned';
+        const { 
+            currentPrice, savedStockPrice, priceChange, dte, isITM, ifCalled,
+            newRecommendation, recommendationChanged, savedRecommendation 
+        } = result;
         
         const formatted = checkupAnalysis
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#ffaa00;">$1</strong>')
@@ -3905,7 +3803,7 @@ End your response with one of these exact phrases:
                 <div style="display:flex;gap:20px;font-size:13px;margin-bottom:12px;">
                     <div>
                         <span style="color:#888;">Saved:</span> 
-                        <span style="color:#888;text-decoration:line-through;">${strategy.recommendation}</span>
+                        <span style="color:#888;text-decoration:line-through;">${savedRecommendation}</span>
                     </div>
                     <div>
                         <span style="color:#888;">New:</span> 
@@ -3918,6 +3816,11 @@ End your response with one of these exact phrases:
                 </button>
             </div>
         ` : '';
+        
+        // Get snapshot values from result or strategy
+        const snapshot = strategy.snapshot || {};
+        const savedDte = snapshot.dte ?? 'N/A';
+        const savedIsITM = snapshot.isITM ?? false;
         
         modal.querySelector('div > div').innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
@@ -3933,22 +3836,28 @@ End your response with one of these exact phrases:
                 <div style="background:rgba(255,170,0,0.1);padding:12px;border-radius:8px;border:1px solid rgba(255,170,0,0.3);">
                     <div style="color:#ffaa00;font-weight:bold;font-size:11px;margin-bottom:8px;">📋 ORIGINAL (${new Date(strategy.savedAt).toLocaleDateString()})</div>
                     <div style="font-size:12px;color:#ccc;">
-                        <div>Stock: $${savedStockPrice.toFixed(2)}</div>
+                        <div>Stock: $${(savedStockPrice || 0).toFixed(2)}</div>
                         <div>DTE: ${savedDte} days</div>
                         <div>ITM: ${savedIsITM ? 'Yes' : 'No'}</div>
-                        <div style="margin-top:8px;color:#00ff88;font-weight:bold;">→ ${strategy.recommendation}</div>
+                        <div style="margin-top:8px;color:#00ff88;font-weight:bold;">→ ${savedRecommendation}</div>
                     </div>
                 </div>
                 <div style="background:rgba(0,217,255,0.1);padding:12px;border-radius:8px;border:1px solid rgba(0,217,255,0.3);">
                     <div style="color:#00d9ff;font-weight:bold;font-size:11px;margin-bottom:8px;">📊 CURRENT</div>
                     <div style="font-size:12px;color:#ccc;">
-                        <div>Stock: $${currentPrice.toFixed(2)} <span style="color:${currentPrice > savedStockPrice ? '#00ff88' : '#ff5252'};">(${priceChange !== 'N/A' ? (currentPrice > savedStockPrice ? '+' : '') + priceChange : 'N/A'}%)</span></div>
+                        <div>Stock: $${(currentPrice || 0).toFixed(2)} <span style="color:${currentPrice > savedStockPrice ? '#00ff88' : '#ff5252'};">(${priceChange !== 'N/A' ? (currentPrice > savedStockPrice ? '+' : '') + priceChange : 'N/A'}%)</span></div>
                         <div>DTE: ${dte} days</div>
                         <div>ITM: ${isITM ? 'Yes' : 'No'}</div>
-                        <div style="margin-top:8px;">If Called: +$${ifCalled.toFixed(0)}</div>
+                        <div style="margin-top:8px;">If Called: +$${(ifCalled || 0).toFixed(0)}</div>
                     </div>
                 </div>
             </div>
+            
+            ${chainHistory.length > 1 ? `
+            <div style="background:rgba(139,92,246,0.1);padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:11px;color:#8b5cf6;">
+                🔗 Part of wheel chain with ${chainHistory.length} positions (${chainHistory.filter(p => p.closeReason === 'rolled').length} rolls)
+            </div>
+            ` : ''}
             
             <!-- Checkup Analysis -->
             <div style="line-height:1.7;font-size:13px;background:#252540;padding:16px;border-radius:8px;">
