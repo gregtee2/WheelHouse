@@ -61,10 +61,11 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
     // grok-4: Most capable but slowest (can take 3-5 min for complex prompts)
     // grok-4-1-fast: Speed-optimized, nearly as good (recommended default)
     // grok-3: Good balance
+    const modelStr = (typeof model === 'string' && model) ? model : 'grok-4-1-fast';
     let timeoutMs = 90000;  // Default: 90s
-    if (model === 'grok-4') {
+    if (modelStr === 'grok-4') {
         timeoutMs = 300000;  // 5 min for deep thinking
-    } else if (model.includes('grok-4')) {
+    } else if (modelStr.includes('grok-4')) {
         timeoutMs = 180000;  // 3 min for grok-4 variants
     }
     const timeoutSec = timeoutMs / 1000;
@@ -295,7 +296,8 @@ function callOllama(prompt, model = 'qwen2.5:7b', maxTokens = 400) {
                     console.log(`[AI] Ollama response keys:`, Object.keys(json));
                     
                     // DeepSeek-R1 special handling
-                    const isDeepSeekR1 = model.includes('deepseek-r1');
+                    const modelCheck = (typeof model === 'string') ? model : resolvedModel;
+                    const isDeepSeekR1 = modelCheck.includes('deepseek-r1');
                     let answer = '';
                     
                     if (isDeepSeekR1) {
