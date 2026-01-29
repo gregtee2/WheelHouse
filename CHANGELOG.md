@@ -2,6 +2,35 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.20] - 2026-01-29
+
+### Fixed
+- **AI Service Type Safety**: Fixed `model.includes is not a function` errors
+  - Added type checking in `AIService.js` for `callGrok()` and `callOllama()` functions
+  - Model parameter now validated before calling `.includes()` or `.toLowerCase()`
+  
+- **AI Function Signatures**: Fixed wrong parameter order in AI calls
+  - `callGrok(prompt, model, maxTokens)` was being called with `{ maxTokens }` object instead of number
+  - `callAI(prompt, model, maxTokens)` had same issue
+  - Both endpoints now pass maxTokens as a number correctly
+
+### Added
+- **Roll Display in Pending Trades**: Rolls now show full context in Ideas tab
+  - Strike column shows both legs: "Close $87C" (red) + "Open $105C" (green)
+  - Expiry column shows both dates: old expiry crossed out, new expiry below
+  - Cr/Dr column shows net cost from AI (e.g., "-$930.00 debit" or "+$450 credit")
+  - ROLL badge now properly displays on roll trades
+  
+- **Wheel Continuation Support**: AI can now suggest "let it get called + sell put"
+  - Stages as a roll with close leg (assignment) and open leg (new put)
+  - Net credit displayed for wheel continuation trades
+
+### Changed
+- **Staging Function**: `stageHoldingSuggestedTrade()` now sets proper flags
+  - Added `isRoll: true` and `isCall` flags for correct display
+  - Added `netCost` field from AI response for roll cost display
+  - Stores `rollFrom.type` for accurate option type display
+
 ## [1.17.19] - 2026-01-30
 
 ### Added
