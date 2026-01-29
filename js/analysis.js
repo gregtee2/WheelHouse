@@ -907,6 +907,82 @@ function renderRollOptions(candidates, contracts, isCallPosition, currentAsk) {
 }
 
 /**
+ * Populate the Roll Calculator strike dropdown with available strikes from chain
+ */
+function populateRollStrikeDropdown(optionChain, currentStrike, isCall, spotPrice) {
+    const strikeSelect = document.getElementById('rollNewStrike');
+    if (!strikeSelect) return;
+    
+    // Get unique strikes
+    const strikes = [...new Set(optionChain.map(o => o.strike))].sort((a, b) => {
+        // For calls, sort ascending (roll UP); for puts, sort descending (roll DOWN)
+        return isCall ? a - b : b - a;
+    });
+    
+    // Filter to reasonable range around current strike
+    const filteredStrikes = strikes.filter(s => {
+        if (isCall) {
+            // Calls: same or higher, up to 30% above spot
+            return s >= currentStrike && s <= spotPrice * 1.3;
+        } else {
+            // Puts: same or lower, down to 70% of spot
+            return s <= currentStrike && s >= spotPrice * 0.7;
+        }
+    });
+    
+    // Build options HTML with delta
+    const optionsHtml = filteredStrikes.slice(0, 20).map(s => {
+        // Find an option at this strike (any expiry) to get delta
+        const opt = optionChain.find(o => Math.abs(o.strike - s) < 0.01);
+        let info = '';
+        if (opt) {
+            const bid = opt.bid?.toFixed(2) || '?';
+            const delta = opt.delta ? Math.abs(opt.delta).toFixed(2) : null;
+            info = delta ? ` ($${bid} | Δ${delta})` : ` ($${bid})`;
+        }
+        const selected = Math.abs(s - currentStrike) < 0.01 ? 'selected' : '';
+        return `<option value="${s}" ${selected}>$${s}${info}</option>`;
+    }).join('');
+    
+    strikeSelect.innerHTML = optionsHtml || '<option>No strikes</option>';
+}
+
+/**
+ * Show IV summary bar in Roll Calculator
+ */
+function showRollIvSummary(optionChain, currentStrike) {
+    const summaryEl = document.getElementById('rollIvSummary');
+    const ivDisplay = document.getElementById('rollIvDisplay');
+    const ivContext = document.getElementById('rollIvContext');
+    
+    if (!summaryEl || !ivDisplay) return;
+    
+    // Find option at current strike to get IV
+    const opt = optionChain.find(o => Math.abs(o.strike - currentStrike) < 0.01);
+    const iv = opt?.impliedVolatility || 0;
+    
+    if (iv > 0) {
+        const ivPct = (iv * 100).toFixed(0);
+        // Color code: <30% blue (low), 30-50% white (normal), >50% orange (high)
+        const ivColor = iv < 0.30 ? '#00d9ff' : iv > 0.50 ? '#ffaa00' : '#fff';
+        ivDisplay.style.color = ivColor;
+        ivDisplay.textContent = `${ivPct}%`;
+        
+        // Context text
+        if (ivContext) {
+            if (iv < 0.25) ivContext.textContent = '(Low - thin premiums)';
+            else if (iv < 0.35) ivContext.textContent = '(Normal)';
+            else if (iv < 0.50) ivContext.textContent = '(Elevated)';
+            else ivContext.textContent = '(High - fat premiums!)';
+        }
+        
+        summaryEl.style.display = 'block';
+    } else {
+        summaryEl.style.display = 'none';
+    }
+}
+
+/**
  * Suggest optimal roll parameters
  * Fetches REAL strikes from CBOE and calculates TRUE roll cost/credit
  * For PUTS: Roll = (Sell new put at BID) - (Buy to close current put at ASK)
@@ -973,6 +1049,14 @@ export async function suggestOptimalRoll() {
     
     if (!optionChain || optionChain.length === 0) {
         listEl.innerHTML = `<div style="color:#b87a75;">❌ No ${optionType} options found for this ticker</div>`;
+        return;
+    }
+    
+    // Populate the strike dropdown with available strikes + delta
+    populateRollStrikeDropdown(optionChain, currentStrike, isCallPosition, chain.currentPrice || state.spot);
+    
+    // Show IV summary bar
+    showRollIvSummary(optionChain, currentStrike);
         return;
     }
     

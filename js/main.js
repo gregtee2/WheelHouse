@@ -3348,16 +3348,26 @@ window.confirmStagedTrade = function(id) {
                         <span style="color:#888; font-size:11px;">Breakeven:</span>
                         <div id="breakevenPrice" style="color:#ffaa00; font-size:14px; font-weight:bold;">-</div>
                     </div>
+                    <div>
+                        <span style="color:#888; font-size:11px; cursor:help;" title="Implied Volatility - How 'expensive' premiums are. Higher IV = fatter premiums but more volatile stock. Low (<30%) | Normal (30-50%) | High (>50%)">IV: ℹ️</span>
+                        <div id="spreadIvDisplay" style="color:#00d9ff; font-size:14px; font-weight:bold;">-</div>
+                    </div>
                 </div>
             </div>
         `;
     } else {
-        // Single leg: one strike + one premium + margin
+        // Single leg: one strike dropdown + one premium + margin
         strikeFieldsHtml = `
             <div>
                 <label style="color:#888; font-size:12px;">Strike Price</label>
-                <input id="confirmStrike" type="number" value="${trade.strike}" step="0.5"
-                       style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
+                <select id="confirmStrike" 
+                       onchange="window.onSingleStrikeChange()"
+                       style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px; cursor:pointer;">
+                    <option value="${trade.strike}">$${trade.strike} (loading...)</option>
+                </select>
+                <div id="strikeLoadingStatus" style="color:#888; font-size:11px; text-align:center; margin-top:4px;">
+                    ⏳ Loading available strikes...
+                </div>
             </div>
         `;
         const isCall = trade.isCall || trade.type?.includes('call');
@@ -3374,7 +3384,7 @@ window.confirmStagedTrade = function(id) {
                 </div>
             </div>
             <div id="singleLegSummary" style="background:#0d0d1a; padding:12px; border-radius:8px; border:1px solid #333; margin-top:8px;">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
                     <div>
                         <span style="color:#888; font-size:11px;">Total Credit:</span>
                         <div id="totalCreditDisplay" style="color:#00ff88; font-size:18px; font-weight:bold;">-</div>
@@ -3382,6 +3392,10 @@ window.confirmStagedTrade = function(id) {
                     <div>
                         <span style="color:#888; font-size:11px;">Ann. Return:</span>
                         <div id="annReturnDisplay" style="color:#ffaa00; font-size:14px; font-weight:bold;">-</div>
+                    </div>
+                    <div>
+                        <span style="color:#888; font-size:11px; cursor:help;" title="Implied Volatility - How 'expensive' premiums are. Higher IV = fatter premiums but more volatile stock. Low (<30%) | Normal (30-50%) | High (>50%)">IV: ℹ️</span>
+                        <div id="ivDisplay" style="color:#00d9ff; font-size:14px; font-weight:bold;">-</div>
                     </div>
                 </div>
             </div>
@@ -3401,6 +3415,8 @@ window.confirmStagedTrade = function(id) {
                     Checking margin...
                 </div>
             </div>
+            <input type="hidden" id="confirmSpotPrice" value="0">
+            <input type="hidden" id="confirmIsPut" value="${isPut ? '1' : '0'}">
         `;
     }
     
@@ -3422,7 +3438,7 @@ window.confirmStagedTrade = function(id) {
                     <div>
                         <label style="color:#888; font-size:12px;">Contracts</label>
                         <input id="confirmContracts" type="number" value="${trade.contracts || 1}" min="1"
-                               oninput="window.updateNetCredit(); window.updateSpreadRisk();"
+                               oninput="window.updateNetCredit(); window.updateSpreadRisk(); window.updateMarginDisplay();"
                                style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
                     </div>
                     <div>
@@ -3589,6 +3605,99 @@ window.onStrikeChange = async function() {
 };
 
 /**
+ * Called when user changes single-leg strike dropdown
+ */
+window.onSingleStrikeChange = async function() {
+    const ticker = document.getElementById('confirmTicker')?.value;
+    const strike = document.getElementById('confirmStrike')?.value;
+    const expiry = document.getElementById('confirmExpiry')?.value;
+    const isPut = document.getElementById('confirmIsPut')?.value === '1';
+    
+    if (!ticker || !strike || !expiry) return;
+    
+    // Fetch new price for this strike
+    await fetchSingleOptionPrice(ticker, strike, expiry, isPut);
+};
+
+/**
+ * Update margin display based on current values (for contract changes)
+ */
+window.updateMarginDisplay = function() {
+    const spotPrice = parseFloat(document.getElementById('confirmSpotPrice')?.value) || 100;
+    const strike = parseFloat(document.getElementById('confirmStrike')?.value) || 0;
+    const contracts = parseInt(document.getElementById('confirmContracts')?.value) || 1;
+    const isPut = document.getElementById('confirmIsPut')?.value === '1';
+    
+    const marginEl = document.getElementById('marginEstimate');
+    const marginStatusEl = document.getElementById('marginStatus');
+    
+    if (!marginEl) return;
+    
+    // Calculate margin for one contract
+    const otmAmount = isPut ? Math.max(0, strike - spotPrice) : Math.max(0, spotPrice - strike);
+    const marginOption1 = 0.25 * spotPrice * 100 - otmAmount * 100;
+    const marginOption2 = 0.10 * strike * 100;
+    const marginPerContract = Math.max(marginOption1, marginOption2);
+    const totalMargin = marginPerContract * contracts;
+    
+    marginEl.textContent = `$${totalMargin.toLocaleString(undefined, {maximumFractionDigits: 0})}`;
+    
+    // Update affordability check
+    const buyingPower = window.AccountService?.getBuyingPower?.() || 0;
+    if (marginStatusEl && buyingPower > 0) {
+        if (buyingPower >= totalMargin) {
+            const pctUsed = ((totalMargin / buyingPower) * 100).toFixed(1);
+            marginStatusEl.innerHTML = `<span style="color:#00ff88;">✅ Affordable</span> - Uses ${pctUsed}% of buying power`;
+        } else {
+            marginStatusEl.innerHTML = `<span style="color:#ff5252;">⚠️ Insufficient margin</span> - Need $${(totalMargin - buyingPower).toLocaleString()} more`;
+        }
+    }
+};
+
+/**
+ * Populate single-leg strike dropdown from chain data
+ */
+window.populateSingleStrikeDropdown = function(options, expiry, currentStrike) {
+    const strikeSelect = document.getElementById('confirmStrike');
+    const statusEl = document.getElementById('strikeLoadingStatus');
+    
+    if (!strikeSelect) return;
+    
+    // Filter to target expiry and get unique strikes
+    const optsAtExpiry = options.filter(o => o.expiration === expiry);
+    const strikes = [...new Set(optsAtExpiry.map(o => o.strike))].sort((a, b) => b - a);  // Descending
+    
+    if (strikes.length === 0) {
+        if (statusEl) {
+            statusEl.textContent = '⚠️ No strikes found for this expiry';
+            statusEl.style.color = '#ffaa00';
+        }
+        return;
+    }
+    
+    // Build options HTML with bid and delta
+    const optionsHtml = strikes.map(s => {
+        const opt = optsAtExpiry.find(o => o.strike === s);
+        let info = '';
+        if (opt) {
+            const bid = opt.bid?.toFixed(2) || '?';
+            const delta = opt.delta ? Math.abs(opt.delta).toFixed(2) : null;
+            info = delta ? ` ($${bid} | Δ${delta})` : ` (bid $${bid})`;
+        }
+        const selected = Math.abs(s - parseFloat(currentStrike)) < 0.01 ? 'selected' : '';
+        return `<option value="${s}" ${selected}>$${s}${info}</option>`;
+    }).join('');
+    
+    strikeSelect.innerHTML = optionsHtml;
+    
+    if (statusEl) {
+        statusEl.textContent = `✅ ${strikes.length} strikes available`;
+        statusEl.style.color = '#00ff88';
+        setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+    }
+};
+
+/**
  * Update single leg display (total credit, annualized return)
  */
 window.updateSingleLegDisplay = function() {
@@ -3747,6 +3856,18 @@ async function fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, 
         // Update risk analysis display
         window.updateSpreadRisk();
         
+        // Update IV display for spreads
+        const spreadIvDisplay = document.getElementById('spreadIvDisplay');
+        if (spreadIvDisplay && sellOption) {
+            const iv = sellOption.impliedVolatility || 0;
+            if (iv > 0) {
+                const ivPct = (iv * 100).toFixed(0);
+                const ivColor = iv < 0.30 ? '#00d9ff' : iv > 0.50 ? '#ffaa00' : '#fff';
+                spreadIvDisplay.style.color = ivColor;
+                spreadIvDisplay.textContent = `${ivPct}%`;
+            }
+        }
+        
         // Show appropriate status
         if (sellExpiryMismatch || buyExpiryMismatch) {
             const missingStrikes = [];
@@ -3785,6 +3906,7 @@ async function fetchSingleOptionPrice(ticker, strike, expiry, isPut) {
     const marginEl = document.getElementById('marginEstimate');
     const bpEl = document.getElementById('buyingPowerDisplay');
     const marginStatusEl = document.getElementById('marginStatus');
+    const strikeLoadingEl = document.getElementById('strikeLoadingStatus');
     
     try {
         // Fetch option chain for premium
@@ -3794,16 +3916,42 @@ async function fetchSingleOptionPrice(ticker, strike, expiry, isPut) {
         const options = isPut ? chain.puts : chain.calls;
         const spotPrice = chain.spotPrice || chain.underlyingPrice || 100;
         
-        // Find matching option
+        // Store spot price for margin recalculations
+        const spotInput = document.getElementById('confirmSpotPrice');
+        if (spotInput) spotInput.value = spotPrice;
+        
+        // Populate strike dropdown with available strikes (like spreads do)
+        if (window.populateSingleStrikeDropdown && options?.length) {
+            window.populateSingleStrikeDropdown(options, expiry, strike);
+        }
+        
+        // Find matching option for selected strike
         let premium = 0;
+        let iv = 0;
+        const selectedStrike = parseFloat(document.getElementById('confirmStrike')?.value) || parseFloat(strike);
         if (options?.length) {
             const option = options.find(opt => 
-                Math.abs(opt.strike - parseFloat(strike)) < 0.01 && opt.expiration === expiry
+                Math.abs(opt.strike - selectedStrike) < 0.01 && opt.expiration === expiry
             );
             if (option) {
                 premium = (option.bid + option.ask) / 2;
+                iv = option.impliedVolatility || 0;
                 const premiumInput = document.getElementById('confirmPremium');
                 if (premiumInput) premiumInput.value = premium.toFixed(2);
+            }
+        }
+        
+        // Update IV display
+        const ivDisplay = document.getElementById('ivDisplay');
+        if (ivDisplay) {
+            if (iv > 0) {
+                const ivPct = (iv * 100).toFixed(0);
+                // Color code: <30% blue (low), 30-50% white (normal), >50% orange (high)
+                const ivColor = iv < 0.30 ? '#00d9ff' : iv > 0.50 ? '#ffaa00' : '#fff';
+                ivDisplay.style.color = ivColor;
+                ivDisplay.textContent = `${ivPct}%`;
+            } else {
+                ivDisplay.textContent = '-';
             }
         }
         
@@ -3811,12 +3959,14 @@ async function fetchSingleOptionPrice(ticker, strike, expiry, isPut) {
         if (spinnerEl) spinnerEl.textContent = '✓';
         window.updateSingleLegDisplay();
         
-        // Calculate margin requirement for short put
+        // Calculate margin requirement for short put/call
         // Standard formula: Max(25% × Underlying - OTM Amount, 10% × Strike) + Premium
-        const otmAmount = isPut ? Math.max(0, parseFloat(strike) - spotPrice) : Math.max(0, spotPrice - parseFloat(strike));
+        const contracts = parseInt(document.getElementById('confirmContracts')?.value) || 1;
+        const otmAmount = isPut ? Math.max(0, selectedStrike - spotPrice) : Math.max(0, spotPrice - selectedStrike);
         const marginOption1 = 0.25 * spotPrice * 100 - otmAmount * 100;
-        const marginOption2 = 0.10 * parseFloat(strike) * 100;
-        const marginReq = Math.max(marginOption1, marginOption2);
+        const marginOption2 = 0.10 * selectedStrike * 100;
+        const marginPerContract = Math.max(marginOption1, marginOption2);
+        const marginReq = marginPerContract * contracts;
         
         if (marginEl) {
             marginEl.textContent = `$${marginReq.toLocaleString(undefined, {maximumFractionDigits: 0})}`;
@@ -3846,6 +3996,10 @@ async function fetchSingleOptionPrice(ticker, strike, expiry, isPut) {
         console.warn('Could not fetch option price:', err.message);
         if (spinnerEl) spinnerEl.textContent = '⚠️';
         if (marginStatusEl) marginStatusEl.textContent = '⚠️ Enter price manually';
+        if (strikeLoadingEl) {
+            strikeLoadingEl.textContent = '⚠️ Enter strike manually';
+            strikeLoadingEl.style.color = '#ffaa00';
+        }
     }
 }
 

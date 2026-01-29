@@ -2,6 +2,48 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.22] - 2026-01-30
+
+### Added
+- **Consistent Strike Dropdowns Across All Modals**: Every trade modal now shows strikes with delta + bid
+  - Single-leg Confirm Modal: `$95 ($2.85 | Δ0.30)` format
+  - Spread Confirm Modal: Same format with IV summary
+  - Roll Calculator: Strike dropdown populated when clicking ✨ Suggest
+  
+- **IV Summary Display**: Implied Volatility now shown in all trade contexts
+  - Color-coded: Blue (<30%), White (30-50%), Orange (>50%)
+  - Tooltip explains what IV means
+  - Shows in Single-leg confirm, Spread confirm, and Roll Calculator
+  - Roll Calculator shows context like "(High - fat premiums!)"
+
+- **Roll Calculator Strike Dropdown**: Converted from text input to dropdown
+  - Automatically populated with real strikes from CBOE chain
+  - Shows bid price and delta for each strike
+  - Filtered to reasonable range (puts: roll down, calls: roll up)
+
+## [1.17.21] - 2026-01-30
+
+### Added
+- **Confirm Modal Strike Dropdown**: Single-leg trades now have strike dropdown like spreads
+  - Strikes populated from live chain data with bid prices shown
+  - Changing strike auto-fetches new premium and recalculates margin
+  - Loading status indicator while fetching strikes
+
+- **Dynamic Margin Calculation**: Margin requirement now updates with contract count
+  - `updateMarginDisplay()` recalculates: Max(25% × Spot - OTM, 10% × Strike) × contracts
+  - Affordability check updates in real-time as you change contracts
+  - Stores spot price in hidden field for margin recalculations
+
+- **Enhanced fetchSingleOptionPrice()**: Now populates strike dropdown and stores context
+  - Uses `populateSingleStrikeDropdown()` like spread modals do
+  - Stores spot price for accurate margin calculations on strike/contract changes
+  - Shows error states for strike dropdown when chain fetch fails
+
+### Fixed
+- **Contracts Change Bug**: Changing contracts no longer zeroes out premium
+  - `updateNetCredit()` now checks if spread elements exist before running
+  - Single-leg trades call `updateSingleLegDisplay()` instead
+
 ## [1.17.20] - 2026-01-29
 
 ### Fixed
