@@ -32,6 +32,35 @@ A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBO
 
 ## 🆕 What's New in v1.16.0
 
+### 🔗 Unified AI Position Lifecycle
+The AI now tracks your trade from open to close - no more working in isolation!
+
+```
+📝 OPEN TRADE (Discord Analyzer / Trade Ideas)
+   └─ Saves: Opening thesis, IV at entry, range position, AI verdict
+       │
+       ▼
+🔍 POSITION CHECKUP (during trade)
+   └─ Compares: Current conditions vs opening thesis
+   └─ Asks: "Has your original thesis played out?"
+   └─ Shows: IV change, range shift, days held
+       │
+       ▼
+🔄 ROLL SUGGESTION (if needed)
+   └─ Sees: Full chain history, total premium collected
+   └─ Considers: Original thesis still valid?
+       │
+       ▼
+📊 TRADE CRITIQUE (after close)
+   └─ Reviews: Entry thesis vs actual outcome
+   └─ Learns: What worked, what didn't
+```
+
+- **Opening Thesis Saved**: When you stage a trade, AI analysis is stored with the position
+- **Checkups Reference Entry**: "You opened at 66% IV expecting mean reversion - IV now 45%"
+- **Chain-Aware Rolls**: AI sees all previous rolls and total premium collected
+- **Critique Has Full Context**: Reviews your original reasoning vs what actually happened
+
 ### 🌐 Unified AI Model Selector
 - **One model setting for all features** - New dropdown in the header bar (next to Account switcher)
 - **Local overrides available** - Each feature can still use a different model if needed
