@@ -3276,21 +3276,26 @@ window.stageHoldingSuggestedTrade = function() {
     
     // Format the pending trade - use the position context
     const holding = position || ctx.holding;
+    const isCall = suggestedTrade.newType?.toLowerCase().includes('call');
     
     const pendingTrade = {
         id: Date.now(),
         ticker: holding?.ticker || 'UNKNOWN',
         strike: parseFloat(suggestedTrade.newStrike),
         expiry: suggestedTrade.newExpiry,
-        type: suggestedTrade.newType?.toLowerCase().includes('call') ? 'covered_call' : 'short_put',
+        type: isCall ? 'covered_call' : 'short_put',
+        isCall: isCall,
+        isRoll: true,
         premium: null, // Will need to fetch real premium
         source: 'ai_holding_suggestion',
         stagedAt: new Date().toISOString(),
         rollFrom: {
             strike: parseFloat(suggestedTrade.closeStrike),
             expiry: suggestedTrade.closeExpiry,
+            type: suggestedTrade.closeType,
             estimatedDebit: suggestedTrade.estimatedDebit
         },
+        netCost: suggestedTrade.netCost,
         aiRationale: suggestedTrade.rationale,
         badge: 'ROLL'
     };

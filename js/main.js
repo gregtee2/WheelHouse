@@ -3109,11 +3109,31 @@ window.renderPendingTrades = function() {
                             </div>`;
                             expiryDisplay = p.expiry;
                             dteDisplay = p.dte ?? '-';
+                        } else if (p.isRoll && p.rollFrom) {
+                            // Roll trades show close/open legs
+                            const rollType = p.isCall ? 'C' : 'P';
+                            strikeDisplay = `<div style="line-height:1.3;">
+                                <div style="color:#ff5252;">Close $${p.rollFrom.strike}<span style="color:#888;font-size:10px;">${rollType}</span></div>
+                                <div style="color:#00ff88;">Open $${p.strike}<span style="color:#888;font-size:10px;">${rollType}</span></div>
+                            </div>`;
+                            expiryDisplay = `<div style="line-height:1.3;">
+                                <div style="color:#888;text-decoration:line-through;">${p.rollFrom.expiry}</div>
+                                <div>${p.expiry}</div>
+                            </div>`;
+                            dteDisplay = p.dte ?? '-';
                         } else {
                             // Single leg trades
                             strikeDisplay = `<span style="color:${typeColor};">$${p.strike}<span style="color:#888;font-size:10px;">${optionType}</span></span>`;
                             expiryDisplay = p.expiry;
                             dteDisplay = p.dte ?? '-';
+                        }
+                        // Calculate credit/debit display for rolls
+                        let crDrDisplay = '-';
+                        if (p.isRoll && p.netCost) {
+                            // Show the net cost from AI (e.g. "-$930.00 debit")
+                            crDrDisplay = `<span style="color:#ff9800;font-size:11px;">${p.netCost}</span>`;
+                        } else if (p.credit) {
+                            crDrDisplay = `<span style="color:${crDrColor};">$${p.credit.toFixed(0)} ${crDrLabel}</span>`;
                         }
                         
                         return `
@@ -3122,7 +3142,7 @@ window.renderPendingTrades = function() {
                             <td style="padding:8px;">${strikeDisplay}</td>
                             <td style="padding:8px;">${expiryDisplay}</td>
                             <td style="padding:8px;">${dteDisplay}</td>
-                            <td style="padding:8px; color:${crDrColor};">${p.credit ? '$' + p.credit.toFixed(0) + ' ' + crDrLabel : '-'}</td>
+                            <td style="padding:8px;">${crDrDisplay}</td>
                             <td style="padding:8px; color:${p.annReturn && parseFloat(p.annReturn) >= 25 ? '#00ff88' : '#ffaa00'};">${p.annReturn ? p.annReturn + '%' : '-'}</td>
                             <td style="padding:8px; color:#888;">${new Date(p.stagedAt).toLocaleDateString()}</td>
                             <td style="padding:8px;">
