@@ -3260,18 +3260,18 @@ window.confirmStagedTrade = function(id) {
         strikeFieldsHtml = `
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                 <div>
-                    <label style="color:#00ff88; font-size:12px;">Sell Strike</label>
+                    <label style="color:#ff5252; font-size:12px;">Sell Strike</label>
                     <select id="confirmSellStrike" 
                            onchange="window.onStrikeChange()"
-                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #00ff88; color:#fff; border-radius:4px; cursor:pointer;">
+                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px; cursor:pointer;">
                         <option value="${sellStrike}">$${sellStrike} (loading...)</option>
                     </select>
                 </div>
                 <div>
-                    <label style="color:#ff5252; font-size:12px;">Buy Strike (protection)</label>
+                    <label style="color:#00ff88; font-size:12px;">Buy Strike (protection)</label>
                     <select id="confirmBuyStrike" 
                            onchange="window.onStrikeChange()"
-                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px; cursor:pointer;">
+                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #00ff88; color:#fff; border-radius:4px; cursor:pointer;">
                         <option value="${buyStrike}">$${buyStrike} (loading...)</option>
                     </select>
                 </div>
@@ -3283,16 +3283,16 @@ window.confirmStagedTrade = function(id) {
         premiumFieldsHtml = `
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                 <div>
-                    <label style="color:#00ff88; font-size:12px;">Sell Premium (received)</label>
+                    <label style="color:#ff5252; font-size:12px;">Sell Premium (received)</label>
                     <input id="confirmSellPremium" type="number" step="0.01" placeholder="e.g., 5.50"
                            oninput="window.updateNetCredit(); window.updateSpreadRisk();"
-                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #00ff88; color:#fff; border-radius:4px;">
+                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px;">
                 </div>
                 <div>
-                    <label style="color:#ff5252; font-size:12px;">Buy Premium (paid)</label>
+                    <label style="color:#00ff88; font-size:12px;">Buy Premium (paid)</label>
                     <input id="confirmBuyPremium" type="number" step="0.01" placeholder="e.g., 3.15"
                            oninput="window.updateNetCredit(); window.updateSpreadRisk();"
-                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px;">
+                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #00ff88; color:#fff; border-radius:4px;">
                 </div>
             </div>
             <div style="background:#0d0d1a; padding:12px; border-radius:8px; border:1px solid #333;">
