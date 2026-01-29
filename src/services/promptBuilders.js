@@ -1814,6 +1814,21 @@ function buildStrategyAdvisorPrompt(context) {
     const otmCallBuyMid = otmCallToBuy ? (parseFloat(otmCallToBuy.bid) + parseFloat(otmCallToBuy.ask)) / 2 : otmCallSellMid * 0.5;
     const callSpreadCredit = Math.max(0.10, otmCallSellMid - otmCallBuyMid);
     
+    // Calculate Risk:Reward ratios for spreads
+    const putMaxLossPerShare = putSpreadWidth - putSpreadCredit;
+    const putRiskReward = putSpreadCredit > 0 ? (putMaxLossPerShare / putSpreadCredit).toFixed(2) : 999;
+    const putRiskRewardRating = parseFloat(putRiskReward) < 1.5 ? '🎯 Excellent' : 
+                                 parseFloat(putRiskReward) < 2 ? '✅ Good' : 
+                                 parseFloat(putRiskReward) < 3 ? '⚠️ Marginal' : '❌ Poor';
+    
+    const callMaxLossPerShare = callSpreadWidth - callSpreadCredit;
+    const callRiskReward = callSpreadCredit > 0 ? (callMaxLossPerShare / callSpreadCredit).toFixed(2) : 999;
+    const callRiskRewardRating = parseFloat(callRiskReward) < 1.5 ? '🎯 Excellent' : 
+                                  parseFloat(callRiskReward) < 2 ? '✅ Good' : 
+                                  parseFloat(callRiskReward) < 3 ? '⚠️ Marginal' : '❌ Poor';
+    
+    console.log(`[STRATEGY-ADVISOR] Risk:Reward - Put Spread: ${putRiskReward}:1 (${putRiskRewardRating}), Call Spread: ${callRiskReward}:1 (${callRiskRewardRating})`);
+    
     // ATM premiums for cash-secured put and covered call
     const atmPutMid = atmPut ? (parseFloat(atmPut.bid) + parseFloat(atmPut.ask)) / 2 : 2.00;
     const atmCallMid = atmCall ? (parseFloat(atmCall.bid) + parseFloat(atmCall.ask)) / 2 : 2.00;
@@ -2152,6 +2167,13 @@ STRATEGIES TO EVALUATE (analyze ALL of these):
 YOUR TASK: Recommend THE BEST strategy for this situation
 ═══════════════════════════════════════════════════════════════════════════
 
+⚠️ RISK:REWARD FILTER (MANDATORY):
+• Credit spreads with R:R > 3:1 should be REJECTED or replaced with better alternatives
+• 🎯 Excellent (<1.5:1) = Highly recommend if market view matches
+• ✅ Good (1.5-2:1) = Acceptable for most traders
+• ⚠️ Marginal (2-3:1) = Only if high win probability justifies it
+• ❌ Poor (>3:1) = DO NOT recommend - risk too high for reward
+
 🚨🚨🚨 MANDATORY STRIKE PRICES (valid CBOE strikes near $${spot.toFixed(0)}):
    
    FOR PUTS:  Sell the $${sellPutStrike} strike, Buy the $${buyPutStrike} strike (${putSpreadWidth} point spread)
@@ -2200,9 +2222,10 @@ SETUP B - Put Credit Spread (Bull Put) - Schwab: "Vertical" → Put:
   • TOTAL MAX LOSS: $${((putSpreadWidth - putSpreadCredit) * 100 * conservativeContracts).toLocaleString()}
   • TOTAL BUYING POWER USED: $${(putSpreadWidth * 100 * conservativeContracts).toLocaleString()}
   
-  • Risk/Reward Ratio: ${((putSpreadWidth - putSpreadCredit) / putSpreadCredit).toFixed(1)}:1
+  • Risk/Reward Ratio: ${putRiskReward}:1 ${putRiskRewardRating}
   • Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH)
   • Win Probability: ~${winProbability}%
+  ${parseFloat(putRiskReward) >= 3 ? '❌ WARNING: Poor R:R ratio (>3:1) - consider different strikes or strategy!' : ''}
 
 SETUP C - Covered Call - Schwab: "Single" → Call → Sell (must own shares):
   Trade: Sell ${ticker} $${coveredCallStrike} Call, ${firstExpiry}
@@ -2240,9 +2263,10 @@ SETUP D - Call Credit Spread (Bear Call) - Schwab: "Vertical" → Call:
   • TOTAL MAX LOSS: $${((callSpreadWidth - callSpreadCredit) * 100 * conservativeContracts).toLocaleString()}
   • TOTAL BUYING POWER USED: $${(callSpreadWidth * 100 * conservativeContracts).toLocaleString()}
   
-  • Risk/Reward Ratio: ${((callSpreadWidth - callSpreadCredit) / callSpreadCredit).toFixed(1)}:1
+  • Risk/Reward Ratio: ${callRiskReward}:1 ${callRiskRewardRating}
   • Delta: ${(callSpreadDelta * 100).toFixed(0)} per contract (BEARISH)
   • Win Probability: ~${Math.round((1 - Math.abs(atmCallDelta)) * 100)}%
+  ${parseFloat(callRiskReward) >= 3 ? '❌ WARNING: Poor R:R ratio (>3:1) - consider different strikes or strategy!' : ''}
 
 SETUP E - Long Put - Schwab: "Single" → Put → Buy:
   Trade: Buy ${ticker} $${longPutStrikeActual.toFixed(0)} Put, ${firstExpiry}
@@ -2303,9 +2327,10 @@ SETUP G - Iron Condor (Neutral, Range-Bound) - Schwab: "Iron Condor" - ALL MATH 
   • TOTAL MAX LOSS: $${(ironCondorMaxLoss * 100 * conservativeContracts).toLocaleString()}
   • TOTAL BUYING POWER USED: $${(Math.max(putSpreadWidth, callSpreadWidth) * 100 * conservativeContracts).toLocaleString()}
   
-  • Risk/Reward Ratio: ${(ironCondorMaxLoss / ironCondorCredit).toFixed(1)}:1
+  • Risk/Reward Ratio: ${(ironCondorMaxLoss / ironCondorCredit).toFixed(1)}:1 ${(ironCondorMaxLoss / ironCondorCredit) < 1.5 ? '🎯 Excellent' : (ironCondorMaxLoss / ironCondorCredit) < 2 ? '✅ Good' : (ironCondorMaxLoss / ironCondorCredit) < 3 ? '⚠️ Marginal' : '❌ Poor'}
   • Delta: ~0 (NEUTRAL - profits from time decay)
   • Win Probability: ~${Math.round((1 - Math.abs(atmPutDelta)) * (1 - Math.abs(atmCallDelta)) * 100)}%
+  ${(ironCondorMaxLoss / ironCondorCredit) >= 3 ? '❌ WARNING: Poor R:R ratio (>3:1) - consider tighter strikes or different strategy!' : ''}
   ⚠️ RISK: Lose on EITHER side if stock moves too much. Double exposure.
   ✅ WHEN TO USE: Low IV, expecting stock to stay in tight range. Collect double premium.
 
