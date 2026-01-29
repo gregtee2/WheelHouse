@@ -3722,26 +3722,58 @@ window.holdingCheckup = async function(holdingId) {
         return;
     }
     
-    // Fetch current price
+    // Fetch current price - try multiple sources
     let currentPrice = 0;
+    const ticker = holding.ticker;
+    
+    // Try Schwab first
     try {
-        const resp = await fetch(`/api/schwab/quote/${holding.ticker}`);
+        const resp = await fetch(`/api/schwab/quote/${ticker}`);
         if (resp.ok) {
             const data = await resp.json();
             currentPrice = data.lastPrice || data.mark || data.last || 0;
         }
     } catch (e) {
-        console.error('Price fetch failed:', e);
+        console.error('Schwab price fetch failed:', e);
     }
     
+    // Try CBOE if Schwab failed
     if (!currentPrice) {
         try {
-            const resp = await fetch(`/api/yahoo/${holding.ticker}`);
+            const resp = await fetch(`/api/cboe/quote/${ticker}`);
             if (resp.ok) {
                 const data = await resp.json();
-                currentPrice = data.quotes?.[holding.ticker]?.price || data.price || 0;
+                currentPrice = data.data?.last_price || data.last_price || data.price || 0;
+            }
+        } catch (e) {
+            console.error('CBOE price fetch failed:', e);
+        }
+    }
+    
+    // Try Yahoo as last resort
+    if (!currentPrice) {
+        try {
+            const resp = await fetch(`/api/yahoo/${ticker}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                currentPrice = data.quotes?.[ticker]?.price || data.price || 0;
             }
         } catch (e) { /* ignore */ }
+    }
+    
+    // Final fallback - use holding's last known price or cost basis
+    // Track if we're using fallback pricing
+    let priceSource = 'live';
+    if (!currentPrice) {
+        currentPrice = holding.currentPrice || holding.lastPrice || holding.costBasis || 0;
+        priceSource = 'fallback';
+        console.warn(`All price sources failed for ${ticker}, using fallback: $${currentPrice}`);
+    }
+    
+    // If still no price, show error
+    if (!currentPrice || currentPrice === 0) {
+        showNotification(`Could not fetch current price for ${ticker}. Please try again.`, 'error');
+        return;
     }
     
     const strike = position.strike || holding.strike || 0;
