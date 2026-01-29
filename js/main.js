@@ -3075,7 +3075,9 @@ window.renderPendingTrades = function() {
                         const isDebit = p.isDebit || p.type === 'skip_call' || p.type === 'long_call' || p.type?.includes('debit');
                         const crDrLabel = isDebit ? 'Dr' : 'Cr';
                         const crDrColor = isDebit ? '#ff9800' : '#00d9ff';  // Orange for debit, cyan for credit
-                        const rollBadge = p.isRoll ? '<span style="background:#7a8a94;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">ROLL</span>' : '';
+                        // Badge priority: CLOSE > ROLL > SKIP > SPREAD
+                        const closeBadge = p.isClose ? '<span style="background:#ff5252;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">CLOSE</span>' : '';
+                        const rollBadge = !p.isClose && p.isRoll ? '<span style="background:#7a8a94;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">ROLL</span>' : '';
                         const skipBadge = p.isSkip ? '<span style="background:#8b5cf6;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">SKIP™</span>' : '';
                         const spreadBadge = isSpread && !p.isSkip ? '<span style="background:#00bcd4;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;margin-left:4px;">SPREAD</span>' : '';
                         
@@ -3116,7 +3118,7 @@ window.renderPendingTrades = function() {
                         
                         return `
                         <tr style="border-top:1px solid #333;">
-                            <td style="padding:8px; color:#00ff88; font-weight:bold;">${p.ticker}${rollBadge}${skipBadge}${spreadBadge}</td>
+                            <td style="padding:8px; color:#00ff88; font-weight:bold;">${p.ticker}${closeBadge}${rollBadge}${skipBadge}${spreadBadge}</td>
                             <td style="padding:8px;">${strikeDisplay}</td>
                             <td style="padding:8px;">${expiryDisplay}</td>
                             <td style="padding:8px;">${dteDisplay}</td>
@@ -4794,11 +4796,14 @@ window.stageCheckupSuggestedTrade = function() {
     const positions = JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
     const originalPos = positions.find(p => p.id === trade.originalPositionId);
     
-    // Determine the trade type for the NEW position
+    // Check if this is a CLOSE action (not a roll to new position)
+    const isCloseOnly = trade.action === 'CLOSE' || !trade.newStrike || trade.newStrike === 'N/A';
+    
+    // Determine the trade type for the NEW position (if rolling)
     let newType = 'short_put';  // default
-    if (trade.newType === 'CALL') {
+    if (!isCloseOnly && trade.newType === 'CALL') {
         newType = originalPos?.type?.includes('covered') ? 'covered_call' : 'short_call';
-    } else if (trade.newType === 'PUT') {
+    } else if (!isCloseOnly && trade.newType === 'PUT') {
         newType = 'short_put';
     }
     
@@ -4807,18 +4812,20 @@ window.stageCheckupSuggestedTrade = function() {
     const stagedTrade = {
         id: now,
         ticker: trade.ticker,
-        type: newType,
-        strike: trade.newStrike,
-        expiry: trade.newExpiry,
+        type: isCloseOnly ? (originalPos?.type || 'close') : newType,
+        // For CLOSE: use closeStrike; for ROLL: use newStrike
+        strike: isCloseOnly ? trade.closeStrike : trade.newStrike,
+        expiry: isCloseOnly ? trade.closeExpiry : trade.newExpiry,
         premium: null,  // Will be determined at execution
         contracts: originalPos?.contracts || 1,
-        isCall: trade.newType === 'CALL',
-        isDebit: false,  // Rolling typically results in credit or small debit
+        isCall: isCloseOnly ? (trade.closeType === 'CALL') : (trade.newType === 'CALL'),
+        isDebit: isCloseOnly ? true : false,  // Closing is a debit (buy back)
         source: 'AI Checkup',
         stagedAt: now,
         currentPrice: null,
-        // Mark as a roll with reference to original position
-        isRoll: true,
+        // Mark as close or roll
+        isRoll: !isCloseOnly,
+        isClose: isCloseOnly,
         rollFrom: {
             positionId: trade.originalPositionId,
             strike: trade.closeStrike,
@@ -4833,7 +4840,9 @@ window.stageCheckupSuggestedTrade = function() {
             netCost: trade.netCost,
             modelUsed: 'AI Checkup',
             aiSummary: {
-                bottomLine: `${trade.action}: Roll from $${trade.closeStrike} to $${trade.newStrike} ${trade.newType}`,
+                bottomLine: isCloseOnly 
+                    ? `CLOSE: Buy back $${trade.closeStrike} ${trade.closeType} at ${trade.netCost || 'market'}`
+                    : `${trade.action}: Roll from $${trade.closeStrike} to $${trade.newStrike} ${trade.newType}`,
                 fullAnalysis: trade.rationale
             }
         }
@@ -4850,7 +4859,8 @@ window.stageCheckupSuggestedTrade = function() {
     );
     
     if (isDuplicate) {
-        showNotification(`${trade.ticker} $${trade.newStrike} already staged`, 'info');
+        const strikeDisplay = isCloseOnly ? trade.closeStrike : trade.newStrike;
+        showNotification(`${trade.ticker} $${strikeDisplay} already staged`, 'info');
         return;
     }
     
@@ -4863,7 +4873,12 @@ window.stageCheckupSuggestedTrade = function() {
     // Render pending trades
     renderPendingTrades();
     
-    showNotification(`📥 Staged roll: ${trade.ticker} $${trade.closeStrike} → $${trade.newStrike} ${trade.newType}`, 'success');
+    // Different notification for CLOSE vs ROLL
+    if (isCloseOnly) {
+        showNotification(`📥 Staged close: ${trade.ticker} $${trade.closeStrike} ${trade.closeType}`, 'success');
+    } else {
+        showNotification(`📥 Staged roll: ${trade.ticker} $${trade.closeStrike} → $${trade.newStrike} ${trade.newType}`, 'success');
+    }
 };
 
 /**
