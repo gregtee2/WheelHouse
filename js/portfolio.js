@@ -3731,7 +3731,9 @@ window.holdingCheckup = async function(holdingId) {
         const resp = await fetch(`/api/schwab/quote/${ticker}`);
         if (resp.ok) {
             const data = await resp.json();
-            currentPrice = data.lastPrice || data.mark || data.last || 0;
+            // Schwab returns { TICKER: { quote: { lastPrice, mark } } }
+            const quote = data[ticker]?.quote || data.quote || data;
+            currentPrice = quote.lastPrice || quote.mark || quote.last || data.lastPrice || data.mark || 0;
         }
     } catch (e) {
         console.error('Schwab price fetch failed:', e);
