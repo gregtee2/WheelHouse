@@ -3463,8 +3463,17 @@ window.confirmStagedTrade = function(id) {
  * Update net credit display for spreads
  */
 window.updateNetCredit = function() {
-    const sellPremium = parseFloat(document.getElementById('confirmSellPremium')?.value) || 0;
-    const buyPremium = parseFloat(document.getElementById('confirmBuyPremium')?.value) || 0;
+    // Only run for spreads (check if spread elements exist)
+    const sellPremiumEl = document.getElementById('confirmSellPremium');
+    const buyPremiumEl = document.getElementById('confirmBuyPremium');
+    if (!sellPremiumEl || !buyPremiumEl) {
+        // Not a spread - call single leg update instead
+        window.updateSingleLegDisplay?.();
+        return;
+    }
+    
+    const sellPremium = parseFloat(sellPremiumEl.value) || 0;
+    const buyPremium = parseFloat(buyPremiumEl.value) || 0;
     const contracts = parseInt(document.getElementById('confirmContracts')?.value) || 1;
     const netCreditPerShare = sellPremium - buyPremium;
     const totalCredit = netCreditPerShare * 100 * contracts;
