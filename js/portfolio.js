@@ -3753,28 +3753,35 @@ window.holdingCheckup = async function(holdingId) {
     const stockGainLoss = (currentPrice - costBasis) * shares;
     const ifCalled = ((strike - costBasis) * shares) + premium;
     
+    // Extract snapshot values with null safety
+    const snapshot = strategy.snapshot || {};
+    const savedStockPrice = snapshot.stockPrice || snapshot.spot || holding.costBasis || 0;
+    const savedDte = snapshot.dte ?? 'N/A';
+    const savedIsITM = snapshot.isITM ?? false;
+    const priceChange = savedStockPrice > 0 ? ((currentPrice - savedStockPrice) / savedStockPrice * 100).toFixed(1) : 'N/A';
+    
     // Build comparison prompt
     const prompt = `You previously analyzed this covered call position. Compare current conditions to your original recommendation.
 
 ORIGINAL ANALYSIS (from ${new Date(strategy.savedAt).toLocaleDateString()}):
-- Stock was: $${strategy.snapshot.stockPrice.toFixed(2)}
+- Stock was: $${savedStockPrice.toFixed(2)}
 - Recommendation: ${strategy.recommendation}
-- DTE was: ${strategy.snapshot.dte} days
-- Was ITM: ${strategy.snapshot.isITM ? 'Yes' : 'No'}
+- DTE was: ${savedDte} days
+- Was ITM: ${savedIsITM ? 'Yes' : 'No'}
 
 CURRENT CONDITIONS:
 - Ticker: ${holding.ticker}
-- Stock NOW: $${currentPrice.toFixed(2)} (was $${strategy.snapshot.stockPrice.toFixed(2)}, change: ${((currentPrice - strategy.snapshot.stockPrice) / strategy.snapshot.stockPrice * 100).toFixed(1)}%)
+- Stock NOW: $${currentPrice.toFixed(2)} (was $${savedStockPrice.toFixed(2)}, change: ${priceChange}%)
 - Strike: $${strike.toFixed(2)}
 - Cost Basis: $${costBasis.toFixed(2)}
-- DTE NOW: ${dte} days (was ${strategy.snapshot.dte})
+- DTE NOW: ${dte} days (was ${savedDte})
 - Currently ITM: ${isITM ? 'Yes' : 'No'}
 - Stock P&L: $${stockGainLoss.toFixed(0)}
 - Premium: $${premium.toFixed(0)}
 - If Called Profit: $${ifCalled.toFixed(0)}
 
 ORIGINAL FULL ANALYSIS:
-${strategy.fullAnalysis.substring(0, 1500)}
+${(strategy.fullAnalysis || strategy.recommendation || 'No detailed analysis saved').substring(0, 1500)}
 
 Based on how conditions have changed, should the trader:
 1. STICK WITH the original plan (${strategy.recommendation})?
@@ -3889,16 +3896,16 @@ End your response with one of these exact phrases:
                 <div style="background:rgba(255,170,0,0.1);padding:12px;border-radius:8px;border:1px solid rgba(255,170,0,0.3);">
                     <div style="color:#ffaa00;font-weight:bold;font-size:11px;margin-bottom:8px;">📋 ORIGINAL (${new Date(strategy.savedAt).toLocaleDateString()})</div>
                     <div style="font-size:12px;color:#ccc;">
-                        <div>Stock: $${strategy.snapshot.stockPrice.toFixed(2)}</div>
-                        <div>DTE: ${strategy.snapshot.dte} days</div>
-                        <div>ITM: ${strategy.snapshot.isITM ? 'Yes' : 'No'}</div>
+                        <div>Stock: $${savedStockPrice.toFixed(2)}</div>
+                        <div>DTE: ${savedDte} days</div>
+                        <div>ITM: ${savedIsITM ? 'Yes' : 'No'}</div>
                         <div style="margin-top:8px;color:#00ff88;font-weight:bold;">→ ${strategy.recommendation}</div>
                     </div>
                 </div>
                 <div style="background:rgba(0,217,255,0.1);padding:12px;border-radius:8px;border:1px solid rgba(0,217,255,0.3);">
                     <div style="color:#00d9ff;font-weight:bold;font-size:11px;margin-bottom:8px;">📊 CURRENT</div>
                     <div style="font-size:12px;color:#ccc;">
-                        <div>Stock: $${currentPrice.toFixed(2)} <span style="color:${currentPrice > strategy.snapshot.stockPrice ? '#00ff88' : '#ff5252'};">(${currentPrice > strategy.snapshot.stockPrice ? '+' : ''}${((currentPrice - strategy.snapshot.stockPrice) / strategy.snapshot.stockPrice * 100).toFixed(1)}%)</span></div>
+                        <div>Stock: $${currentPrice.toFixed(2)} <span style="color:${currentPrice > savedStockPrice ? '#00ff88' : '#ff5252'};">(${priceChange !== 'N/A' ? (currentPrice > savedStockPrice ? '+' : '') + priceChange : 'N/A'}%)</span></div>
                         <div>DTE: ${dte} days</div>
                         <div>ITM: ${isITM ? 'Yes' : 'No'}</div>
                         <div style="margin-top:8px;">If Called: +$${ifCalled.toFixed(0)}</div>
