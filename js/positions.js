@@ -49,6 +49,65 @@ const colors = {
 const spotPriceCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Cache for IV data (refreshed every 5 minutes)
+const ivCache = new Map();
+
+/**
+ * Fetch real IV from CBOE for a ticker (cached)
+ * @param {string} ticker - Stock ticker
+ * @returns {number|null} IV as decimal (e.g., 0.45 for 45%) or null if unavailable
+ */
+async function getCachedIV(ticker) {
+    if (!ticker) return null;
+    ticker = ticker.toUpperCase();
+    
+    const cached = ivCache.get(ticker);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        return cached.iv;
+    }
+    
+    try {
+        const response = await fetch(`/api/iv/${ticker}`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.atmIV) {
+                const iv = parseFloat(data.atmIV) / 100; // Convert from 45.2% to 0.452
+                ivCache.set(ticker, { iv, timestamp: Date.now() });
+                console.log(`[IV] ✅ ${ticker}: ${(iv * 100).toFixed(1)}% from ${data.source}`);
+                return iv;
+            }
+        }
+    } catch (e) {
+        console.warn(`[IV] Could not fetch IV for ${ticker}:`, e.message);
+    }
+    return null;
+}
+
+/**
+ * Batch fetch IV for multiple tickers (for positions refresh)
+ * @param {string[]} tickers - Array of ticker symbols
+ * @returns {Map<string, number>} Map of ticker -> IV (decimal)
+ */
+async function batchFetchIV(tickers) {
+    const uniqueTickers = [...new Set(tickers.map(t => t.toUpperCase()))];
+    const results = new Map();
+    
+    // Fetch IVs in parallel (limit to 5 concurrent for rate limiting)
+    const chunks = [];
+    for (let i = 0; i < uniqueTickers.length; i += 5) {
+        chunks.push(uniqueTickers.slice(i, i + 5));
+    }
+    
+    for (const chunk of chunks) {
+        await Promise.all(chunk.map(async (ticker) => {
+            const iv = await getCachedIV(ticker);
+            if (iv) results.set(ticker, iv);
+        }));
+    }
+    
+    return results;
+}
+
 /**
  * Fetch spot price with caching
  * Now uses CBOE first (reliable), falls back to Yahoo via fetchStockPrice
@@ -107,7 +166,8 @@ function quickMonteCarloRisk(spot, strike, dte, vol = 0.5, isPut = true) {
 }
 
 /**
- * Estimate volatility based on ticker characteristics
+ * Estimate volatility based on ticker characteristics (FALLBACK ONLY)
+ * Use getCachedIV() for real IV from CBOE when available
  * Leveraged ETFs have much higher IV than regular stocks
  */
 function estimateVolatility(ticker, fallback = 0.5) {
@@ -128,9 +188,10 @@ function estimateVolatility(ticker, fallback = 0.5) {
  * Thresholds match the AI recommendation panel in analysis.js
  * @param {object} pos - Position object
  * @param {number|null} spotPrice - Current spot price (null if unavailable)
+ * @param {number|null} realIV - Real IV from CBOE (optional - falls back to estimate)
  * @returns {object} { icon, text, color, needsAttention, itmPct }
  */
-function calculatePositionRisk(pos, spotPrice) {
+function calculatePositionRisk(pos, spotPrice, realIV = null) {
     // Check if this is a spread (has different strike requirements)
     const isSpread = pos.type?.includes('_spread');
     
@@ -178,26 +239,59 @@ function calculatePositionRisk(pos, spotPrice) {
         }
         
         if (shortStrike && spotPrice) {
-            const vol = pos.iv || estimateVolatility(pos.ticker);
+            // Use realIV if provided, then pos.iv, then estimate
+            const vol = realIV || pos.iv || estimateVolatility(pos.ticker);
             const itmPct = quickMonteCarloRisk(spotPrice, shortStrike, pos.dte, vol, isShortPut);
             
-            // Use same thresholds as single-leg options
+            // Check current ITM status (not probability, actual current state)
+            // For credit spreads, being OTM RIGHT NOW is good even if probability is high
+            const isCurrentlyITM = isShortPut 
+                ? spotPrice < shortStrike   // Put is ITM when spot < strike
+                : spotPrice > shortStrike;  // Call is ITM when spot > strike
+            
+            // Calculate how far OTM we are as a percentage
+            const otmPct = isShortPut 
+                ? ((spotPrice - shortStrike) / shortStrike) * 100
+                : ((shortStrike - spotPrice) / shortStrike) * 100;
+            
+            // For credit spreads: if currently OTM, use more lenient thresholds
+            // The Monte Carlo probability is forward-looking, but current state matters too
+            const isCredit = pos.type?.includes('credit');
+            
+            // If it's a credit spread and currently OTM by at least 0.5%, be more lenient
+            const currentlyOTM = !isCurrentlyITM && Math.abs(otmPct) >= 0.5;
+            
+            // Use same thresholds as single-leg options, but adjust for credit spreads that are currently safe
             const isLeaps = pos.dte >= 365;
             const isLongDated = pos.dte >= 180 && pos.dte < 365;
-            const thresholds = isLeaps 
+            
+            // Base thresholds
+            let thresholds = isLeaps 
                 ? { safe: 60, watch: 70, caution: 80, danger: 90 }
                 : isLongDated 
                 ? { safe: 45, watch: 55, caution: 65, danger: 75 }
                 : { safe: 30, watch: 40, caution: 50, danger: 60 };
             
+            // For credit spreads that are currently OTM, relax thresholds by 10%
+            // This reflects that "currently safe" is different from "might become unsafe"
+            if (isCredit && currentlyOTM) {
+                thresholds = {
+                    safe: thresholds.safe + 10,
+                    watch: thresholds.watch + 10,
+                    caution: thresholds.caution + 10,
+                    danger: thresholds.danger + 10
+                };
+            }
+            
+            // Determine status with adjusted thresholds
             if (itmPct >= thresholds.caution) {
-                return { icon: '🔴', text: `${itmPct.toFixed(0)}%`, color: colors.red, needsAttention: true, itmPct };
+                return { icon: '🔴', text: `${itmPct.toFixed(0)}%`, color: colors.red, needsAttention: true, itmPct, currentlyOTM };
             } else if (itmPct >= thresholds.watch) {
-                return { icon: '🟠', text: `${itmPct.toFixed(0)}%`, color: colors.orange, needsAttention: true, itmPct };
+                return { icon: '🟠', text: `${itmPct.toFixed(0)}%`, color: colors.orange, needsAttention: true, itmPct, currentlyOTM };
             } else if (itmPct >= thresholds.safe) {
-                return { icon: '🟡', text: `${itmPct.toFixed(0)}%`, color: colors.yellow, needsAttention: false, itmPct };
+                return { icon: '🟡', text: `${itmPct.toFixed(0)}%`, color: '#ffff00', needsAttention: false, itmPct, currentlyOTM };
             } else {
-                return { icon: '🟢', text: `${itmPct.toFixed(0)}%`, color: colors.green, needsAttention: false, itmPct };
+                return { icon: '🟢', text: `${itmPct.toFixed(0)}%`, color: colors.green, needsAttention: false, itmPct, currentlyOTM };
             }
         }
         
@@ -205,8 +299,8 @@ function calculatePositionRisk(pos, spotPrice) {
         return { icon: '📊', text: 'Spread', color: colors.purple, needsAttention: false, itmPct: null };
     }
     
-    // Use stored IV if available, otherwise estimate based on ticker
-    const vol = pos.iv || estimateVolatility(pos.ticker);
+    // Use realIV if provided, then stored IV, then estimate
+    const vol = realIV || pos.iv || estimateVolatility(pos.ticker);
     
     // Calculate ITM probability
     const itmPct = quickMonteCarloRisk(spotPrice, pos.strike, pos.dte, vol, isPut);
@@ -871,8 +965,10 @@ window.showSpreadExplanation = async function(posId) {
         ? (pos.type?.includes('put') ? pos.sellStrike : pos.sellStrike)
         : (pos.type?.includes('put') ? pos.buyStrike : pos.buyStrike);
 
-        // Get ITM color logic for spot price
-        const spotRisk = calculatePositionRisk(pos, spotPrice);
+        // Get ITM color logic for spot price - try to use cached IV
+        const cachedIV = ivCache.get(pos.ticker?.toUpperCase());
+        const realIV = cachedIV?.iv || null;
+        const spotRisk = calculatePositionRisk(pos, spotPrice, realIV);
         const spotColor = spotRisk?.color || colors.text;
     
     const modal = document.createElement('div');
@@ -2689,27 +2785,28 @@ export function renderPositions() {
  */
 function renderPositionsTable(container, openPositions) {
     let html = `
-        <table style="width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px; table-layout: auto;">
             <thead>
                 <tr style="background: #1a1a2e; color: #888;">
-                    <th style="padding: 6px; text-align: left; width: 55px;">Ticker</th>
-                    <th style="padding: 6px; text-align: center; width: 55px;" title="ITM probability - click to analyze">Risk</th>
-                    <th style="padding: 6px; text-align: left; width: 55px;">Broker</th>
+                    <th style="padding: 6px; text-align: left; white-space: nowrap;">Ticker</th>
+                    <th style="padding: 6px; text-align: center; width: 45px;" title="ITM probability - click to analyze">Risk</th>
+                    <th style="padding: 6px; text-align: left; width: 50px;">Broker</th>
                     <th style="padding: 6px; text-align: left; width: 65px;">Type</th>
                     <th style="padding: 6px; text-align: right; width: 50px;" title="Current stock price">Spot</th>
                     <th style="padding: 6px; text-align: right; width: 50px;">Strike</th>
-                    <th style="padding: 6px; text-align: center; width: 35px;" title="In-The-Money or Out-of-The-Money status">ITM</th>
-                    <th style="padding: 6px; text-align: right; width: 40px;">Prem</th>
+                    <th style="padding: 6px; text-align: right; width: 50px;" title="Breakeven stock price if assigned or at expiry">B/E</th>
+                    <th style="padding: 6px; text-align: center; width: 32px;" title="In-The-Money or Out-of-The-Money status">ITM</th>
+                    <th style="padding: 6px; text-align: right; width: 45px;">Prem</th>
                     <th style="padding: 6px; text-align: right; width: 25px;">Qty</th>
-                    <th style="padding: 6px; text-align: right; width: 30px;">DTE</th>
-                    <th style="padding: 6px; text-align: right; width: 35px;" title="Position Delta - Directional exposure per $1 stock move">Δ</th>
-                    <th style="padding: 6px; text-align: right; width: 45px;" title="Daily Theta - Premium decay you collect per day">Θ/day</th>
-                    <th style="padding: 6px; text-align: right; width: 40px;" title="P&L Percentage - Profit/loss as % of entry">P/L %</th>
-                    <th style="padding: 6px; text-align: right; width: 50px;" title="Today's P&L - Change in option value since market open">P/L Day</th>
-                    <th style="padding: 6px; text-align: right; width: 55px;" title="Unrealized P&L - Total profit/loss since open">P/L Open</th>
-                    <th style="padding: 6px; text-align: right; width: 45px;" title="Credit received (green) or Debit paid (red)">Cr/Dr</th>
-                    <th style="padding: 6px; text-align: right; width: 40px;" title="Annualized Return on Capital">Ann%</th>
-                    <th style="padding: 6px; text-align: left; min-width: 180px;">Actions</th>
+                    <th style="padding: 6px; text-align: right; width: 35px;">DTE</th>
+                    <th style="padding: 6px; text-align: right; width: 40px;" title="Position Delta - Directional exposure per $1 stock move">Δ</th>
+                    <th style="padding: 6px; text-align: right; width: 50px;" title="Daily Theta - Premium decay you collect per day">Θ/day</th>
+                    <th style="padding: 6px; text-align: right; width: 50px;" title="P&L Percentage - Profit/loss as % of entry">P/L %</th>
+                    <th style="padding: 6px; text-align: right; width: 55px;" title="Today's P&L - Change in option value since market open">P/L Day</th>
+                    <th style="padding: 6px; text-align: right; width: 60px;" title="Unrealized P&L - Total profit/loss since open">P/L Open</th>
+                    <th style="padding: 6px; text-align: right; width: 50px;" title="Credit received (green) or Debit paid (red)">Cr/Dr</th>
+                    <th style="padding: 6px; text-align: right; width: 45px;" title="Annualized Return on Capital">Ann%</th>
+                    <th style="padding: 6px; text-align: left; white-space: nowrap;">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -2752,6 +2849,45 @@ function renderPositionsTable(container, openPositions) {
         const chainInfo = getChainNetCredit(pos);
         const displayCredit = chainInfo.hasRolls ? chainInfo.netCredit : credit;
         const isChainCredit = chainInfo.hasRolls;
+        
+        // Calculate breakeven price for assignment
+        // Short Put: Breakeven = Strike - Premium (if assigned, you buy at strike but received premium)
+        // Covered Call: Breakeven = Cost Basis (if you own stock) or Strike - Premium
+        // Put Credit Spread: Breakeven = Sell Strike - Net Credit
+        // Call Credit Spread: Breakeven = Sell Strike + Net Credit
+        // Long Call: Breakeven = Strike + Premium
+        // Long Put: Breakeven = Strike - Premium
+        let breakeven = null;
+        if (isSpread) {
+            const netCredit = pos.premium || 0;
+            if (pos.type?.includes('put')) {
+                // Put credit spread: breakeven = sell strike - net credit
+                breakeven = (pos.sellStrike || pos.strike) - netCredit;
+            } else {
+                // Call credit spread: breakeven = sell strike + net credit
+                breakeven = (pos.sellStrike || pos.strike) + netCredit;
+            }
+        } else if (pos.type === 'short_put' || pos.type === 'cash_secured_put') {
+            breakeven = pos.strike - pos.premium;
+        } else if (pos.type === 'covered_call') {
+            // For covered calls, breakeven is more about when you lose money on the stock
+            // If you have cost basis, breakeven = cost basis
+            // Otherwise, breakeven = strike + premium (you profit up to strike + premium if assigned)
+            breakeven = pos.costBasis || (pos.strike + pos.premium);
+        } else if (pos.type === 'long_call' || pos.type === 'long_call_leaps' || pos.type === 'leap' || pos.type === 'leaps') {
+            breakeven = pos.strike + pos.premium;
+        } else if (pos.type === 'long_put') {
+            breakeven = pos.strike - pos.premium;
+        } else if (pos.type === 'buy_write') {
+            breakeven = pos.costBasis || (pos.stockPrice - pos.premium);
+        } else if (pos.type === 'skip_call') {
+            // SKIP: Total investment / 100 = cost basis per share, breakeven = LEAPS strike + that
+            const totalCost = (pos.leapsPremium || 0) + (pos.skipPremium || pos.premium || 0);
+            breakeven = pos.leapsStrike + totalCost;
+        } else if (pos.strike) {
+            // Default for other short positions
+            breakeven = pos.strike - pos.premium;
+        }
         
         // Calculate ROC: Premium / Capital at Risk
         // For spreads: Capital at Risk = spread width or debit paid
@@ -2870,6 +3006,7 @@ function renderPositionsTable(container, openPositions) {
                 <td style="padding: 6px; color: ${typeColor}; font-size: 10px;" title="${isLeaps ? 'LEAPS (1+ year) - Evaluate thesis, not theta' : isLongDated ? 'Long-dated (6+ mo) - IV changes matter more' : ''}">${typeDisplay}${isSkip ? '<br><span style="font-size:8px;color:#888;">LEAPS+SKIP</span>' : ''}</td>
                 <td id="spot-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 11px;">⏳</td>
                 <td style="padding: 6px; text-align: right; ${isSpread || isSkip ? 'font-size:10px;' : ''}">${strikeDisplay}</td>
+                <td style="padding: 6px; text-align: right; font-size: 11px; color: #ffaa00;" title="Breakeven if assigned">${breakeven ? '$' + breakeven.toFixed(2) : '—'}</td>
                 <td id="itm-${pos.id}" style="padding: 6px; text-align: center;">⏳</td>
                 <td style="padding: 6px; text-align: right;">${isDebitPosition(pos.type) ? '-' : ''}$${pos.premium.toFixed(2)}</td>
                 <td style="padding: 6px; text-align: right;">${pos.contracts}</td>
@@ -3013,7 +3150,92 @@ function renderPositionsTable(container, openPositions) {
     });
     
     html += '</tbody></table>';
+    
+    // Prevent vertical shrink during re-render by locking current height temporarily
+    const currentHeight = container.offsetHeight;
+    if (currentHeight > 0) {
+        container.style.minHeight = currentHeight + 'px';
+    }
+    
     container.innerHTML = html;
+    
+    // Release the min-height lock after render completes
+    requestAnimationFrame(() => {
+        container.style.minHeight = '';
+    });
+    
+    // Enable resizable columns
+    enableResizableColumns(container);
+}
+
+/**
+ * Enable drag-to-resize columns on the positions table
+ * Widths are saved to localStorage and restored on next render
+ */
+function enableResizableColumns(container) {
+    const table = container.querySelector('table');
+    if (!table) return;
+    
+    const headers = table.querySelectorAll('thead th');
+    const STORAGE_KEY = 'wheelhouse_column_widths';
+    
+    // Restore saved widths
+    const savedWidths = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    
+    headers.forEach((th, index) => {
+        // Skip the Actions column (last one, has min-width)
+        if (index === headers.length - 1) return;
+        
+        // Restore saved width if exists
+        if (savedWidths[index]) {
+            th.style.width = savedWidths[index] + 'px';
+        }
+        
+        // Create resize handle
+        const handle = document.createElement('div');
+        handle.className = 'resize-handle';
+        th.appendChild(handle);
+        
+        // Drag state
+        let startX, startWidth;
+        
+        handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            startX = e.pageX;
+            startWidth = th.offsetWidth;
+            
+            handle.classList.add('resizing');
+            document.body.classList.add('resizing-columns');
+            
+            const onMouseMove = (e) => {
+                const diff = e.pageX - startX;
+                const newWidth = Math.max(30, startWidth + diff); // Min 30px
+                th.style.width = newWidth + 'px';
+            };
+            
+            const onMouseUp = () => {
+                handle.classList.remove('resizing');
+                document.body.classList.remove('resizing-columns');
+                
+                // Save widths to localStorage
+                const widths = {};
+                headers.forEach((h, i) => {
+                    if (i < headers.length - 1) {
+                        widths[i] = h.offsetWidth;
+                    }
+                });
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
+                
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    });
 }
 
 /**
@@ -3123,22 +3345,28 @@ async function updatePositionRiskStatuses(openPositions) {
             // ITM is complex for spreads - skip it
             if (itmCell) itmCell.innerHTML = '<span style="color:#888;font-size:10px;">—</span>';
             
-            // Calculate risk for the spread's short leg
-            const risk = calculatePositionRisk(pos, spotPrice);
+            // Calculate risk for the spread's short leg - use real IV from CBOE!
+            const realIV = ivData[pos.ticker]?.value || null;
+            const risk = calculatePositionRisk(pos, spotPrice, realIV);
             
             if (risk.itmPct !== null) {
+                // Show IV source in tooltip
+                const ivSource = ivData[pos.ticker]?.live ? 'CBOE' : 'estimated';
+                const ivPct = (realIV * 100).toFixed(0);
+                const riskTooltip = `${risk.itmPct.toFixed(1)}% ITM probability (IV: ${ivPct}% ${ivSource}) - Click to view spread details`;
+                
                 // We have a real risk calculation
                 if (risk.needsAttention) {
                     cell.innerHTML = `
                         <button onclick="window.showSpreadExplanation(${pos.id})" 
                                 style="background: rgba(${risk.color === '#ff5252' ? '255,82,82' : '255,170,0'},0.2); border: 1px solid ${risk.color}; color: ${risk.color}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px; white-space: nowrap;"
-                                title="${risk.itmPct.toFixed(1)}% short leg ITM probability - Click to view spread details">
+                                title="${riskTooltip}">
                             ${risk.icon} ${risk.text}
                         </button>
                     `;
                 } else {
                     cell.innerHTML = `
-                        <span style="color: ${risk.color}; font-size: 11px;" title="${risk.itmPct.toFixed(1)}% short leg ITM probability">
+                        <span style="color: ${risk.color}; font-size: 11px;" title="${riskTooltip}">
                             ${risk.icon} ${risk.text}
                         </span>
                     `;
@@ -3247,23 +3475,31 @@ async function updatePositionRiskStatuses(openPositions) {
             itmCell.innerHTML = `<span style="color:${color};font-size:10px;font-weight:bold;" title="${tooltip}">${label}</span>`;
         }
         
-        const risk = calculatePositionRisk(pos, spotPrice);
+        // Calculate risk using real IV from CBOE!
+        const realIV = ivData[pos.ticker]?.value || null;
+        const risk = calculatePositionRisk(pos, spotPrice, realIV);
+        // Build tooltip showing IV source for transparency
+        const ivSource = ivData[pos.ticker]?.live ? 'CBOE' : 'estimated';
+        const ivPct = realIV ? (realIV * 100).toFixed(0) : 'N/A';
         
         if (risk.needsAttention) {
             // Clickable button for positions needing attention
+            const riskTooltip = risk.itmPct 
+                ? `${risk.itmPct.toFixed(1)}% ITM probability (IV: ${ivPct}% ${ivSource}) - Click to see roll suggestions` 
+                : 'Click to analyze';
             cell.innerHTML = `
                 <button onclick="window.loadPositionToAnalyze(${pos.id}); setTimeout(() => document.getElementById('suggestRollBtn')?.click(), 500);" 
                         style="background: rgba(${risk.color === '#ff5252' ? '255,82,82' : '255,170,0'},0.2); border: 1px solid ${risk.color}; color: ${risk.color}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px; white-space: nowrap;"
-                        title="${risk.itmPct ? `${risk.itmPct.toFixed(1)}% ITM probability - Click to see roll suggestions` : 'Click to analyze'}">
+                        title="${riskTooltip}">
                     ${risk.icon} ${risk.text}
                 </button>
             `;
         } else {
             // Static indicator - different tooltips for strategy-aware vs normal
             const tooltipText = risk.wantsAssignment 
-                ? `${risk.itmPct?.toFixed(1)}% assignment probability - Strategy: LET CALL ✓`
+                ? `${risk.itmPct?.toFixed(1)}% assignment probability (IV: ${ivPct}% ${ivSource}) - Strategy: LET CALL ✓`
                 : risk.itmPct 
-                    ? `${risk.itmPct.toFixed(1)}% ITM probability - Looking good!` 
+                    ? `${risk.itmPct.toFixed(1)}% ITM probability (IV: ${ivPct}% ${ivSource}) - Looking good!` 
                     : 'Healthy position';
             
             cell.innerHTML = `

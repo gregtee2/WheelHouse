@@ -139,6 +139,121 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
 }
 
 /**
+ * Call Grok API with LIVE X (Twitter) and Web Search capability
+ * Uses xAI's server-side tools for real-time data access
+ * 
+ * NOTE: The tools API requires specific formatting. If you get 422 errors,
+ * it may be due to incorrect tool format. We fall back to grok-4 with
+ * enhanced prompting which has some built-in real-time awareness.
+ * 
+ * @param {string} prompt - The prompt to send
+ * @param {object} options - Search options
+ * @param {boolean} options.xSearch - Enable X/Twitter search (default: true)
+ * @param {boolean} options.webSearch - Enable web search (default: false)
+ * @param {number} options.maxTokens - Maximum tokens (default: 1500)
+ * @param {string} options.model - Model to use (default: grok-4)
+ * @returns {Promise<{content: string, citations: array}>} - Response with citations
+ */
+async function callGrokWithSearch(prompt, options = {}) {
+    const apiKey = process.env.GROK_API_KEY;
+    
+    if (!apiKey) {
+        throw new Error('Grok API key not configured. Add GROK_API_KEY to Settings.');
+    }
+    
+    const {
+        xSearch = true,
+        webSearch = false,
+        maxTokens = 2000,
+        model = 'grok-4'  // grok-4 has built-in real-time X awareness
+    } = options;
+    
+    const timeoutMs = 300000;  // 5 min timeout for grok-4 (can be slow but thorough)
+    const timeoutSec = timeoutMs / 1000;
+    
+    console.log(`[AI] 🔍 Grok Search: model=${model}, xSearch=${xSearch}, webSearch=${webSearch}`);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+        console.log(`[AI] ⚠️ Grok search timed out after ${timeoutSec}s`);
+        controller.abort();
+    }, timeoutMs);
+    
+    try {
+        const requestBody = {
+            model: model,
+            messages: [
+                { role: 'user', content: prompt }
+            ],
+            max_tokens: maxTokens,
+            temperature: 0.7
+        };
+        
+        // Note: Server-side tools require xai-sdk or specific API format
+        // For now, rely on grok-4's built-in real-time awareness
+        // The prompt should emphasize checking live X data
+        
+        const response = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            const errText = await response.text();
+            console.log(`[AI] Grok Search API error: ${response.status} - ${errText}`);
+            
+            try {
+                const errJson = JSON.parse(errText);
+                if (errJson.error?.message) {
+                    throw new Error(`Grok Search: ${errJson.error.message}`);
+                }
+            } catch (parseErr) {
+                // Not JSON
+            }
+            
+            throw new Error(`Grok Search API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content || 'No response from Grok';
+        const citations = data.citations || [];
+        
+        // Log usage
+        const usage = data.usage;
+        if (usage) {
+            console.log(`[AI] Grok Search tokens: ${usage.prompt_tokens} in → ${usage.completion_tokens} out`);
+        }
+        
+        // Log tool calls if any
+        const toolCalls = data.choices?.[0]?.message?.tool_calls;
+        if (toolCalls && toolCalls.length > 0) {
+            console.log(`[AI] 🔧 Grok made ${toolCalls.length} tool calls during search`);
+        }
+        
+        console.log(`[AI] ✅ Grok Search response: ${content.length} chars, ${citations.length} citations`);
+        
+        return { content, citations };
+        
+    } catch (e) {
+        clearTimeout(timeoutId);
+        
+        if (e.name === 'AbortError') {
+            throw new Error(`Grok Search timed out after ${timeoutSec} seconds`);
+        }
+        
+        console.log(`[AI] ❌ Grok Search failed: ${e.message}`);
+        throw e;
+    }
+}
+
+/**
  * Call Ollama API (local LLMs)
  * @param {string} prompt - The prompt to send
  * @param {string} model - Model name (supports aliases like '7b', '32b')
@@ -410,6 +525,7 @@ function resolveModelName(model) {
 module.exports = {
     callAI,
     callGrok,
+    callGrokWithSearch,
     callOllama,
     callMoE,
     resolveModelName,

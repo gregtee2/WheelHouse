@@ -2,6 +2,144 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.7] - 2026-01-29
+
+### Added
+- **Checkup History Tracking**: AI now considers all prior checkups when evaluating positions
+  - Each checkup is saved to `pos.analysisHistory[]` with timestamp, recommendation, snapshot
+  - Subsequent checkups show last 5 prior checkups to the AI
+  - AI evaluates trend: "Is position getting healthier or deteriorating?"
+  - Spot price at each checkup shown for trajectory analysis
+  - Example: "Stock climbed from $45.30 → $46.50 → $48.39 across 3 checkups, all HOLD"
+
+- **Breakeven Column in Positions Table**: New B/E column shows breakeven price for all position types
+  - Short Put: Strike - Premium
+  - Put Credit Spread: Sell Strike - Net Credit
+  - Call Credit Spread: Sell Strike + Net Credit  
+  - Covered Call: Cost Basis or Strike + Premium
+  - Long Call/LEAPS: Strike + Premium
+  - Buy/Write: Stock Price - Premium
+
+- **Risk Analysis in Spread Confirmation Modal**: See risk before confirming trades
+  - Max Loss per contract (spread width - net credit)
+  - Total Max Loss based on contract count
+  - Risk:Reward ratio with color coding (green if favorable, red if >2:1 against)
+  - Breakeven price calculation
+  - Strike dropdowns populated from real options chain with bid prices
+
+### Fixed
+- **Close Panel Crash on Spreads**: Fixed "Cannot read properties of undefined (reading 'toFixed')" error
+  - Spread positions have null `strike` (use `buyStrike`/`sellStrike` instead)
+  - Now shows "$320/$315" format for spreads in close panel
+  - Changed "Premium received" to "Net credit" label for spreads
+
+- **Checkup Thesis Display**: Fixed "Original thesis N/A" when thesis data exists
+  - Empty string `""` in aiSummary fields was passing truthy checks but had no content
+  - Now always shows market conditions at entry (price, IV, range) even without AI summary
+  - Uses `.trim()` to properly detect empty strings vs actual content
+  - Positions synced from Schwab now show their entry conditions properly
+
+- **Positions Table Layout**: Fixed cramped Actions column
+  - Changed from `table-layout: fixed` to `table-layout: auto`
+  - Reduced column widths for better balance
+  - Ticker and Actions columns use `white-space: nowrap`
+
+### Changed
+- **X Deep Dive**: Now uses real options chain data instead of estimates
+  - Fetches actual options chain via `MarketDataService.getOptionsChain()`
+  - Finds ~0.20 delta put at ~30 DTE (conservative target)
+  - Returns real strike, expiry, premium with delta/IV data
+  - No more guesstimates like `price * 0.9`
+
+## [1.17.6] - 2026-01-29
+
+### Fixed
+- **Trending on X: Stale Earnings Data**: Now uses xAI's LIVE X Search tool for real-time data
+  - Previously, Grok guessed earnings dates from training data (MSFT/META showed as "next week" when they already reported)
+  - Now uses `callGrokWithSearch()` with X Search + Web Search for ACTUAL live posts
+  - Prompt explicitly instructs: "If earnings already happened, say ALREADY REPORTED"
+  - Citations from real X posts now included in response
+  - Upgraded to `grok-4-1-fast-non-reasoning` model for speed with search capability
+
+### Added
+- **callGrokWithSearch()**: New AIService function for live search-enabled Grok calls
+  - `xSearch: true` - Search X/Twitter for last 7 days of posts
+  - `webSearch: true` - Search the web for current information
+  - Returns `{ content, citations }` with sources
+  - 3-minute timeout for search operations
+
+- **Trend Comparison Across Runs**: AI now knows what was trending in your previous scans
+  - Sends last 5 runs of ticker history to Grok
+  - AI marks tickers as: 🔥🔥 STILL HOT (persistent buzz), 🆕 NEWLY TRENDING, or 📉 FADING
+  - Highlights persistent tickers that appeared in 2+ scans
+  - Helps spot sustained momentum vs flash-in-the-pan hype
+  - Previously, each scan was independent with no memory of past runs
+
+## [1.17.5] - 2026-01-28
+
+### Fixed
+- **Position Checkup Strike Display**: Fixed "$undefinedP" showing for spread positions in checkup modal
+  - Spread positions use `sellStrike/buyStrike` (e.g., "$325/$320P") instead of undefined `strike` field
+  - Also shows correct option type indicator (P for puts, C for calls)
+
+- **Suggested Trade Truncation**: Increased AI checkup token limit from 1500 to 2500
+  - Prevents the SUGGESTED_TRADE block from being cut off
+  - Allows AI to complete full analysis with actionable trade recommendations
+
+- **Empty Suggested Trade Section**: Cleaned up display when AI recommends WATCH/HOLD
+  - No longer shows dangling "6. SUGGESTED TRADE" header with no content
+  - AI now outputs "No trade action required - HOLD position." for non-actionable recommendations
+
+### Added
+- **Poor Man's Covered Call (PMCC) in Wall Street Mode**: Added PMCC as preferred strategy #5
+  - AI will now recommend PMCC for stocks at all-time highs where shares are too expensive
+  - Example: Buy deep ITM LEAPS call (0.80+ delta), sell OTM short-term calls against it
+  - Ideal when you want covered call income without tying up capital in 100 shares
+
+- **Full Strategy Toolkit for Wall Street Mode**: AI now has full discretion to pick the best strategy
+  - Bullish: Bull Put Spread, Bull Call Spread, CSP, PMCC, Long Call
+  - Bearish: Bear Call Spread, Bear Put Spread
+  - Neutral: Iron Condor, Calendar Spread, Covered Call
+  - Situation-based guidance (ATH + momentum → Bull Call Spread, High IV → sell premium)
+  - Still enforces NO INFINITE RISK (all positions must have defined max loss)
+
+- **Stage Any Alternative Trade**: Wall Street Mode now shows "📥 Stage" buttons for all recommendations
+  - Primary, Alternative #1, and Alternative #2 each have their own Stage button
+  - Click any button to stage that specific trade to Ideas tab
+  - Footer now shows hint about staging alternatives
+
+- **Improved Trade Parsing for Staging**: Added parsing for complex strategies
+  - **Iron Condor**: Now parses "110/115 Call Spread + 100/95 Put Spread" format
+  - **PMCC**: Parses "Buy $85 LEAPS Call + Sell $110 Call" format  
+  - **Bull Call Spread**: Parses "Buy $100/$105 Call Spread" format
+  - **Bear Put Spread**: Parses various debit spread formats
+  - Console shows `[STAGE] Detected...` for debugging what was parsed
+
+## [1.17.4] - 2026-01-28
+
+### Fixed
+- **Real IV for Roll Calculator**: Roll Calculator Monte Carlo simulation now uses real IV from CBOE
+  - Previously used `state.optVol` (slider value) which was often the default 30%
+  - Now fetches actual ATM IV for the ticker before running simulation
+  - Roll risk tooltip shows IV value and source (e.g., "IV: 45.2% CBOE")
+  - Added `fetchRealIV()` function to api.js with 5-minute caching
+
+- **Real IV for AI Checkups**: Position checkups now include current IV comparison
+  - Fetches real IV alongside market data for each checkup
+  - AI prompt now shows "IV at entry: X%" vs "IV now: Y%" with change analysis
+  - Helps AI understand if IV crush/expansion affected your position
+  - Server logs IV fetch: `[AI] Current IV for SNOW: 32.5% (cboe)`
+
+## [1.17.3] - 2026-01-28
+
+### Fixed
+- **Real IV for Risk Calculation**: Position risk percentages now use real IV from CBOE instead of hardcoded estimates
+  - Previously used 50% default IV for most stocks, 85% for leveraged ETFs, 65% for high-vol stocks
+  - Now fetches actual ATM implied volatility from CBOE for accurate Monte Carlo risk calculation
+  - Risk tooltips now show IV value and source (e.g., "IV: 32% CBOE" or "IV: 50% estimated")
+  - Fixes issue where spreads on low-IV stocks like SNOW showed inflated risk warnings (50% warning despite being OTM)
+  - Added `getCachedIV()` and `batchFetchIV()` functions for efficient IV caching
+
 ## [1.17.2] - 2026-01-28
 
 ### Added

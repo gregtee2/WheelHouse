@@ -6,6 +6,7 @@ import { getPositionType } from './pricing.js';
 import { randomNormal, showNotification } from './utils.js';
 import { formatPortfolioContextForAI } from './portfolio.js';
 import AccountService from './services/AccountService.js';
+import { fetchRealIV } from './api.js';
 
 /**
  * Get chain history and calculate total premium for a position
@@ -687,7 +688,7 @@ async function calculateMarginImpact(spot, strike, premium, contracts, isPut) {
 }
 
 /**
- * Calculate roll scenario
+ * Calculate roll scenario - now uses real IV from CBOE!
  */
 export async function calculateRoll() {
     const currentStrike = state.strike;
@@ -698,6 +699,24 @@ export async function calculateRoll() {
     const isBuyWrite = posType === 'buy_write';
     const isCoveredCall = posType === 'covered_call' || isBuyWrite;
     const isCall = isCoveredCall || posType.includes('call');
+    
+    // Fetch real IV from CBOE for accurate Monte Carlo simulation
+    const ticker = state.currentPositionContext?.ticker;
+    let realIV = state.optVol; // Fallback to slider value
+    let ivSource = 'slider';
+    
+    if (ticker) {
+        try {
+            const ivResult = await fetchRealIV(ticker);
+            if (ivResult.iv) {
+                realIV = ivResult.iv;
+                ivSource = ivResult.source;
+                console.log(`[ROLL] Using real IV for ${ticker}: ${(realIV * 100).toFixed(1)}% (${ivSource})`);
+            }
+        } catch (e) {
+            console.warn('[ROLL] Could not fetch real IV, using slider value');
+        }
+    }
     
     // Get current premium - use call price for calls, put price for puts
     // Or use stored premium from position context
@@ -756,7 +775,8 @@ export async function calculateRoll() {
         let S = state.spot;
         for (let step = 0; step < numSteps; step++) {
             const dW = randomNormal() * Math.sqrt(dt);
-            S *= Math.exp((state.rate - 0.5*state.optVol*state.optVol)*dt + state.optVol*dW);
+            // Use realIV instead of state.optVol for accurate simulation!
+            S *= Math.exp((state.rate - 0.5*realIV*realIV)*dt + realIV*dW);
         }
         // For calls (including Buy/Write), risk is stock > strike (called away)
         // For puts, risk is stock < strike (assigned stock)
@@ -773,7 +793,14 @@ export async function calculateRoll() {
     
     setEl('rollNewStrikeDisp', '$' + newStrike.toFixed(2));
     setEl('rollNewDteDisp', newDte + ' days');
-    setEl('rollNewRisk', newRisk.toFixed(1) + '%');
+    
+    // Show new risk with IV source in tooltip
+    const riskEl = document.getElementById('rollNewRisk');
+    if (riskEl) {
+        riskEl.textContent = newRisk.toFixed(1) + '%';
+        riskEl.title = `Monte Carlo simulation using IV: ${(realIV * 100).toFixed(1)}% (${ivSource})`;
+    }
+    
     setEl('rollTotalPremium', '$' + totalPremiumAllContracts.toFixed(0) + (contracts > 1 ? ` (${contracts} contracts)` : ''));
     setEl('rollNetCredit', '$' + totalRollCredit.toFixed(0));
     

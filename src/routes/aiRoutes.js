@@ -462,19 +462,19 @@ router.post('/grok', async (req, res) => {
 });
 
 // =============================================================================
-// X/TWITTER SENTIMENT (Grok-only)
+// X/TWITTER SENTIMENT (Grok-only with LIVE X SEARCH)
 // =============================================================================
 
 router.post('/x-sentiment', async (req, res) => {
     try {
         const data = req.body;
-        const { buyingPower, holdings } = data;
+        const { buyingPower, holdings, previousRuns } = data;
         
         if (!process.env.GROK_API_KEY) {
             return res.status(400).json({ error: 'X Sentiment requires Grok API. Configure in Settings.' });
         }
         
-        console.log('[AI] 🔥 Fetching X/Twitter sentiment via Grok...');
+        console.log('[AI] 🔥 Fetching LIVE X/Twitter sentiment via Grok Search...');
         
         const today = new Date();
         const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -487,32 +487,90 @@ router.post('/x-sentiment', async (req, res) => {
 **IMPORTANT - CHECK MY HOLDINGS FIRST:**
 I currently hold these stocks: ${holdingsList}
 
-BEFORE the main analysis, check if there's ANY news, sentiment, or buzz on X about my holdings. Put this in a section called "⚡ YOUR HOLDINGS ALERT" at the very top. If nothing notable, just say "No significant X chatter about your holdings today."
+BEFORE the main analysis, search X for ANY news, sentiment, or buzz about my holdings. Put this in a section called "⚡ YOUR HOLDINGS ALERT" at the very top. If nothing notable, just say "No significant X chatter about your holdings today."
 `;
         }
         
-        const prompt = `Today is ${dateStr}. You have real-time access to X (Twitter). I'm a wheel strategy options trader with $${buyingPower || 25000} buying power.
-${holdingsContext}
-Scan X/Twitter RIGHT NOW and find me:
+        // Build trend comparison context from previous runs
+        let trendContext = '';
+        if (previousRuns && previousRuns.length > 0) {
+            const prevTickers = previousRuns[0]?.tickers || [];
+            const prevTime = previousRuns[0]?.timeString || 'earlier';
+            
+            // Calculate ticker frequency across all previous runs
+            const tickerFreq = {};
+            previousRuns.forEach(run => {
+                (run.tickers || []).forEach(t => {
+                    tickerFreq[t] = (tickerFreq[t] || 0) + 1;
+                });
+            });
+            
+            // Find persistent tickers (appeared 2+ times)
+            const persistent = Object.entries(tickerFreq)
+                .filter(([_, count]) => count >= 2)
+                .map(([ticker]) => ticker);
+            
+            trendContext = `
 
-1. **🔥 TRENDING TICKERS** - What stocks are traders actively discussing today?
-2. **📢 EARNINGS PLAYS** - Any upcoming earnings that FinTwit is buzzing about?
-3. **⚠️ CAUTION FLAGS** - Stocks where sentiment has turned negative?
-4. **💰 PUT SELLING OPPORTUNITIES** - Stocks good for selling puts?
-5. **🚀 SECTOR MOMENTUM** - What sectors are traders most bullish/bearish on?
+**🔄 TREND COMPARISON (Compare to my previous scans):**
+- My LAST scan (${prevTime}) found these tickers trending: ${prevTickers.join(', ') || 'none recorded'}
+${persistent.length > 0 ? `- PERSISTENT buzz (appeared ${previousRuns.length > 2 ? 'in 2+ of my last ' + previousRuns.length + ' scans' : 'multiple times'}): ${persistent.join(', ')}` : ''}
 
+When you find trending tickers, please note:
+- 🔥🔥 **STILL HOT** if it was in my previous scan AND still trending now
+- 🆕 **NEWLY TRENDING** if it wasn't in my previous scan but is hot now
+- 📉 **FADING** if it was hot before but you don't see much buzz now
+This helps me spot sustained momentum vs flash-in-the-pan hype.
+`;
+        }
+        
+        const prompt = `Today is ${dateStr}. You have access to real-time X/Twitter data. I'm a wheel strategy options trader with $${buyingPower || 25000} buying power.
+${holdingsContext}${trendContext}
+Please check X/Twitter for the following and report what's ACTUALLY being discussed TODAY:
+
+**📊 MARKET PULSE** (Put this FIRST - keep it brief, 3-4 lines max)
+- Overall trader mood today: Bullish / Bearish / Mixed / Cautious? One sentence on the vibe.
+- Fear & Greed sentiment: What's the general risk appetite? (Greedy/Neutral/Fearful)
+- Any major world events or macro news driving markets today? (Fed, geopolitics, economic data, etc.)
+- Futures/pre-market direction if relevant.
+
+Then continue with:
+
+1. **🔥 TRENDING TICKERS** - What stocks are traders on X actively discussing right now? Look for $NVDA, $TSLA, $AMD, $PLTR, $AAPL, $MSFT and others with heavy volume of posts.
+   ${previousRuns?.length > 0 ? '- Mark each as 🔥🔥 STILL HOT, 🆕 NEWLY TRENDING, or leave unmarked if new to you' : ''}
+
+2. **📢 EARNINGS** - What earnings are traders discussing? 
+   CRITICAL: Check if the earnings ALREADY HAPPENED (people discussing results) vs UPCOMING (people anticipating).
+   - If people are talking about results/beats/misses → say "ALREADY REPORTED"
+   - If people are anticipating → say "UPCOMING"
+   Be accurate - today is ${dateStr}.
+
+3. **⚠️ CAUTION FLAGS** - Any stocks where X sentiment has turned negative? Bearish takes, warnings, etc.
+
+4. **💰 PUT SELLING OPPORTUNITIES** - Bullish stocks in the $5-$200 range good for wheel strategy.
+
+5. **🚀 SECTOR MOMENTUM** - What sectors are traders most bullish/bearish on today?
+
+IMPORTANT: Base your answers on what you can actually see on X right now. If you're not sure about something, say so rather than guessing.
 FORMAT each ticker mention like: **TICKER** @ $XX.XX
-Be specific about WHAT you're seeing on X. Focus on wheel-friendly stocks ($5-$200 range).`;
+Focus on wheel-friendly stocks ($5-$200 range).`;
 
-        const response = await AIService.callGrok(prompt, 'grok-3', 1500);
+        // Use grok-4 which has built-in real-time X awareness
+        const result = await AIService.callGrokWithSearch(prompt, {
+            xSearch: true,
+            webSearch: true,
+            maxTokens: 2000,
+            model: 'grok-4'  // grok-4 has better real-time awareness
+        });
         
         res.json({ 
             success: true, 
-            sentiment: response,
-            source: 'grok-x-realtime',
+            sentiment: result.content,
+            citations: result.citations || [],
+            source: 'grok-4-realtime',
             timestamp: new Date().toISOString()
         });
-        console.log('[AI] ✅ X sentiment retrieved');
+        console.log(`[AI] ✅ X sentiment retrieved`);
     } catch (e) {
         console.log('[AI] ❌ X sentiment error:', e.message);
         res.status(500).json({ error: e.message });
@@ -526,25 +584,103 @@ Be specific about WHAT you're seeing on X. Focus on wheel-friendly stocks ($5-$2
 router.post('/deep-dive', async (req, res) => {
     try {
         const data = req.body;
-        const { ticker, strike, expiry, currentPrice, model, positionType } = data;
-        const selectedModel = model || 'deepseek-r1:32b';
+        let { ticker, strike, expiry, currentPrice, model, positionType, targetDelta } = data;
+        const selectedModel = model || 'qwen2.5:32b';
         
         // Determine option type
         const callTypes = ['long_call', 'long_call_leaps', 'covered_call', 'leap', 'leaps', 'call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
         const typeLower = (positionType || '').toLowerCase().replace(/\s+/g, '_');
         const optionType = callTypes.some(s => typeLower.includes(s)) ? 'CALL' : 'PUT';
         
+        // If no strike provided, fetch real options chain and find ~0.20 delta option
+        let selectedOption = null;
+        if (!strike) {
+            console.log(`[DEEP-DIVE] Fetching real options chain for ${ticker}...`);
+            const chain = await MarketDataService.getOptionsChain(ticker, { strikeCount: 40, range: 'ALL' });
+            
+            if (chain && chain.puts && chain.puts.length > 0) {
+                const today = new Date();
+                const targetDTE = 30;
+                const desiredDelta = targetDelta || 0.20;  // Default to 0.20 delta (conservative)
+                
+                // Find best expiry (closest to 30 DTE, minimum 21 DTE)
+                let bestExpiry = null;
+                let bestExpiryDTE = null;
+                for (const exp of (chain.expirations || [])) {
+                    const expDate = new Date(exp);
+                    const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+                    if (dte >= 21) {
+                        if (!bestExpiry || Math.abs(dte - targetDTE) < Math.abs(bestExpiryDTE - targetDTE)) {
+                            bestExpiry = exp;
+                            bestExpiryDTE = dte;
+                        }
+                    }
+                }
+                if (!bestExpiry && chain.expirations?.length > 0) {
+                    bestExpiry = chain.expirations[0];
+                    bestExpiryDTE = Math.ceil((new Date(bestExpiry) - today) / (1000 * 60 * 60 * 24));
+                }
+                
+                // Filter puts at target expiry with valid delta
+                const putsAtExpiry = chain.puts.filter(p => 
+                    p.expiration === bestExpiry && 
+                    p.delta !== undefined && 
+                    p.delta !== null &&
+                    Math.abs(p.delta) > 0.05 && Math.abs(p.delta) < 0.50
+                );
+                
+                // Find closest to target delta (puts have negative delta, so compare absolute)
+                if (putsAtExpiry.length > 0) {
+                    putsAtExpiry.sort((a, b) => 
+                        Math.abs(Math.abs(a.delta) - desiredDelta) - Math.abs(Math.abs(b.delta) - desiredDelta)
+                    );
+                    selectedOption = putsAtExpiry[0];
+                    strike = selectedOption.strike;
+                    expiry = bestExpiry;
+                    currentPrice = chain.spotPrice || (await MarketDataService.getQuote(ticker))?.price;
+                    
+                    console.log(`[DEEP-DIVE] ✅ Found ${ticker} $${strike}P @ ${expiry} (${bestExpiryDTE} DTE, delta=${selectedOption.delta}, bid=$${selectedOption.bid}, ask=$${selectedOption.ask})`);
+                } else {
+                    console.log(`[DEEP-DIVE] ⚠️ No puts with valid delta found at ${bestExpiry}`);
+                }
+            }
+            
+            if (!strike) {
+                return res.status(400).json({ error: `Could not find suitable options for ${ticker}` });
+            }
+        }
+        
         console.log(`[AI] Deep dive on ${ticker} $${strike} ${optionType.toLowerCase()}, expiry ${expiry}`);
         
         // Fetch extended data
         const tickerData = await DataService.fetchDeepDiveData(ticker);
         
-        // Fetch actual option premium
-        const premium = await DataService.fetchOptionPremium(ticker, parseFloat(strike), expiry, optionType);
-        if (premium) {
+        // Use already-fetched option data if we have it, otherwise fetch premium
+        let premium = null;
+        if (selectedOption) {
+            premium = {
+                bid: selectedOption.bid,
+                ask: selectedOption.ask,
+                mid: ((selectedOption.bid || 0) + (selectedOption.ask || 0)) / 2,
+                iv: selectedOption.iv,
+                delta: selectedOption.delta,
+                theta: selectedOption.theta,
+                source: 'chain'
+            };
             tickerData.premium = premium;
-            console.log(`[CBOE] Found premium: bid=$${premium.bid} ask=$${premium.ask} IV=${premium.iv}%`);
+            console.log(`[DEEP-DIVE] Using chain data: bid=$${premium.bid} ask=$${premium.ask} delta=${premium.delta} IV=${premium.iv}%`);
+        } else {
+            premium = await DataService.fetchOptionPremium(ticker, parseFloat(strike), expiry, optionType);
+            if (premium) {
+                tickerData.premium = premium;
+                console.log(`[CBOE] Found premium: bid=$${premium.bid} ask=$${premium.ask} IV=${premium.iv}%`);
+            }
         }
+        
+        // Update data object with resolved values for prompt builder
+        data.strike = strike;
+        data.expiry = expiry;
+        data.currentPrice = currentPrice;
         
         const prompt = promptBuilders.buildDeepDivePrompt(data, tickerData);
         const response = await AIService.callAI(prompt, selectedModel, 1000);
@@ -554,7 +690,11 @@ router.post('/deep-dive', async (req, res) => {
             analysis: response,
             model: selectedModel,
             tickerData,
-            premium
+            premium,
+            // Return the actual strike/expiry used (important when auto-selected)
+            strike: parseFloat(strike),
+            expiry,
+            currentPrice
         });
         console.log('[AI] ✅ Deep dive complete');
     } catch (e) {
@@ -570,8 +710,13 @@ router.post('/deep-dive', async (req, res) => {
 router.post('/checkup', async (req, res) => {
     try {
         const data = req.body;
-        const { ticker, strike, expiry, openingThesis, positionType, model } = data;
+        const { ticker, strike, expiry, openingThesis, analysisHistory, positionType, model } = data;
         const selectedModel = model || 'qwen2.5:7b';
+        
+        // Log prior checkup count for debugging
+        if (analysisHistory?.length > 0) {
+            console.log(`[AI] Position has ${analysisHistory.length} prior checkup(s)`);
+        }
         
         // Determine option type
         const callTypes = ['long_call', 'long_call_leaps', 'covered_call', 'leap', 'leaps', 'call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
@@ -580,11 +725,22 @@ router.post('/checkup', async (req, res) => {
         
         console.log(`[AI] Position checkup for ${ticker} $${strike} ${optionType.toLowerCase()}`);
         
-        const currentData = await DataService.fetchDeepDiveData(ticker);
-        const currentPremium = await DataService.fetchOptionPremium(ticker, parseFloat(strike), formatExpiryForCBOE(expiry), optionType);
+        // Fetch current market data including real IV
+        const [currentData, currentPremium, ivData] = await Promise.all([
+            DataService.fetchDeepDiveData(ticker),
+            DataService.fetchOptionPremium(ticker, parseFloat(strike), formatExpiryForCBOE(expiry), optionType),
+            DataService.fetchTickerIVData(ticker)
+        ]);
         
-        const prompt = promptBuilders.buildCheckupPrompt(data, openingThesis, currentData, currentPremium);
-        const response = await AIService.callAI(prompt, selectedModel, 1500);  // Increased from 800 for full suggested trade block
+        // Add current IV to market data for prompt
+        if (ivData?.atmIV) {
+            currentData.currentIV = ivData.atmIV;
+            currentData.ivSource = ivData.source;
+            console.log(`[AI] Current IV for ${ticker}: ${ivData.atmIV}% (${ivData.source})`);
+        }
+        
+        const prompt = promptBuilders.buildCheckupPrompt(data, openingThesis, currentData, currentPremium, analysisHistory);
+        const response = await AIService.callAI(prompt, selectedModel, 2500);  // Increased to 2500 - need room for full analysis + suggested trade block
         
         res.json({ 
             success: true, 

@@ -1009,8 +1009,64 @@ if (document.readyState === 'loading') {
     setupAutoRefreshToggle();
 }
 
+// ============================================
+// Real IV Fetch (for risk calculations)
+// ============================================
+
+// Cache for IV data (5 min TTL)
+const ivCache = new Map();
+const IV_CACHE_TTL = 5 * 60 * 1000;
+
+/**
+ * Fetch real ATM IV from CBOE for a ticker (with caching)
+ * @param {string} ticker - Stock ticker
+ * @returns {Promise<{iv: number|null, source: string}>} IV as decimal (0.45 = 45%) and source
+ */
+export async function fetchRealIV(ticker) {
+    if (!ticker) return { iv: null, source: 'none' };
+    ticker = ticker.toUpperCase();
+    
+    // Check cache
+    const cached = ivCache.get(ticker);
+    if (cached && (Date.now() - cached.timestamp) < IV_CACHE_TTL) {
+        return { iv: cached.iv, source: 'cached' };
+    }
+    
+    try {
+        const response = await fetch(`/api/iv/${ticker}`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.atmIV) {
+                const iv = parseFloat(data.atmIV) / 100; // Convert 45.2% to 0.452
+                ivCache.set(ticker, { iv, timestamp: Date.now() });
+                console.log(`[IV] ✅ ${ticker}: ${(iv * 100).toFixed(1)}% from ${data.source}`);
+                return { iv, source: data.source || 'CBOE' };
+            }
+        }
+    } catch (e) {
+        console.warn(`[IV] Could not fetch IV for ${ticker}:`, e.message);
+    }
+    
+    // Fallback to estimate
+    const estimated = estimateVolatility(ticker);
+    return { iv: estimated, source: 'estimated' };
+}
+
+/**
+ * Estimate volatility based on ticker characteristics (fallback only)
+ */
+function estimateVolatility(ticker) {
+    const leveragedETFs = ['TSLL', 'TQQQ', 'SOXL', 'UPRO', 'SPXL', 'NVDL', 'FNGU', 'LABU', 'WEBL', 'TECL', 'FAS', 'TNA', 'JNUG', 'NUGT', 'UDOW', 'UMDD', 'URTY'];
+    const highVolStocks = ['TSLA', 'NVDA', 'AMD', 'MSTR', 'COIN', 'GME', 'AMC', 'RIVN', 'LCID', 'NIO', 'PLTR', 'MARA', 'RIOT'];
+    
+    if (leveragedETFs.includes(ticker?.toUpperCase())) return 0.85;
+    if (highVolStocks.includes(ticker?.toUpperCase())) return 0.65;
+    return 0.50;
+}
+
 // Expose for use
 window.fetchLiveOptionData = fetchLiveOptionData;
 window.syncLiveOptionsData = syncLiveOptionsData;
 window.startAutoRefresh = startAutoRefresh;
 window.stopAutoRefresh = stopAutoRefresh;
+window.fetchRealIV = fetchRealIV;

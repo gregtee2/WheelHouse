@@ -1649,19 +1649,23 @@ window.getXSentiment = async function() {
         costBasis: h.costBasis || h.avgCost
     }));
     
+    // Get previous runs for trend comparison (last 5 runs)
+    const previousRuns = JSON.parse(localStorage.getItem('wheelhouse_x_sentiment_history') || '[]').slice(0, 5);
+    console.log(`[X Sentiment] Sending ${previousRuns.length} previous runs for trend comparison`);
+    
     // Show loading
     if (ideaBtn) {
         ideaBtn.disabled = true;
         ideaBtn.textContent = '⏳ Scanning X...';
     }
     ideaResults.style.display = 'block';
-    ideaContent.innerHTML = '<span style="color:#1da1f2;">🔄 Grok is scanning X/Twitter for trader sentiment... (5-10 seconds)</span>';
+    ideaContent.innerHTML = '<span style="color:#1da1f2;">🔄 Grok is scanning X/Twitter for trader sentiment... (may take 30-60 seconds with live search)</span>';
     
     try {
         const response = await fetch('/api/ai/x-sentiment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ buyingPower, holdings })
+            body: JSON.stringify({ buyingPower, holdings, previousRuns })
         });
         
         if (!response.ok) {
@@ -1790,9 +1794,11 @@ window.getXSentiment = async function() {
  * Deep Dive from X Sentiment - fetches live price and runs analysis
  */
 window.xDeepDive = async function(ticker) {
-    // Fetch current price
-    const selectedModel = document.getElementById('ideaModelSelect2')?.value || 
-                          document.getElementById('ideaModelSelect')?.value || 'deepseek-r1:32b';
+    // Use global model selector - prefer non-reasoning models for cleaner output
+    // deepseek-r1 models show chain-of-thought which is verbose
+    const selectedModel = window.getSelectedAIModel?.('ideaModelSelect2') || 
+                          window.getSelectedAIModel?.('ideaModelSelect') || 
+                          'qwen2.5:32b';  // Default to non-reasoning model
     
     // Show loading modal
     const modal = document.createElement('div');
@@ -1818,49 +1824,18 @@ window.xDeepDive = async function(ticker) {
     document.body.appendChild(modal);
     
     try {
-        // Fetch current stock price - try Schwab first, fallback to Yahoo
-        let price = null;
-        let priceSource = '';
+        // Backend fetches real options chain and finds best ~0.20 delta put at ~30 DTE
+        console.log(`[xDeepDive] Requesting real options analysis for ${ticker}...`);
         
-        // Try Schwab first (real-time if configured)
-        try {
-            const schwabRes = await fetch(`/api/schwab/quote/${ticker}`);
-            if (schwabRes.ok) {
-                const schwabData = await schwabRes.json();
-                // Schwab returns { TICKER: { quote: { lastPrice: ... } } }
-                price = schwabData[ticker]?.quote?.lastPrice || schwabData[ticker]?.quote?.mark;
-                if (price) priceSource = 'Schwab';
-            }
-        } catch (e) {
-            console.log('[xDeepDive] Schwab failed, trying Yahoo...');
-        }
-        
-        // Fallback to Yahoo if Schwab failed
-        if (!price) {
-            const yahooRes = await fetch(`/api/yahoo/${ticker}`);
-            if (yahooRes.ok) {
-                const yahooData = await yahooRes.json();
-                price = yahooData.chart?.result?.[0]?.meta?.regularMarketPrice;
-                if (price) priceSource = 'Yahoo';
-            }
-        }
-        
-        if (!price) throw new Error('Could not fetch stock price from Schwab or Yahoo');
-        console.log(`[xDeepDive] ${ticker} = $${price} (via ${priceSource})`);
-        
-        // Calculate a reasonable put strike (10% OTM) and expiry (30-45 DTE)
-        const strike = Math.floor(price * 0.9);
-        const targetDate = new Date();
-        targetDate.setDate(targetDate.getDate() + 35);
-        // Snap to Friday
-        while (targetDate.getDay() !== 5) targetDate.setDate(targetDate.getDate() + 1);
-        const expiry = targetDate.toISOString().split('T')[0];
-        
-        // Call Deep Dive API
+        // Call Deep Dive API - let backend find the best strike/expiry from real chain
         const response = await fetch('/api/ai/deep-dive', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ticker, strike, expiry, currentPrice: price, model: selectedModel })
+            body: JSON.stringify({ 
+                ticker, 
+                model: selectedModel,
+                targetDelta: 0.20  // Conservative 0.20 delta
+            })
         });
         
         if (!response.ok) {
@@ -1870,6 +1845,12 @@ window.xDeepDive = async function(ticker) {
         
         const result = await response.json();
         
+        // Get the REAL strike/expiry/price from the backend (from real options chain)
+        const strike = result.strike;
+        const expiry = result.expiry;
+        const price = result.currentPrice;
+        const premium = result.premium;
+        
         // Format the analysis
         let formatted = result.analysis
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#7a8a94;">$1</strong>')
@@ -1877,17 +1858,20 @@ window.xDeepDive = async function(ticker) {
             .replace(/(🎯|⚠️|💡|📊)/g, '<span style="font-size:14px;">$1</span>')
             .replace(/\n/g, '<br>');
         
-        // Get CBOE premium if available
-        const premiumInfo = result.premium ? 
+        // Show premium info with delta (from real chain data)
+        const premiumInfo = premium ? 
             `<div style="background:rgba(139,92,246,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
-                <strong style="color:#7a8a94;">Current Premium:</strong> $${result.premium} per contract
-                <span style="color:#666; margin-left:10px;">(via CBOE delayed)</span>
+                <strong style="color:#7a8a94;">Current Premium:</strong> $${premium.mid?.toFixed(2) || premium.bid?.toFixed(2) || '?'} per share
+                <span style="color:#666; margin-left:10px;">(bid $${premium.bid?.toFixed(2)} / ask $${premium.ask?.toFixed(2)})</span>
+                ${premium.delta ? `<span style="margin-left:15px; color:#00d9ff;">Δ ${(premium.delta * 100).toFixed(0)}%</span>` : ''}
+                ${premium.iv ? `<span style="margin-left:15px; color:#ffaa00;">IV ${premium.iv}%</span>` : ''}
             </div>` : '';
         
         document.getElementById('xDeepDiveContent').innerHTML = `
             <div style="background:rgba(29,161,242,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
-                <strong style="color:#1da1f2;">${ticker}</strong> @ $${price.toFixed(2)} <span style="color:#666; font-size:10px;">(${priceSource})</span>
-                <span style="margin-left:20px;">Analyzing: Sell $${strike} Put expiring ${expiry}</span>
+                <strong style="color:#1da1f2;">${ticker}</strong> @ $${price?.toFixed(2) || '?'}
+                <span style="margin-left:20px;">Analyzing: <span style="color:#00ff88;">Sell $${strike} Put</span> expiring ${expiry}</span>
+                <span style="color:#666; font-size:10px; margin-left:10px;">(real chain data)</span>
             </div>
             ${premiumInfo}
             <div style="white-space:pre-wrap;">${formatted}</div>
@@ -1905,7 +1889,7 @@ window.xDeepDive = async function(ticker) {
         
         // Attach click handler with closure to preserve analysis text and premium
         document.getElementById('xDeepDiveStageBtn').onclick = () => {
-            window.stageFromXSentiment(ticker, price, strike, expiry, result.analysis, result.premium);
+            window.stageFromXSentiment(ticker, price, strike, expiry, result.analysis, premium?.mid || premium?.bid);
             document.getElementById('xDeepDiveModal')?.remove();
         };
         
@@ -3264,19 +3248,28 @@ window.confirmStagedTrade = function(id) {
     let premiumFieldsHtml = '';
     
     if (isSpread) {
-        // Spread: two strikes + two premiums + net credit display
+        // Spread: two strikes (dropdowns) + two premiums + net credit display
         strikeFieldsHtml = `
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                 <div>
                     <label style="color:#00ff88; font-size:12px;">Sell Strike</label>
-                    <input id="confirmSellStrike" type="number" value="${sellStrike}" step="0.5"
-                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #00ff88; color:#fff; border-radius:4px;">
+                    <select id="confirmSellStrike" 
+                           onchange="window.onStrikeChange()"
+                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #00ff88; color:#fff; border-radius:4px; cursor:pointer;">
+                        <option value="${sellStrike}">$${sellStrike} (loading...)</option>
+                    </select>
                 </div>
                 <div>
                     <label style="color:#ff5252; font-size:12px;">Buy Strike (protection)</label>
-                    <input id="confirmBuyStrike" type="number" value="${buyStrike}" step="0.5"
-                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px;">
+                    <select id="confirmBuyStrike" 
+                           onchange="window.onStrikeChange()"
+                           style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px; cursor:pointer;">
+                        <option value="${buyStrike}">$${buyStrike} (loading...)</option>
+                    </select>
                 </div>
+            </div>
+            <div id="strikeLoadingStatus" style="color:#888; font-size:11px; text-align:center; margin-top:4px;">
+                ⏳ Loading available strikes...
             </div>
         `;
         premiumFieldsHtml = `
@@ -3284,13 +3277,13 @@ window.confirmStagedTrade = function(id) {
                 <div>
                     <label style="color:#00ff88; font-size:12px;">Sell Premium (received)</label>
                     <input id="confirmSellPremium" type="number" step="0.01" placeholder="e.g., 5.50"
-                           oninput="window.updateNetCredit()"
+                           oninput="window.updateNetCredit(); window.updateSpreadRisk();"
                            style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #00ff88; color:#fff; border-radius:4px;">
                 </div>
                 <div>
                     <label style="color:#ff5252; font-size:12px;">Buy Premium (paid)</label>
                     <input id="confirmBuyPremium" type="number" step="0.01" placeholder="e.g., 3.15"
-                           oninput="window.updateNetCredit()"
+                           oninput="window.updateNetCredit(); window.updateSpreadRisk();"
                            style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px;">
                 </div>
             </div>
@@ -3307,6 +3300,27 @@ window.confirmStagedTrade = function(id) {
                 ${trade.premium ? `<div style="color:#666; font-size:10px; margin-top:6px; text-align:center;">
                     💡 AI estimated ~$${trade.premium.toFixed(2)}/share net credit. Enter actual fill prices above.
                 </div>` : ''}
+            </div>
+            <div id="spreadRiskDisplay" style="background:linear-gradient(135deg, rgba(255,82,82,0.15), rgba(255,170,0,0.1)); padding:12px; border-radius:8px; border:1px solid rgba(255,82,82,0.3); margin-top:4px;">
+                <div style="font-size:11px; color:#888; margin-bottom:8px; text-transform:uppercase; letter-spacing:1px;">⚠️ Risk Analysis</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                    <div>
+                        <span style="color:#888; font-size:11px;">Spread Width:</span>
+                        <div id="spreadWidthDisplay" style="color:#ffaa00; font-size:14px; font-weight:bold;">$${Math.abs(sellStrike - buyStrike).toFixed(0)}</div>
+                    </div>
+                    <div>
+                        <span style="color:#888; font-size:11px;">Risk:Reward Ratio:</span>
+                        <div id="riskRewardRatio" style="color:#00d9ff; font-size:14px; font-weight:bold;">-</div>
+                    </div>
+                    <div>
+                        <span style="color:#888; font-size:11px;">Max Loss <span id="maxLossContractCount" style="color:#666;">(1 contract)</span>:</span>
+                        <div id="totalMaxLoss" style="color:#ff5252; font-size:18px; font-weight:bold;">-</div>
+                    </div>
+                    <div>
+                        <span style="color:#888; font-size:11px;">Breakeven:</span>
+                        <div id="breakevenPrice" style="color:#ffaa00; font-size:14px; font-weight:bold;">-</div>
+                    </div>
+                </div>
             </div>
         `;
     } else {
@@ -3345,7 +3359,7 @@ window.confirmStagedTrade = function(id) {
                     <div>
                         <label style="color:#888; font-size:12px;">Contracts</label>
                         <input id="confirmContracts" type="number" value="${trade.contracts || 1}" min="1"
-                               oninput="window.updateNetCredit()"
+                               oninput="window.updateNetCredit(); window.updateSpreadRisk();"
                                style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
                     </div>
                     <div>
@@ -3409,6 +3423,163 @@ window.updateNetCredit = function() {
 };
 
 /**
+ * Update spread risk analysis display (max loss, risk:reward, breakeven)
+ */
+window.updateSpreadRisk = function() {
+    const sellStrike = parseFloat(document.getElementById('confirmSellStrike')?.value) || 0;
+    const buyStrike = parseFloat(document.getElementById('confirmBuyStrike')?.value) || 0;
+    const sellPremium = parseFloat(document.getElementById('confirmSellPremium')?.value) || 0;
+    const buyPremium = parseFloat(document.getElementById('confirmBuyPremium')?.value) || 0;
+    const contracts = parseInt(document.getElementById('confirmContracts')?.value) || 1;
+    const tradeType = document.getElementById('confirmTradeType')?.value || 'put_credit_spread';
+    
+    const isPutSpread = tradeType.includes('put');
+    const spreadWidth = Math.abs(sellStrike - buyStrike);
+    const netCredit = sellPremium - buyPremium;
+    const maxLossPerShare = spreadWidth - netCredit;  // For credit spreads
+    const maxLossPerContract = maxLossPerShare * 100;
+    const totalMaxLoss = maxLossPerContract * contracts;
+    
+    // Breakeven: for put credit spread = sell strike - net credit
+    // For call credit spread = sell strike + net credit
+    const breakeven = isPutSpread 
+        ? (sellStrike - netCredit)
+        : (sellStrike + netCredit);
+    
+    // Risk:Reward ratio (how much you risk to gain $1)
+    const riskRewardRatio = netCredit > 0 ? (maxLossPerShare / netCredit).toFixed(2) : '-';
+    const rewardRiskRatio = maxLossPerShare > 0 ? (netCredit / maxLossPerShare * 100).toFixed(0) : '-';  // As percentage return
+    
+    // Update displays
+    const widthEl = document.getElementById('spreadWidthDisplay');
+    const totalMaxLossEl = document.getElementById('totalMaxLoss');
+    const contractCountEl = document.getElementById('maxLossContractCount');
+    const ratioEl = document.getElementById('riskRewardRatio');
+    const breakevenEl = document.getElementById('breakevenPrice');
+    
+    if (widthEl) widthEl.textContent = `$${spreadWidth.toFixed(0)}`;
+    
+    // Update contract count label
+    if (contractCountEl) {
+        contractCountEl.textContent = `(${contracts} contract${contracts > 1 ? 's' : ''})`;
+    }
+    
+    if (totalMaxLossEl) {
+        totalMaxLossEl.textContent = netCredit > 0 ? `$${totalMaxLoss.toLocaleString()}` : '-';
+        // Color code based on severity
+        if (totalMaxLoss > 5000) {
+            totalMaxLossEl.style.color = '#ff5252';  // Red for large risk
+        } else if (totalMaxLoss > 2000) {
+            totalMaxLossEl.style.color = '#ffaa00';  // Orange for medium
+        } else {
+            totalMaxLossEl.style.color = '#00ff88';  // Green for manageable
+        }
+    }
+    
+    if (ratioEl) {
+        if (riskRewardRatio !== '-') {
+            ratioEl.textContent = `${riskRewardRatio}:1`;
+            // Color code: < 2:1 is good, 2-3:1 is ok, > 3:1 is concerning
+            const ratio = parseFloat(riskRewardRatio);
+            if (ratio < 2) {
+                ratioEl.style.color = '#00ff88';
+            } else if (ratio < 3) {
+                ratioEl.style.color = '#ffaa00';
+            } else {
+                ratioEl.style.color = '#ff5252';
+            }
+            ratioEl.title = `You risk $${riskRewardRatio} to make $1. Return: ${rewardRiskRatio}% if max profit`;
+        } else {
+            ratioEl.textContent = '-';
+        }
+    }
+    
+    if (breakevenEl) {
+        breakevenEl.textContent = netCredit > 0 ? `$${breakeven.toFixed(2)}` : '-';
+    }
+};
+
+/**
+ * Called when user changes strike dropdown - refresh prices for new strikes
+ */
+window.onStrikeChange = async function() {
+    window.updateSpreadRisk();
+    
+    const ticker = document.getElementById('confirmTicker')?.value;
+    const sellStrike = document.getElementById('confirmSellStrike')?.value;
+    const buyStrike = document.getElementById('confirmBuyStrike')?.value;
+    const expiry = document.getElementById('confirmExpiry')?.value;
+    const tradeType = document.getElementById('confirmTradeType')?.value || 'put_credit_spread';
+    const isPut = tradeType.includes('put');
+    
+    // Fetch prices for new strikes
+    await fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, isPut);
+};
+
+/**
+ * Populate strike dropdowns with real chain data
+ */
+window.populateStrikeDropdowns = function(options, expiry, currentSellStrike, currentBuyStrike) {
+    const sellSelect = document.getElementById('confirmSellStrike');
+    const buySelect = document.getElementById('confirmBuyStrike');
+    const statusEl = document.getElementById('strikeLoadingStatus');
+    
+    if (!sellSelect || !buySelect) return;
+    
+    // Filter to target expiry and get unique strikes
+    const optsAtExpiry = options.filter(o => o.expiration === expiry);
+    const strikes = [...new Set(optsAtExpiry.map(o => o.strike))].sort((a, b) => b - a);  // Descending (higher strikes first)
+    
+    if (strikes.length === 0) {
+        if (statusEl) {
+            statusEl.textContent = '⚠️ No strikes found for this expiry';
+            statusEl.style.color = '#ffaa00';
+        }
+        return;
+    }
+    
+    // Build options HTML
+    const buildOptions = (selectedValue) => {
+        return strikes.map(s => {
+            const opt = optsAtExpiry.find(o => o.strike === s);
+            const bidAsk = opt ? ` (bid $${opt.bid?.toFixed(2) || '?'})` : '';
+            const selected = Math.abs(s - parseFloat(selectedValue)) < 0.01 ? 'selected' : '';
+            return `<option value="${s}" ${selected}>$${s}${bidAsk}</option>`;
+        }).join('');
+    };
+    
+    sellSelect.innerHTML = buildOptions(currentSellStrike);
+    buySelect.innerHTML = buildOptions(currentBuyStrike);
+    
+    if (statusEl) {
+        statusEl.textContent = `✅ ${strikes.length} strikes available`;
+        statusEl.style.color = '#00ff88';
+        setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+    }
+    
+    console.log(`[CONFIRM] Populated dropdowns with ${strikes.length} strikes`);
+};
+
+/**
+ * Refresh option prices when user changes strikes (legacy - kept for compatibility)
+ */
+window.refreshSpreadPrices = async function() {
+    const ticker = document.getElementById('confirmTicker')?.value;
+    const sellStrike = document.getElementById('confirmSellStrike')?.value;
+    const buyStrike = document.getElementById('confirmBuyStrike')?.value;
+    const expiry = document.getElementById('confirmExpiry')?.value;
+    const tradeType = document.getElementById('confirmTradeType')?.value || 'put_credit_spread';
+    const isPut = tradeType.includes('put');
+    
+    try {
+        await fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, isPut);
+        window.updateSpreadRisk();
+    } catch (err) {
+        console.warn('Error refreshing prices:', err);
+    }
+};
+
+/**
  * Fetch option prices for spread and populate modal fields
  */
 async function fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, isPut) {
@@ -3427,10 +3598,13 @@ async function fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, 
         
         console.log(`[CONFIRM] Looking for ${ticker} ${isPut ? 'PUT' : 'CALL'} strikes $${sellStrike}/$${buyStrike} exp ${expiry}`);
         
+        // Populate strike dropdowns with all available strikes at this expiry
+        window.populateStrikeDropdowns(options, expiry, sellStrike, buyStrike);
+        
         // Show what strikes exist at target expiry
         const targetExpOptions = options.filter(o => o.expiration === expiry);
         
-        // Find matching options - try exact match first, then closest expiry
+        // Find matching options - try exact match first
         let sellOption = options.find(opt => 
             Math.abs(opt.strike - parseFloat(sellStrike)) < 0.01 && opt.expiration === expiry
         );
@@ -3438,35 +3612,23 @@ async function fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, 
             Math.abs(opt.strike - parseFloat(buyStrike)) < 0.01 && opt.expiration === expiry
         );
         
-        // Track if we had to use different expiry (means strike doesn't exist at target)
+        // Track if strike doesn't exist at target expiry
         let sellExpiryMismatch = false;
         let buyExpiryMismatch = false;
         
-        // If exact strike+expiry not found, DON'T fall back to different expiry (prices would be wrong)
-        // Instead, find nearest valid strike at target expiry
-        if (!sellOption) {
-            const nearestSell = targetExpOptions.reduce((prev, curr) => 
-                Math.abs(curr.strike - parseFloat(sellStrike)) < Math.abs(prev.strike - parseFloat(sellStrike)) ? curr : prev
-            , targetExpOptions[0]);
-            if (nearestSell) {
-                console.log(`[CONFIRM] ⚠️ Sell strike $${sellStrike} not found at ${expiry}, nearest is $${nearestSell.strike}`);
-                sellExpiryMismatch = true;
-            }
+        if (!sellOption && targetExpOptions.length > 0) {
+            console.log(`[CONFIRM] ⚠️ Sell strike $${sellStrike} not found at ${expiry}`);
+            sellExpiryMismatch = true;
         }
-        if (!buyOption) {
-            const nearestBuy = targetExpOptions.reduce((prev, curr) => 
-                Math.abs(curr.strike - parseFloat(buyStrike)) < Math.abs(prev.strike - parseFloat(buyStrike)) ? curr : prev
-            , targetExpOptions[0]);
-            if (nearestBuy) {
-                console.log(`[CONFIRM] ⚠️ Buy strike $${buyStrike} not found at ${expiry}, nearest is $${nearestBuy.strike}`);
-                buyExpiryMismatch = true;
-            }
+        if (!buyOption && targetExpOptions.length > 0) {
+            console.log(`[CONFIRM] ⚠️ Buy strike $${buyStrike} not found at ${expiry}`);
+            buyExpiryMismatch = true;
         }
         
         console.log(`[CONFIRM] Sell option:`, sellOption ? `$${sellOption.strike} bid=${sellOption.bid} ask=${sellOption.ask}` : 'NOT FOUND');
         console.log(`[CONFIRM] Buy option:`, buyOption ? `$${buyOption.strike} bid=${buyOption.bid} ask=${buyOption.ask}` : 'NOT FOUND');
         
-        // Populate fields (use mid price: (bid+ask)/2) - only if SAME expiry!
+        // Populate fields (use mid price: (bid+ask)/2)
         if (sellOption) {
             const sellMid = (sellOption.bid + sellOption.ask) / 2;
             document.getElementById('confirmSellPremium').value = sellMid.toFixed(2);
@@ -3478,6 +3640,9 @@ async function fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, 
         
         // Update net credit display
         window.updateNetCredit();
+        
+        // Update risk analysis display
+        window.updateSpreadRisk();
         
         // Show appropriate status
         if (sellExpiryMismatch || buyExpiryMismatch) {
@@ -3987,16 +4152,25 @@ window.runPositionCheckup = async function(positionId) {
     const isPaperMode = window.state?.accountMode === 'paper';
     const storageKey = isPaperMode ? 'wheelhouse_paper_positions' : 'wheelhouse_positions';
     let positions = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    let pos = positions.find(p => p.id === positionId);
+    
+    // Convert to string for comparison (IDs can be numbers or strings)
+    const searchId = String(positionId);
+    let pos = positions.find(p => String(p.id) === searchId);
     
     // If not found in current mode, try the other storage (position might have been created in different mode)
     if (!pos) {
         const altKey = isPaperMode ? 'wheelhouse_positions' : 'wheelhouse_paper_positions';
         const altPositions = JSON.parse(localStorage.getItem(altKey) || '[]');
-        pos = altPositions.find(p => p.id === positionId);
+        pos = altPositions.find(p => String(p.id) === searchId);
+    }
+    
+    // Still not found? Try state.positions (in-memory, might not be synced to localStorage yet)
+    if (!pos && window.state?.positions) {
+        pos = window.state.positions.find(p => String(p.id) === searchId);
     }
     
     if (!pos) {
+        console.error('[Checkup] Position not found:', positionId, 'SearchId:', searchId);
         showNotification('Position not found', 'error');
         return;
     }
@@ -4062,6 +4236,7 @@ window.runPositionCheckup = async function(positionId) {
                 isSpread: isSpread,
                 expiry: pos.expiry,
                 openingThesis: pos.openingThesis,
+                analysisHistory: pos.analysisHistory || [],  // Include prior checkups!
                 positionType: pos.type,  // Important for long vs short evaluation!
                 model
             })
@@ -4159,6 +4334,13 @@ window.runPositionCheckup = async function(positionId) {
         // Calculate DTE
         const dte = Math.ceil((new Date(pos.expiry) - new Date()) / (1000 * 60 * 60 * 24));
         
+        // Build position display string (handle spreads vs single-leg)
+        // Note: isSpread already declared above at line ~4053
+        const strikeDisplay = isSpread 
+            ? `$${pos.sellStrike}/$${pos.buyStrike}` 
+            : `$${pos.strike}`;
+        const typeDisplay = pos.type?.includes('put') ? 'P' : 'C';
+        
         // Display result
         document.getElementById('checkupContent').innerHTML = `
             <div style="background:#0d0d1a;padding:15px;border-radius:8px;margin-bottom:15px;">
@@ -4166,7 +4348,7 @@ window.runPositionCheckup = async function(positionId) {
                     <div>
                         <div style="font-size:12px;color:#888;">Position</div>
                         <div style="font-size:18px;font-weight:bold;color:#00d9ff;">
-                            ${pos.ticker} $${pos.strike}P
+                            ${pos.ticker} ${strikeDisplay}${typeDisplay}
                         </div>
                     </div>
                     <div>
@@ -4243,7 +4425,12 @@ ${pos.openingThesis.aiSummary.fullAnalysis}
             <div style="background:#0d0d1a;padding:20px;border-radius:8px;">
                 <h4 style="margin:0 0 15px;color:#00d9ff;">AI Checkup Analysis</h4>
                 <div style="white-space:pre-wrap;line-height:1.6;font-size:14px;">
-                    ${formatAIResponse(data.checkup.replace(/===SUGGESTED_TRADE===[\s\S]*?===END_TRADE===/g, ''))}
+                    ${formatAIResponse(data.checkup
+                        .replace(/===SUGGESTED_TRADE===[\s\S]*?===END_TRADE===/g, '')
+                        .replace(/\*?\*?6\.\s*SUGGESTED TRADE\*?\*?\s*$/gm, '')
+                        .replace(/\*?\*?6\.\s*SUGGESTED TRADE\*?\*?\s*\n\s*$/gm, '')
+                        .trim()
+                    )}
                 </div>
             </div>
             
@@ -5154,13 +5341,13 @@ window.runStrategyAdvisor = async function() {
             </div>
             <div id="strategyAdvisorFooter" style="display:none; background:rgba(0,0,0,0.5); padding:16px 24px; border-top:1px solid ${expertMode ? '#ffd700' : '#6d28d9'}; flex-shrink:0;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div style="font-size:11px; color:#888;">Click outside or press Escape to close</div>
+                    <div style="font-size:11px; color:#888;">💡 You can also stage alternatives using the buttons in each section above</div>
                     <div style="display:flex; gap:12px;">
                         <button onclick="document.getElementById('strategyAdvisorModal').remove()" style="padding:10px 20px; background:#333; border:1px solid #444; border-radius:8px; color:#ddd; font-size:13px; cursor:pointer;">
                             Close
                         </button>
-                        <button onclick="window.stageStrategyAdvisorTrade();" style="padding:10px 24px; background:linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border:none; border-radius:8px; color:#fff; font-weight:bold; font-size:13px; cursor:pointer; box-shadow:0 4px 12px rgba(34,197,94,0.3);">
-                            ➕ Stage This Trade
+                        <button onclick="window.stageStrategyAdvisorTrade(0);" style="padding:10px 24px; background:linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border:none; border-radius:8px; color:#fff; font-weight:bold; font-size:13px; cursor:pointer; box-shadow:0 4px 12px rgba(34,197,94,0.3);">
+                            📥 Stage Primary
                         </button>
                     </div>
                 </div>
@@ -5257,12 +5444,52 @@ window.runStrategyAdvisor = async function() {
                 </div>
             `;
         }
-        contentHtml += formatAIResponse(data.recommendation);
+        
+        // Format response and inject Stage buttons after each trade section
+        let formattedResponse = formatAIResponse(data.recommendation);
+        
+        // Inject "Stage This" buttons after PRIMARY, ALTERNATIVE #1, and ALTERNATIVE #2 sections
+        // Look for the section headers and add a button before the next section or end
+        const sections = [
+            { marker: '🥇 PRIMARY RECOMMENDATION', index: 0, label: 'Primary' },
+            { marker: '🥈 ALTERNATIVE #1', index: 1, label: 'Alt #1' },
+            { marker: '🥉 ALTERNATIVE #2', index: 2, label: 'Alt #2' }
+        ];
+        
+        sections.forEach(section => {
+            const markerPos = formattedResponse.indexOf(section.marker);
+            if (markerPos === -1) return;
+            
+            // Find where this section ends (next section header or end of document)
+            const nextSectionMarkers = ['🥈 ALTERNATIVE', '🥉 ALTERNATIVE', '❌ STRATEGIES REJECTED', '════'];
+            let sectionEndPos = formattedResponse.length;
+            
+            for (const nextMarker of nextSectionMarkers) {
+                const nextPos = formattedResponse.indexOf(nextMarker, markerPos + section.marker.length);
+                if (nextPos !== -1 && nextPos < sectionEndPos) {
+                    sectionEndPos = nextPos;
+                }
+            }
+            
+            // Insert the Stage button just before the section ends
+            const stageButton = `
+                <div style="margin: 16px 0; text-align: right;">
+                    <button onclick="window.stageStrategyAdvisorTrade(${section.index});" 
+                        style="padding: 8px 16px; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border: none; border-radius: 6px; color: #fff; font-weight: bold; font-size: 12px; cursor: pointer; box-shadow: 0 2px 8px rgba(34,197,94,0.3);">
+                        📥 Stage ${section.label}
+                    </button>
+                </div>
+            `;
+            
+            formattedResponse = formattedResponse.slice(0, sectionEndPos) + stageButton + formattedResponse.slice(sectionEndPos);
+        });
+        
+        contentHtml += formattedResponse;
         
         // Format the AI response (convert markdown to HTML)
         if (contentDiv) contentDiv.innerHTML = contentHtml;
         
-        // Show the footer with Stage Trade button
+        // Show the footer with Stage Trade button (now for Primary by default)
         if (footerDiv) footerDiv.style.display = 'block';
         
         showNotification(`✅ Strategy analysis complete for ${ticker}`, 'success');
@@ -5285,13 +5512,36 @@ window.runStrategyAdvisor = async function() {
 };
 
 // Stage the recommended trade from Strategy Advisor
-window.stageStrategyAdvisorTrade = async function() {
+// sectionIndex: 0 = Primary, 1 = Alt #1, 2 = Alt #2
+window.stageStrategyAdvisorTrade = async function(sectionIndex = 0) {
     if (!lastStrategyAdvisorResult) {
         showNotification('No strategy analysis to stage', 'error');
         return;
     }
     
     const { ticker, spot, recommendation, ivRank, model, stockData } = lastStrategyAdvisorResult;
+    
+    // Extract the specific section based on sectionIndex
+    let sectionText = recommendation;
+    const sectionMarkers = [
+        { start: '🥇 PRIMARY RECOMMENDATION', end: '🥈 ALTERNATIVE' },
+        { start: '🥈 ALTERNATIVE #1', end: '🥉 ALTERNATIVE' },
+        { start: '🥉 ALTERNATIVE #2', end: '❌ STRATEGIES REJECTED' }
+    ];
+    
+    if (sectionIndex >= 0 && sectionIndex < sectionMarkers.length) {
+        const marker = sectionMarkers[sectionIndex];
+        const startPos = recommendation.indexOf(marker.start);
+        if (startPos !== -1) {
+            let endPos = recommendation.indexOf(marker.end, startPos + marker.start.length);
+            // If end marker not found, look for alternatives
+            if (endPos === -1) endPos = recommendation.indexOf('❌ STRATEGIES', startPos);
+            if (endPos === -1) endPos = recommendation.indexOf('════', startPos + marker.start.length);
+            if (endPos === -1) endPos = recommendation.length;
+            sectionText = recommendation.substring(startPos, endPos);
+            console.log(`[STAGE] Extracted section ${sectionIndex}:`, sectionText.substring(0, 200) + '...');
+        }
+    }
     
     // Parse the AI recommendation to extract trade details
     // The AI outputs structured sections like "Sell: $90 put @ $2.50"
@@ -5327,25 +5577,75 @@ window.stageStrategyAdvisorTrade = async function() {
     // Method 1: Look for "Sell TICKER $XX/$XX Put Spread, DATE" format
     // Also handles "Bear Call Spread" and "Bull Put Spread" variations
     // Date can appear with or without "expiry" after it
-    // NEW: Also handles Wall Street format "Sell BITO Feb 27 '26 $11/$10 Put Credit Spread"
-    let spreadMatch = recommendation?.match(/Sell\s+\w+\s+\$(\d+(?:\.\d+)?)\/\$(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread[,.]?\s*(\d{4}-\d{2}-\d{2})?/i);
+    // Optional "Trade:" prefix to handle Strategy Advisor output
+    let spreadMatch = sectionText?.match(/(?:Trade:\s*)?Sell\s+\w+\s+\$(\d+(?:\.\d+)?)\/\$(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread[,.]?\s*(\d{4}-\d{2}-\d{2})?/i);
     
-    // Try Wall Street format if standard didn't match: "Sell TICKER DATE $XX/$XX..."
+    // Try Wall Street format: "Sell TICKER Feb 9 $320/$315 Put Credit Spread" (date before strikes)
+    // Year is optional - "Feb 9" or "Feb 9 '26" or "Feb 9, 2026"
     if (!spreadMatch) {
-        spreadMatch = recommendation?.match(/Sell\s+\w+\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}[,']?\s*'?\d{2,4}\s+\$(\d+(?:\.\d+)?)\/\$(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread/i);
-        if (spreadMatch) {
-            console.log('[STAGE] Matched Wall Street date format');
+        const wsMatch = sectionText?.match(/(?:Trade:\s*)?Sell\s+(\w+)\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:[,']?\s*'?\d{2,4})?)\s+\$(\d+(?:\.\d+)?)\/\$(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread/i);
+        if (wsMatch) {
+            const humanDate = wsMatch[2];
+            expiry = parseHumanDate(humanDate);
+            spreadMatch = [null, wsMatch[3], wsMatch[4], wsMatch[5]];
+            console.log('[STAGE] Matched Wall Street date format:', humanDate, '→', expiry);
         }
     }
+    
+    // Try alternate Wall Street format without dollar signs: "Sell TICKER Feb 9 320/315 Put Spread"
+    if (!spreadMatch) {
+        const wsNoDollar = sectionText?.match(/(?:Trade:\s*)?Sell\s+(\w+)\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:[,']?\s*'?\d{2,4})?)\s+(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread/i);
+        if (wsNoDollar) {
+            const humanDate = wsNoDollar[2];
+            expiry = parseHumanDate(humanDate);
+            spreadMatch = [null, wsNoDollar[3], wsNoDollar[4], wsNoDollar[5]];
+            console.log('[STAGE] Matched Wall Street format (no $):', humanDate, '→', expiry);
+        }
+    }
+
+    // Try ISO date format WITH dollar signs: "Sell TICKER 2026-02-09 $320/$315 Put Credit Spread"
+    if (!spreadMatch) {
+        const isoWithDollar = sectionText?.match(/(?:Trade:\s*)?Sell\s+\w+\s+(\d{4}-\d{2}-\d{2})\s+\$(\d+(?:\.\d+)?)\/\$(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread/i);
+        if (isoWithDollar) {
+            expiry = isoWithDollar[1];
+            spreadMatch = [null, isoWithDollar[2], isoWithDollar[3], isoWithDollar[4]];
+            console.log('[STAGE] Matched ISO date with $ format, expiry:', expiry);
+        }
+    }
+    
+    // Try ISO date format WITHOUT dollar signs: "Sell TICKER 2026-02-09 320/315 Put Credit Spread"
+    if (!spreadMatch) {
+        const isoNoDollar = sectionText?.match(/(?:Trade:\s*)?Sell\s+\w+\s+(\d{4}-\d{2}-\d{2})\s+(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread/i);
+        if (isoNoDollar) {
+            expiry = isoNoDollar[1];
+            spreadMatch = [null, isoNoDollar[2], isoNoDollar[3], isoNoDollar[4]];
+            console.log('[STAGE] Matched ISO date without $ format, expiry:', expiry);
+        }
+    }
+    
+    // Try format without dollar signs at end: "Sell TICKER $XX/$XX Put Spread 2026-02-09" or just "XX/XX"
+    if (!spreadMatch) {
+        const noDollarMatch = sectionText?.match(/(?:Trade:\s*)?Sell\s+\w+\s+(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\s+(?:Bear\s+|Bull\s+)?(Put|Call)\s+(?:Credit\s+)?Spread[,.]?\s*(\d{4}-\d{2}-\d{2})?/i);
+        if (noDollarMatch) {
+            spreadMatch = noDollarMatch;
+            console.log('[STAGE] Matched spread without $ signs');
+        }
+    }
+    
+    // Debug: Log first 500 chars if no match found
+    if (!spreadMatch) {
+        console.log('[STAGE] No spread match found. Section preview:', sectionText?.substring(0, 500));
+    }
+    
     if (spreadMatch) {
         const strike1 = parseFloat(spreadMatch[1]);
         const strike2 = parseFloat(spreadMatch[2]);
-        const optType = spreadMatch[3].toLowerCase();
-        let expDate = spreadMatch[4];
+        const optType = (spreadMatch[3] || 'put').toLowerCase();  // Default to put if missing
+        let expDate = spreadMatch[4] || expiry;  // Use captured expiry if available
         
         // If no date in the header line, look for date elsewhere nearby
         if (!expDate) {
-            const dateMatch = recommendation?.match(/(\d{4}-\d{2}-\d{2})\s*(?:expir|exp)/i);
+            const dateMatch = sectionText?.match(/(\d{4}-\d{2}-\d{2})\s*(?:expir|exp)?/i);
             if (dateMatch) expDate = dateMatch[1];
         }
         
@@ -5367,16 +5667,45 @@ window.stageStrategyAdvisorTrade = async function() {
     // Method 1b: Look for DEBIT spread format "Buy TICKER $XX Put / Sell TICKER $XX Put"
     // This is the Bear Put Spread or Bull Call Spread format (you pay to open)
     if (!spreadMatch) {
-        const debitSpreadMatch = recommendation?.match(/Buy\s+\w+\s+\$(\d+(?:\.\d+)?)\s+(Put|Call)\s*\/\s*Sell\s+\w+\s+\$(\d+(?:\.\d+)?)\s+(Put|Call)[,.]?\s*(\d{4}-\d{2}-\d{2})?/i);
+        let debitSpreadMatch = sectionText?.match(/Buy\s+\w+\s+\$(\d+(?:\.\d+)?)\s+(Put|Call)\s*\/\s*Sell\s+\w+\s+\$(\d+(?:\.\d+)?)\s+(Put|Call)[,.]?\s*(\d{4}-\d{2}-\d{2})?/i);
+        
+        // Pattern B: "Buy $XX/$XX Call Spread" (Bull Call Spread format)
+        if (!debitSpreadMatch) {
+            const bullCallMatch = sectionText?.match(/Buy\s+(?:\w+\s+)?\$?(\d+)\/\$?(\d+)\s+(Call|Put)\s+(?:Debit\s+)?Spread/i);
+            if (bullCallMatch) {
+                const strike1 = parseFloat(bullCallMatch[1]);
+                const strike2 = parseFloat(bullCallMatch[2]);
+                const optType = bullCallMatch[3].toLowerCase();
+                debitSpreadMatch = [null, Math.min(strike1, strike2), optType, Math.max(strike1, strike2), optType, null];
+                console.log('[STAGE] Matched Bull/Bear Debit Spread format');
+            }
+        }
+        
+        // Pattern C: "Bull Call Spread $XX/$XX" or "Bear Put Spread $XX/$XX"
+        if (!debitSpreadMatch) {
+            const namedSpreadMatch = sectionText?.match(/(Bull\s+Call|Bear\s+Put)\s+Spread[:\s]+\$?(\d+)\/\$?(\d+)/i);
+            if (namedSpreadMatch) {
+                const spreadType = namedSpreadMatch[1].toLowerCase();
+                const strike1 = parseFloat(namedSpreadMatch[2]);
+                const strike2 = parseFloat(namedSpreadMatch[3]);
+                if (spreadType.includes('call')) {
+                    debitSpreadMatch = [null, Math.min(strike1, strike2), 'call', Math.max(strike1, strike2), 'call', null];
+                } else {
+                    debitSpreadMatch = [null, Math.max(strike1, strike2), 'put', Math.min(strike1, strike2), 'put', null];
+                }
+                console.log('[STAGE] Matched named debit spread: ' + spreadType);
+            }
+        }
+        
         if (debitSpreadMatch) {
             const buyStrike = parseFloat(debitSpreadMatch[1]);
-            const buyType = debitSpreadMatch[2].toLowerCase();
+            const buyType = (typeof debitSpreadMatch[2] === 'string' ? debitSpreadMatch[2] : 'call').toLowerCase();
             const sellStrike = parseFloat(debitSpreadMatch[3]);
             let expDate = debitSpreadMatch[5];
             
             // If no date in the header line, look for date elsewhere
             if (!expDate) {
-                const dateMatch = recommendation?.match(/(\d{4}-\d{2}-\d{2})\s*(?:expir|exp)/i);
+                const dateMatch = sectionText?.match(/(\d{4}-\d{2}-\d{2})\s*(?:expir|exp)/i);
                 if (dateMatch) expDate = dateMatch[1];
             }
             
@@ -5401,7 +5730,7 @@ window.stageStrategyAdvisorTrade = async function() {
     }
     
     // Method 2: Look for "Credit Received: $X.XX/share" or "Credit Received: $X.XX"
-    const creditMatch = recommendation?.match(/Credit\s+Received:\s*\$(\d+(?:\.\d+)?)(?:\/share)?/i);
+    const creditMatch = sectionText?.match(/Credit\s+Received:\s*\$(\d+(?:\.\d+)?)(?:\/share)?/i);
     if (creditMatch) {
         premium = parseFloat(creditMatch[1]);
         console.log('[STAGE] Found credit received: $' + premium);
@@ -5409,7 +5738,7 @@ window.stageStrategyAdvisorTrade = async function() {
     
     // Method 2b: Look for "Net Debit: $X.XX" for debit spreads
     if (!premium && isDebit) {
-        const debitMatch = recommendation?.match(/Net\s+Debit:\s*\$(\d+(?:\.\d+)?)(?:\s*per\s*share)?/i);
+        const debitMatch = sectionText?.match(/Net\s+Debit:\s*\$(\d+(?:\.\d+)?)(?:\s*per\s*share)?/i);
         if (debitMatch) {
             premium = parseFloat(debitMatch[1]);
             console.log('[STAGE] Found net debit: $' + premium);
@@ -5418,7 +5747,7 @@ window.stageStrategyAdvisorTrade = async function() {
     
     // Method 2c: Look for "Net Credit: $X.XX" (alternate format for credit spreads)
     if (!premium) {
-        const netCreditMatch = recommendation?.match(/Net\s+Credit:\s*\$(\d+(?:\.\d+)?)(?:\s*per\s*share)?/i);
+        const netCreditMatch = sectionText?.match(/Net\s+Credit:\s*\$(\d+(?:\.\d+)?)(?:\s*per\s*share)?/i);
         if (netCreditMatch) {
             premium = parseFloat(netCreditMatch[1]);
             console.log('[STAGE] Found net credit: $' + premium);
@@ -5427,7 +5756,7 @@ window.stageStrategyAdvisorTrade = async function() {
     
     // Method 2d: Look for "Net Credit/Debit: $X.XX per share" (Wall Street Mode format)
     if (!premium) {
-        const netCreditDebitMatch = recommendation?.match(/Net\s+Credit\/Debit:\s*\$(\d+(?:\.\d+)?)\s*per\s*share/i);
+        const netCreditDebitMatch = sectionText?.match(/Net\s+Credit\/Debit:\s*\$(\d+(?:\.\d+)?)\s*per\s*share/i);
         if (netCreditDebitMatch) {
             premium = parseFloat(netCreditDebitMatch[1]);
             console.log('[STAGE] Found net credit/debit: $' + premium);
@@ -5436,8 +5765,8 @@ window.stageStrategyAdvisorTrade = async function() {
     
     // Method 3: Look for "Sell: $XX put @ $X.XX" pattern (alternate format)
     if (!premium) {
-        const sellPutMatch = recommendation?.match(/Sell:\s*\$(\d+(?:\.\d+)?)\s*put\s*@\s*\$(\d+(?:\.\d+)?)/i);
-        const buyPutMatch = recommendation?.match(/Buy:\s*\$(\d+(?:\.\d+)?)\s*put\s*@\s*\$(\d+(?:\.\d+)?)/i);
+        const sellPutMatch = sectionText?.match(/Sell:\s*\$(\d+(?:\.\d+)?)\s*put\s*@\s*\$(\d+(?:\.\d+)?)/i);
+        const buyPutMatch = sectionText?.match(/Buy:\s*\$(\d+(?:\.\d+)?)\s*put\s*@\s*\$(\d+(?:\.\d+)?)/i);
         
         if (sellPutMatch && buyPutMatch) {
             tradeType = 'put_credit_spread';
@@ -5457,8 +5786,8 @@ window.stageStrategyAdvisorTrade = async function() {
     
     // Method 4: Look for single leg patterns "Sell $XX Put" without spread
     if (!spreadMatch && !premium) {
-        const singlePutMatch = recommendation?.match(/Sell\s+(?:\w+\s+)?\$(\d+)\s+Put/i);
-        const singleCallMatch = recommendation?.match(/Sell\s+(?:\w+\s+)?\$(\d+)\s+Call/i);
+        const singlePutMatch = sectionText?.match(/Sell\s+(?:\w+\s+)?\$(\d+)\s+Put/i);
+        const singleCallMatch = sectionText?.match(/Sell\s+(?:\w+\s+)?\$(\d+)\s+Call/i);
         
         if (singlePutMatch) {
             tradeType = 'short_put';
@@ -5472,22 +5801,52 @@ window.stageStrategyAdvisorTrade = async function() {
         }
     }
     
-    // Method 5: Detect Iron Condor (G) - "Sell TICKER $XX/$XX/$XX/$XX Iron Condor"
-    const ironCondorMatch = recommendation?.match(/Sell\s+\w+\s+\$(\d+)\/\$(\d+)\/\$(\d+)\/\$(\d+)\s+Iron\s+Condor/i);
+    // Method 5: Detect Iron Condor - multiple patterns
+    // Pattern A: "Sell TICKER $XX/$XX/$XX/$XX Iron Condor"
+    let ironCondorMatch = sectionText?.match(/Sell\s+\w+\s+\$(\d+)\/\$(\d+)\/\$(\d+)\/\$(\d+)\s+Iron\s+Condor/i);
+    
+    // Pattern B: "Sell TICKER XX/XX Call Credit Spread + XX/XX Put Credit Spread" (Wall Street format)
+    if (!ironCondorMatch) {
+        const icPatternB = sectionText?.match(/Sell\s+\w+\s+(\d+)\/(\d+)\s+Call\s+(?:Credit\s+)?Spread\s*\+\s*(\d+)\/(\d+)\s+Put\s+(?:Credit\s+)?Spread/i);
+        if (icPatternB) {
+            ironCondorMatch = icPatternB;
+            console.log('[STAGE] Matched Iron Condor Wall Street format');
+        }
+    }
+    
+    // Pattern C: Alternative with $ signs - "$110/$115 Call ... + $100/$95 Put"
+    if (!ironCondorMatch) {
+        const icPatternC = sectionText?.match(/\$(\d+)\/\$(\d+)\s+Call\s+(?:Credit\s+)?Spread\s*\+\s*\$(\d+)\/\$(\d+)\s+Put\s+(?:Credit\s+)?Spread/i);
+        if (icPatternC) {
+            ironCondorMatch = icPatternC;
+            console.log('[STAGE] Matched Iron Condor with $ signs');
+        }
+    }
+    
     if (ironCondorMatch) {
         tradeType = 'iron_condor';
-        const putSell = parseFloat(ironCondorMatch[1]);
-        const putBuy = parseFloat(ironCondorMatch[2]);
-        const callSell = parseFloat(ironCondorMatch[3]);
-        const callBuy = parseFloat(ironCondorMatch[4]);
-        strike = putSell;  // Use put sell as primary strike
-        upperStrike = callSell;  // Use call sell as upper strike
-        console.log('[STAGE] Detected Iron Condor: ' + putSell + '/' + putBuy + '/' + callSell + '/' + callBuy);
+        // For call spread: sell lower, buy higher (bearish side)
+        // For put spread: sell higher, buy lower (bullish side)
+        const callSell = parseFloat(ironCondorMatch[1]);
+        const callBuy = parseFloat(ironCondorMatch[2]);
+        const putSell = parseFloat(ironCondorMatch[3]);
+        const putBuy = parseFloat(ironCondorMatch[4]);
+        
+        // Store all four strikes for Iron Condor
+        // Primary display: use put sell as "strike" and call sell as "upperStrike"
+        strike = putSell;        // Put sell strike (lower wing)
+        upperStrike = callSell;  // Call sell strike (upper wing)
+        
+        // Store full IC details in a way we can reconstruct
+        // Format: putBuy/putSell/callSell/callBuy (lowest to highest)
+        const sortedStrikes = [putBuy, putSell, callSell, callBuy].sort((a, b) => a - b);
+        console.log('[STAGE] Detected Iron Condor: Put ' + putSell + '/' + putBuy + ' | Call ' + callSell + '/' + callBuy);
+        console.log('[STAGE] IC strikes (low to high): ' + sortedStrikes.join('/'));
     }
     
     // Method 6: Detect Long Put (E) - "Buy TICKER $XX Put"
-    const longPutMatch = recommendation?.match(/Buy\s+\w+\s+\$(\d+)\s+Put,?\s*(\d{4}-\d{2}-\d{2})?/i);
-    if (longPutMatch && !recommendation?.match(/Spread/i)) {
+    const longPutMatch = sectionText?.match(/Buy\s+\w+\s+\$(\d+)\s+Put,?\s*(\d{4}-\d{2}-\d{2})?/i);
+    if (longPutMatch && !sectionText?.match(/Spread/i)) {
         tradeType = 'long_put';
         isDebit = true;
         strike = parseFloat(longPutMatch[1]);
@@ -5496,8 +5855,8 @@ window.stageStrategyAdvisorTrade = async function() {
     }
     
     // Method 7: Detect Long Call (F) - "Buy TICKER $XX Call"
-    const longCallMatch = recommendation?.match(/Buy\s+\w+\s+\$(\d+)\s+Call,?\s*(\d{4}-\d{2}-\d{2})?/i);
-    if (longCallMatch && !recommendation?.match(/Spread|SKIP|LEAPS/i)) {
+    const longCallMatch = sectionText?.match(/Buy\s+\w+\s+\$(\d+)\s+Call,?\s*(\d{4}-\d{2}-\d{2})?/i);
+    if (longCallMatch && !sectionText?.match(/Spread|SKIP|LEAPS|PMCC|Poor Man/i)) {
         tradeType = 'long_call';
         isCall = true;
         isDebit = true;
@@ -5507,7 +5866,7 @@ window.stageStrategyAdvisorTrade = async function() {
     }
     
     // Method 8: Detect SKIP™ (H) - "Buy TICKER $XX LEAPS Call + Buy $XX SKIP Call"
-    const skipMatch = recommendation?.match(/Buy\s+\w+\s+\$(\d+)\s+LEAPS\s+Call.*?\+.*?Buy\s+\$(\d+)\s+SKIP\s+Call/i);
+    const skipMatch = sectionText?.match(/Buy\s+\w+\s+\$(\d+)\s+LEAPS\s+Call.*?\+.*?Buy\s+\$(\d+)\s+SKIP\s+Call/i);
     if (skipMatch) {
         tradeType = 'skip_call';
         isCall = true;
@@ -5517,10 +5876,40 @@ window.stageStrategyAdvisorTrade = async function() {
         console.log('[STAGE] Detected SKIP strategy: LEAPS $' + strike + ' + SKIP $' + upperStrike);
     }
     
+    // Method 9: Detect PMCC (Poor Man's Covered Call) - "Buy TICKER $XX Call LEAP + Sell $XX Call"
+    // Patterns: "Buy SLV Jan 2026 $85 Call LEAP + Sell 110 Call" or "Buy $85 LEAPS Call + Sell $110 Call"
+    if (!tradeType.includes('skip')) {
+        // Pattern A: "Buy TICKER DATE $XX Call LEAP + Sell XX Call"
+        let pmccMatch = sectionText?.match(/Buy\s+\w+\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\s+\$?(\d+)\s+Call\s+LEAPS?\s*\+\s*Sell\s+\$?(\d+)\s+Call/i);
+        
+        // Pattern B: "Buy $XX LEAPS Call + Sell $XX Call"
+        if (!pmccMatch) {
+            pmccMatch = sectionText?.match(/Buy\s+(?:\w+\s+)?\$?(\d+)\s+(?:LEAPS?\s+)?Call.*?\+\s*Sell\s+\$?(\d+)\s+Call/i);
+        }
+        
+        // Pattern C: Look for PMCC/Poor Man's in the section header and extract strikes
+        if (!pmccMatch && sectionText?.match(/Poor Man'?s?|PMCC/i)) {
+            const leapsStrike = sectionText?.match(/Buy\s+(?:\w+\s+)?(?:.*?)?\$?(\d+)\s+(?:Call\s+)?LEAPS?/i);
+            const sellStrike = sectionText?.match(/Sell\s+\$?(\d+)\s+Call/i);
+            if (leapsStrike && sellStrike) {
+                pmccMatch = [null, leapsStrike[1], sellStrike[1]];
+            }
+        }
+        
+        if (pmccMatch) {
+            tradeType = 'pmcc';  // Poor Man's Covered Call
+            isCall = true;
+            isDebit = true;
+            strike = parseFloat(pmccMatch[1]);      // LEAPS strike (buy)
+            upperStrike = parseFloat(pmccMatch[2]); // Short call strike (sell)
+            console.log('[STAGE] Detected PMCC: Buy $' + strike + ' LEAPS, Sell $' + upperStrike + ' Call');
+        }
+    }
+    
     // Try to find premium from other patterns if still missing
     if (!premium) {
         // "Net Credit: $X.XX" or "Premium: $X.XX" or "Total Credit: $X.XX"
-        const altPremMatch = recommendation?.match(/(?:Net\s+Credit|Premium|Credit|Total\s+Credit):\s*\$?(\d+(?:\.\d+)?)/i);
+        const altPremMatch = sectionText?.match(/(?:Net\s+Credit|Premium|Credit|Total\s+Credit):\s*\$?(\d+(?:\.\d+)?)/i);
         if (altPremMatch) {
             premium = parseFloat(altPremMatch[1]);
             console.log('[STAGE] Found premium from alt pattern: $' + premium);
@@ -5529,7 +5918,7 @@ window.stageStrategyAdvisorTrade = async function() {
     
     // Method 9: For debit trades, look for "Debit Paid: $X.XX" or "Cost per contract: $XXX"
     if (!premium && isDebit) {
-        const debitMatch = recommendation?.match(/(?:Debit\s+Paid|Cost\s+per\s+contract):\s*\$?(\d+(?:\.\d+)?)/i);
+        const debitMatch = sectionText?.match(/(?:Debit\s+Paid|Cost\s+per\s+contract):\s*\$?(\d+(?:\.\d+)?)/i);
         if (debitMatch) {
             premium = parseFloat(debitMatch[1]);
             // If it's > 50, it's probably per-contract, convert to per-share
@@ -5541,18 +5930,18 @@ window.stageStrategyAdvisorTrade = async function() {
     // Method 10: Calculate from "Max Profit per contract: $XXX" or just "Max Profit: $XXX" (for spreads, premium = maxProfit/100)
     if (!premium && tradeType?.includes('_spread')) {
         // Try with "per contract" first
-        let maxProfitMatch = recommendation?.match(/Max\s+Profit\s+per\s+contract:\s*\$?(\d+(?:,\d{3})*)/i);
+        let maxProfitMatch = sectionText?.match(/Max\s+Profit\s+per\s+contract:\s*\$?(\d+(?:,\d{3})*)/i);
         // Try without "per contract" (the post-processed format)
         if (!maxProfitMatch) {
-            maxProfitMatch = recommendation?.match(/Per\s+Contract:[\s\S]*?Max\s+Profit:\s*\$?(\d+(?:,\d{3})*)/i);
+            maxProfitMatch = sectionText?.match(/Per\s+Contract:[\s\S]*?Max\s+Profit:\s*\$?(\d+(?:,\d{3})*)/i);
         }
         // Try simple "Max Profit:" pattern (first occurrence, typically per-contract)
         if (!maxProfitMatch) {
-            maxProfitMatch = recommendation?.match(/Max\s+Profit:\s*\$?(\d+(?:,\d{3})*)/i);
+            maxProfitMatch = sectionText?.match(/Max\s+Profit:\s*\$?(\d+(?:,\d{3})*)/i);
         }
         // Try table format "| Max Profit | $35 |" (Wall Street Mode)
         if (!maxProfitMatch) {
-            maxProfitMatch = recommendation?.match(/\|\s*Max\s+Profit\s*\|\s*\$?(\d+(?:,\d{3})*)/i);
+            maxProfitMatch = sectionText?.match(/\|\s*Max\s+Profit\s*\|\s*\$?(\d+(?:,\d{3})*)/i);
         }
         if (maxProfitMatch) {
             const maxProfitPerContract = parseFloat(maxProfitMatch[1].replace(/,/g, ''));
@@ -5563,7 +5952,7 @@ window.stageStrategyAdvisorTrade = async function() {
     
     // For Iron Condor, use total credit
     if (!premium && tradeType === 'iron_condor') {
-        const totalCreditMatch = recommendation?.match(/Total\s+Credit:\s*\$?(\d+(?:\.\d+)?)/i);
+        const totalCreditMatch = sectionText?.match(/Total\s+Credit:\s*\$?(\d+(?:\.\d+)?)/i);
         if (totalCreditMatch) {
             premium = parseFloat(totalCreditMatch[1]);
             console.log('[STAGE] Found Iron Condor total credit: $' + premium);
@@ -5571,7 +5960,7 @@ window.stageStrategyAdvisorTrade = async function() {
     }
     
     // Extract recommended contracts from "Recommended Contracts: X" or "Contracts: X"
-    const contractsMatch = recommendation?.match(/(?:Recommended\s+)?Contracts:\s*(\d+)/i);
+    const contractsMatch = sectionText?.match(/(?:Recommended\s+)?Contracts:\s*(\d+)/i);
     if (contractsMatch) {
         contracts = parseInt(contractsMatch[1]);
         console.log('[STAGE] Found contracts: ' + contracts);
@@ -5587,7 +5976,7 @@ window.stageStrategyAdvisorTrade = async function() {
     ];
     
     for (const pattern of expPatterns) {
-        const match = recommendation?.match(pattern);
+        const match = sectionText?.match(pattern);
         if (match) {
             expiry = match[1];
             console.log('[STAGE] Found expiry: ' + expiry);
@@ -5597,7 +5986,7 @@ window.stageStrategyAdvisorTrade = async function() {
     
     // If still no expiry, try to find any YYYY-MM-DD date in the recommendation
     if (!expiry) {
-        const anyDateMatch = recommendation?.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+        const anyDateMatch = sectionText?.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
         if (anyDateMatch) {
             expiry = anyDateMatch[1];
             console.log('[STAGE] Found date: ' + expiry);

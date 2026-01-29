@@ -21,7 +21,7 @@ const { searchWisdom } = require('./WisdomService');
  * @returns {string} Formatted prompt
  */
 function buildDeepDivePrompt(tradeData, tickerData) {
-    const { ticker, strike, expiry, currentPrice } = tradeData;
+    const { ticker, strike, expiry, currentPrice, quickMode } = tradeData;
     const t = tickerData;
     
     const strikeNum = parseFloat(strike);
@@ -55,80 +55,45 @@ function buildDeepDivePrompt(tradeData, tickerData) {
         let probProfit = '';
         if (p.delta) {
             const pop = ((1 - Math.abs(p.delta)) * 100).toFixed(0);
-            probProfit = `\nProbability of Profit: ~${pop}% (based on delta ${p.delta.toFixed(2)})`;
-        }
-        
-        const source = p.source === 'schwab' ? '🔴 SCHWAB (real-time)' : '🔵 CBOE (15-min delay)';
-        
-        // Note if strike was adjusted to actual available strike
-        let strikeNote = '';
-        if (p.actualStrike && Math.abs(p.actualStrike - strikeNum) > 0.01) {
-            strikeNote = `\n⚠️ NOTE: Using actual available strike $${p.actualStrike} (requested $${strikeNum} not available)`;
+            probProfit = ` | Win Prob: ~${pop}%`;
         }
         
         premiumSection = `
-═══ LIVE OPTION PRICING — ${source} ═══${strikeNote}
-Bid: $${p.bid.toFixed(2)} | Ask: $${p.ask.toFixed(2)} | Mid: $${premiumPerShare}
-Volume: ${p.volume} | Open Interest: ${p.openInterest}
-${p.iv ? `Implied Volatility: ${p.iv}%` : ''}${probProfit}
-Premium Income: $${totalPremium} (for 1 contract)
-If Assigned, Cost Basis: $${costBasis}/share
-Return on Capital: ${roc}% for ${dte} days = ${annualizedRoc}% annualized`;
+LIVE PREMIUM (CBOE): Bid $${p.bid.toFixed(2)} / Ask $${p.ask.toFixed(2)}${probProfit}
+ROC: ${roc}% for ${dte} days (${annualizedRoc}% annualized)`;
     }
     
-    return `You are analyzing a WHEEL STRATEGY trade in depth. Provide comprehensive analysis.
+    // Concise prompt - straight to the point, no rambling
+    return `QUICK WHEEL ANALYSIS for ${ticker}
 
-═══ THE TRADE ═══
-Ticker: ${ticker}
-Current Price: $${currentPrice || t.price}
-Proposed: Sell $${strike} put, expiry ${expiry}
-OTM Distance: ${otmPercent}%
-Assignment Cost: $${assignmentCost.toLocaleString()} (100 shares @ $${strike})
+STOCK: ${ticker} @ $${currentPrice || t.price}
+EXAMPLE TRADE: Sell $${strike} put (${otmPercent}% OTM), expiry ${expiry}
+52-Week: $${t.yearLow} - $${t.yearHigh}
+Support Levels: $${t.recentSupport.join(', $')}
+${t.sma20 ? `20-Day SMA: $${t.sma20} (${t.aboveSMA20 ? 'above' : 'BELOW'})` : ''}
+${t.earnings ? `⚠️ Earnings: ${t.earnings}` : 'No upcoming earnings'}
 ${premiumSection}
 
-═══ TECHNICAL DATA ═══
-52-Week Range: $${t.yearLow} - $${t.yearHigh}
-3-Month Range: $${t.threeMonthLow} - $${t.threeMonthHigh}
-20-Day SMA: $${t.sma20} (price ${t.aboveSMA20 ? 'ABOVE' : 'BELOW'})
-${t.sma50 ? `50-Day SMA: $${t.sma50} (price ${t.aboveSMA50 ? 'ABOVE' : 'BELOW'})` : ''}
-Recent Support Levels: $${t.recentSupport.join(', $')}
+Give me a CONCISE analysis. NO rambling, NO "let me think about this", NO chain-of-thought. Just the facts:
 
-═══ CALENDAR ═══
-${t.earnings ? `⚠️ Next Earnings: ${t.earnings}` : 'No upcoming earnings date found'}
-${t.exDividend ? `📅 Ex-Dividend: ${t.exDividend}` : ''}
+📊 **THE SETUP** (2-3 sentences max)
+Quick take on ${ticker} right now - trend, recent price action, any catalysts.
 
-═══ PROVIDE THIS ANALYSIS ═══
+🎯 **STRIKE OPTIONS** (be specific with numbers)
+- SAFE: $XX strike (XX% OTM) - for cautious traders
+- BALANCED: $XX strike (XX% OTM) - good risk/reward
+- AGGRESSIVE: $XX strike (XX% OTM) - more premium, more risk
 
-**1. STRIKE ANALYSIS**
-- Is $${strike} a good strike? Compare to support levels and moving averages.
-- More conservative option: What LOWER strike (further OTM) would reduce assignment risk? (less premium, safer)
-- More aggressive option: What HIGHER strike (closer to current price) would yield more premium? (more risk, more reward)
+⏰ **TIMING**
+Is now a good entry? Any reason to wait (earnings, technicals, etc.)?
 
-**2. EXPIRY ANALYSIS**
-- Is ${expiry} a good expiry given the earnings date?
-- Shorter expiry option: If you want less risk
-- Longer expiry option: If you want more premium
+${t.premium ? `💰 **THIS SPECIFIC TRADE ($${strike} put)**
+Is this strike/expiry good? Quick yes/no with one reason.` : ''}
 
-**3. SCENARIO ANALYSIS**
-- Bull case: Stock rallies 10% - what happens?
-- Base case: Stock stays flat - what's your profit?
-- Bear case: Stock drops 15% - are you comfortable owning at $${strike}?
-- Disaster case: Stock drops 30% - what's the damage?
+**VERDICT**: ✅ ENTER / ⚠️ WAIT / ❌ AVOID
+One sentence why.
 
-**4. IF ASSIGNED (the wheel continues)**
-- Cost basis if assigned: $${strike} minus premium received
-- What covered call strike makes sense?
-- Is this a stock you'd WANT to own at $${strike}?
-
-**5. VERDICT** (REQUIRED - be decisive!)
-Rate this trade with ONE of these:
-- ✅ ENTER TRADE - Good setup, acceptable risk
-- ⚠️ WAIT - Not ideal entry, watch for better price
-- ❌ AVOID - Risk too high or poor setup
-
-Give a 1-2 sentence summary justifying your rating.
-
-Be specific with numbers. Use the data provided. DO NOT hedge with "it depends" - make a call.`;
+Keep your ENTIRE response under 250 words. Be decisive.`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -141,12 +106,14 @@ Be specific with numbers. Use the data provided. DO NOT hedge with "it depends" 
  * @param {Object} openingThesis - State when position was opened
  * @param {Object} currentData - Current market data
  * @param {Object} currentPremium - Current option pricing
+ * @param {Array} analysisHistory - Prior checkup results (optional)
  * @returns {string} Formatted prompt
  */
-function buildCheckupPrompt(tradeData, openingThesis, currentData, currentPremium) {
+function buildCheckupPrompt(tradeData, openingThesis, currentData, currentPremium, analysisHistory = []) {
     const { ticker, strike, expiry, positionType, buyStrike, spreadWidth, isSpread } = tradeData;
     const o = openingThesis; // Opening state
     const c = currentData;   // Current state
+    const history = analysisHistory || [];
     
     // Determine if this is a LONG (debit) position - different evaluation!
     const isLongPosition = ['long_call', 'long_put', 'long_call_leaps', 'skip_call', 'call_debit_spread', 'put_debit_spread'].includes(positionType);
@@ -325,6 +292,15 @@ Entry SMA20: $${o.sma20 || 'N/A'} | Now: $${c.sma20 || 'N/A'}
 Entry SMA50: $${o.sma50 || 'N/A'} | Now: $${c.sma50 || 'N/A'}
 Entry Support: $${o.support?.join(', $') || 'N/A'}
 Current Support: $${c.recentSupport?.join(', $') || 'N/A'}
+
+IMPLIED VOLATILITY:
+At Entry: ${o.iv ? o.iv + '%' : 'N/A'}
+Now: ${c.currentIV ? c.currentIV + '% (from ' + (c.ivSource || 'CBOE') + ')' : 'N/A'}
+${o.iv && c.currentIV ? (parseFloat(c.currentIV) > parseFloat(o.iv) 
+    ? `📈 IV has INCREASED by ${(parseFloat(c.currentIV) - parseFloat(o.iv)).toFixed(1)}% - ${isLongPosition ? 'Good for you (vega gain)!' : 'Option more expensive to close'}`
+    : parseFloat(c.currentIV) < parseFloat(o.iv)
+    ? `📉 IV has DECREASED by ${(parseFloat(o.iv) - parseFloat(c.currentIV)).toFixed(1)}% - ${isLongPosition ? 'Bad for you (vega loss)' : 'Good for you! Cheaper to close'}`
+    : '➡️ IV roughly unchanged') : ''}
 ${premiumChange}
 
 CALENDAR EVENTS:
@@ -334,30 +310,46 @@ ${o.earnings && !c.earnings ? '✅ Earnings have PASSED - thesis event resolved'
 ${!o.earnings && c.earnings ? '⚠️ NEW earnings date appeared!' : ''}
 
 ═══ ORIGINAL ENTRY THESIS ═══
-${o.expertMode ? `
-📊 WALL STREET MODE ANALYSIS (Entry)
+📊 MARKET CONDITIONS AT ENTRY (${new Date(o.analyzedAt).toLocaleDateString()})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Model Used: ${o.modelUsed || 'Unknown'}
-
-MARKET ANALYSIS AT ENTRY:
-${o.aiSummary?.marketAnalysis || 'N/A'}
-
-WHY THIS STRATEGY WAS CHOSEN:
-${o.aiSummary?.whyThisStrategy || 'N/A'}
-
-RISKS IDENTIFIED AT ENTRY:
-${o.aiSummary?.theRisks || 'N/A'}
-
-TRADE MANAGEMENT PLAN:
-${o.aiSummary?.tradeManagement || 'N/A'}
-
-STRATEGIES REJECTED:
-${o.aiSummary?.rejectedStrategies || 'N/A'}
+Stock Price: $${entryPrice.toFixed(2)}
+IV at Entry: ${o.iv || 'N/A'}%
+Range Position: ${openingRange}% (0%=3mo low, 100%=3mo high)
+Model Used: ${o.modelUsed || 'N/A'}
+${o.expertMode ? `
+📝 WALL STREET MODE ANALYSIS:
+MARKET ANALYSIS: ${o.aiSummary?.marketAnalysis || 'N/A'}
+WHY THIS STRATEGY: ${o.aiSummary?.whyThisStrategy || 'N/A'}
+RISKS IDENTIFIED: ${o.aiSummary?.theRisks || 'N/A'}
+TRADE MANAGEMENT: ${o.aiSummary?.tradeManagement || 'N/A'}
+` : (o.aiSummary?.aggressive?.trim() || o.aiSummary?.bottomLine?.trim()) ? `
+📝 ENTRY THESIS SPECTRUM:
+🟢 AGGRESSIVE: ${o.aiSummary?.aggressive?.trim() || 'N/A'}
+🟡 MODERATE: ${o.aiSummary?.moderate?.trim() || 'N/A'}
+🔴 CONSERVATIVE: ${o.aiSummary?.conservative?.trim() || 'N/A'}
+📌 BOTTOM LINE: ${o.aiSummary?.bottomLine?.trim() || 'N/A'}
+${o.aiSummary?.probability ? `WIN PROBABILITY: ${o.aiSummary.probability}%` : ''}
+` : o.aiSummary?.fullAnalysis?.trim() ? `
+📝 ENTRY ANALYSIS:
+${o.aiSummary.fullAnalysis.substring(0, 500)}
 ` : `
-Verdict at Entry: ${o.aiSummary?.verdict || 'N/A'}
-Summary: ${o.aiSummary?.summary || 'N/A'}
+📝 ENTRY ANALYSIS: No detailed AI analysis was captured at entry. Use the market conditions above to assess whether original thesis is still valid.
 `}
+${history.length > 0 ? `
+═══ PRIOR CHECKUPS (${history.length} total) ═══
+${history.slice(-5).map((h, i) => {
+    const checkDate = new Date(h.timestamp).toLocaleDateString();
+    const daysAgo = Math.floor((Date.now() - new Date(h.timestamp).getTime()) / (1000 * 60 * 60 * 24));
+    return `
+📋 CHECKUP #${history.length - (history.slice(-5).length - 1 - i)} (${checkDate} - ${daysAgo} days ago)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Recommendation: ${h.recommendation || 'N/A'}
+Stock Price: $${h.snapshot?.spot?.toFixed(2) || 'N/A'} | DTE: ${h.snapshot?.dte || 'N/A'}
+Insight: ${h.insight?.substring(0, 200) || 'N/A'}...`;
+}).join('\n')}
 
+⚠️ IMPORTANT: Consider the TREND of prior checkups. Is the position getting healthier or deteriorating?
+` : ''}
 ═══ YOUR CHECKUP ASSESSMENT ═══
 
 **1. THESIS STATUS**
@@ -431,9 +423,10 @@ Rate the position health:
 
 Give a 2-3 sentence summary of how the position has evolved since entry.
 
-**6. SUGGESTED TRADE (REQUIRED if recommending ROLL, CLOSE, or ADD)**
-If you recommend any action other than HOLD, you MUST provide specific trade details.
-Format EXACTLY like this (we will parse it):
+**6. SUGGESTED TRADE**
+If you recommend ROLL, CLOSE, ADD, or WATCH with a specific action trigger, provide trade details.
+If recommending HOLD with no changes, output: "No trade action required - HOLD position."
+Otherwise, format EXACTLY like this (we will parse it):
 
 ===SUGGESTED_TRADE===
 ACTION: ROLL|CLOSE|ADD_CALL|ADD_PUT|NONE
@@ -2377,28 +2370,46 @@ A high-net-worth client has asked you to analyze ${ticker} and recommend options
                            CLIENT TRADING PHILOSOPHY
 ════════════════════════════════════════════════════════════════════════════════
 
-This client runs a WHEEL STRATEGY / PREMIUM-SELLING focused account:
+You have FULL DISCRETION to recommend ANY strategy that fits the situation. Pick the BEST trade, not just premium-selling defaults. Use your 20 years of experience.
 
-📈 PREFERRED STRATEGIES (in order):
-1. Put Credit Spreads - Collect premium, defined risk, high probability
-2. Cash-Secured Puts - Wheel entry candidates, stocks they'd want to own
-3. Covered Calls - On existing holdings
-4. Call Credit Spreads - Bearish premium collection
+📊 FULL STRATEGY TOOLKIT (use what fits):
 
-⚠️ USE SPARINGLY (require strong conviction):
-• Debit spreads (buying premium) - only when strongly directional
-• Long options - high theta decay risk
-• Complex multi-leg strategies
+BULLISH STRATEGIES:
+• Bull Put Spread (Put Credit Spread) - Sell higher put, buy lower put, collect credit
+• Cash-Secured Put - Wheel entry, want to own shares if assigned
+• Bull Call Spread (Call Debit Spread) - Buy lower call, sell higher call, pay debit
+• Poor Man's Covered Call (PMCC) - Buy deep ITM LEAPS (0.80+ delta), sell OTM short-term calls
+• Long Call - Strong directional conviction (use sparingly, theta risk)
 
-🎯 PROBABILITY TARGETS:
-• PRIMARY trade should have 60-75% probability of profit
-• ALTERNATIVE trades can include higher-risk/higher-reward options
-• Always calculate probability based on breakeven vs current price
+BEARISH STRATEGIES:
+• Bear Call Spread (Call Credit Spread) - Sell lower call, buy higher call, collect credit
+• Bear Put Spread (Put Debit Spread) - Buy higher put, sell lower put, pay debit
+
+NEUTRAL/INCOME STRATEGIES:
+• Covered Call - On existing holdings only
+• Iron Condor - Sell OTM put spread + OTM call spread (range-bound)
+• Calendar Spread - Same strike, different expirations (theta play)
+
+💡 SITUATION-BASED GUIDANCE:
+• Stock at ALL-TIME HIGHS + strong momentum → Consider Bull Call Spread or PMCC (ride the trend)
+• Stock at ALL-TIME HIGHS + extended/overbought → Consider Put Credit Spread (bet it holds)
+• High IV environment → Favor credit strategies (selling premium)
+• Low IV environment → Favor debit strategies (buying cheap options)
+• Expensive stock → PMCC over covered calls (capital efficient)
+
+⛔ HARD RULE - NO INFINITE RISK:
+• NO naked calls
+• NO naked puts on margin
+• ALL positions must have DEFINED MAX LOSS
+
+🎯 PROBABILITY GUIDANCE:
+• PRIMARY trade: 55-75% probability of profit (adjust based on risk/reward)
+• Show probability AND reward-to-risk ratio for context
 
 🔄 WHEEL CANDIDATE CHECK:
-For any put-selling strategy, consider: "Would this client want to own 100 shares of ${ticker} if assigned?" 
-• If YES → Cash-secured put or put credit spread are ideal
-• If QUESTIONABLE → Only spreads (limits assignment risk)
+For put-selling strategies: "Would client want to own 100 shares if assigned?"
+• YES → CSP or put credit spread
+• NO → Only spreads (no assignment risk)
 
 ════════════════════════════════════════════════════════════════════════════════
                               RAW MARKET DATA

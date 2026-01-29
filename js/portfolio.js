@@ -1252,10 +1252,16 @@ export function showClosePanel(id) {
     // Populate panel info
     const infoEl = document.getElementById('closeCurrentInfo');
     if (infoEl) {
+        const isSpread = pos.type?.includes('_spread');
+        const strikeDisplay = isSpread 
+            ? `$${pos.sellStrike}/$${pos.buyStrike}` 
+            : `$${(pos.strike || 0).toFixed(2)}`;
+        const premiumLabel = isSpread ? 'Net credit' : 'Premium received';
+        
         infoEl.innerHTML = `
             <strong style="color:#00ff88;">${pos.ticker}</strong> 
-            ${pos.type.replace('_', ' ')} @ <strong>$${pos.strike.toFixed(2)}</strong>
-            <br>Premium received: <strong>$${pos.premium.toFixed(2)}</strong> × ${pos.contracts} contract(s)
+            ${pos.type.replace(/_/g, ' ')} @ <strong>${strikeDisplay}</strong>
+            <br>${premiumLabel}: <strong>$${(pos.premium || 0).toFixed(2)}</strong> × ${pos.contracts} contract(s)
             <br>Opened: ${pos.openDate || 'Unknown'}
         `;
     }

@@ -816,6 +816,55 @@ td button {
     opacity: 1;
 }
 
+/* Prevent positions table from collapsing during price refreshes */
+#positionsTable {
+    min-height: 100px; /* Prevents vertical shrink during re-render */
+}
+
+#positionsTable table {
+    table-layout: fixed; /* Fixed column widths prevent horizontal jumps */
+    width: 100%;
+}
+
+#positionsTable tbody tr {
+    min-height: 36px; /* Fixed row height prevents vertical flicker */
+    height: 36px;
+}
+
+#positionsTable td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Resizable column headers */
+#positionsTable th {
+    position: relative;
+    user-select: none;
+}
+
+#positionsTable th .resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 5px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 10;
+}
+
+#positionsTable th .resize-handle:hover,
+#positionsTable th .resize-handle.resizing {
+    background: rgba(0, 217, 255, 0.5);
+}
+
+/* Prevent text selection while resizing */
+body.resizing-columns {
+    cursor: col-resize !important;
+    user-select: none !important;
+}
+
 .collapsible-content.collapsed {
     max-height: 0;
     opacity: 0;
