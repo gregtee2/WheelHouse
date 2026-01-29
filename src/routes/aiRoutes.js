@@ -1041,9 +1041,9 @@ Be specific with dollar amounts. Reference any previous AI recommendations if th
         const isGrok = selectedModel.toLowerCase().includes('grok');
         
         if (isGrok) {
-            response = await AIService.callGrok(prompt, { maxTokens: 1200 });
+            response = await AIService.callGrok(prompt, 'grok-4-1-fast', 1200);
         } else {
-            response = await AIService.callAI(prompt, selectedModel, { maxTokens: 1200 });
+            response = await AIService.callAI(prompt, selectedModel, 1200);
         }
         
         // Parse suggested trade
@@ -1206,7 +1206,7 @@ RULES TO FOLLOW:
 Give ONE clear verdict: HOLD, CLOSE, or CLOSE EARLY. Explain in 2-3 sentences why.`;
 
         // Call AI
-        const response = await AIService.callAI(prompt, selectedModel, { maxTokens: 300 });
+        const response = await AIService.callAI(prompt, selectedModel, 300);
         
         // Parse recommendation
         let recommendation = 'HOLD';
