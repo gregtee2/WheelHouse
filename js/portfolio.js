@@ -2392,6 +2392,11 @@ export function renderHoldings() {
                             🔬
                         </button>
                         ` : ''}
+                        <button onclick="window.sellCallAgainstShares(${h.id})" 
+                                style="background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#ffaa00; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
+                                title="Sell a covered call against these shares (links to wheel chain)">
+                            📞 Sell Call
+                        </button>
                         <button onclick="window.sellShares(${h.id})" 
                                 style="background:rgba(255,82,82,0.2); border:1px solid rgba(255,82,82,0.4); color:#f55; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;"
                                 title="Sell shares">
@@ -4057,6 +4062,179 @@ export function sellShares(holdingId) {
     renderPortfolio(false);
 }
 window.sellShares = sellShares;
+
+/**
+ * Sell a covered call against shares from assignment - links to wheel chain
+ */
+export function sellCallAgainstShares(holdingId) {
+    const holding = (state.holdings || []).find(h => h.id === holdingId);
+    if (!holding) {
+        showNotification('Holding not found', 'error');
+        return;
+    }
+    
+    // Get the chain ID from the holding
+    const chainId = holding.chainId || holding.fromPutId || holding.id;
+    const contracts = Math.floor((holding.shares || 100) / 100);
+    
+    // Calculate suggested strike (at or slightly above cost basis)
+    const costBasis = holding.costBasis || holding.strike || 0;
+    const suggestedStrike = Math.ceil(costBasis);  // Round up to nearest dollar
+    
+    // Create modal
+    const modal = document.createElement('div');
+    modal.id = 'sellCallModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:10000;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border-radius:12px; width:400px; padding:24px; border:1px solid #ffaa00;">
+            <h2 style="color:#ffaa00; margin:0 0 16px 0;">📞 Sell Covered Call</h2>
+            
+            <div style="background:rgba(255,170,0,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
+                <div style="font-size:24px; font-weight:bold; color:#00ff88;">${holding.ticker}</div>
+                <div style="color:#888; font-size:14px;">${holding.shares} shares @ $${costBasis.toFixed(2)} cost basis</div>
+                <div style="color:#666; font-size:11px; margin-top:4px;">🔗 Links to wheel chain (premium reduces cost basis)</div>
+            </div>
+            
+            <div style="margin-bottom:12px;">
+                <label style="color:#888; font-size:12px;">Strike Price</label>
+                <input id="ccStrike" type="number" step="0.5" value="${suggestedStrike}" placeholder="e.g., ${suggestedStrike}"
+                       style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px; font-size:16px;">
+            </div>
+            
+            <div style="margin-bottom:12px;">
+                <label style="color:#888; font-size:12px;">Premium Received (per share)</label>
+                <input id="ccPremium" type="number" step="0.01" placeholder="e.g., 1.50"
+                       oninput="window.updateCCPreview(${costBasis}, ${contracts})"
+                       style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #00ff88; color:#00ff88; border-radius:4px; font-size:16px;">
+            </div>
+            
+            <div style="margin-bottom:12px;">
+                <label style="color:#888; font-size:12px;">Expiration Date</label>
+                <input id="ccExpiry" type="date" 
+                       style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px; font-size:16px;">
+            </div>
+            
+            <div style="margin-bottom:12px;">
+                <label style="color:#888; font-size:12px;">Contracts</label>
+                <input id="ccContracts" type="number" min="1" value="${contracts}" 
+                       style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px; font-size:16px;">
+            </div>
+            
+            <div id="ccPreview" style="background:rgba(0,255,136,0.1); padding:12px; border-radius:8px; margin-bottom:16px; border:1px solid rgba(0,255,136,0.3);">
+                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <span style="color:#888;">Total Premium:</span>
+                    <span id="ccTotalPremium" style="color:#00ff88; font-weight:bold;">$0</span>
+                </div>
+                <div style="display:flex; justify-content:space-between;">
+                    <span style="color:#888;">New Cost Basis:</span>
+                    <span id="ccNewBasis" style="color:#00d9ff; font-weight:bold;">$${costBasis.toFixed(2)}</span>
+                </div>
+            </div>
+            
+            <div style="display:flex; gap:12px;">
+                <button onclick="window.confirmSellCall(${holdingId}, ${chainId})" 
+                        style="flex:1; padding:12px; background:linear-gradient(135deg, #ffaa00, #ff8c00); border:none; border-radius:8px; color:#000; font-weight:bold; cursor:pointer;">
+                    Sell Call
+                </button>
+                <button onclick="document.getElementById('sellCallModal').remove()" 
+                        style="flex:1; padding:12px; background:#333; border:none; border-radius:8px; color:#888; cursor:pointer;">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Set default expiry to ~30 days out, on a Friday
+    const thirtyDays = new Date();
+    thirtyDays.setDate(thirtyDays.getDate() + 30);
+    // Adjust to next Friday
+    const dayOfWeek = thirtyDays.getDay();
+    const daysToFriday = (5 - dayOfWeek + 7) % 7 || 7;
+    thirtyDays.setDate(thirtyDays.getDate() + daysToFriday);
+    document.getElementById('ccExpiry').value = thirtyDays.toISOString().split('T')[0];
+}
+window.sellCallAgainstShares = sellCallAgainstShares;
+
+/**
+ * Update the covered call preview display
+ */
+window.updateCCPreview = function(costBasis, contracts) {
+    const premium = parseFloat(document.getElementById('ccPremium')?.value) || 0;
+    const numContracts = parseInt(document.getElementById('ccContracts')?.value) || contracts;
+    const totalPremium = premium * 100 * numContracts;
+    const newBasis = costBasis - (totalPremium / (numContracts * 100));
+    
+    const totalEl = document.getElementById('ccTotalPremium');
+    const basisEl = document.getElementById('ccNewBasis');
+    
+    if (totalEl) totalEl.textContent = `+$${totalPremium.toFixed(0)}`;
+    if (basisEl) basisEl.textContent = `$${newBasis.toFixed(2)}`;
+};
+
+/**
+ * Confirm and create the covered call position linked to chain
+ */
+window.confirmSellCall = function(holdingId, chainId) {
+    const holding = (state.holdings || []).find(h => h.id === holdingId);
+    if (!holding) return;
+    
+    const strike = parseFloat(document.getElementById('ccStrike')?.value);
+    const premium = parseFloat(document.getElementById('ccPremium')?.value);
+    const expiry = document.getElementById('ccExpiry')?.value;
+    const contracts = parseInt(document.getElementById('ccContracts')?.value) || 1;
+    
+    if (!strike || !premium || !expiry) {
+        showNotification('Please fill in all fields', 'error');
+        return;
+    }
+    
+    // Calculate DTE
+    const expiryDate = new Date(expiry);
+    const today = new Date();
+    const dte = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+    
+    // Create the covered call position with the SAME chainId
+    const position = {
+        id: Date.now(),
+        chainId: chainId,  // KEY: Links to the wheel chain!
+        ticker: holding.ticker,
+        type: 'covered_call',
+        strike: strike,
+        premium: premium,
+        contracts: contracts,
+        expiry: expiry,
+        dte: dte,
+        openDate: new Date().toISOString().split('T')[0],
+        status: 'open',
+        broker: holding.broker || 'Schwab',
+        linkedHoldingId: holdingId,
+        isCall: true,
+        costBasis: holding.costBasis  // Track what our shares cost
+    };
+    
+    // Add to positions
+    if (!Array.isArray(state.positions)) state.positions = [];
+    state.positions.push(position);
+    localStorage.setItem('wheelhouse_positions', JSON.stringify(state.positions));
+    
+    // Update holding to link to this call
+    holding.linkedCallId = position.id;
+    localStorage.setItem('wheelhouse_holdings', JSON.stringify(state.holdings));
+    
+    // Close modal
+    document.getElementById('sellCallModal')?.remove();
+    
+    // Refresh displays
+    if (typeof renderPositions === 'function') renderPositions();
+    renderHoldings();
+    
+    const totalPremium = premium * 100 * contracts;
+    showNotification(`📞 Sold ${holding.ticker} $${strike} call for +$${totalPremium.toFixed(0)} (linked to wheel chain)`, 'success');
+};
 
 /**
  * Called Away - shares got called away from covered call
