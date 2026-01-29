@@ -929,7 +929,8 @@ router.post('/holding-suggestion', async (req, res) => {
             return res.status(400).json({ error: 'Missing required fields: ticker, strike' });
         }
         
-        const selectedModel = model || 'qwen2.5:32b';
+        // Ensure model is a string
+        const selectedModel = (typeof model === 'string' && model) ? model : 'qwen2.5:32b';
         console.log(`[AI] 📊 Holding suggestion for ${ticker} $${strike} via ${selectedModel}`);
         
         // Fetch current price via MarketDataService
@@ -1124,7 +1125,8 @@ router.post('/spread-advisor', async (req, res) => {
             return res.status(400).json({ error: 'Missing required fields: ticker, sellStrike, buyStrike' });
         }
         
-        const selectedModel = model || 'qwen2.5:14b';
+        // Ensure model is a string
+        const selectedModel = (typeof model === 'string' && model) ? model : 'qwen2.5:14b';
         console.log(`[AI] 📊 Spread advisor for ${ticker} $${sellStrike}/$${buyStrike} via ${selectedModel}`);
         
         // Fetch current price via MarketDataService
