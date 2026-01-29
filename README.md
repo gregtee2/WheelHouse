@@ -30,6 +30,21 @@ A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBO
 
 ---
 
+## 🆕 What's New in v1.16.0
+
+### 🌐 Unified AI Model Selector
+- **One model setting for all features** - New dropdown in the header bar (next to Account switcher)
+- **Local overrides available** - Each feature can still use a different model if needed
+- **Consistent experience** - Strategy Advisor, Discord Analyzer, Trade Ideas, and Checkups all use the same model by default
+- **Quick switching** - Change models mid-session without navigating to Settings
+
+### 📊 Spread Position Support in AI
+- **AI now understands spreads** - Portfolio Audit sends correct strike info for spreads
+- **Calculated MaxProfit/MaxLoss** - AI sees real risk metrics, not null values
+- **Proper [SPREAD] tagging** - AI prompts correctly identify spread positions
+
+---
+
 ## 🆕 What's New in v1.17.0
 
 ### 🟢 Theta Decay Now Accurate
