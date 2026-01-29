@@ -3804,7 +3804,7 @@ window.confirmClosePosition = function(id) {
                 <input id="closePrice" type="number" step="0.01" value="${trade.premium?.toFixed(2) || ''}" placeholder="e.g., 4.95"
                        oninput="window.updateClosePnL(${origPremium}, ${contracts})"
                        style="width:100%; padding:12px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px; font-size:16px;">
-                ${trade.premium ? `<div style="color:#666; font-size:10px; margin-top:4px;">💡 AI estimated ~$${trade.premium.toFixed(2)}/share. Enter actual fill price.</div>` : ''}
+                ${trade.premium ? `<div style="color:#00d9ff; font-size:10px; margin-top:4px;">📊 Current market: $${trade.premium.toFixed(2)}/share (CBOE). Adjust if your fill differs.</div>` : ''}
             </div>
             
             <div style="background:rgba(0,0,0,0.3); padding:12px; border-radius:8px; margin-bottom:16px;">
