@@ -2,6 +2,23 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.24] - 2026-01-29
+
+### Added
+- **Cushion % for Single-Leg Trades**: Shows how far stock can drop before breakeven
+  - Green (≥15%), Orange (10-15%), Red (<10%)
+  - Tooltip shows exact breakeven price
+  
+- **Win Probability for Single-Leg Trades**: Delta-based probability of profit
+  - Win Prob = 100% - |Delta|
+  - Green (≥70%), Orange (50-70%), Red (<50%)
+  - Tooltip shows actual delta value
+
+- **AI Risk:Reward Filtering**: Strategy Advisor now filters spread recommendations
+  - Spreads with R:R > 3:1 are flagged with ❌ Poor warning
+  - Rating scale: 🎯 Excellent (<1.5:1), ✅ Good (<2:1), ⚠️ Marginal (2-3:1), ❌ Poor (>3:1)
+  - Mandatory filter rule added to AI prompt
+
 ## [1.17.23] - 2026-01-29
 
 ### Fixed

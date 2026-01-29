@@ -3384,7 +3384,7 @@ window.confirmStagedTrade = function(id) {
                 </div>
             </div>
             <div id="singleLegSummary" style="background:#0d0d1a; padding:12px; border-radius:8px; border:1px solid #333; margin-top:8px;">
-                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr 1fr; gap:8px;">
                     <div>
                         <span style="color:#888; font-size:11px;">Total Credit:</span>
                         <div id="totalCreditDisplay" style="color:#00ff88; font-size:18px; font-weight:bold;">-</div>
@@ -3392,6 +3392,14 @@ window.confirmStagedTrade = function(id) {
                     <div>
                         <span style="color:#888; font-size:11px;">Ann. Return:</span>
                         <div id="annReturnDisplay" style="color:#ffaa00; font-size:14px; font-weight:bold;">-</div>
+                    </div>
+                    <div>
+                        <span style="color:#888; font-size:11px; cursor:help;" title="How far stock can drop before you lose money. Higher = more cushion = safer.">Cushion: ℹ️</span>
+                        <div id="cushionDisplay" style="color:#00d9ff; font-size:14px; font-weight:bold;">-</div>
+                    </div>
+                    <div>
+                        <span style="color:#888; font-size:11px; cursor:help;" title="Probability stock stays above your strike at expiry (based on delta). Higher = more likely to win.">Win Prob: ℹ️</span>
+                        <div id="winProbDisplay" style="color:#00d9ff; font-size:14px; font-weight:bold;">-</div>
                     </div>
                     <div>
                         <span style="color:#888; font-size:11px; cursor:help;" title="Implied Volatility - How 'expensive' premiums are. Higher IV = fatter premiums but more volatile stock. Low (<30%) | Normal (30-50%) | High (>50%)">IV: ℹ️</span>
@@ -3717,6 +3725,7 @@ window.updateSingleLegDisplay = function() {
     const strike = parseFloat(document.getElementById('confirmStrike')?.value) || 0;
     const contracts = parseInt(document.getElementById('confirmContracts')?.value) || 1;
     const expiry = document.getElementById('confirmExpiry')?.value;
+    const spotPrice = parseFloat(document.getElementById('confirmSpotPrice')?.value) || 0;
     
     const totalCredit = premium * 100 * contracts;
     
@@ -3728,8 +3737,14 @@ window.updateSingleLegDisplay = function() {
     // Annualized return = (premium / strike) * (365 / DTE) * 100
     const annReturn = strike > 0 ? ((premium / strike) * (365 / dte) * 100).toFixed(1) : 0;
     
+    // Cushion = (Spot - Breakeven) / Spot * 100 where Breakeven = Strike - Premium
+    const breakeven = strike - premium;
+    const cushion = spotPrice > 0 ? ((spotPrice - breakeven) / spotPrice * 100).toFixed(1) : 0;
+    
     const totalDisplay = document.getElementById('totalCreditDisplay');
     const annDisplay = document.getElementById('annReturnDisplay');
+    const cushionDisplay = document.getElementById('cushionDisplay');
+    const winProbDisplay = document.getElementById('winProbDisplay');
     
     if (totalDisplay) {
         totalDisplay.textContent = `$${totalCredit.toLocaleString()}`;
@@ -3737,6 +3752,12 @@ window.updateSingleLegDisplay = function() {
     if (annDisplay) {
         annDisplay.textContent = `${annReturn}%`;
         annDisplay.style.color = parseFloat(annReturn) >= 25 ? '#00ff88' : '#ffaa00';
+    }
+    if (cushionDisplay && spotPrice > 0) {
+        cushionDisplay.textContent = `${cushion}%`;
+        // Color code: >15% cushion = green, 10-15% = orange, <10% = red
+        cushionDisplay.style.color = parseFloat(cushion) >= 15 ? '#00ff88' : parseFloat(cushion) >= 10 ? '#ffaa00' : '#ff5252';
+        cushionDisplay.title = `Breakeven: $${breakeven.toFixed(2)} (stock can drop ${cushion}% before you lose)`;
     }
 };
 
@@ -3943,6 +3964,7 @@ async function fetchSingleOptionPrice(ticker, strike, expiry, isPut) {
         // Find matching option for selected strike
         let premium = 0;
         let iv = 0;
+        let delta = 0;
         const selectedStrike = parseFloat(document.getElementById('confirmStrike')?.value) || parseFloat(strike);
         if (options?.length) {
             const option = options.find(opt => 
@@ -3951,6 +3973,7 @@ async function fetchSingleOptionPrice(ticker, strike, expiry, isPut) {
             if (option) {
                 premium = (option.bid + option.ask) / 2;
                 iv = option.impliedVolatility || 0;
+                delta = option.delta ? Math.abs(parseFloat(option.delta)) : 0;
                 const premiumInput = document.getElementById('confirmPremium');
                 if (premiumInput) premiumInput.value = premium.toFixed(2);
             }
@@ -3967,6 +3990,20 @@ async function fetchSingleOptionPrice(ticker, strike, expiry, isPut) {
                 ivDisplay.textContent = `${ivPct}%`;
             } else {
                 ivDisplay.textContent = '-';
+            }
+        }
+        
+        // Update Win Probability display (for short options, win prob = 1 - |delta|)
+        const winProbDisplay = document.getElementById('winProbDisplay');
+        if (winProbDisplay) {
+            if (delta > 0) {
+                const winProb = Math.round((1 - delta) * 100);
+                winProbDisplay.textContent = `${winProb}%`;
+                // Color code: >70% green, 50-70% orange, <50% red
+                winProbDisplay.style.color = winProb >= 70 ? '#00ff88' : winProb >= 50 ? '#ffaa00' : '#ff5252';
+                winProbDisplay.title = `Based on delta (${(delta * 100).toFixed(0)}Δ). Higher delta = higher assignment risk, lower win prob.`;
+            } else {
+                winProbDisplay.textContent = '-';
             }
         }
         
