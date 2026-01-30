@@ -2309,13 +2309,9 @@ async function loadStrikesForExpiry() {
         const itmLabel = itm ? 'ITM' : 'OTM';
         const itmColor = itm ? '#ffaa00' : '#00d9ff';
         
-        // Visual styling: strikes BELOW spot are grayed out, ABOVE spot are highlighted
+        // Visual styling: strikes BELOW spot have darker background only (text stays same)
         const belowSpot = strike < spotPrice;
-        const strikeColor = belowSpot ? '#666' : '#00d9ff';
-        const bgColor = belowSpot ? 'rgba(100,100,100,0.1)' : 'rgba(0,217,255,0.08)';
-        const rowOpacity = belowSpot ? '0.6' : '1';
-        const bidColor = belowSpot ? '#888' : '#00ff88';
-        const askColor = belowSpot ? '#888' : '#ffaa00';
+        const bgColor = belowSpot ? 'rgba(40,40,50,0.6)' : 'rgba(0,217,255,0.08)';
         
         // For selling options, higher bid is better; for buying, lower ask is better
         const relevantPrice = isLong ? ask : bid;
@@ -2323,20 +2319,20 @@ async function loadStrikesForExpiry() {
         
         html += `
             <div onclick="window.selectStrikeFromPicker(${strike}, ${mid}, ${delta})" 
-                 style="padding:10px 12px; border-bottom:1px solid rgba(100,100,100,0.2); cursor:pointer; transition:background 0.15s; opacity:${rowOpacity}; background:${bgColor};"
-                 onmouseover="this.style.background='rgba(0,217,255,0.2)'; this.style.opacity='1';"
-                 onmouseout="this.style.background='${bgColor}'; this.style.opacity='${rowOpacity}';"
+                 style="padding:10px 12px; border-bottom:1px solid rgba(100,100,100,0.2); cursor:pointer; transition:background 0.15s; background:${bgColor};"
+                 onmouseover="this.style.background='rgba(0,217,255,0.2)';"
+                 onmouseout="this.style.background='${bgColor}';"
                  data-strike="${strike}">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div>
-                        <span style="color:${strikeColor}; font-weight:bold; font-size:14px;">$${strike.toFixed(2)}</span>
+                        <span style="color:#00d9ff; font-weight:bold; font-size:14px;">$${strike.toFixed(2)}</span>
                         <span style="color:${itmColor}; font-size:10px; margin-left:8px; padding:2px 6px; background:rgba(0,0,0,0.3); border-radius:3px;">${itmLabel}</span>
                     </div>
                     <div style="text-align:right;">
                         <div style="font-size:12px;">
-                            <span style="color:${bidColor};">Bid $${bid.toFixed(2)}</span>
+                            <span style="color:#00ff88;">Bid $${bid.toFixed(2)}</span>
                             <span style="color:#444;"> / </span>
-                            <span style="color:${askColor};">Ask $${ask.toFixed(2)}</span>
+                            <span style="color:#ffaa00;">Ask $${ask.toFixed(2)}</span>
                         </div>
                         <div style="font-size:10px; color:#888;">Mid $${mid.toFixed(2)} • Δ ${delta.toFixed(2)}</div>
                     </div>
