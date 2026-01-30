@@ -6081,6 +6081,42 @@ function formatAIResponse(text) {
         `<div style="background:rgba(255,170,0,0.1); border-left:3px solid #ffaa00; padding:8px 12px; margin:6px 0; color:#ffcc00;">${p1}</div>`);
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // STEP 2.5: MARKDOWN TABLES → HTML TABLES
+    // Matches pipe-delimited tables and converts to styled HTML
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Convert markdown tables to HTML
+    // Regex: Match lines starting and ending with |, capture everything between
+    const tableRegex = /(\|[^\n]+\|\n\|[-:\|\s]+\|\n(?:\|[^\n]+\|\n?)+)/g;
+    html = html.replace(tableRegex, (tableBlock) => {
+        const rows = tableBlock.trim().split('\n').filter(r => r.trim());
+        if (rows.length < 2) return tableBlock;
+        
+        let tableHtml = '<table style="width:100%; border-collapse:collapse; margin:12px 0; font-size:12px;">';
+        
+        rows.forEach((row, idx) => {
+            // Skip separator row (contains only |, -, :, and spaces)
+            if (/^\|[\s\-:\|]+\|$/.test(row)) return;
+            
+            const cells = row.split('|').filter(c => c.trim() !== '');
+            const isHeader = idx === 0;
+            const tag = isHeader ? 'th' : 'td';
+            const bgColor = isHeader ? 'rgba(147,51,234,0.2)' : (idx % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.2)');
+            const fontWeight = isHeader ? 'bold' : 'normal';
+            const borderColor = isHeader ? '#9333ea' : '#333';
+            
+            tableHtml += `<tr style="background:${bgColor};">`;
+            cells.forEach(cell => {
+                tableHtml += `<${tag} style="padding:8px 12px; border:1px solid ${borderColor}; color:${isHeader ? '#a78bfa' : '#ddd'}; font-weight:${fontWeight}; text-align:left;">${cell.trim()}</${tag}>`;
+            });
+            tableHtml += '</tr>';
+        });
+        
+        tableHtml += '</table>';
+        return tableHtml;
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // STEP 3: LINE BREAKS AND FINAL WRAPPING
     // ═══════════════════════════════════════════════════════════════════════════
     
