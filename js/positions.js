@@ -264,12 +264,15 @@ function calculatePositionRisk(pos, spotPrice, realIV = null) {
             // Use same thresholds as single-leg options, but adjust for credit spreads that are currently safe
             const isLeaps = pos.dte >= 365;
             const isLongDated = pos.dte >= 180 && pos.dte < 365;
+            const isMediumDated = pos.dte >= 30 && pos.dte < 180;
             
-            // Base thresholds
+            // Base thresholds - match single-leg thresholds
             let thresholds = isLeaps 
                 ? { safe: 60, watch: 70, caution: 80, danger: 90 }
                 : isLongDated 
                 ? { safe: 45, watch: 55, caution: 65, danger: 75 }
+                : isMediumDated
+                ? { safe: 40, watch: 50, caution: 60, danger: 70 }
                 : { safe: 30, watch: 40, caution: 50, danger: 60 };
             
             // For credit spreads that are currently OTM, relax thresholds by 10%
@@ -315,18 +318,22 @@ function calculatePositionRisk(pos, spotPrice, realIV = null) {
     // With 1-2 years of time, being at 50% ITM is basically ATM - totally normal
     const isLeaps = pos.dte >= 365;
     const isLongDated = pos.dte >= 180 && pos.dte < 365;
+    const isMediumDated = pos.dte >= 30 && pos.dte < 180;  // 30-180 days
     
     // Thresholds vary by time horizon:
-    // LEAPS (365+ days): 50% = normal, 70% = watch, 80% = caution
-    // Long-dated (180-364 days): 45% = watch, 55% = caution, 65% = high risk
-    // Standard (< 180 days): 30% = watch, 40% = caution, 50% = high risk
+    // LEAPS (365+ days): 60% = safe, 70% = watch, 80% = caution
+    // Long-dated (180-364 days): 45% = safe, 55% = watch, 65% = caution
+    // Medium-dated (30-179 days): 40% = safe, 50% = watch, 60% = caution  
+    // Short-dated (< 30 days): 30% = safe, 40% = watch, 50% = caution
     
     // Define thresholds based on time horizon
     const thresholds = isLeaps 
         ? { safe: 60, watch: 70, caution: 80, danger: 90 }   // LEAPS: Very relaxed
         : isLongDated 
         ? { safe: 45, watch: 55, caution: 65, danger: 75 }   // Long-dated: Relaxed
-        : { safe: 30, watch: 40, caution: 50, danger: 60 };  // Standard: Original thresholds
+        : isMediumDated
+        ? { safe: 40, watch: 50, caution: 60, danger: 70 }   // Medium-dated: Moderate
+        : { safe: 30, watch: 40, caution: 50, danger: 60 };  // Short-dated: Original thresholds
     
     if (itmPct >= thresholds.caution) {
         if (wantsAssignment) {
@@ -952,9 +959,10 @@ window.showSpreadExplanation = async function(posId) {
         pnlSign = unrealizedPnL >= 0 ? '+' : '';
     }
     
-    // Calculate DTE
+    // Calculate DTE (normalize to midnight local time to avoid timezone issues)
     const today = new Date();
-    const expDate = new Date(pos.expiry);
+    today.setHours(0, 0, 0, 0);  // Midnight today local time
+    const expDate = new Date(pos.expiry + 'T00:00:00');  // Parse as local midnight
     const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
     
     // Get current spot price if available
@@ -2546,6 +2554,10 @@ export function loadPositionToAnalyze(id) {
         contracts: pos.contracts,
         expiry: pos.expiry,
         dte: pos.dte,
+        // Live pricing fields for AI advisor
+        lastOptionPrice: pos.lastOptionPrice || null,
+        markedPrice: pos.markedPrice || null,
+        currentSpot: pos.currentSpot || null,
         // Buy/Write specific fields
         stockPrice: pos.stockPrice || null,
         costBasis: costBasis,
@@ -2714,10 +2726,11 @@ export function renderPositions() {
         return;
     }
     
-    // Update DTE for each position
+    // Update DTE for each position (normalize to midnight local time)
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     openPositions.forEach(pos => {
-        const expiryDate = new Date(pos.expiry);
+        const expiryDate = new Date(pos.expiry + 'T00:00:00');
         pos.dte = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
     });
     

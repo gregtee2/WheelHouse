@@ -2716,12 +2716,19 @@ async function getAIInsight() {
         console.log('[getAIInsight] Risk reduction count:', rollOptions?.riskReduction?.length || 0);
         console.log('[getAIInsight] Credit rolls count:', rollOptions?.creditRolls?.length || 0);
         
-        // Get cost to close current position
-        const closeInfoEl = document.querySelector('#rollSuggestionsList > div:first-child');
-        let costToClose = null;
-        if (closeInfoEl) {
-            const closeMatch = closeInfoEl.textContent.match(/\$(\d+)/);
-            if (closeMatch) costToClose = parseInt(closeMatch[1]);
+        // Get current option price (what it would cost to close)
+        // Use stored lastOptionPrice first (from CBOE/Schwab live feed), then markedPrice as fallback
+        let costToClose = state.currentPositionContext?.lastOptionPrice 
+                       || state.currentPositionContext?.markedPrice 
+                       || null;
+        
+        // If we still don't have it, try scraping from the roll panel (legacy fallback)
+        if (!costToClose) {
+            const closeInfoEl = document.querySelector('#rollSuggestionsList > div:first-child');
+            if (closeInfoEl) {
+                const closeMatch = closeInfoEl.textContent.match(/\$(\d+)/);
+                if (closeMatch) costToClose = parseInt(closeMatch[1]) / 100 / (state.currentPositionContext?.contracts || 1);  // Convert to per-share
+            }
         }
         
         // Get selected AI model (global with local override)

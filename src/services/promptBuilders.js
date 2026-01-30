@@ -768,6 +768,7 @@ function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternCon
     
     // Calculate DTE (days to expiry)
     let dte = 'unknown';
+    let dteNum = 0;
     let dteWarning = '';
     if (parsed.expiry) {
         const expDate = parseExpiryDate(parsed.expiry);
@@ -775,6 +776,7 @@ function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternCon
             const now = new Date();
             const diffMs = expDate - now;
             dte = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+            dteNum = dte;
             
             // Add warnings for short DTE and notes for LEAPS
             if (dte <= 0) {
@@ -791,6 +793,55 @@ function buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternCon
                 dteWarning = '📅 LONG-DATED (6+ months) - Extended horizon means IV changes matter more than daily theta.';
             }
         }
+    }
+    
+    // Build CATALYST WARNING based on IV and earnings
+    let catalystWarning = '';
+    const liveIV = premium?.iv ? parseFloat(premium.iv) : null;
+    const hasEarningsDate = t.earnings && t.earnings !== 'null' && t.earnings !== 'undefined';
+    
+    // Check if earnings is within 30 days of expiry (tail risk even if after expiry)
+    let earningsNearExpiry = false;
+    let earningsBeforeExpiry = false;
+    let daysFromExpiryToEarnings = null;
+    if (hasEarningsDate && parsed.expiry) {
+        try {
+            const earningsDate = new Date(t.earnings);
+            const expiryDate = parseExpiryDate(parsed.expiry);
+            if (earningsDate && expiryDate) {
+                daysFromExpiryToEarnings = Math.round((earningsDate - expiryDate) / (1000 * 60 * 60 * 24));
+                earningsBeforeExpiry = daysFromExpiryToEarnings < 0;
+                earningsNearExpiry = Math.abs(daysFromExpiryToEarnings) <= 30;
+            }
+        } catch (e) { /* ignore date parse errors */ }
+    }
+    
+    // High IV + short DTE = likely binary event
+    if (liveIV && liveIV > 60 && dteNum > 0 && dteNum <= 45) {
+        catalystWarning = `
+═══ ⚠️ CATALYST WARNING ═══
+🔥 HIGH IV ALERT: ${liveIV.toFixed(1)}% IV with ${dteNum} DTE suggests a binary event (earnings, FDA, etc.)
+${hasEarningsDate ? `📅 CONFIRMED EARNINGS: ${t.earnings}${earningsBeforeExpiry ? ' (BEFORE EXPIRY!)' : ''}` : '❓ Earnings date not found - CHECK MANUALLY before entering!'}
+${!hasEarningsDate ? `🔍 Search: "${parsed.ticker} earnings date" to verify` : ''}
+💡 High IV means market expects BIG move. Consider:
+   - Reduced position size (risk of gap up/down)
+   - Waiting until after the event
+   - Wider strike cushion than normal
+`;
+    } else if (hasEarningsDate && earningsNearExpiry) {
+        // Earnings within 30 days of expiry - always mention for tail risk
+        catalystWarning = `
+═══ UPCOMING CATALYST ═══
+📅 Earnings: ${t.earnings}
+${earningsBeforeExpiry 
+    ? `⚠️ EARNINGS ${Math.abs(daysFromExpiryToEarnings)} DAYS BEFORE EXPIRY - Position will experience event risk!` 
+    : `ℹ️ Earnings ${daysFromExpiryToEarnings} days AFTER expiry - IV may still be elevated (tail risk), but no direct event exposure`}
+`;
+    } else if (hasEarningsDate) {
+        // Earnings exists but far from expiry - brief mention
+        catalystWarning = `
+📅 Next Earnings: ${t.earnings} (${daysFromExpiryToEarnings > 0 ? daysFromExpiryToEarnings + ' days after expiry' : 'well before expiry'})
+`;
     }
     
     // Calculate risk/reward - DIFFERENT FOR SPREADS vs SINGLE LEG
@@ -896,7 +947,7 @@ ${patternContext}
 `;
     }
 
-    return `You are evaluating a TRADE CALLOUT from a Discord trading group. Give a DECISIVE opinion.
+    return `You are a senior options desk analyst with 20 years of derivatives experience. Your job is to evaluate trade setups with cold, objective analysis - assessing risk/reward, identifying red flags, and giving clear recommendations. The source of a trade idea is irrelevant; only the quality of the setup matters. Be honest and dispassionate.
 
 IMPORTANT REMINDERS:
 - SHORT PUTS are BULLISH (you want the stock to go UP or stay flat)
@@ -923,8 +974,8 @@ ${strike ? `OTM Distance: ${otmPercent}%` : ''}
 20-Day SMA: $${t.sma20} (price ${t.aboveSMA20 ? 'ABOVE ✅' : 'BELOW ⚠️'})
 ${t.sma50 ? `50-Day SMA: $${t.sma50}` : ''}
 Support Levels: $${t.recentSupport?.join(', $') || 'N/A'}
-${t.earnings ? `⚠️ Earnings: ${t.earnings}` : 'No upcoming earnings'}
 ${premiumSection}
+${catalystWarning}
 ${patternSection}
 ${alternativeStrikes.length > 0 ? `
 ═══ REAL ALTERNATIVE STRIKES (from CBOE - use THESE numbers!) ═══
@@ -956,24 +1007,27 @@ ${patternContext ? `
 ${dte <= 7 ? '- ⚠️ ONLY ' + dte + ' DAYS - enough time?' : ''}
 ${dte >= 365 ? '- 📅 LEAPS - evaluate as stock proxy with defined risk' : ''}
 
-**2. KEY NUMBERS**
+**2. CATALYST CHECK** (CRITICAL for short-dated or high-IV trades!)
+${liveIV && liveIV > 50 ? `- IV is ${liveIV.toFixed(0)}% - WHY is it elevated? Check for earnings, FDA, court dates, etc.` : '- IV seems normal - still verify no surprise catalysts'}
+${dteNum <= 45 ? `- With ${dteNum} DTE, any catalyst WILL impact this trade` : '- Longer timeframe gives buffer for events'}
+- ALWAYS state next earnings date if within 30 days of expiry (even if AFTER expiry - tail risk!)
+- Explicitly state: "I verified earnings date is [DATE]" or "No earnings found in next 30 days"
+
+**3. KEY NUMBERS**
 - Max Risk: $X,XXX
 - Max Profit: $XXX  
 - R/R Ratio: X.X%
 - Win Probability: ~XX%
 
-**3. RED FLAGS** (List only if they exist, otherwise skip)
+**4. RED FLAGS** (List only if they exist, otherwise skip)
 
-**4. VERDICT SPECTRUM** (One sentence each - no rambling!)
+**5. VERDICT SPECTRUM** (One sentence each - no rambling!)
 
 🟢 **AGGRESSIVE**: [One sentence bull case]
 🟡 **MODERATE**: [One sentence balanced take]  
 🔴 **CONSERVATIVE**: [One sentence bear case]
 
-🔴 **CONSERVATIVE VIEW**:
-[One sentence bear case / reason to pass]
-
-**5. BETTER ALTERNATIVES** (REQUIRED if you gave grade C or worse!)
+**6. BETTER ALTERNATIVES** (REQUIRED if you gave grade C or worse!)
 If grade is C, D, or F, look at the REAL ALTERNATIVE STRIKES section above and recommend one.
 Use the EXACT numbers from the data - do NOT make up premiums!
 
@@ -2818,6 +2872,166 @@ Think like the senior trader you are. What would you actually recommend to a pre
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PORTFOLIO FIT ANALYZER - Evaluate candidates against current portfolio
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Build prompt for analyzing how pending trade candidates fit the portfolio
+ * @param {Object} context - Portfolio context with positions, candidates, balances
+ */
+function buildPortfolioFitPrompt(context) {
+    const { 
+        openPositions = [], 
+        closedPositions = [],
+        pendingTrades = [], 
+        accountBalances = {},
+        tickerPatterns = {}
+    } = context;
+    
+    // Calculate current sector exposure from open positions
+    const sectorMap = {
+        // Tech
+        'AAPL': 'Technology', 'MSFT': 'Technology', 'NVDA': 'Technology', 'AMD': 'Technology', 
+        'GOOGL': 'Technology', 'GOOG': 'Technology', 'META': 'Technology', 'AMZN': 'Technology',
+        'TSLA': 'Technology', 'PLTR': 'Technology', 'SMCI': 'Technology', 'AVGO': 'Technology',
+        'CRM': 'Technology', 'ORCL': 'Technology', 'ADBE': 'Technology', 'INTC': 'Technology',
+        'MU': 'Technology', 'QCOM': 'Technology', 'NOW': 'Technology', 'SNOW': 'Technology',
+        // Financials
+        'JPM': 'Financials', 'BAC': 'Financials', 'GS': 'Financials', 'MS': 'Financials',
+        'WFC': 'Financials', 'C': 'Financials', 'AXP': 'Financials', 'V': 'Financials',
+        'MA': 'Financials', 'SCHW': 'Financials', 'BLK': 'Financials', 'COIN': 'Financials',
+        // Healthcare
+        'JNJ': 'Healthcare', 'UNH': 'Healthcare', 'PFE': 'Healthcare', 'MRK': 'Healthcare',
+        'ABBV': 'Healthcare', 'LLY': 'Healthcare', 'BMY': 'Healthcare', 'TMO': 'Healthcare',
+        // Energy
+        'XOM': 'Energy', 'CVX': 'Energy', 'COP': 'Energy', 'SLB': 'Energy', 'OXY': 'Energy',
+        'XLE': 'Energy', 'VDE': 'Energy', 'HAL': 'Energy',
+        // Consumer
+        'WMT': 'Consumer', 'COST': 'Consumer', 'TGT': 'Consumer', 'HD': 'Consumer',
+        'MCD': 'Consumer', 'SBUX': 'Consumer', 'NKE': 'Consumer', 'DIS': 'Consumer',
+        // Industrial
+        'CAT': 'Industrial', 'DE': 'Industrial', 'BA': 'Industrial', 'UPS': 'Industrial',
+        'HON': 'Industrial', 'GE': 'Industrial', 'LMT': 'Industrial', 'RTX': 'Industrial',
+        // ETFs
+        'SPY': 'Index ETF', 'QQQ': 'Index ETF', 'IWM': 'Index ETF', 'DIA': 'Index ETF',
+        'VOO': 'Index ETF', 'VTI': 'Index ETF', 'TQQQ': 'Leveraged ETF', 'SQQQ': 'Leveraged ETF',
+        'TSLL': 'Leveraged ETF', 'NVDL': 'Leveraged ETF', 'SOXL': 'Leveraged ETF',
+        // Crypto
+        'MSTR': 'Crypto', 'MARA': 'Crypto', 'RIOT': 'Crypto', 'BITX': 'Crypto',
+        // Real Estate
+        'O': 'Real Estate', 'AMT': 'Real Estate', 'PLD': 'Real Estate', 'EQIX': 'Real Estate'
+    };
+    
+    // Calculate sector exposure from open positions
+    const sectorExposure = {};
+    let totalCapitalAtRisk = 0;
+    
+    openPositions.forEach(pos => {
+        const sector = sectorMap[pos.ticker] || 'Other';
+        const capitalAtRisk = pos.type?.includes('spread') 
+            ? Math.abs((pos.sellStrike || pos.strike) - (pos.buyStrike || 0)) * 100 * (pos.contracts || 1)
+            : (pos.strike || 0) * 100 * (pos.contracts || 1);
+        
+        sectorExposure[sector] = (sectorExposure[sector] || 0) + capitalAtRisk;
+        totalCapitalAtRisk += capitalAtRisk;
+    });
+    
+    // Format sector breakdown
+    const sectorBreakdown = Object.entries(sectorExposure)
+        .sort((a, b) => b[1] - a[1])
+        .map(([sector, capital]) => {
+            const pct = totalCapitalAtRisk > 0 ? ((capital / totalCapitalAtRisk) * 100).toFixed(1) : 0;
+            return `${sector}: $${capital.toLocaleString()} (${pct}%)`;
+        })
+        .join('\n');
+    
+    // Format open positions summary
+    const openPositionsSummary = openPositions.map(pos => {
+        const sector = sectorMap[pos.ticker] || 'Other';
+        return `${pos.ticker} ${pos.type} $${pos.strike} (${sector})`;
+    }).join(', ') || 'No open positions';
+    
+    // Format pending candidates
+    const candidatesList = pendingTrades.map((p, i) => {
+        const sector = sectorMap[p.ticker] || 'Other';
+        const capitalNeeded = p.type?.includes('spread')
+            ? Math.abs((p.upperStrike || p.strike) - (p.strike || 0)) * 100
+            : (p.strike || 0) * 100;
+        return `${i + 1}. ${p.ticker} $${p.strike}${p.upperStrike ? '/$' + p.upperStrike : ''} ${p.type || 'short_put'} ${p.expiry || 'N/A'} | Sector: ${sector} | Capital: $${capitalNeeded.toLocaleString()} | Premium: $${((p.premium || 0) * 100).toFixed(0)}`;
+    }).join('\n');
+    
+    // Format historical patterns for each candidate ticker
+    const patternSummary = Object.entries(tickerPatterns)
+        .map(([ticker, stats]) => {
+            return `${ticker}: ${stats.trades} trades, ${stats.winRate}% win rate, ${stats.netPnL >= 0 ? '+' : ''}$${stats.netPnL}`;
+        })
+        .join('\n') || 'No historical patterns available';
+    
+    // Account info
+    const buyingPower = accountBalances.buyingPower || 0;
+    const accountValue = accountBalances.accountValue || 0;
+    
+    return `You are a senior portfolio manager evaluating which pending trade candidates best fit your current portfolio. Analyze diversification, concentration risk, historical edge, and position sizing.
+
+═══ ACCOUNT STATUS ═══
+Account Value: $${accountValue.toLocaleString()}
+Buying Power: $${buyingPower.toLocaleString()}
+Open Positions: ${openPositions.length}
+Capital at Risk: $${totalCapitalAtRisk.toLocaleString()}
+
+═══ CURRENT SECTOR EXPOSURE ═══
+${sectorBreakdown || 'No current exposure (portfolio is empty)'}
+
+═══ OPEN POSITIONS ═══
+${openPositionsSummary}
+
+═══ PENDING TRADE CANDIDATES ═══
+${candidatesList || 'No pending trades to analyze'}
+
+═══ YOUR HISTORICAL PATTERNS ON THESE TICKERS ═══
+${patternSummary}
+
+═══ YOUR ANALYSIS ═══
+
+Evaluate each candidate on:
+1. **DIVERSIFICATION FIT** - Does it add new sector exposure or increase concentration?
+2. **HISTORICAL EDGE** - What's your track record on this ticker/strategy?
+3. **CAPITAL EFFICIENCY** - Is buying power being used wisely?
+4. **POSITION SIZING** - Kelly criterion suggests max 5% per position
+
+**OUTPUT FORMAT:**
+
+## PORTFOLIO FIT SUMMARY
+
+### ✅ BEST FIT (Execute These)
+List candidates that ADD diversification or leverage proven edge. Include:
+- Ticker & strike
+- Why it fits (sector gap, historical wins, etc.)
+- Suggested size (contracts) based on buying power
+
+### ⚠️ CAUTION (Consider Carefully)  
+List candidates that increase concentration but may still be worthwhile. Include:
+- The concentration concern
+- Conditions under which it's still okay
+
+### ❌ SKIP (Pass On These)
+List candidates that hurt diversification or have poor historical edge. Include:
+- The specific concern
+- What would make it better (different strike, wait for other position to close, etc.)
+
+### 📊 RECOMMENDED EXECUTION ORDER
+If executing multiple trades, what order optimizes capital usage and leaves buffer?
+
+### 💰 CAPITAL SUMMARY
+| Action | Capital Used | Remaining BP |
+|--------|--------------|--------------|
+| Current | $X | $${buyingPower.toLocaleString()} |
+| After Best Fit trades | $X | $X |
+
+**BOTTOM LINE**: One sentence summary of the overall recommendation.`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2832,6 +3046,7 @@ module.exports = {
     buildIdeaPrompt,
     buildStrategyAdvisorPrompt,
     buildExpertModePrompt,
+    buildPortfolioFitPrompt,
     
     // Unified context system
     buildPositionFlowContext,

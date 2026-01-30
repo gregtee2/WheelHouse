@@ -1575,14 +1575,17 @@ router.post('/analyze', async (req, res) => {
 });
 
 // =============================================================================
-// PORTFOLIO AUDIT
+// PORTFOLIO AUDIT (with Diversification Recommendations)
 // =============================================================================
 
 router.post('/portfolio-audit', async (req, res) => {
     try {
         const data = req.body;
         const selectedModel = data.model || 'qwen2.5:14b';
-        console.log('[AI] Portfolio audit with model:', selectedModel);
+        const buyingPower = data.buyingPower || 25000; // Default if not provided
+        const includeDiversification = data.includeDiversification !== false; // Default true
+        
+        console.log('[AI] Portfolio audit with model:', selectedModel, '| Diversification:', includeDiversification);
         
         const positions = data.positions || [];
         const greeks = data.greeks || {};
@@ -1612,11 +1615,59 @@ router.post('/portfolio-audit', async (req, res) => {
             return `${p.ticker}: ${p.type} ${strikeDisplay} (${p.dte}d DTE) ${typeNote}${spreadInfo} - ${riskPct.toFixed(0)}% ITM`;
         }).join('\n');
         
-        // Concentration analysis
+        // Concentration analysis - by ticker
         const tickerCounts = {};
         positions.forEach(p => { tickerCounts[p.ticker] = (tickerCounts[p.ticker] || 0) + 1; });
         const concentrations = Object.entries(tickerCounts).sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t}: ${c}`);
         
+        // =====================================================================
+        // SECTOR ANALYSIS - Map current holdings to sectors
+        // =====================================================================
+        const SECTOR_MAP = {
+            // Tech
+            AAPL: 'Tech', MSFT: 'Tech', GOOGL: 'Tech', GOOG: 'Tech', META: 'Tech', NVDA: 'Tech',
+            AMD: 'Tech', INTC: 'Tech', PLTR: 'Tech', CRWD: 'Tech', SNOW: 'Tech', NET: 'Tech',
+            DDOG: 'Tech', MU: 'Tech', UBER: 'Tech', SHOP: 'Tech', AVGO: 'Tech', TSM: 'Tech',
+            ORCL: 'Tech', CRM: 'Tech', NOW: 'Tech', ADBE: 'Tech', CSCO: 'Tech', AMAT: 'Tech',
+            QCOM: 'Tech', TXN: 'Tech', LRCX: 'Tech', KLAC: 'Tech', SMCI: 'Tech', DELL: 'Tech',
+            // Finance
+            BAC: 'Finance', C: 'Finance', JPM: 'Finance', GS: 'Finance', SOFI: 'Finance',
+            COIN: 'Finance', SCHW: 'Finance', V: 'Finance', MA: 'Finance', AXP: 'Finance',
+            WFC: 'Finance', MS: 'Finance', BLK: 'Finance', COF: 'Finance',
+            // Energy
+            XOM: 'Energy', OXY: 'Energy', CVX: 'Energy', DVN: 'Energy', HAL: 'Energy',
+            SLB: 'Energy', COP: 'Energy', EOG: 'Energy', MPC: 'Energy', VLO: 'Energy',
+            // Consumer
+            KO: 'Consumer', F: 'Consumer', GM: 'Consumer', NKE: 'Consumer', SBUX: 'Consumer',
+            DIS: 'Consumer', TGT: 'Consumer', WMT: 'Consumer', COST: 'Consumer', HD: 'Consumer',
+            LOW: 'Consumer', MCD: 'Consumer', AMZN: 'Consumer', ABNB: 'Consumer',
+            // Healthcare
+            PFE: 'Healthcare', ABBV: 'Healthcare', JNJ: 'Healthcare', MRK: 'Healthcare',
+            MRNA: 'Healthcare', UNH: 'Healthcare', LLY: 'Healthcare', BMY: 'Healthcare',
+            GILD: 'Healthcare', AMGN: 'Healthcare', CVS: 'Healthcare',
+            // ETFs
+            SPY: 'ETF', QQQ: 'ETF', IWM: 'ETF', SLV: 'ETF', GLD: 'ETF', XLF: 'ETF',
+            DIA: 'ETF', XLE: 'ETF', XLK: 'ETF', XLV: 'ETF', ARKK: 'ETF',
+            // High IV / Speculative
+            MSTR: 'High IV', HOOD: 'High IV', RIVN: 'High IV', LCID: 'High IV',
+            NIO: 'High IV', TSLA: 'High IV', GME: 'High IV', AMC: 'High IV',
+            MARA: 'High IV', RIOT: 'High IV', RBLX: 'High IV', SNAP: 'High IV'
+        };
+        
+        // Calculate current sector exposure
+        const sectorCounts = {};
+        positions.forEach(p => {
+            const sector = SECTOR_MAP[p.ticker] || 'Other';
+            sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
+        });
+        
+        const currentSectors = Object.keys(sectorCounts);
+        const sectorExposure = Object.entries(sectorCounts)
+            .sort((a, b) => b[1] - a[1])
+            .map(([s, c]) => `${s}: ${c} positions (${(c / positions.length * 100).toFixed(0)}%)`)
+            .join('\n');
+        
+        // Build the main audit prompt
         const prompt = `You are a professional options portfolio manager providing a comprehensive audit.
 
 IMPORTANT: This portfolio may contain MULTIPLE STRATEGIES beyond just the wheel. LEAPs, long calls, spreads, and other directional trades are VALID profit-generating strategies. Do NOT penalize positions simply for not fitting the "wheel" pattern. Judge each position on its own merits: risk/reward, position sizing, and strategic intent.
@@ -1629,7 +1680,10 @@ ${positionSummary || 'No open positions'}
 - Daily Theta: $${greeks.theta?.toFixed(2) || 0}
 - Vega: $${greeks.vega?.toFixed(0) || 0}
 
-## CONCENTRATION
+## SECTOR EXPOSURE
+${sectorExposure || 'None'}
+
+## TICKER CONCENTRATION
 ${concentrations.join('\n') || 'None'}
 
 ## HISTORICAL PERFORMANCE
@@ -1642,10 +1696,150 @@ Grade based on overall risk management, diversification, and profit potential - 
 
 Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy"), 2. ⚠️ CONCENTRATION RISKS, 3. 📊 GREEKS ASSESSMENT, 4. 💡 OPTIMIZATION IDEAS, 5. ✅ WHAT'S WORKING`;
 
-        const response = await AIService.callAI(prompt, selectedModel, 1200);
+        const auditResponse = await AIService.callAI(prompt, selectedModel, 1200);
         
-        res.json({ success: true, audit: response, model: selectedModel });
-        console.log('[AI] ✅ Portfolio audit complete');
+        // =====================================================================
+        // PHASE 2: DIVERSIFICATION RECOMMENDATIONS
+        // =====================================================================
+        let diversificationSection = '';
+        let diversificationCandidates = [];
+        
+        if (includeDiversification && positions.length > 0) {
+            console.log('[AI] Fetching diversification candidates...');
+            
+            // Get curated candidates from DiscoveryService
+            const { CURATED_CANDIDATES } = DiscoveryService;
+            
+            // Find sectors we DON'T have exposure to
+            const allSectors = [...new Set(CURATED_CANDIDATES.map(c => c.sector))];
+            const missingSectors = allSectors.filter(s => !currentSectors.includes(s) && s !== 'High IV');
+            
+            // Also find underweight sectors (only 1 position)
+            const underweightSectors = Object.entries(sectorCounts)
+                .filter(([s, c]) => c === 1 && s !== 'High IV' && s !== 'Other')
+                .map(([s]) => s);
+            
+            console.log('[AI] Missing sectors:', missingSectors.join(', ') || 'None');
+            console.log('[AI] Underweight sectors:', underweightSectors.join(', ') || 'None');
+            
+            // Get candidates from missing/underweight sectors
+            const existingTickers = new Set(positions.map(p => p.ticker));
+            const candidatesForDiversification = CURATED_CANDIDATES
+                .filter(c => !existingTickers.has(c.ticker)) // Not already owned
+                .filter(c => missingSectors.includes(c.sector) || underweightSectors.includes(c.sector));
+            
+            // Take up to 6 candidates across different sectors
+            const selectedCandidates = [];
+            const usedSectors = new Set();
+            for (const c of candidatesForDiversification) {
+                if (!usedSectors.has(c.sector) && selectedCandidates.length < 6) {
+                    selectedCandidates.push(c);
+                    usedSectors.add(c.sector);
+                }
+            }
+            
+            console.log('[AI] Selected', selectedCandidates.length, 'diversification candidates');
+            
+            // Fetch live pricing for candidates
+            if (selectedCandidates.length > 0) {
+                const maxStrike = buyingPower / 100;
+                const candidateData = [];
+                
+                for (const candidate of selectedCandidates) {
+                    try {
+                        // Fetch stock price and option chain via MarketDataService
+                        const quote = await MarketDataService.getQuote(candidate.ticker);
+                        if (!quote || quote.price > maxStrike) continue;
+                        
+                        // Get ATM put premium (~30 delta target)
+                        const chain = await MarketDataService.getOptionsChain(candidate.ticker, { strikeCount: 10 });
+                        
+                        // Find ~30-45 DTE expiration
+                        const targetDte = 35;
+                        let bestExpiry = null;
+                        let bestDteDiff = Infinity;
+                        
+                        if (chain?.expirations) {
+                            for (const exp of chain.expirations) {
+                                const expDate = new Date(exp);
+                                const dte = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
+                                if (dte >= 25 && dte <= 50 && Math.abs(dte - targetDte) < bestDteDiff) {
+                                    bestDteDiff = Math.abs(dte - targetDte);
+                                    bestExpiry = exp;
+                                }
+                            }
+                        }
+                        
+                        // Find ATM or slightly OTM put
+                        let suggestedStrike = Math.floor(quote.price / 5) * 5; // Round down to nearest 5
+                        let putPremium = null;
+                        
+                        if (chain?.puts) {
+                            const atmPut = chain.puts.find(p => Math.abs(p.strike - suggestedStrike) < 3);
+                            if (atmPut) {
+                                putPremium = atmPut.mid || ((atmPut.bid + atmPut.ask) / 2);
+                                suggestedStrike = atmPut.strike;
+                            }
+                        }
+                        
+                        candidateData.push({
+                            ticker: candidate.ticker,
+                            sector: candidate.sector,
+                            price: quote.price,
+                            rangePosition: quote.rangePosition || 50,
+                            suggestedStrike,
+                            expiry: bestExpiry,
+                            dte: bestExpiry ? Math.ceil((new Date(bestExpiry) - new Date()) / (1000 * 60 * 60 * 24)) : null,
+                            putPremium,
+                            annualizedYield: putPremium && suggestedStrike ? 
+                                ((putPremium / suggestedStrike) * (365 / (bestDteDiff || 35)) * 100).toFixed(1) : null,
+                            collateral: suggestedStrike * 100,
+                            reason: missingSectors.includes(candidate.sector) ? 'New sector' : 'Add to sector'
+                        });
+                    } catch (e) {
+                        console.log(`[AI] Failed to fetch data for ${candidate.ticker}:`, e.message);
+                    }
+                }
+                
+                diversificationCandidates = candidateData;
+                
+                // Build diversification text section
+                if (candidateData.length > 0) {
+                    diversificationSection = `\n\n## 🎯 DIVERSIFICATION OPPORTUNITIES\n\nBased on your current sector exposure, here are candidates from sectors you're missing or underweight:\n\n`;
+                    
+                    for (const c of candidateData) {
+                        const rangeNote = c.rangePosition < 30 ? '🟢 Near lows' : 
+                                         c.rangePosition > 70 ? '🔴 Near highs' : '🟡 Mid-range';
+                        
+                        diversificationSection += `### ${c.ticker} (${c.sector}) - ${c.reason}\n`;
+                        diversificationSection += `- **Current Price**: $${c.price.toFixed(2)} (${rangeNote})\n`;
+                        
+                        if (c.putPremium && c.expiry) {
+                            diversificationSection += `- **Suggested Trade**: Sell $${c.suggestedStrike} PUT exp ${c.expiry} (${c.dte}d)\n`;
+                            diversificationSection += `- **Premium**: ~$${c.putPremium.toFixed(2)} (${c.annualizedYield}% ann. yield)\n`;
+                            diversificationSection += `- **Collateral**: $${c.collateral.toLocaleString()}\n`;
+                        } else {
+                            diversificationSection += `- Check option chain for current premiums\n`;
+                        }
+                        diversificationSection += `\n`;
+                    }
+                    
+                    diversificationSection += `*Note: These are starting points. Always verify earnings dates and do your own analysis before trading.*`;
+                }
+            }
+        }
+        
+        // Combine audit + diversification
+        const fullResponse = auditResponse + diversificationSection;
+        
+        res.json({ 
+            success: true, 
+            audit: fullResponse, 
+            model: selectedModel,
+            diversificationCandidates,  // Structured data for frontend
+            sectorExposure: sectorCounts
+        });
+        console.log('[AI] ✅ Portfolio audit complete (with', diversificationCandidates.length, 'diversification ideas)');
     } catch (e) {
         console.log('[AI] ❌ Portfolio audit error:', e.message);
         res.status(500).json({ error: e.message });
@@ -2066,6 +2260,81 @@ router.post('/simple', async (req, res) => {
         console.log('[AI-SIMPLE] ✅ Complete');
     } catch (e) {
         console.log('[AI-SIMPLE] ❌ Error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PORTFOLIO FIT ANALYZER
+// ═══════════════════════════════════════════════════════════════════════════
+router.post('/portfolio-fit', async (req, res) => {
+    try {
+        const { 
+            openPositions = [], 
+            closedPositions = [],
+            pendingTrades = [], 
+            accountBalances = {},
+            model 
+        } = req.body;
+        
+        console.log('[PORTFOLIO-FIT] Analyzing', pendingTrades.length, 'candidates against', openPositions.length, 'open positions');
+        
+        if (pendingTrades.length === 0) {
+            return res.status(400).json({ error: 'No pending trades to analyze' });
+        }
+        
+        // Build historical patterns for each candidate ticker
+        const tickerPatterns = {};
+        const candidateTickers = [...new Set(pendingTrades.map(p => p.ticker))];
+        
+        candidateTickers.forEach(ticker => {
+            const tickerTrades = closedPositions.filter(p => p.ticker === ticker);
+            if (tickerTrades.length > 0) {
+                const wins = tickerTrades.filter(p => (p.realizedPnL || p.closePnL || 0) > 0).length;
+                const netPnL = tickerTrades.reduce((sum, p) => sum + (p.realizedPnL || p.closePnL || 0), 0);
+                tickerPatterns[ticker] = {
+                    trades: tickerTrades.length,
+                    winRate: Math.round((wins / tickerTrades.length) * 100),
+                    netPnL: Math.round(netPnL)
+                };
+            }
+        });
+        
+        // Build the prompt
+        const prompt = promptBuilders.buildPortfolioFitPrompt({
+            openPositions,
+            closedPositions,
+            pendingTrades,
+            accountBalances,
+            tickerPatterns
+        });
+        
+        // Determine model
+        const selectedModel = model || 'qwen2.5:32b';
+        const isGrok = selectedModel.startsWith('grok');
+        const tokenLimit = isGrok ? 1500 : 2000;
+        
+        console.log('[PORTFOLIO-FIT] Using model:', selectedModel);
+        
+        let analysis;
+        if (isGrok) {
+            analysis = await AIService.callGrok(prompt, selectedModel, tokenLimit);
+        } else {
+            analysis = await AIService.callAI(prompt, selectedModel, tokenLimit);
+        }
+        
+        res.json({
+            success: true,
+            analysis,
+            model: selectedModel,
+            candidateCount: pendingTrades.length,
+            openPositionCount: openPositions.length
+        });
+        
+        console.log('[PORTFOLIO-FIT] ✅ Analysis complete');
+        
+    } catch (e) {
+        console.error('[PORTFOLIO-FIT] ❌ Error:', e.message);
         res.status(500).json({ error: e.message });
     }
 });

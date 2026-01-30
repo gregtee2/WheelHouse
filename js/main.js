@@ -2410,8 +2410,71 @@ window.analyzeDiscordTrade = async function(tradeTextOverride, modelOverride) {
         
         const { parsed, tickerData, premium, analysis } = result;
         
+        // Helper: Convert markdown tables to HTML tables
+        const convertMarkdownTables = (text) => {
+            // More robust regex - handles various whitespace and separator formats
+            // Pattern: header row | col | col |, separator row |---|---|, data rows
+            const lines = text.split('\n');
+            let result = [];
+            let i = 0;
+            
+            while (i < lines.length) {
+                const line = lines[i];
+                
+                // Check if this line looks like a table header (starts and ends with |, has multiple |)
+                if (line.trim().startsWith('|') && line.trim().endsWith('|') && (line.match(/\|/g) || []).length >= 3) {
+                    // Check if next line is separator (contains only |, -, :, spaces)
+                    const nextLine = lines[i + 1] || '';
+                    if (/^\|[\s\-:|]+\|$/.test(nextLine.trim())) {
+                        // This is a table! Collect all rows
+                        const tableLines = [line];
+                        let j = i + 1;
+                        
+                        // Skip separator and collect data rows
+                        while (j < lines.length && lines[j].trim().startsWith('|')) {
+                            tableLines.push(lines[j]);
+                            j++;
+                        }
+                        
+                        // Parse and convert to HTML
+                        if (tableLines.length >= 3) {
+                            const headerCells = tableLines[0].split('|').map(c => c.trim()).filter(c => c);
+                            const dataRows = tableLines.slice(2).map(row => 
+                                row.split('|').map(c => c.trim()).filter(c => c)
+                            ).filter(row => row.length > 0);
+                            
+                            let html = `<table style="width:100%; border-collapse:collapse; margin:12px 0; font-size:13px; background:#0a0a14;">`;
+                            html += `<thead><tr style="background:#1a1a2e;">`;
+                            headerCells.forEach(cell => {
+                                html += `<th style="padding:10px 14px; border:1px solid #333; text-align:left; color:#8a9aa8; font-weight:600;">${cell}</th>`;
+                            });
+                            html += `</tr></thead><tbody>`;
+                            
+                            dataRows.forEach(row => {
+                                html += `<tr style="background:#0d0d1a;">`;
+                                row.forEach(cell => {
+                                    html += `<td style="padding:10px 14px; border:1px solid #333; color:#ccc;">${cell}</td>`;
+                                });
+                                html += `</tr>`;
+                            });
+                            
+                            html += `</tbody></table>`;
+                            result.push(html);
+                            i = j;
+                            continue;
+                        }
+                    }
+                }
+                
+                result.push(line);
+                i++;
+            }
+            
+            return result.join('\n');
+        };
+        
         // Format the analysis
-        const formatted = analysis
+        const formatted = convertMarkdownTables(analysis)
             .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#8a9aa8;">$1</strong>')
             .replace(/✅/g, '<span style="color:#00ff88;">✅</span>')
             .replace(/⚠️/g, '<span style="color:#ffaa00;">⚠️</span>')
@@ -2930,6 +2993,159 @@ function extractSection(text, sectionName) {
 }
 
 // ============================================================
+// SECTION: PORTFOLIO FIT ANALYZER
+// ============================================================
+
+/**
+ * Run AI Portfolio Fit Analysis on pending trades
+ */
+window.runPortfolioFitAnalysis = async function() {
+    const pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
+    
+    if (pending.length < 2) {
+        showNotification('Need at least 2 pending trades for portfolio fit analysis', 'info');
+        return;
+    }
+    
+    // Create modal
+    const modal = document.createElement('div');
+    modal.id = 'portfolioFitModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:10000;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border-radius:12px; max-width:900px; width:95%; max-height:90vh; overflow-y:auto; padding:25px; border:1px solid rgba(122,138,148,0.5);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2 style="margin:0; color:#7a8a94;">🧠 Portfolio Fit Analysis</h2>
+                <button onclick="this.closest('#portfolioFitModal').remove()" style="background:none; border:none; color:#888; font-size:24px; cursor:pointer;">✕</button>
+            </div>
+            <div id="portfolioFitContent" style="color:#ccc;">
+                <div style="text-align:center; padding:40px;">
+                    <div class="spinner" style="width:50px; height:50px; border:3px solid #333; border-top:3px solid #7a8a94; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 20px;"></div>
+                    <p style="font-size:16px; color:#7a8a94;">Analyzing ${pending.length} candidates against your portfolio...</p>
+                    <p style="font-size:12px; color:#666;">Evaluating diversification, historical edge, and position sizing</p>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    try {
+        // Get account balances from AccountService
+        const AccountService = (await import('./services/AccountService.js')).default;
+        const balances = AccountService.getBalances();
+        
+        // Get global AI model
+        const model = window.getSelectedAIModel?.() || 'qwen2.5:32b';
+        
+        const response = await fetch('/api/ai/portfolio-fit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                openPositions: state.positions || [],
+                closedPositions: state.closedPositions || [],
+                pendingTrades: pending,
+                accountBalances: {
+                    buyingPower: balances.buyingPower || 0,
+                    accountValue: balances.accountValue || 0,
+                    cashAvailable: balances.cashAvailable || 0
+                },
+                model
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (!result.success) {
+            throw new Error(result.error || 'Analysis failed');
+        }
+        
+        // Format the analysis with markdown table support
+        const convertMarkdownTables = (text) => {
+            const lines = text.split('\n');
+            let result = [];
+            let i = 0;
+            
+            while (i < lines.length) {
+                const line = lines[i];
+                
+                if (line.trim().startsWith('|') && line.trim().endsWith('|') && (line.match(/\|/g) || []).length >= 3) {
+                    const nextLine = lines[i + 1] || '';
+                    if (/^\|[\s\-:|]+\|$/.test(nextLine.trim())) {
+                        const tableLines = [line];
+                        let j = i + 1;
+                        
+                        while (j < lines.length && lines[j].trim().startsWith('|')) {
+                            tableLines.push(lines[j]);
+                            j++;
+                        }
+                        
+                        if (tableLines.length >= 3) {
+                            const headerCells = tableLines[0].split('|').map(c => c.trim()).filter(c => c);
+                            const dataRows = tableLines.slice(2).map(row => 
+                                row.split('|').map(c => c.trim()).filter(c => c)
+                            ).filter(row => row.length > 0);
+                            
+                            let html = `<table style="width:100%; border-collapse:collapse; margin:12px 0; font-size:13px; background:#0a0a14;">`;
+                            html += `<thead><tr style="background:#1a1a2e;">`;
+                            headerCells.forEach(cell => {
+                                html += `<th style="padding:10px 14px; border:1px solid #333; text-align:left; color:#7a8a94; font-weight:600;">${cell}</th>`;
+                            });
+                            html += `</tr></thead><tbody>`;
+                            
+                            dataRows.forEach(row => {
+                                html += `<tr style="background:#0d0d1a;">`;
+                                row.forEach(cell => {
+                                    html += `<td style="padding:10px 14px; border:1px solid #333; color:#ccc;">${cell}</td>`;
+                                });
+                                html += `</tr>`;
+                            });
+                            
+                            html += `</tbody></table>`;
+                            result.push(html);
+                            i = j;
+                            continue;
+                        }
+                    }
+                }
+                
+                result.push(line);
+                i++;
+            }
+            
+            return result.join('\n');
+        };
+        
+        const formatted = convertMarkdownTables(result.analysis)
+            .replace(/## (.*)/g, '<h3 style="color:#7a8a94; margin-top:20px; margin-bottom:10px;">$1</h3>')
+            .replace(/### (.*)/g, '<h4 style="color:#8a9aa8; margin-top:16px; margin-bottom:8px;">$1</h4>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#ccc;">$1</strong>')
+            .replace(/✅/g, '<span style="color:#00ff88;">✅</span>')
+            .replace(/⚠️/g, '<span style="color:#ffaa00;">⚠️</span>')
+            .replace(/❌/g, '<span style="color:#ff5252;">❌</span>')
+            .replace(/📊|💰|🎯/g, match => `<span style="font-size:16px;">${match}</span>`)
+            .replace(/\n/g, '<br>');
+        
+        document.getElementById('portfolioFitContent').innerHTML = `
+            <div style="background:#0d0d1a; padding:20px; border-radius:8px; line-height:1.7; font-size:14px;">
+                ${formatted}
+            </div>
+            <div style="margin-top:20px; text-align:center;">
+                <span style="color:#666; font-size:11px;">Model: ${result.model} | ${result.candidateCount} candidates analyzed against ${result.openPositionCount} open positions</span>
+            </div>
+        `;
+        
+    } catch (err) {
+        document.getElementById('portfolioFitContent').innerHTML = `
+            <div style="background:#3a1a1a; padding:20px; border-radius:8px; border:1px solid #ff5252;">
+                <h4 style="color:#ff5252; margin:0 0 10px;">❌ Analysis Failed</h4>
+                <p style="color:#ccc; margin:0;">${err.message}</p>
+            </div>
+        `;
+    }
+};
+
+// ============================================================
 // SECTION: TRADE STAGING (Pending Trades Queue)
 // Functions: stageTrade, renderPendingTrades, showTickerChart,
 //            confirmStagedTrade, finalizeConfirmedTrade, removeStagedTrade,
@@ -3047,7 +3263,10 @@ window.renderPendingTrades = function() {
     
     container.innerHTML = `
         <div style="background:rgba(0,217,255,0.05); border:1px solid rgba(0,217,255,0.3); border-radius:8px; padding:16px; margin-bottom:20px;">
-            <h3 style="color:#00d9ff; margin:0 0 12px 0; font-size:14px;">📋 Pending Trades (${pending.length})</h3>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="color:#00d9ff; margin:0; font-size:14px;">📋 Pending Trades (${pending.length})</h3>
+                ${pending.length >= 2 ? `<button onclick="window.runPortfolioFitAnalysis()" style="background:linear-gradient(135deg, #7a8a94, #5a6a74); color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:11px; font-weight:bold;">🧠 AI Portfolio Fit</button>` : ''}
+            </div>
             <div style="font-size:11px; color:#888; margin-bottom:12px;">
                 Staged from AI analysis - confirm when you execute with your broker
             </div>

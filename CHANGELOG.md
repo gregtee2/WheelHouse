@@ -2,6 +2,104 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.45] - 2026-01-30
+
+### Added
+- **🎯 Portfolio Audit Diversification Recommendations**: AI now suggests new trades to fill portfolio gaps
+  - After normal portfolio audit, scans your ~60 curated wheel candidates
+  - Identifies sectors you're MISSING (e.g., no Energy exposure)
+  - Identifies UNDERWEIGHT sectors (only 1 position in a sector)
+  - Fetches live option pricing for top 6 diversification candidates
+  - Shows specific trade suggestions: Ticker, Strike, Expiry, Premium, Annualized Yield
+  - Range position indicator: 🟢 Near lows (good entry), 🔴 Near highs (risky)
+  - Uses your actual buying power to filter affordable trades
+  - Returns structured data for potential future UI enhancements
+
+### Enhanced
+- **Portfolio Audit Sector Analysis**: Now shows sector exposure breakdown
+  - Displays percentage of portfolio in each sector (Tech 40%, Finance 20%, etc.)
+  - Maps ~80 common tickers to sectors (Tech, Finance, Energy, Consumer, Healthcare, ETF, High IV)
+  - AI prompt now includes sector exposure for better recommendations
+
+## [1.17.44] - 2026-01-30
+
+### Added
+- **🧠 AI Portfolio Fit Analyzer**: Evaluates pending trades for portfolio diversification
+  - New "AI Portfolio Fit" button appears when 2+ trades are staged
+  - Analyzes sector concentration (Tech, Financials, Energy, Healthcare, etc.)
+  - Considers historical win rates per ticker from your closed trades
+  - Factors in current buying power and capital at risk
+  - Outputs: ✅ Best Fit, ⚠️ Caution, ❌ Skip categories
+  - Suggests execution order to optimize capital usage
+  - Shows capital summary table with remaining buying power
+
+## [1.17.43] - 2026-01-30
+
+### Fixed
+- **Discord Analyzer Table Formatting**: Markdown tables now render as proper HTML tables
+  - "RECOMMENDED ALTERNATIVE" section now displays as formatted table
+  - Columns: Strike, Expiry, REAL Premium, Cushion with proper headers
+  - Dark theme styling matches the rest of the modal
+  - Much easier to read than raw markdown pipe syntax
+
+## [1.17.42] - 2026-01-30
+
+### Enhanced
+- **Discord Analyzer Expert Persona**: Added professional framing without source bias
+  - "Senior options desk analyst with 20 years of derivatives experience"
+  - Explicitly states: "The source of a trade idea is irrelevant; only the quality matters"
+  - "Cold, objective analysis" and "honest and dispassionate" framing
+  - No bias against Discord/retail - evaluates purely on merits
+
+## [1.17.41] - 2026-01-30
+
+### Enhanced
+- **Earnings Tail Risk Detection**: Mentions earnings within 30 days of expiry even if after expiry
+  - Calculates exact days between earnings and expiry date
+  - Shows "Earnings X days AFTER expiry - IV may still be elevated (tail risk)"
+  - CATALYST CHECK step now instructs: "ALWAYS state next earnings date if within 30 days of expiry"
+  - Catches edge cases where IV is elevated due to earnings just after expiry
+
+## [1.17.40] - 2026-01-29
+
+### Added
+- **Discord Analyzer Catalyst Awareness**: AI now flags earnings and binary events
+  - **HIGH IV WARNING**: When IV > 60% and DTE ≤ 45, displays prominent catalyst warning
+  - **CATALYST CHECK Step**: New Step 2 in analysis requiring AI to verify earnings date
+  - Dynamic prompt shows: "IV is X% - WHY is it elevated? Check for earnings, FDA, court dates"
+  - If earnings date unknown + high IV: "❓ Earnings date not found - CHECK MANUALLY"
+  - If earnings before expiry: "⚠️ EARNINGS BEFORE EXPIRY - Position will experience event risk!"
+  - Reminds AI to explicitly state verified earnings date in every analysis
+
+## [1.17.39] - 2026-01-29
+
+### Fixed
+- **Medium-Dated Risk Thresholds**: 30-179 DTE positions now have lenient risk scoring
+  - Previously: 35 DTE treated same as 5 DTE (both high urgency)
+  - Now: 4 tiers - Short (<30d), Medium (30-179d), Long (180-364d), LEAPS (365+d)
+  - Example: $98 strike with $106 spot now shows 15% risk (green) instead of 48% (orange)
+  - LEAPS (1+ year) remain most lenient as intended
+
+## [1.17.38] - 2026-01-29
+
+### Fixed
+- **AI Advisor Option Price Source**: Uses stored `lastOptionPrice` instead of scraping HTML
+  - Previously: Scraped "Cost to Close" from DOM, got wrong value ($0.84 vs $10.25)
+  - Now: Uses `state.currentPositionContext.lastOptionPrice` (live CBOE data)
+  - `setPositionContext()` now includes `lastOptionPrice`, `markedPrice`, `currentSpot`
+  - AI analysis now accurate: "86% profit" → "64% loss" (correct)
+
+## [1.17.37] - 2026-01-29
+
+### Enhanced
+- **Sell Covered Call Modal**: Chain integration like PMCC Calculator and spread modals
+  - "📥 Load Options Chain" button auto-loads on modal open
+  - Expiry dropdown populated from real CBOE chain data
+  - Strike dropdown populated with actual available strikes + live mid prices
+  - Color-coded strikes: ✅ = above cost basis (safe), ⚠️ = below cost basis (risky)
+  - Premium auto-fills when strike selected (no manual entry needed)
+  - Consistent UX pattern across all option modals
+
 ## [1.17.36] - 2026-01-29
 
 ### Added

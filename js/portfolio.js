@@ -3818,6 +3818,9 @@ export function sellCallAgainstShares(holdingId) {
     const costBasis = holding.costBasis || holding.strike || 0;
     const suggestedStrike = Math.ceil(costBasis);  // Round up to nearest dollar
     
+    // Store holding data for chain loading
+    window.ccHoldingData = { holding, costBasis, contracts, chainId };
+    
     // Create modal
     const modal = document.createElement('div');
     modal.id = 'sellCallModal';
@@ -3825,7 +3828,7 @@ export function sellCallAgainstShares(holdingId) {
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
     modal.innerHTML = `
-        <div style="background:#1a1a2e; border-radius:12px; width:400px; padding:24px; border:1px solid #ffaa00;">
+        <div style="background:#1a1a2e; border-radius:12px; width:420px; padding:24px; border:1px solid #ffaa00;">
             <h2 style="color:#ffaa00; margin:0 0 16px 0;">📞 Sell Covered Call</h2>
             
             <div style="background:rgba(255,170,0,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
@@ -3834,10 +3837,29 @@ export function sellCallAgainstShares(holdingId) {
                 <div style="color:#666; font-size:11px; margin-top:4px;">🔗 Links to wheel chain (premium reduces cost basis)</div>
             </div>
             
+            <!-- Load Chain Button -->
+            <div style="margin-bottom:16px;">
+                <button onclick="window.loadCCChain('${holding.ticker}')" 
+                        style="width:100%; padding:10px; background:rgba(0,217,255,0.2); border:1px solid #00d9ff; color:#00d9ff; border-radius:6px; cursor:pointer; font-size:13px; font-weight:bold;">
+                    🔄 Load Options Chain
+                </button>
+                <div id="ccChainStatus" style="text-align:center; font-size:11px; color:#888; margin-top:6px;">Click to load live strikes & premiums</div>
+            </div>
+            
+            <div style="margin-bottom:12px;">
+                <label style="color:#888; font-size:12px;">Expiration Date</label>
+                <select id="ccExpiry" onchange="window.onCCExpiryChange(${costBasis})"
+                        style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px; font-size:14px; cursor:pointer;">
+                    <option value="">Load chain first or enter manually...</option>
+                </select>
+            </div>
+            
             <div style="margin-bottom:12px;">
                 <label style="color:#888; font-size:12px;">Strike Price</label>
-                <input id="ccStrike" type="number" step="0.5" value="${suggestedStrike}" placeholder="e.g., ${suggestedStrike}"
-                       style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px; font-size:16px;">
+                <select id="ccStrike" onchange="window.onCCStrikeChange()"
+                        style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px; font-size:14px; cursor:pointer;">
+                    <option value="">Select expiry first...</option>
+                </select>
             </div>
             
             <div style="margin-bottom:12px;">
@@ -3845,12 +3867,6 @@ export function sellCallAgainstShares(holdingId) {
                 <input id="ccPremium" type="number" step="0.01" placeholder="e.g., 1.50"
                        oninput="window.updateCCPreview(${costBasis}, ${contracts})"
                        style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #00ff88; color:#00ff88; border-radius:4px; font-size:16px;">
-            </div>
-            
-            <div style="margin-bottom:12px;">
-                <label style="color:#888; font-size:12px;">Expiration Date</label>
-                <input id="ccExpiry" type="date" 
-                       style="width:100%; padding:10px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px; font-size:16px;">
             </div>
             
             <div style="margin-bottom:12px;">
@@ -3885,16 +3901,142 @@ export function sellCallAgainstShares(holdingId) {
     
     document.body.appendChild(modal);
     
-    // Set default expiry to ~30 days out, on a Friday
-    const thirtyDays = new Date();
-    thirtyDays.setDate(thirtyDays.getDate() + 30);
-    // Adjust to next Friday
-    const dayOfWeek = thirtyDays.getDay();
-    const daysToFriday = (5 - dayOfWeek + 7) % 7 || 7;
-    thirtyDays.setDate(thirtyDays.getDate() + daysToFriday);
-    document.getElementById('ccExpiry').value = thirtyDays.toISOString().split('T')[0];
+    // Auto-load chain
+    setTimeout(() => window.loadCCChain(holding.ticker), 100);
 }
 window.sellCallAgainstShares = sellCallAgainstShares;
+
+/**
+ * Load options chain for covered call modal
+ */
+window.loadCCChain = async function(ticker) {
+    const statusEl = document.getElementById('ccChainStatus');
+    if (!statusEl) return;
+    
+    statusEl.textContent = '⏳ Loading options chain...';
+    statusEl.style.color = '#00d9ff';
+    
+    try {
+        const chain = await window.fetchOptionsChain(ticker);
+        
+        if (!chain || !chain.calls || chain.calls.length === 0) {
+            throw new Error('No call options available');
+        }
+        
+        window.ccChainData = chain.calls;
+        
+        // Fetch spot price for filtering OTM calls
+        let spotPrice = null;
+        try {
+            const quoteRes = await fetch(`/api/schwab/quote/${ticker}`);
+            if (quoteRes.ok) {
+                const quoteData = await quoteRes.json();
+                spotPrice = quoteData?.quote?.lastPrice || quoteData?.lastPrice;
+            }
+        } catch (e) { /* fallback below */ }
+        
+        if (!spotPrice) {
+            try {
+                const yahooRes = await fetch(`/api/yahoo/${ticker}`);
+                if (yahooRes.ok) {
+                    const yahooData = await yahooRes.json();
+                    spotPrice = yahooData?.chart?.result?.[0]?.meta?.regularMarketPrice;
+                }
+            } catch (e) { /* use cost basis as fallback */ }
+        }
+        
+        window.ccSpotPrice = spotPrice;
+        
+        // Get unique expiries (future dates only)
+        const today = new Date();
+        const expiries = [...new Set(chain.calls.map(c => c.expiration))]
+            .filter(exp => new Date(exp) > today)
+            .sort((a, b) => new Date(a) - new Date(b))
+            .slice(0, 12);
+        
+        if (expiries.length === 0) {
+            throw new Error('No future expirations found');
+        }
+        
+        // Populate expiry dropdown
+        const expirySelect = document.getElementById('ccExpiry');
+        expirySelect.innerHTML = '<option value="">Select expiry...</option>' +
+            expiries.map(exp => {
+                const dte = Math.round((new Date(exp) - today) / (1000 * 60 * 60 * 24));
+                return `<option value="${exp}">${exp} (${dte}d)</option>`;
+            }).join('');
+        
+        const spotInfo = spotPrice ? ` | Spot: $${spotPrice.toFixed(2)}` : '';
+        statusEl.textContent = `✅ Loaded ${chain.calls.length} strikes${spotInfo}`;
+        statusEl.style.color = '#00ff88';
+        
+    } catch (err) {
+        console.error('[CC] Chain load failed:', err);
+        statusEl.textContent = `⚠️ ${err.message} - enter manually`;
+        statusEl.style.color = '#ffaa00';
+    }
+};
+
+/**
+ * When CC expiry changes, populate strikes
+ */
+window.onCCExpiryChange = function(costBasis) {
+    const expiry = document.getElementById('ccExpiry').value;
+    if (!expiry || !window.ccChainData) return;
+    
+    // Get spot price (fetched during chain load) - fallback to cost basis if unavailable
+    const spotPrice = window.ccSpotPrice || costBasis;
+    
+    // Filter to selected expiry, show strikes above current price (OTM calls for covered calls)
+    // Also show some ITM strikes in case user wants aggressive premium
+    const callsAtExpiry = window.ccChainData
+        .filter(c => c.expiration === expiry && c.strike >= spotPrice * 0.90)  // Show from 10% below spot
+        .sort((a, b) => a.strike - b.strike)
+        .slice(0, 30);  // Limit to 30 strikes
+    
+    const strikeSelect = document.getElementById('ccStrike');
+    
+    if (callsAtExpiry.length === 0) {
+        strikeSelect.innerHTML = '<option value="">No strikes available</option>';
+        return;
+    }
+    
+    strikeSelect.innerHTML = '<option value="">Select strike...</option>' +
+        callsAtExpiry.map(c => {
+            const mid = ((c.bid + c.ask) / 2).toFixed(2);
+            const delta = c.delta ? ` Δ${(Math.abs(c.delta) * 100).toFixed(0)}` : '';
+            const isOTM = c.strike > spotPrice;
+            const isAboveCost = c.strike >= costBasis;
+            // OTM and above cost = safest (won't get called, profit if assigned)
+            // ITM but above cost = will get called but profit
+            // Below cost = risky (would lose on shares)
+            let prefix = '⚠️';  // Below cost basis
+            if (isOTM && isAboveCost) prefix = '✅';  // OTM and profitable = best
+            else if (isOTM) prefix = '📍';  // OTM but below cost = unusual
+            else if (isAboveCost) prefix = '⚡';  // ITM but profitable = will assign
+            return `<option value="${c.strike}" data-premium="${mid}">${prefix} $${c.strike} ($${c.bid} bid | ${mid}${delta})</option>`;
+        }).join('');
+};
+
+/**
+ * When CC strike changes, auto-fill premium
+ */
+window.onCCStrikeChange = function() {
+    const strikeSelect = document.getElementById('ccStrike');
+    const selected = strikeSelect.options[strikeSelect.selectedIndex];
+    
+    if (!selected || !selected.value) return;
+    
+    const premium = selected.getAttribute('data-premium');
+    if (premium) {
+        document.getElementById('ccPremium').value = premium;
+        // Trigger preview update
+        const { costBasis, contracts } = window.ccHoldingData || {};
+        if (costBasis && contracts) {
+            window.updateCCPreview(costBasis, contracts);
+        }
+    }
+};
 
 /**
  * Update the covered call preview display
@@ -5605,6 +5747,9 @@ window.runPortfolioAudit = async function() {
         // Get selected AI model (global with local override)
         const selectedModel = window.getSelectedAIModel?.('aiModelSelect') || 'qwen2.5:14b';
         
+        // Get buying power for diversification recommendations
+        const buyingPower = AccountService.getBuyingPower() || 25000;
+        
         // Call AI audit endpoint
         const res = await fetch('/api/ai/portfolio-audit', {
             method: 'POST',
@@ -5612,6 +5757,8 @@ window.runPortfolioAudit = async function() {
             body: JSON.stringify({
                 model: selectedModel,
                 positions,
+                buyingPower,
+                includeDiversification: true,
                 greeks: {
                     delta: greeks?.delta || 0,
                     theta: greeks?.theta || 0,
