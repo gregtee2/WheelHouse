@@ -4630,6 +4630,10 @@ window.finalizeConfirmedTrade = async function(id) {
         const isPut = tradeType.includes('put');
         const instruction = tradeType.startsWith('long_') ? 'BUY_TO_OPEN' : 'SELL_TO_OPEN';
         
+        // Use live pricing if we have it from the preview
+        const livePricing = window._schwabLivePricing;
+        const orderPrice = livePricing?.hasLivePricing ? livePricing.suggestedPrice : premium;
+        
         try {
             // Show loading state
             const btn = document.querySelector('#confirmTradeModal button[onclick*="finalizeConfirmedTrade"]');
@@ -4649,7 +4653,7 @@ window.finalizeConfirmedTrade = async function(id) {
                     type: isPut ? 'P' : 'C',
                     instruction,
                     quantity: contracts,
-                    limitPrice: premium,
+                    limitPrice: orderPrice,
                     confirm: true
                 })
             });
@@ -4660,7 +4664,10 @@ window.finalizeConfirmedTrade = async function(id) {
                 throw new Error(result.error || 'Order failed');
             }
             
-            showNotification(`📤 Order sent to Schwab: ${ticker} $${strike}`, 'success');
+            showNotification(`📤 Order sent to Schwab: ${ticker} $${strike} @ $${orderPrice.toFixed(2)}`, 'success');
+            
+            // Clear live pricing
+            window._schwabLivePricing = null;
             
         } catch (e) {
             console.error('Schwab order error:', e);
@@ -4800,6 +4807,7 @@ window.updateSchwabPreview = async function() {
     const tradeType = document.getElementById('confirmTradeType')?.value || 'short_put';
     const isPut = tradeType.includes('put');
     const instruction = tradeType.startsWith('long_') ? 'BUY_TO_OPEN' : 'SELL_TO_OPEN';
+    const isSell = instruction === 'SELL_TO_OPEN';
     
     try {
         const res = await fetch('/api/schwab/preview-option-order', {
@@ -4823,21 +4831,51 @@ window.updateSchwabPreview = async function() {
         }
         
         const collateralOk = result.buyingPower >= result.collateralRequired;
-        const credit = premium * 100 * contracts;
+        
+        // Use live pricing if available
+        const hasLivePricing = result.liveBid !== null && result.liveAsk !== null;
+        const liveBid = result.liveBid || 0;
+        const liveAsk = result.liveAsk || 0;
+        const liveMid = result.liveMid || 0;
+        const suggestedPrice = isSell ? liveBid : liveAsk; // For sells, get bid; for buys, get ask
+        const credit = (hasLivePricing ? suggestedPrice : premium) * 100 * contracts;
         
         if (detailsDiv) {
             detailsDiv.innerHTML = `
                 <div style="font-size:11px; font-family:monospace; color:#888; margin-bottom:6px;">
                     OCC: ${result.occSymbol}
                 </div>
+                ${hasLivePricing ? `
+                    <div style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); border-radius:4px; padding:8px; margin-bottom:8px;">
+                        <div style="font-size:10px; color:#888; text-transform:uppercase; margin-bottom:4px;">📈 Live Schwab Pricing</div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; text-align:center;">
+                            <div>
+                                <div style="color:#888; font-size:10px;">Bid</div>
+                                <div style="color:#00ff88; font-size:16px; font-weight:bold;">$${liveBid.toFixed(2)}</div>
+                            </div>
+                            <div>
+                                <div style="color:#888; font-size:10px;">Mid</div>
+                                <div style="color:#00d9ff; font-size:16px;">$${liveMid.toFixed(2)}</div>
+                            </div>
+                            <div>
+                                <div style="color:#888; font-size:10px;">Ask</div>
+                                <div style="color:#ffaa00; font-size:16px;">$${liveAsk.toFixed(2)}</div>
+                            </div>
+                        </div>
+                    </div>
+                ` : `
+                    <div style="color:#ffaa00; font-size:11px; margin-bottom:8px;">
+                        ⚠️ Using staged price ($${premium.toFixed(2)}) - live quote unavailable
+                    </div>
+                `}
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
                     <div>
                         <span style="color:#888;">Order:</span>
-                        <span style="color:#00d9ff;">${instruction === 'SELL_TO_OPEN' ? 'SELL' : 'BUY'} ${contracts}x @ $${premium.toFixed(2)}</span>
+                        <span style="color:#00d9ff;">${isSell ? 'SELL' : 'BUY'} ${contracts}x @ $${(hasLivePricing ? suggestedPrice : premium).toFixed(2)}</span>
                     </div>
                     <div>
-                        <span style="color:#888;">Credit:</span>
-                        <span style="color:#00ff88;">$${credit.toLocaleString()}</span>
+                        <span style="color:#888;">${isSell ? 'Credit' : 'Debit'}:</span>
+                        <span style="color:${isSell ? '#00ff88' : '#ff5252'};">$${credit.toLocaleString()}</span>
                     </div>
                     <div>
                         <span style="color:#888;">Collateral:</span>
@@ -4859,6 +4897,15 @@ window.updateSchwabPreview = async function() {
                 `}
             `;
         }
+        
+        // Store live pricing for use when sending order
+        window._schwabLivePricing = {
+            hasLivePricing,
+            suggestedPrice: hasLivePricing ? suggestedPrice : premium,
+            liveBid,
+            liveAsk,
+            liveMid
+        };
         
     } catch (e) {
         if (detailsDiv) {

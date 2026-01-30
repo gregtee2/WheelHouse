@@ -542,6 +542,27 @@ router.post('/preview-option-order', async (req, res) => {
         const buyingPower = account?.securitiesAccount?.currentBalances?.buyingPower || 0;
         const collateralRequired = strike * 100 * (quantity || 1);
         
+        // Get the OCC symbol for quote lookup
+        const occSymbol = order.orderLegCollection[0].instrument.symbol;
+        
+        // Fetch live quote for this option
+        let liveQuote = null;
+        let liveBid = null;
+        let liveAsk = null;
+        let liveMid = null;
+        try {
+            const quoteData = await schwabApiCall(`/marketdata/v1/quotes?symbols=${encodeURIComponent(occSymbol)}&fields=quote`);
+            if (quoteData && quoteData[occSymbol]) {
+                liveQuote = quoteData[occSymbol];
+                liveBid = liveQuote.quote?.bidPrice || liveQuote.bidPrice || 0;
+                liveAsk = liveQuote.quote?.askPrice || liveQuote.askPrice || 0;
+                liveMid = (liveBid + liveAsk) / 2;
+                console.log(`[SCHWAB] Live quote for ${occSymbol}: bid=$${liveBid}, ask=$${liveAsk}, mid=$${liveMid.toFixed(2)}`);
+            }
+        } catch (e) {
+            console.log('[SCHWAB] Quote fetch error (non-fatal):', e.message);
+        }
+        
         // Preview the order
         let preview = null;
         let previewError = null;
@@ -559,12 +580,17 @@ router.post('/preview-option-order', async (req, res) => {
         res.json({
             success: true,
             order,
-            occSymbol: order.orderLegCollection[0].instrument.symbol,
+            occSymbol,
             accountHash,
             buyingPower,
             collateralRequired,
             preview,
             previewError,
+            // Live pricing
+            liveBid,
+            liveAsk,
+            liveMid,
+            suggestedLimit: liveBid || limitPrice, // For sells, use bid; for buys would use ask
             description: `${instruction || 'SELL_TO_OPEN'} ${quantity || 1}x ${ticker} $${strike} ${type || 'P'} exp ${expiry} @ $${limitPrice?.toFixed(2) || 'MKT'}`
         });
         
