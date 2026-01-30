@@ -6197,6 +6197,24 @@ window.previewSchwabOrder = async function(candidateIndex) {
             throw new Error(result.error || 'Preview failed');
         }
         
+        // Use live pricing if available
+        const hasLivePricing = result.liveBid !== null && result.liveAsk !== null && result.liveBid > 0;
+        const liveBid = result.liveBid || 0;
+        const liveAsk = result.liveAsk || 0;
+        const liveMid = result.liveMid || 0;
+        const suggestedPrice = hasLivePricing ? liveBid : candidate.putPremium; // For sells, use bid
+        const totalCredit = suggestedPrice * 100;
+        
+        // Store live pricing for when sending order
+        window._schwabLivePricing = {
+            candidateIndex,
+            hasLivePricing,
+            suggestedPrice,
+            liveBid,
+            liveAsk,
+            liveMid
+        };
+        
         // Update modal with preview details
         const collateralOk = result.buyingPower >= result.collateralRequired;
         
@@ -6206,21 +6224,45 @@ window.previewSchwabOrder = async function(candidateIndex) {
                 <div style="padding:20px;">
                     <div style="background:rgba(0,217,255,0.1); border:1px solid rgba(0,217,255,0.3); border-radius:8px; padding:15px; margin-bottom:15px;">
                         <div style="font-size:16px; font-weight:bold; color:#00d9ff; margin-bottom:10px;">
-                            ${result.description}
+                            SELL_TO_OPEN 1x ${candidate.ticker} $${candidate.suggestedStrike} P exp ${candidate.expiry} @ $${suggestedPrice?.toFixed(2)}
                         </div>
                         <div style="font-size:12px; color:#888; font-family:monospace;">
                             OCC Symbol: ${result.occSymbol}
                         </div>
                     </div>
                     
+                    ${hasLivePricing ? `
+                        <div style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); border-radius:8px; padding:12px; margin-bottom:15px;">
+                            <div style="font-size:10px; color:#888; text-transform:uppercase; margin-bottom:6px;">📈 Live Schwab Pricing</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; text-align:center;">
+                                <div>
+                                    <div style="color:#888; font-size:10px;">Bid</div>
+                                    <div style="color:#00ff88; font-size:18px; font-weight:bold;">$${liveBid.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                    <div style="color:#888; font-size:10px;">Mid</div>
+                                    <div style="color:#00d9ff; font-size:18px;">$${liveMid.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                    <div style="color:#888; font-size:10px;">Ask</div>
+                                    <div style="color:#ffaa00; font-size:18px;">$${liveAsk.toFixed(2)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    ` : `
+                        <div style="background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.3); border-radius:8px; padding:10px; margin-bottom:15px;">
+                            <div style="color:#ffaa00; font-size:12px;">⚠️ Using staged price ($${candidate.putPremium?.toFixed(2)}) - live quote unavailable</div>
+                        </div>
+                    `}
+                    
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
                         <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:6px;">
-                            <div style="font-size:11px; color:#888;">Limit Price</div>
-                            <div style="font-size:18px; color:#00ff88;">$${candidate.putPremium?.toFixed(2) || '?'}</div>
+                            <div style="font-size:11px; color:#888;">Limit Price (Bid)</div>
+                            <div style="font-size:18px; color:#00ff88;">$${suggestedPrice?.toFixed(2) || '?'}</div>
                         </div>
                         <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:6px;">
                             <div style="font-size:11px; color:#888;">Total Credit</div>
-                            <div style="font-size:18px; color:#00ff88;">$${((candidate.putPremium || 0) * 100).toFixed(0)}</div>
+                            <div style="font-size:18px; color:#00ff88;">$${totalCredit.toFixed(0)}</div>
                         </div>
                         <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:6px;">
                             <div style="font-size:11px; color:#888;">Collateral Required</div>
@@ -6312,6 +6354,12 @@ window.confirmSchwabOrder = async function(candidateIndex) {
         `;
     }
     
+    // Use live pricing if available from preview
+    const livePricing = window._schwabLivePricing;
+    const orderPrice = (livePricing?.candidateIndex === candidateIndex && livePricing?.hasLivePricing) 
+        ? livePricing.suggestedPrice 
+        : candidate.putPremium;
+    
     try {
         const res = await fetch('/api/schwab/place-option-order', {
             method: 'POST',
@@ -6323,7 +6371,7 @@ window.confirmSchwabOrder = async function(candidateIndex) {
                 type: 'P',
                 instruction: 'SELL_TO_OPEN',
                 quantity: 1,
-                limitPrice: candidate.putPremium,
+                limitPrice: orderPrice,
                 confirm: true  // Required safety flag
             })
         });
@@ -6333,6 +6381,9 @@ window.confirmSchwabOrder = async function(candidateIndex) {
         if (!res.ok || !result.success) {
             throw new Error(result.error || 'Order failed');
         }
+        
+        // Clear live pricing
+        window._schwabLivePricing = null;
         
         // Show success
         if (modal) {
@@ -6353,7 +6404,7 @@ window.confirmSchwabOrder = async function(candidateIndex) {
             `;
         }
         
-        showNotification(`Order sent: ${candidate.ticker} $${candidate.suggestedStrike} PUT`, 'success');
+        showNotification(`Order sent: ${candidate.ticker} $${candidate.suggestedStrike} PUT @ $${orderPrice.toFixed(2)}`, 'success');
         
     } catch (e) {
         console.error('Schwab order error:', e);
