@@ -8752,22 +8752,37 @@ window.openPMCCCalculator = function() {
                 
                 <!-- Short Call Inputs -->
                 <div style="background: linear-gradient(135deg, rgba(255,82,82,0.15), rgba(255,170,0,0.1)); padding: 16px; border-radius: 8px; border: 1px solid rgba(255,82,82,0.3); margin-bottom: 20px;">
-                    <div style="color: #ff5252; font-weight: bold; margin-bottom: 12px; font-size: 14px;">💰 Short Call to Sell</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div style="color: #ff5252; font-weight: bold; font-size: 14px;">💰 Short Call to Sell</div>
+                        <button onclick="window.loadPMCCChain()" style="padding: 4px 10px; background: rgba(0,217,255,0.2); border: 1px solid #00d9ff; color: #00d9ff; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                            🔄 Load Chain
+                        </button>
+                    </div>
+                    <div id="pmccChainLoadingStatus" style="font-size: 11px; color: #888; margin-bottom: 8px; text-align: center;">
+                        Click "Load Chain" to fetch strikes & premiums
+                    </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                         <div>
                             <label style="color: #888; font-size: 11px; display: block; margin-bottom: 4px;">Strike Price</label>
-                            <input type="number" id="pmccShortStrike" step="1" placeholder="e.g., 55" oninput="window.calculatePMCC()"
-                                   style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ff5252; color: #fff; border-radius: 4px; font-size: 13px;">
+                            <select id="pmccShortStrike" onchange="window.onPMCCStrikeChange()"
+                                   style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ff5252; color: #fff; border-radius: 4px; font-size: 13px; cursor: pointer;">
+                                <option value="">Select strike...</option>
+                            </select>
                         </div>
                         <div>
-                            <label style="color: #888; font-size: 11px; display: block; margin-bottom: 4px;">DTE</label>
-                            <input type="number" id="pmccShortDTE" step="1" value="30" placeholder="e.g., 30" oninput="window.calculatePMCC()"
-                                   style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ff5252; color: #fff; border-radius: 4px; font-size: 13px;">
+                            <label style="color: #888; font-size: 11px; display: block; margin-bottom: 4px;">Expiry Date</label>
+                            <select id="pmccShortExpiry" onchange="window.onPMCCExpiryChange()"
+                                   style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ff5252; color: #fff; border-radius: 4px; font-size: 13px; cursor: pointer;">
+                                <option value="">Select expiry...</option>
+                            </select>
                         </div>
                     </div>
                     <div>
-                        <label style="color: #888; font-size: 11px; display: block; margin-bottom: 4px;">Premium (per share)</label>
-                        <input type="number" id="pmccShortPremium" step="0.01" placeholder="e.g., 0.75" oninput="window.calculatePMCC()"
+                        <label style="color: #888; font-size: 11px; display: block; margin-bottom: 4px;">Premium (per share) - Auto-filled from chain</label>
+                        <input type="number" id="pmccShortPremium" step="0.01" placeholder="Will auto-fill from selected strike" oninput="window.calculatePMCC()"
+                               style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #00ff88; color: #fff; border-radius: 4px; font-size: 13px;">
+                    </div>
+                </div>
                                style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ff5252; color: #fff; border-radius: 4px; font-size: 13px;">
                     </div>
                 </div>
@@ -8912,19 +8927,129 @@ window.loadPMCCPosition = async function(positionId) {
 };
 
 /**
+ * Load options chain for PMCC calculator
+ */
+window.loadPMCCChain = async function() {
+    if (!window.pmccData) {
+        showNotification('Select a LEAPS position first', 'warning');
+        return;
+    }
+    
+    const { position } = window.pmccData;
+    const statusEl = document.getElementById('pmccChainLoadingStatus');
+    
+    statusEl.textContent = '⏳ Fetching options chain...';
+    statusEl.style.color = '#00d9ff';
+    
+    try {
+        const chain = await window.fetchOptionsChain(position.ticker);
+        if (!chain || !chain.calls) {
+            throw new Error('No chain data available');
+        }
+        
+        window.pmccChainData = chain.calls;
+        
+        // Get unique expiries (only future dates, sorted)
+        const today = new Date();
+        const expiries = [...new Set(chain.calls.map(c => c.expiration))]
+            .filter(exp => new Date(exp) > today)
+            .sort((a, b) => new Date(a) - new Date(b))
+            .slice(0, 12);  // Next 12 expiries
+        
+        // Populate expiry dropdown
+        const expirySelect = document.getElementById('pmccShortExpiry');
+        expirySelect.innerHTML = '<option value="">Select expiry...</option>' + 
+            expiries.map(exp => {
+                const date = new Date(exp);
+                const dte = Math.round((date - today) / (1000 * 60 * 60 * 24));
+                return `<option value="${exp}">${exp} (${dte}d)</option>`;
+            }).join('');
+        
+        statusEl.textContent = `✅ Loaded ${chain.calls.length} strikes across ${expiries.length} expiries`;
+        statusEl.style.color = '#00ff88';
+        
+        console.log('[PMCC] Chain loaded:', chain.calls.length, 'calls');
+    } catch (err) {
+        console.error('[PMCC] Chain load failed:', err);
+        statusEl.textContent = '⚠️ Failed to load chain - try again';
+        statusEl.style.color = '#ffaa00';
+    }
+};
+
+/**
+ * When expiry changes, populate strikes for that expiry
+ */
+window.onPMCCExpiryChange = function() {
+    const expiry = document.getElementById('pmccShortExpiry').value;
+    if (!expiry || !window.pmccChainData) return;
+    
+    const strikeSelect = document.getElementById('pmccShortStrike');
+    const { spotPrice } = window.pmccData;
+    
+    // Filter to selected expiry and get strikes above spot (OTM calls)
+    const callsAtExpiry = window.pmccChainData
+        .filter(c => c.expiration === expiry && c.strike >= spotPrice)
+        .sort((a, b) => a.strike - b.strike);
+    
+    if (callsAtExpiry.length === 0) {
+        strikeSelect.innerHTML = '<option value="">No OTM strikes available</option>';
+        return;
+    }
+    
+    // Build options with bid/ask
+    strikeSelect.innerHTML = '<option value="">Select strike...</option>' + 
+        callsAtExpiry.map(c => {
+            const mid = ((c.bid + c.ask) / 2).toFixed(2);
+            const delta = c.delta ? ` Δ${(c.delta * 100).toFixed(0)}` : '';
+            return `<option value="${c.strike}" data-premium="${mid}">$${c.strike} (bid $${c.bid} / ${mid}${delta})</option>`;
+        }).join('');
+    
+    console.log('[PMCC] Populated', callsAtExpiry.length, 'strikes for', expiry);
+};
+
+/**
+ * When strike changes, auto-fill premium
+ */
+window.onPMCCStrikeChange = function() {
+    const strikeSelect = document.getElementById('pmccShortStrike');
+    const selectedOption = strikeSelect.options[strikeSelect.selectedIndex];
+    
+    if (!selectedOption || !selectedOption.value) return;
+    
+    const premium = selectedOption.getAttribute('data-premium');
+    if (premium) {
+        document.getElementById('pmccShortPremium').value = premium;
+    }
+    
+    // Calculate DTE from selected expiry
+    const expiry = document.getElementById('pmccShortExpiry').value;
+    if (expiry) {
+        const dte = Math.round((new Date(expiry) - new Date()) / (1000 * 60 * 60 * 24));
+        // Store DTE for calculations (we removed the input field)
+        window.pmccData.shortDTE = dte;
+    }
+    
+    // Trigger calculation
+    window.calculatePMCC();
+};
+
+/**
  * Calculate PMCC scenarios based on short call inputs
  */
 window.calculatePMCC = function() {
     if (!window.pmccData) return;
     
     const shortStrike = parseFloat(document.getElementById('pmccShortStrike').value) || 0;
-    const shortDTE = parseFloat(document.getElementById('pmccShortDTE').value) || 30;
+    const shortExpiry = document.getElementById('pmccShortExpiry').value;
     const shortPremium = parseFloat(document.getElementById('pmccShortPremium').value) || 0;
     
-    if (!shortStrike || !shortPremium) {
+    if (!shortStrike || !shortPremium || !shortExpiry) {
         document.getElementById('pmccResults').style.display = 'none';
         return;
     }
+    
+    // Calculate DTE
+    const shortDTE = Math.round((new Date(shortExpiry) - new Date()) / (1000 * 60 * 60 * 24));
     
     const { position, spotPrice, leapsCost, currentValue, intrinsic, timeValue } = window.pmccData;
     const leapsStrike = position.strike;
@@ -8982,18 +9107,13 @@ window.stagePMCCTrade = function() {
     
     const { position } = window.pmccData;
     const shortStrike = parseFloat(document.getElementById('pmccShortStrike').value);
-    const shortDTE = parseFloat(document.getElementById('pmccShortDTE').value);
+    const expiry = document.getElementById('pmccShortExpiry').value;
     const shortPremium = parseFloat(document.getElementById('pmccShortPremium').value);
     
-    if (!shortStrike || !shortPremium) {
-        showNotification('Enter short call details first', 'warning');
+    if (!shortStrike || !shortPremium || !expiry) {
+        showNotification('Select strike, expiry, and premium first', 'warning');
         return;
     }
-    
-    // Calculate expiry date
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + shortDTE);
-    const expiry = expiryDate.toISOString().split('T')[0];
     
     // Stage to pending
     const trade = {

@@ -2,6 +2,17 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.28] - 2026-01-29
+
+### Enhanced
+- **PMCC Calculator - Chain Integration**: No more manual entry!
+  - "Load Chain" button fetches real options data
+  - Expiry dropdown: Next 12 expirations with DTE
+  - Strike dropdown: All OTM calls with bid/ask/delta
+  - Premium auto-fills from selected strike (mid price)
+  - DTE auto-calculated from expiry
+  - No phone lookup needed - all data from your broker/CBOE
+
 ## [1.17.27] - 2026-01-29
 
 ### Added
