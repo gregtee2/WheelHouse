@@ -1751,13 +1751,14 @@ Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy")
                         const quote = await MarketDataService.getQuote(candidate.ticker);
                         if (!quote || quote.price > maxStrike) continue;
                         
-                        // Get ATM put premium (~30 delta target)
-                        const chain = await MarketDataService.getOptionsChain(candidate.ticker, { strikeCount: 10 });
+                        // Get options chain with more strikes
+                        const chain = await MarketDataService.getOptionsChain(candidate.ticker, { strikeCount: 20 });
                         
                         // Find ~30-45 DTE expiration
                         const targetDte = 35;
                         let bestExpiry = null;
                         let bestDteDiff = Infinity;
+                        let actualDte = targetDte;
                         
                         if (chain?.expirations) {
                             for (const exp of chain.expirations) {
@@ -1766,21 +1767,84 @@ Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy")
                                 if (dte >= 25 && dte <= 50 && Math.abs(dte - targetDte) < bestDteDiff) {
                                     bestDteDiff = Math.abs(dte - targetDte);
                                     bestExpiry = exp;
+                                    actualDte = dte;
                                 }
                             }
                         }
                         
-                        // Find ATM or slightly OTM put
-                        let suggestedStrike = Math.floor(quote.price / 5) * 5; // Round down to nearest 5
+                        // =====================================================
+                        // FIND A PUT WITH MEANINGFUL PREMIUM (~25-35 delta)
+                        // Target: 3-7% OTM with premium that gives 15%+ annualized
+                        // =====================================================
+                        let suggestedStrike = null;
                         let putPremium = null;
+                        let putDelta = null;
                         
-                        if (chain?.puts) {
-                            const atmPut = chain.puts.find(p => Math.abs(p.strike - suggestedStrike) < 3);
-                            if (atmPut) {
-                                putPremium = atmPut.mid || ((atmPut.bid + atmPut.ask) / 2);
-                                suggestedStrike = atmPut.strike;
+                        if (chain?.puts && chain.puts.length > 0) {
+                            // Sort puts by strike descending (highest first = closest to ATM)
+                            const sortedPuts = [...chain.puts]
+                                .filter(p => p.strike < quote.price) // Only OTM puts
+                                .sort((a, b) => b.strike - a.strike);
+                            
+                            // Strategy: Find best put by these criteria:
+                            // 1. Has delta between 0.20-0.40 (if delta available)
+                            // 2. Has premium >= $0.50 (minimum to be worth trading)
+                            // 3. Gives annualized yield >= 12%
+                            
+                            const minPremium = 0.50;
+                            const minAnnualizedYield = 0.12; // 12%
+                            
+                            let bestPut = null;
+                            let bestScore = -1;
+                            
+                            for (const put of sortedPuts) {
+                                const premium = put.mid || ((put.bid || 0) + (put.ask || 0)) / 2;
+                                if (premium < minPremium) continue;
+                                
+                                const annYield = (premium / put.strike) * (365 / actualDte);
+                                if (annYield < minAnnualizedYield) continue;
+                                
+                                // Calculate cushion (how far OTM)
+                                const cushion = ((quote.price - put.strike) / quote.price) * 100;
+                                if (cushion < 2 || cushion > 15) continue; // 2-15% OTM
+                                
+                                // Score: prefer higher yield but with reasonable cushion
+                                // Delta ~0.25-0.30 is ideal, cushion 4-8% is sweet spot
+                                const deltaScore = put.delta ? (1 - Math.abs(Math.abs(put.delta) - 0.28) * 3) : 0.5;
+                                const cushionScore = 1 - Math.abs(cushion - 6) / 10;
+                                const yieldScore = Math.min(annYield / 0.30, 1); // Cap at 30% yield
+                                
+                                const score = (deltaScore * 0.3) + (cushionScore * 0.3) + (yieldScore * 0.4);
+                                
+                                if (score > bestScore) {
+                                    bestScore = score;
+                                    bestPut = put;
+                                }
+                            }
+                            
+                            // Fallback: if no put meets criteria, find the one with highest premium that's OTM
+                            if (!bestPut && sortedPuts.length > 0) {
+                                bestPut = sortedPuts.find(p => {
+                                    const prem = p.mid || ((p.bid || 0) + (p.ask || 0)) / 2;
+                                    return prem >= 0.30; // Lower threshold for fallback
+                                });
+                            }
+                            
+                            if (bestPut) {
+                                suggestedStrike = bestPut.strike;
+                                putPremium = bestPut.mid || ((bestPut.bid || 0) + (bestPut.ask || 0)) / 2;
+                                putDelta = bestPut.delta ? Math.abs(bestPut.delta) : null;
                             }
                         }
+                        
+                        // Skip if we couldn't find a decent put
+                        if (!suggestedStrike || !putPremium || putPremium < 0.30) {
+                            console.log(`[AI] Skipping ${candidate.ticker} - no put with meaningful premium`);
+                            continue;
+                        }
+                        
+                        const cushionPct = ((quote.price - suggestedStrike) / quote.price * 100).toFixed(1);
+                        const annualizedYield = ((putPremium / suggestedStrike) * (365 / actualDte) * 100).toFixed(1);
                         
                         candidateData.push({
                             ticker: candidate.ticker,
@@ -1789,10 +1853,11 @@ Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy")
                             rangePosition: quote.rangePosition || 50,
                             suggestedStrike,
                             expiry: bestExpiry,
-                            dte: bestExpiry ? Math.ceil((new Date(bestExpiry) - new Date()) / (1000 * 60 * 60 * 24)) : null,
+                            dte: actualDte,
                             putPremium,
-                            annualizedYield: putPremium && suggestedStrike ? 
-                                ((putPremium / suggestedStrike) * (365 / (bestDteDiff || 35)) * 100).toFixed(1) : null,
+                            putDelta,
+                            cushionPct,
+                            annualizedYield,
                             collateral: suggestedStrike * 100,
                             reason: missingSectors.includes(candidate.sector) ? 'New sector' : 'Add to sector'
                         });
@@ -1801,13 +1866,14 @@ Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy")
                     }
                 }
                 
-                diversificationCandidates = candidateData;
+                // Filter to only include trades with 12%+ annualized yield
+                diversificationCandidates = candidateData.filter(c => parseFloat(c.annualizedYield) >= 12);
                 
                 // Build diversification text section
-                if (candidateData.length > 0) {
-                    diversificationSection = `\n\n## 🎯 DIVERSIFICATION OPPORTUNITIES\n\nBased on your current sector exposure, here are candidates from sectors you're missing or underweight:\n\n`;
+                if (diversificationCandidates.length > 0) {
+                    diversificationSection = `\n\n## 🎯 DIVERSIFICATION OPPORTUNITIES\n\nBased on your current sector exposure, here are wheel-worthy candidates from sectors you're missing or underweight:\n\n`;
                     
-                    for (const c of candidateData) {
+                    for (const c of diversificationCandidates) {
                         const rangeNote = c.rangePosition < 30 ? '🟢 Near lows' : 
                                          c.rangePosition > 70 ? '🔴 Near highs' : '🟡 Mid-range';
                         
@@ -1815,8 +1881,9 @@ Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy")
                         diversificationSection += `- **Current Price**: $${c.price.toFixed(2)} (${rangeNote})\n`;
                         
                         if (c.putPremium && c.expiry) {
-                            diversificationSection += `- **Suggested Trade**: Sell $${c.suggestedStrike} PUT exp ${c.expiry} (${c.dte}d)\n`;
-                            diversificationSection += `- **Premium**: ~$${c.putPremium.toFixed(2)} (${c.annualizedYield}% ann. yield)\n`;
+                            const deltaStr = c.putDelta ? ` | Δ ${(c.putDelta * 100).toFixed(0)}` : '';
+                            diversificationSection += `- **Suggested Trade**: Sell **$${c.suggestedStrike} PUT** exp ${c.expiry} (${c.dte}d)\n`;
+                            diversificationSection += `- **Premium**: ~$${c.putPremium.toFixed(2)} | **${c.annualizedYield}% ann. yield** | ${c.cushionPct}% cushion${deltaStr}\n`;
                             diversificationSection += `- **Collateral**: $${c.collateral.toLocaleString()}\n`;
                         } else {
                             diversificationSection += `- Check option chain for current premiums\n`;
@@ -1824,7 +1891,7 @@ Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy")
                         diversificationSection += `\n`;
                     }
                     
-                    diversificationSection += `*Note: These are starting points. Always verify earnings dates and do your own analysis before trading.*`;
+                    diversificationSection += `\n*Criteria: 12%+ annualized yield, 2-15% cushion, $0.50+ premium. Verify earnings before trading.*`;
                 }
             }
         }

@@ -2,6 +2,17 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.46] - 2026-01-30
+
+### Fixed
+- **Portfolio Audit Diversification: Better Trade Selection**
+  - Now finds puts with MEANINGFUL premium (~25-35 delta range)
+  - Minimum requirements: $0.50+ premium, 12%+ annualized yield, 2-15% cushion
+  - Scores puts by delta, cushion, and yield to find optimal trades
+  - Filters out garbage suggestions (no more $0.01 premium puts)
+  - Shows cushion % and delta in recommendations
+  - Skips tickers where no decent wheel-worthy put exists
+
 ## [1.17.45] - 2026-01-30
 
 ### Added
