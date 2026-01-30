@@ -2380,6 +2380,69 @@ function selectStrikeFromPicker(strike, premium, delta) {
 window.selectStrikeFromPicker = selectStrikeFromPicker;
 
 /**
+ * Clear the Add Position form and reset to initial state
+ */
+function clearAddPositionForm() {
+    // Clear all form fields
+    const fields = ['posTicker', 'posStrike', 'posPremium', 'posDelta'];
+    fields.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    
+    // Reset dropdowns
+    const typeSelect = document.getElementById('posType');
+    if (typeSelect) typeSelect.selectedIndex = 0;
+    
+    const expirySelect = document.getElementById('posExpiry');
+    if (expirySelect) expirySelect.innerHTML = '<option value="">Select expiry...</option>';
+    
+    const strikeCountSelect = document.getElementById('strikeCountSelect');
+    if (strikeCountSelect) strikeCountSelect.value = '30';
+    
+    // Reset contracts to 1
+    const contractsEl = document.getElementById('posContracts');
+    if (contractsEl) contractsEl.value = '1';
+    
+    // Reset date to today
+    const dateEl = document.getElementById('posOpenDate');
+    if (dateEl) dateEl.value = new Date().toISOString().split('T')[0];
+    
+    // Hide chain picker and clear displays
+    const chainPicker = document.getElementById('optionChainPicker');
+    if (chainPicker) chainPicker.style.display = 'none';
+    
+    const strikeContainer = document.getElementById('strikePickerContainer');
+    if (strikeContainer) strikeContainer.style.display = 'none';
+    
+    const selectedDisplay = document.getElementById('selectedStrikeDisplay');
+    if (selectedDisplay) {
+        selectedDisplay.style.display = 'none';
+        selectedDisplay.innerHTML = '';
+    }
+    
+    // Clear Schwab preview
+    const schwabCheckbox = document.getElementById('posSendToSchwab');
+    if (schwabCheckbox) schwabCheckbox.checked = false;
+    
+    const schwabPreview = document.getElementById('posAddSchwabPreview');
+    if (schwabPreview) {
+        schwabPreview.style.display = 'none';
+        schwabPreview.innerHTML = '';
+    }
+    
+    // Clear price status
+    const priceStatus = document.getElementById('posPriceStatus');
+    if (priceStatus) priceStatus.innerHTML = '';
+    
+    // Clear cached chain data
+    currentOptionChain = null;
+    
+    showNotification('Form cleared', 'info');
+}
+window.clearAddPositionForm = clearAddPositionForm;
+
+/**
  * Update the credit/debit display when contracts change
  */
 function updateAddPositionCredit() {
