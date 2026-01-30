@@ -4810,6 +4810,34 @@ window.updateSchwabPreview = async function() {
     const instruction = tradeType.startsWith('long_') ? 'BUY_TO_OPEN' : 'SELL_TO_OPEN';
     const isSell = instruction === 'SELL_TO_OPEN';
     
+    // Check if this short call is covered by a LEAPS or stock position
+    let isCovered = false;
+    if (!isPut && isSell) {
+        // For short calls, check if user owns:
+        // 1. A LEAPS call on this ticker (for PMCC)
+        // 2. 100+ shares of stock (for covered call)
+        const positions = window.state?.positions || JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
+        const holdings = window.state?.holdings || JSON.parse(localStorage.getItem('wheelhouse_holdings') || '[]');
+        
+        // Check for LEAPS (long call with DTE > 180)
+        const hasLeaps = positions.some(p => 
+            p.ticker?.toUpperCase() === ticker.toUpperCase() &&
+            (p.type === 'long_call' || p.type === 'pmcc' || p.type === 'skip_call') &&
+            p.strike <= strike  // LEAPS strike must be <= short call strike
+        );
+        
+        // Check for 100+ shares
+        const hasShares = holdings.some(h => 
+            h.ticker?.toUpperCase() === ticker.toUpperCase() &&
+            (h.shares || 0) >= 100
+        );
+        
+        isCovered = hasLeaps || hasShares;
+        if (isCovered) {
+            console.log(`[SCHWAB] Short call is COVERED by ${hasLeaps ? 'LEAPS position' : 'shares'}`);
+        }
+    }
+    
     try {
         const res = await fetch('/api/schwab/preview-option-order', {
             method: 'POST',
@@ -4818,6 +4846,7 @@ window.updateSchwabPreview = async function() {
                 ticker,
                 strike,
                 expiry,
+                covered: isCovered,  // Tell backend this is a covered position
                 type: isPut ? 'P' : 'C',
                 instruction,
                 quantity: contracts,

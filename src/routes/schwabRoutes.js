@@ -501,7 +501,7 @@ function buildOptionOrder(params) {
 // Preview an option order (doesn't execute)
 router.post('/preview-option-order', async (req, res) => {
     try {
-        const { ticker, strike, expiry, type, instruction, quantity, limitPrice } = req.body;
+        const { ticker, strike, expiry, type, instruction, quantity, limitPrice, covered } = req.body;
         
         if (!ticker || !strike || !expiry) {
             return res.status(400).json({ error: 'Missing required fields: ticker, strike, expiry' });
@@ -540,7 +540,14 @@ router.post('/preview-option-order', async (req, res) => {
         
         // Get buying power for display
         const buyingPower = account?.securitiesAccount?.currentBalances?.buyingPower || 0;
-        const collateralRequired = strike * 100 * (quantity || 1);
+        
+        // Calculate collateral - $0 for covered calls (PMCC, covered call with shares)
+        // Otherwise use cash-secured formula: strike × 100 × quantity
+        const collateralRequired = covered ? 0 : strike * 100 * (quantity || 1);
+        
+        if (covered) {
+            console.log('[SCHWAB] Covered position - no margin required');
+        }
         
         // Get the OCC symbol for quote lookup
         const occSymbol = order.orderLegCollection[0].instrument.symbol;
