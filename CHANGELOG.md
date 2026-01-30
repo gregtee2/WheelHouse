@@ -2,6 +2,16 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.25] - 2026-01-29
+
+### Added
+- **Spread Shift Arrows**: Quickly move entire spread up/down the options chain
+  - ▲/▼ buttons between Sell/Buy strike dropdowns
+  - Shifts both legs by one strike while maintaining spread width
+  - Instantly fetches new premiums and recalculates R:R ratio
+  - Visual feedback when at edge of available strikes
+  - Great for quickly comparing different strike combinations
+
 ## [1.17.24] - 2026-01-29
 
 ### Added

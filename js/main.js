@@ -3276,9 +3276,9 @@ window.confirmStagedTrade = function(id) {
     let premiumFieldsHtml = '';
     
     if (isSpread) {
-        // Spread: two strikes (dropdowns) + two premiums + net credit display
+        // Spread: two strikes (dropdowns) + shift arrows + two premiums + net credit display
         strikeFieldsHtml = `
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:end;">
                 <div>
                     <label style="color:#ff5252; font-size:12px;">Sell Strike</label>
                     <select id="confirmSellStrike" 
@@ -3286,6 +3286,18 @@ window.confirmStagedTrade = function(id) {
                            style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px; cursor:pointer;">
                         <option value="${sellStrike}">$${sellStrike} (loading...)</option>
                     </select>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:2px; padding-bottom:2px;">
+                    <button onclick="window.shiftSpread(1)" 
+                            title="Shift spread UP (higher strikes)"
+                            style="padding:4px 8px; background:#2a2a3e; border:1px solid #00d9ff; color:#00d9ff; border-radius:4px; cursor:pointer; font-size:14px; transition:all 0.2s;"
+                            onmouseover="this.style.background='#00d9ff'; this.style.color='#000';" 
+                            onmouseout="this.style.background='#2a2a3e'; this.style.color='#00d9ff';">▲</button>
+                    <button onclick="window.shiftSpread(-1)" 
+                            title="Shift spread DOWN (lower strikes)"
+                            style="padding:4px 8px; background:#2a2a3e; border:1px solid #00d9ff; color:#00d9ff; border-radius:4px; cursor:pointer; font-size:14px; transition:all 0.2s;"
+                            onmouseover="this.style.background='#00d9ff'; this.style.color='#000';" 
+                            onmouseout="this.style.background='#2a2a3e'; this.style.color='#00d9ff';">▼</button>
                 </div>
                 <div>
                     <label style="color:#00ff88; font-size:12px;">Buy Strike (protection)</label>
@@ -3622,6 +3634,76 @@ window.onStrikeChange = async function() {
     
     // Fetch prices for new strikes
     await fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, isPut);
+};
+
+/**
+ * Shift both spread strikes up or down the chain while maintaining width
+ * @param {number} direction - +1 for higher strikes, -1 for lower strikes
+ */
+window.shiftSpread = async function(direction) {
+    const sellSelect = document.getElementById('confirmSellStrike');
+    const buySelect = document.getElementById('confirmBuyStrike');
+    
+    if (!sellSelect || !buySelect) return;
+    
+    // Get current values
+    const currentSellStrike = parseFloat(sellSelect.value);
+    const currentBuyStrike = parseFloat(buySelect.value);
+    
+    // Get all available strikes from the dropdown options (sorted descending = high to low)
+    const allStrikes = Array.from(sellSelect.options)
+        .map(opt => parseFloat(opt.value))
+        .filter(s => !isNaN(s))
+        .sort((a, b) => b - a);  // Descending: 160, 155, 150, 145...
+    
+    if (allStrikes.length < 2) {
+        console.warn('[SHIFT] Not enough strikes to shift');
+        return;
+    }
+    
+    // Find current indices
+    const sellIdx = allStrikes.findIndex(s => Math.abs(s - currentSellStrike) < 0.01);
+    const buyIdx = allStrikes.findIndex(s => Math.abs(s - currentBuyStrike) < 0.01);
+    
+    if (sellIdx === -1 || buyIdx === -1) {
+        console.warn('[SHIFT] Current strikes not found in list');
+        return;
+    }
+    
+    // Calculate new indices
+    // direction +1 = higher strikes = lower indices (since sorted descending)
+    // direction -1 = lower strikes = higher indices
+    const newSellIdx = sellIdx - direction;
+    const newBuyIdx = buyIdx - direction;
+    
+    // Check bounds
+    if (newSellIdx < 0 || newSellIdx >= allStrikes.length ||
+        newBuyIdx < 0 || newBuyIdx >= allStrikes.length) {
+        console.log('[SHIFT] Already at edge of chain');
+        // Flash the buttons to indicate edge
+        const buttons = document.querySelectorAll('#confirmModal button[onclick*="shiftSpread"]');
+        buttons.forEach(btn => {
+            btn.style.background = '#ff5252';
+            btn.style.borderColor = '#ff5252';
+            setTimeout(() => {
+                btn.style.background = '#2a2a3e';
+                btn.style.borderColor = '#00d9ff';
+            }, 200);
+        });
+        return;
+    }
+    
+    // Update dropdown values
+    const newSellStrike = allStrikes[newSellIdx];
+    const newBuyStrike = allStrikes[newBuyIdx];
+    
+    sellSelect.value = newSellStrike;
+    buySelect.value = newBuyStrike;
+    
+    console.log(`[SHIFT] Moved spread: $${currentSellStrike}/$${currentBuyStrike} → $${newSellStrike}/$${newBuyStrike} (direction: ${direction > 0 ? 'UP' : 'DOWN'})`);
+    
+    // Trigger price refresh (this also updates risk analysis)
+    await window.onStrikeChange();
 };
 
 /**
