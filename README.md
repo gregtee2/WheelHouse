@@ -5,11 +5,37 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.17.24-blue)
+![Version](https://img.shields.io/badge/version-1.17.36-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
+
+## 🆕 What's New in v1.17.36
+
+### 📊 PMCC Calculator (Poor Man's Covered Call)
+A complete calculator for managing LEAPS positions with short calls:
+
+- **Pre-loads existing LEAPS**: Select from your 180+ DTE long call positions
+- **Live chain integration**: "Load Chain" fetches real strikes/premiums from Schwab/CBOE
+- **Breakeven Strike**: Shows exactly what strike you need to sell above to profit if assigned
+  - Purple highlight: "Sell calls ABOVE $57.65 to profit if assigned"
+  - Strikes color-coded: ✅ Safe (above breakeven), ⚠️ Risky (below breakeven)
+- **Clear scenario outcomes**:
+  - ✅ "If Stock Stays Below Strike" - You keep $47, LEAPS unchanged, repeat!
+  - ⚠️ "If Assigned" - Step-by-step explanation of Exercise vs Close options
+- **Roll Short Call**: When stock approaches your strike
+  - Select new expiry/strike from chain
+  - Shows Buy Back cost, New Premium, Net Credit/Debit
+  - Stage roll to Ideas tab
+- **Schwab-first pricing**: Real-time quotes with Yahoo fallback
+
+### 🎯 Spread Enhancements (v1.17.25-26)
+- **Shift Arrows (▲/▼)**: Move entire spread up/down chain while maintaining width
+- **Win Probability**: Delta-based profit probability shown alongside R:R ratio
+- **6-metric Risk Analysis grid**: R:R, Win Prob, Max Profit, Max Loss, Breakeven, Width
+
+---
 
 ## 🆕 What's New in v1.17.24
 

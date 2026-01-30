@@ -2,6 +2,77 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.36] - 2026-01-29
+
+### Added
+- **PMCC Roll Short Call**: Manage threatened short calls without closing entire position
+  - "🔄 Roll Short Call" button opens roll panel
+  - New Expiry dropdown: 📅 = later (rolling out), ⚡ = same/earlier
+  - New Strike dropdown: ⬆️ = higher + safe, ✅ = safe, ⚠️ = below breakeven
+  - Roll Summary: Buy Back cost, New Premium, Net Credit/Debit
+  - Stage roll to Ideas tab with ROLL badge
+  - Typical PMCC workflow: let expire worthless → sell new call → repeat
+
+## [1.17.35] - 2026-01-29
+
+### Enhanced
+- **PMCC "If Assigned" Clarity**: Step-by-step explanations for each exit option
+  - Option A (Exercise LEAPS): "Use LEAPS to buy 100 shares at $40, deliver at $59"
+  - Option B (Close Both): "Buy back short call, sell LEAPS, preserve time value"
+  - Shows why Option B usually better (preserves $1207 time value)
+  - Green highlight on recommended option
+
+## [1.17.34] - 2026-01-29
+
+### Added
+- **PMCC "Most Likely" Scenario**: New prominent section showing expected outcome
+  - "✅ If Stock Stays Below Strike (Most Likely)"
+  - Shows: "You Keep: $47" + "Your LEAPS: Unchanged - sell another call!"
+  - Explains: "Short call expires worthless → rinse & repeat"
+  - Moved Monthly Yield to cyan highlight for better hierarchy
+
+## [1.17.33] - 2026-01-29
+
+### Added
+- **PMCC Breakeven Strike Display**: Critical metric for PMCC strategy
+  - Purple highlighted box: "Breakeven Strike: $57.65"
+  - Label: "Sell calls ABOVE this to profit if assigned"
+  - Strike dropdown now color-coded:
+    - ✅ = Strike ≥ breakeven (safe - you profit if assigned)
+    - ⚠️ = Strike < breakeven (risky - you lose if assigned)
+  - Breakeven = LEAPS strike + premium paid per share
+
+## [1.17.32] - 2026-01-29
+
+### Fixed
+- **PMCC Schwab-First Pricing**: Now uses Schwab API for real-time spot price
+  - Primary: `/api/schwab/quote/{ticker}` (real-time)
+  - Fallback: `/api/yahoo/{ticker}` (15-min delayed)
+  - Fixes $0.00 spot price display
+
+## [1.17.31] - 2026-01-29
+
+### Fixed
+- **PMCC Display Bugs**: Multiple UI fixes
+  - Fixed spot price parsing (Yahoo returns nested `chart.result[0].meta.regularMarketPrice`)
+  - Removed duplicate HTML cruft causing raw CSS to display in modal
+  - Cost now shows clean `$1765` instead of `$1764.9999999998`
+
+## [1.17.30] - 2026-01-29
+
+### Fixed
+- **PMCC Chain Loading**: Now uses proven `window.fetchOptionsChain()` function
+  - Was incorrectly using `/api/cboe/options/{ticker}` (doesn't exist)
+  - Now uses same approach as working spread modal
+  - Correctly calls `/api/cboe/{ticker}.json` via fetchOptionsChain
+
+## [1.17.29] - 2026-01-29
+
+### Fixed
+- **PMCC Yahoo Quote Endpoint**: Fixed 404 error on position load
+  - Was calling `/api/yahoo/quote/{ticker}` (doesn't exist)
+  - Now calls `/api/yahoo/{ticker}` (correct endpoint)
+
 ## [1.17.28] - 2026-01-29
 
 ### Enhanced

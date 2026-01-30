@@ -8734,6 +8734,18 @@ window.openPMCCCalculator = function() {
                             <div id="pmccUnrealizedPnL" style="font-weight: bold; font-size: 14px;">-</div>
                         </div>
                     </div>
+                    <!-- Breakeven Strike - CRITICAL for PMCC -->
+                    <div style="margin-top: 12px; padding: 10px; background: linear-gradient(135deg, rgba(139,92,246,0.2), rgba(0,217,255,0.1)); border-radius: 6px; border: 1px solid rgba(139,92,246,0.4);">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="color: #888; font-size: 11px;">Breakeven Strike (LEAPS strike + premium paid)</div>
+                                <div id="pmccBreakevenStrike" style="color: #8b5cf6; font-weight: bold; font-size: 18px;">-</div>
+                            </div>
+                            <div style="text-align: right; font-size: 11px; color: #888; max-width: 180px;">
+                                Sell calls ABOVE this to profit if assigned
+                            </div>
+                        </div>
+                    </div>
                     <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,217,255,0.2); display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; font-size: 12px;">
                         <div>
                             <div style="color: #888; font-size: 11px;">Spot Price</div>
@@ -8783,36 +8795,71 @@ window.openPMCCCalculator = function() {
                                style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #00ff88; color: #fff; border-radius: 4px; font-size: 13px;">
                     </div>
                 </div>
-                               style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ff5252; color: #fff; border-radius: 4px; font-size: 13px;">
-                    </div>
-                </div>
                 
                 <!-- Results / What-If Scenarios -->
                 <div id="pmccResults" style="display: none;">
                     <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; margin-bottom: 16px;">
                         <div style="color: #00ff88; font-weight: bold; margin-bottom: 12px; font-size: 14px;">📊 Scenario Analysis</div>
                         
+                        <!-- MOST LIKELY: Stock stays below strike -->
+                        <div style="margin-bottom: 16px; padding: 12px; background: rgba(0,255,136,0.15); border-radius: 6px; border: 2px solid rgba(0,255,136,0.4);">
+                            <div style="color: #00ff88; font-weight: bold; margin-bottom: 8px; font-size: 13px;">✅ If Stock Stays Below Strike (Most Likely)</div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px;">
+                                <div>
+                                    <div style="color: #888; font-size: 11px;">You Keep</div>
+                                    <div id="pmccKeepPremium" style="color: #00ff88; font-weight: bold; font-size: 18px;">-</div>
+                                </div>
+                                <div>
+                                    <div style="color: #888; font-size: 11px;">Your LEAPS</div>
+                                    <div style="color: #fff; font-size: 13px;">Unchanged - sell another call!</div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 8px; padding: 6px 8px; background: rgba(0,0,0,0.3); border-radius: 4px; font-size: 11px; color: #888;">
+                                Short call expires worthless → rinse & repeat for more income
+                            </div>
+                        </div>
+                        
                         <!-- Monthly Yield -->
-                        <div style="margin-bottom: 16px; padding: 12px; background: rgba(0,255,136,0.1); border-radius: 6px; border: 1px solid rgba(0,255,136,0.2);">
+                        <div style="margin-bottom: 16px; padding: 12px; background: rgba(0,217,255,0.1); border-radius: 6px; border: 1px solid rgba(0,217,255,0.2);">
                             <div style="color: #888; font-size: 11px;">Monthly Yield on Capital</div>
-                            <div id="pmccMonthlyYield" style="color: #00ff88; font-size: 20px; font-weight: bold;">-</div>
-                            <div id="pmccAnnualizedYield" style="color: #00ff88; font-size: 12px; margin-top: 4px;">-</div>
+                            <div id="pmccMonthlyYield" style="color: #00d9ff; font-size: 20px; font-weight: bold;">-</div>
+                            <div id="pmccAnnualizedYield" style="color: #00d9ff; font-size: 12px; margin-top: 4px;">-</div>
                         </div>
                         
                         <!-- If Assigned Scenario -->
                         <div style="margin-bottom: 12px; padding: 12px; background: rgba(255,170,0,0.1); border-radius: 6px; border: 1px solid rgba(255,170,0,0.2);">
-                            <div style="color: #ffaa00; font-weight: bold; margin-bottom: 8px; font-size: 13px;">⚠️ If Assigned (Stock at Short Strike)</div>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px;">
-                                <div>
-                                    <div style="color: #888; font-size: 11px;">Exercise LEAPS</div>
-                                    <div id="pmccExerciseProfit" style="font-weight: bold; font-size: 14px;">-</div>
+                            <div style="color: #ffaa00; font-weight: bold; margin-bottom: 12px; font-size: 13px;">⚠️ If Assigned (Stock Reaches Short Strike)</div>
+                            
+                            <!-- Option A: Exercise -->
+                            <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; margin-bottom: 10px;">
+                                <div style="color: #fff; font-weight: bold; font-size: 12px; margin-bottom: 6px;">Option A: Exercise Your LEAPS</div>
+                                <div style="color: #888; font-size: 11px; line-height: 1.5;">
+                                    1. Use LEAPS to buy 100 shares at $<span id="pmccExerciseStrike">-</span><br>
+                                    2. Deliver those shares at $<span id="pmccShortStrikeDisplay">-</span> (assignment)<br>
+                                    3. Keep the premium you collected
                                 </div>
-                                <div>
-                                    <div style="color: #888; font-size: 11px;">Close LEAPS</div>
-                                    <div id="pmccCloseProfit" style="font-weight: bold; font-size: 14px;">-</div>
+                                <div style="margin-top: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="color: #888; font-size: 11px;">Net Profit:</span>
+                                    <span id="pmccExerciseProfit" style="font-weight: bold; font-size: 16px;">-</span>
+                                </div>
+                                <div style="color: #ff5252; font-size: 10px; margin-top: 4px;">⚠️ Loses all remaining time value in your LEAPS</div>
+                            </div>
+                            
+                            <!-- Option B: Close Both -->
+                            <div style="background: rgba(0,255,136,0.1); padding: 10px; border-radius: 6px; border: 1px solid rgba(0,255,136,0.2);">
+                                <div style="color: #00ff88; font-weight: bold; font-size: 12px; margin-bottom: 6px;">Option B: Close Both Positions (Usually Better)</div>
+                                <div style="color: #888; font-size: 11px; line-height: 1.5;">
+                                    1. Buy back short call (at a loss)<br>
+                                    2. Sell your LEAPS at market value<br>
+                                    3. Preserves LEAPS time value: $<span id="pmccTimeValueDisplay">-</span>
+                                </div>
+                                <div style="margin-top: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="color: #888; font-size: 11px;">Net Profit:</span>
+                                    <span id="pmccCloseProfit" style="font-weight: bold; font-size: 16px;">-</span>
                                 </div>
                             </div>
-                            <div id="pmccRecommendation" style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; font-size: 11px; color: #00d9ff;">
+                            
+                            <div id="pmccRecommendation" style="margin-top: 10px; padding: 8px; background: rgba(0,217,255,0.15); border-radius: 4px; font-size: 12px; color: #00d9ff; text-align: center;">
                                 -
                             </div>
                         </div>
@@ -8834,10 +8881,56 @@ window.openPMCCCalculator = function() {
                         </div>
                     </div>
                     
-                    <!-- Action Button -->
-                    <button onclick="window.stagePMCCTrade()" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #00ff88 0%, #00cc66 100%); border: none; border-radius: 6px; color: #000; font-weight: bold; cursor: pointer; font-size: 14px;">
-                        📥 Stage Short Call to Ideas Tab
-                    </button>
+                    <!-- Action Buttons -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <button onclick="window.stagePMCCTrade()" style="padding: 12px; background: linear-gradient(135deg, #00ff88 0%, #00cc66 100%); border: none; border-radius: 6px; color: #000; font-weight: bold; cursor: pointer; font-size: 13px;">
+                            📥 Stage New Short Call
+                        </button>
+                        <button onclick="window.showPMCCRollOptions()" style="padding: 12px; background: linear-gradient(135deg, #ffaa00 0%, #ff8800 100%); border: none; border-radius: 6px; color: #000; font-weight: bold; cursor: pointer; font-size: 13px;">
+                            🔄 Roll Short Call
+                        </button>
+                    </div>
+                    
+                    <!-- Roll Options Panel (hidden by default) -->
+                    <div id="pmccRollPanel" style="display: none; margin-top: 16px; padding: 16px; background: linear-gradient(135deg, rgba(255,170,0,0.15), rgba(255,136,0,0.1)); border-radius: 8px; border: 1px solid rgba(255,170,0,0.3);">
+                        <div style="color: #ffaa00; font-weight: bold; margin-bottom: 12px; font-size: 14px;">🔄 Roll to New Strike/Expiry</div>
+                        <div style="color: #888; font-size: 11px; margin-bottom: 12px;">
+                            Buy back current short call, sell new one at higher strike or later date
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                            <div>
+                                <label style="color: #888; font-size: 11px; display: block; margin-bottom: 4px;">New Expiry</label>
+                                <select id="pmccRollExpiry" onchange="window.onPMCCRollExpiryChange()" style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ffaa00; color: #fff; border-radius: 4px; font-size: 12px; cursor: pointer;">
+                                    <option value="">Select expiry...</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="color: #888; font-size: 11px; display: block; margin-bottom: 4px;">New Strike</label>
+                                <select id="pmccRollStrike" onchange="window.onPMCCRollStrikeChange()" style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ffaa00; color: #fff; border-radius: 4px; font-size: 12px; cursor: pointer;">
+                                    <option value="">Select strike...</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="pmccRollSummary" style="display: none; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 6px; margin-bottom: 12px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 12px; text-align: center;">
+                                <div>
+                                    <div style="color: #ff5252; font-size: 11px;">Buy Back</div>
+                                    <div id="pmccRollBuyBack" style="color: #ff5252; font-weight: bold;">-</div>
+                                </div>
+                                <div>
+                                    <div style="color: #00ff88; font-size: 11px;">New Premium</div>
+                                    <div id="pmccRollNewPremium" style="color: #00ff88; font-weight: bold;">-</div>
+                                </div>
+                                <div>
+                                    <div style="color: #00d9ff; font-size: 11px;">Net Credit/Debit</div>
+                                    <div id="pmccRollNet" style="font-weight: bold;">-</div>
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="window.stagePMCCRoll()" style="width: 100%; padding: 10px; background: linear-gradient(135deg, #ffaa00 0%, #ff8800 100%); border: none; border-radius: 6px; color: #000; font-weight: bold; cursor: pointer; font-size: 13px;">
+                            📥 Stage Roll to Ideas Tab
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -8877,20 +8970,36 @@ window.loadPMCCPosition = async function(positionId) {
     document.getElementById('pmccExpiry').textContent = position.expiry;
     
     const leapsCost = (position.premium || 0) * 100;
-    document.getElementById('pmccCost').textContent = `$${leapsCost.toFixed(0)}`;
+    const leapsPremiumPerShare = position.premium || 0;
+    const breakevenStrike = position.strike + leapsPremiumPerShare;
     
-    // Fetch current spot price and option value
+    document.getElementById('pmccCost').textContent = `$${leapsCost.toFixed(0)}`;
+    document.getElementById('pmccBreakevenStrike').textContent = `$${breakevenStrike.toFixed(2)}`;
+    
+    // Fetch current spot price - try Schwab first, then Yahoo as fallback
+    let spotPrice = 0;
     try {
-        const quote = await fetch(`/api/yahoo/quote/${position.ticker}`).then(r => r.json());
-        const spotPrice = quote.price || 0;
+        // Try Schwab first (real-time)
+        const schwabData = await fetch(`/api/schwab/quote/${position.ticker}`).then(r => r.json());
+        spotPrice = schwabData[position.ticker]?.quote?.lastPrice || 0;
         
-        document.getElementById('pmccSpot').textContent = `$${spotPrice.toFixed(2)}`;
-        
-        // Calculate intrinsic and time value
-        const intrinsic = Math.max(0, (spotPrice - position.strike) * 100);
-        document.getElementById('pmccIntrinsic').textContent = `$${intrinsic.toFixed(0)}`;
-        
-        // Fetch current option price
+        if (!spotPrice) {
+            // Fallback to Yahoo (15-min delayed)
+            const yahooData = await fetch(`/api/yahoo/${position.ticker}`).then(r => r.json());
+            spotPrice = yahooData.chart?.result?.[0]?.meta?.regularMarketPrice || 0;
+        }
+    } catch (err) {
+        console.warn('Could not fetch spot price:', err);
+    }
+    
+    document.getElementById('pmccSpot').textContent = spotPrice ? `$${spotPrice.toFixed(2)}` : 'N/A';
+    
+    // Calculate intrinsic and time value
+    const intrinsic = Math.max(0, (spotPrice - position.strike) * 100);
+    document.getElementById('pmccIntrinsic').textContent = `$${intrinsic.toFixed(0)}`;
+    
+    // Fetch current option price from chain
+    try {
         const chain = await window.fetchOptionsChain(position.ticker);
         if (chain && chain.calls) {
             const leapsOption = chain.calls.find(c => 
@@ -8917,7 +9026,8 @@ window.loadPMCCPosition = async function(positionId) {
                     leapsCost,
                     currentValue,
                     intrinsic,
-                    timeValue
+                    timeValue,
+                    breakevenStrike
                 };
             }
         }
@@ -8927,7 +9037,7 @@ window.loadPMCCPosition = async function(positionId) {
 };
 
 /**
- * Load options chain for PMCC calculator (reuses proven spread modal approach)
+ * Load options chain for PMCC calculator (uses same fetchOptionsChain as spread modal)
  */
 window.loadPMCCChain = async function() {
     if (!window.pmccData) {
@@ -8943,18 +9053,13 @@ window.loadPMCCChain = async function() {
     
     try {
         // Use the same proven chain fetch as spread modal
-        const response = await fetch(`/api/cboe/options/${position.ticker}`);
-        if (!response.ok) {
-            throw new Error(`CBOE fetch failed: ${response.status}`);
-        }
+        const chain = await window.fetchOptionsChain(position.ticker);
         
-        const data = await response.json();
-        const calls = data.calls || [];
-        
-        if (calls.length === 0) {
+        if (!chain || !chain.calls || chain.calls.length === 0) {
             throw new Error('No call options data available');
         }
         
+        const calls = chain.calls;
         window.pmccChainData = calls;
         
         // Get unique expiries (only future dates, sorted)
@@ -8997,7 +9102,7 @@ window.onPMCCExpiryChange = function() {
     if (!expiry || !window.pmccChainData) return;
     
     const strikeSelect = document.getElementById('pmccShortStrike');
-    const { spotPrice } = window.pmccData;
+    const { spotPrice, breakevenStrike } = window.pmccData;
     
     // Filter to selected expiry and get strikes above spot (OTM calls)
     const callsAtExpiry = window.pmccChainData
@@ -9009,12 +9114,14 @@ window.onPMCCExpiryChange = function() {
         return;
     }
     
-    // Build options with bid/ask
+    // Build options with bid/ask - color code based on breakeven
     strikeSelect.innerHTML = '<option value="">Select strike...</option>' + 
         callsAtExpiry.map(c => {
             const mid = ((c.bid + c.ask) / 2).toFixed(2);
             const delta = c.delta ? ` Δ${(c.delta * 100).toFixed(0)}` : '';
-            return `<option value="${c.strike}" data-premium="${mid}">$${c.strike} (bid $${c.bid} / ${mid}${delta})</option>`;
+            const isSafe = c.strike >= breakevenStrike;
+            const prefix = isSafe ? '✅' : '⚠️';
+            return `<option value="${c.strike}" data-premium="${mid}" ${!isSafe ? 'style="color: #ffaa00;"' : ''}>${prefix} $${c.strike} (bid $${c.bid} / ${mid}${delta})</option>`;
         }).join('');
     
     console.log('[PMCC] Populated', callsAtExpiry.length, 'strikes for', expiry);
@@ -9067,8 +9174,11 @@ window.calculatePMCC = function() {
     const { position, spotPrice, leapsCost, currentValue, intrinsic, timeValue } = window.pmccData;
     const leapsStrike = position.strike;
     
-    // Monthly yield calculation
+    // Premium you keep if stock stays below strike
     const premiumCollected = shortPremium * 100;
+    document.getElementById('pmccKeepPremium').textContent = `$${premiumCollected.toFixed(0)}`;
+    
+    // Monthly yield calculation
     const monthlyYield = (premiumCollected / leapsCost * 100).toFixed(1);
     const daysToMonthly = shortDTE / 30;
     const annualizedYield = (monthlyYield / daysToMonthly * 12).toFixed(1);
@@ -9077,6 +9187,11 @@ window.calculatePMCC = function() {
     document.getElementById('pmccAnnualizedYield').textContent = `Annualized: ${annualizedYield}%`;
     
     // If assigned scenario (stock at short strike)
+    // Populate the display fields
+    document.getElementById('pmccExerciseStrike').textContent = leapsStrike;
+    document.getElementById('pmccShortStrikeDisplay').textContent = shortStrike;
+    document.getElementById('pmccTimeValueDisplay').textContent = timeValue.toFixed(0);
+    
     // Option 1: Exercise LEAPS
     const exerciseProceeds = (shortStrike - leapsStrike) * 100;  // Buy at leapsStrike, sell at shortStrike
     const exerciseProfit = exerciseProceeds - leapsCost + premiumCollected;
@@ -9152,6 +9267,154 @@ window.stagePMCCTrade = function() {
     document.getElementById('pmccModal').remove();
     
     // Switch to Ideas tab
+    const ideasTab = document.querySelector('[data-tab="ideas"]');
+    if (ideasTab) ideasTab.click();
+};
+
+/**
+ * Show the roll options panel
+ */
+window.showPMCCRollOptions = function() {
+    const panel = document.getElementById('pmccRollPanel');
+    if (!panel) return;
+    
+    // Toggle visibility
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        
+        // Populate expiry dropdown from cached chain data
+        if (window.pmccChainData) {
+            const today = new Date();
+            const currentExpiry = document.getElementById('pmccShortExpiry').value;
+            
+            const expiries = [...new Set(window.pmccChainData.map(c => c.expiration))]
+                .filter(exp => new Date(exp) > today)
+                .sort((a, b) => new Date(a) - new Date(b))
+                .slice(0, 12);
+            
+            const expirySelect = document.getElementById('pmccRollExpiry');
+            expirySelect.innerHTML = '<option value="">Select expiry...</option>' + 
+                expiries.map(exp => {
+                    const date = new Date(exp);
+                    const dte = Math.round((date - today) / (1000 * 60 * 60 * 24));
+                    const isLater = exp > currentExpiry;
+                    const prefix = isLater ? '📅' : '⚡';
+                    return `<option value="${exp}">${prefix} ${exp} (${dte}d)</option>`;
+                }).join('');
+        }
+    } else {
+        panel.style.display = 'none';
+    }
+};
+
+/**
+ * When roll expiry changes, populate strikes
+ */
+window.onPMCCRollExpiryChange = function() {
+    const expiry = document.getElementById('pmccRollExpiry').value;
+    if (!expiry || !window.pmccChainData || !window.pmccData) return;
+    
+    const { spotPrice, breakevenStrike } = window.pmccData;
+    const currentStrike = parseFloat(document.getElementById('pmccShortStrike').value) || 0;
+    
+    const callsAtExpiry = window.pmccChainData
+        .filter(c => c.expiration === expiry && c.strike >= spotPrice)
+        .sort((a, b) => a.strike - b.strike);
+    
+    const strikeSelect = document.getElementById('pmccRollStrike');
+    strikeSelect.innerHTML = '<option value="">Select strike...</option>' + 
+        callsAtExpiry.map(c => {
+            const mid = ((c.bid + c.ask) / 2).toFixed(2);
+            const isSafe = c.strike >= breakevenStrike;
+            const isHigher = c.strike > currentStrike;
+            const prefix = isSafe ? (isHigher ? '⬆️' : '✅') : '⚠️';
+            return `<option value="${c.strike}" data-premium="${mid}">${prefix} $${c.strike} ($${mid})</option>`;
+        }).join('');
+    
+    document.getElementById('pmccRollSummary').style.display = 'none';
+};
+
+/**
+ * When roll strike changes, calculate net credit/debit
+ */
+window.onPMCCRollStrikeChange = function() {
+    const strikeSelect = document.getElementById('pmccRollStrike');
+    const selectedOption = strikeSelect.options[strikeSelect.selectedIndex];
+    
+    if (!selectedOption || !selectedOption.value) {
+        document.getElementById('pmccRollSummary').style.display = 'none';
+        return;
+    }
+    
+    const newPremium = parseFloat(selectedOption.getAttribute('data-premium')) || 0;
+    const currentPremium = parseFloat(document.getElementById('pmccShortPremium').value) || 0;
+    
+    // Estimate buyback cost (current premium + a bit for spread)
+    // In reality, need current market price of short call
+    const buyBackCost = currentPremium * 1.1;  // Rough estimate - should fetch live price
+    
+    const netCreditDebit = newPremium - buyBackCost;
+    
+    document.getElementById('pmccRollBuyBack').textContent = `-$${(buyBackCost * 100).toFixed(0)}`;
+    document.getElementById('pmccRollNewPremium').textContent = `+$${(newPremium * 100).toFixed(0)}`;
+    
+    const netEl = document.getElementById('pmccRollNet');
+    const netAmount = netCreditDebit * 100;
+    netEl.textContent = netAmount >= 0 ? `+$${netAmount.toFixed(0)} credit` : `-$${Math.abs(netAmount).toFixed(0)} debit`;
+    netEl.style.color = netAmount >= 0 ? '#00ff88' : '#ff5252';
+    
+    document.getElementById('pmccRollSummary').style.display = 'block';
+    
+    // Store for staging
+    window.pmccRollData = {
+        newExpiry: document.getElementById('pmccRollExpiry').value,
+        newStrike: parseFloat(selectedOption.value),
+        newPremium,
+        buyBackCost,
+        netCreditDebit
+    };
+};
+
+/**
+ * Stage the roll to Ideas tab
+ */
+window.stagePMCCRoll = function() {
+    if (!window.pmccData || !window.pmccRollData) {
+        showNotification('Select new strike and expiry first', 'warning');
+        return;
+    }
+    
+    const { position } = window.pmccData;
+    const currentStrike = parseFloat(document.getElementById('pmccShortStrike').value);
+    const currentExpiry = document.getElementById('pmccShortExpiry').value;
+    const { newExpiry, newStrike, newPremium, netCreditDebit } = window.pmccRollData;
+    
+    const netText = netCreditDebit >= 0 ? `$${(netCreditDebit * 100).toFixed(0)} credit` : `$${Math.abs(netCreditDebit * 100).toFixed(0)} debit`;
+    
+    const trade = {
+        ticker: position.ticker,
+        action: 'ROLL',
+        type: 'short_call',
+        closeStrike: currentStrike,
+        closeExpiry: currentExpiry,
+        newStrike,
+        newExpiry,
+        premium: newPremium,
+        contracts: 1,
+        source: 'pmcc_calculator',
+        badge: 'ROLL',
+        rationale: `PMCC Roll: $${currentStrike} → $${newStrike}, ${currentExpiry} → ${newExpiry}. Net: ${netText}`
+    };
+    
+    window.TradeCardService?.stageToPending(trade, {
+        ticker: position.ticker,
+        source: 'pmcc_calculator',
+        badge: 'ROLL'
+    });
+    
+    showNotification(`PMCC roll staged to Ideas tab`, 'success');
+    document.getElementById('pmccModal').remove();
+    
     const ideasTab = document.querySelector('[data-tab="ideas"]');
     if (ideasTab) ideasTab.click();
 };
