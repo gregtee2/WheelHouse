@@ -2177,19 +2177,25 @@ async function loadOptionChainForAddPosition() {
         const quoteData = await quoteRes.json();
         const chainData = await chainRes.json();
         
-        if (!quoteRes.ok || !quoteData.success) {
-            throw new Error('Failed to fetch quote');
+        console.log('Quote response:', quoteData);
+        console.log('Chain response:', chainData);
+        
+        // Schwab returns data directly or with error field
+        if (!quoteRes.ok || quoteData.error) {
+            throw new Error(quoteData.error || 'Failed to fetch quote');
         }
         
-        if (!chainRes.ok || !chainData.success) {
-            throw new Error('Failed to fetch option chain');
+        if (!chainRes.ok || chainData.error) {
+            throw new Error(chainData.error || 'Failed to fetch option chain');
         }
         
         // Store chain data for later use
         currentOptionChain = chainData;
         
-        const quote = quoteData.quote;
-        const spotPrice = quote.lastPrice;
+        // Schwab quote format: { TICKER: { quote: {...}, fundamental: {...} } }
+        const quoteInfo = quoteData[ticker] || quoteData[ticker.toUpperCase()] || Object.values(quoteData)[0];
+        const quote = quoteInfo?.quote || quoteInfo;
+        const spotPrice = quote?.lastPrice || quote?.mark || quote?.closePrice;
         
         // Update price status
         if (priceStatus) {
@@ -2397,11 +2403,13 @@ async function populateAddPositionExpiries() {
     expirySelect.innerHTML = '<option value="">⏳ Loading expiries...</option>';
     
     try {
-        const response = await fetch(`/api/schwab/chains/${ticker}?strikeCount=20`);
+        const response = await fetch(`/api/schwab/chains/${ticker.toUpperCase()}?strikeCount=20`);
         const data = await response.json();
         
-        if (!response.ok || !data.success) {
-            throw new Error('Failed to fetch option chain');
+        console.log('Expiry chain response:', data);
+        
+        if (!response.ok || data.error) {
+            throw new Error(data.error || 'Failed to fetch option chain');
         }
         
         const isPut = type.includes('put');
