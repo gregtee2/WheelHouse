@@ -8927,7 +8927,7 @@ window.loadPMCCPosition = async function(positionId) {
 };
 
 /**
- * Load options chain for PMCC calculator
+ * Load options chain for PMCC calculator (reuses proven spread modal approach)
  */
 window.loadPMCCChain = async function() {
     if (!window.pmccData) {
@@ -8942,19 +8942,31 @@ window.loadPMCCChain = async function() {
     statusEl.style.color = '#00d9ff';
     
     try {
-        const chain = await window.fetchOptionsChain(position.ticker);
-        if (!chain || !chain.calls) {
-            throw new Error('No chain data available');
+        // Use the same proven chain fetch as spread modal
+        const response = await fetch(`/api/cboe/options/${position.ticker}`);
+        if (!response.ok) {
+            throw new Error(`CBOE fetch failed: ${response.status}`);
         }
         
-        window.pmccChainData = chain.calls;
+        const data = await response.json();
+        const calls = data.calls || [];
+        
+        if (calls.length === 0) {
+            throw new Error('No call options data available');
+        }
+        
+        window.pmccChainData = calls;
         
         // Get unique expiries (only future dates, sorted)
         const today = new Date();
-        const expiries = [...new Set(chain.calls.map(c => c.expiration))]
+        const expiries = [...new Set(calls.map(c => c.expiration))]
             .filter(exp => new Date(exp) > today)
             .sort((a, b) => new Date(a) - new Date(b))
             .slice(0, 12);  // Next 12 expiries
+        
+        if (expiries.length === 0) {
+            throw new Error('No future expirations found');
+        }
         
         // Populate expiry dropdown
         const expirySelect = document.getElementById('pmccShortExpiry');
@@ -8965,14 +8977,15 @@ window.loadPMCCChain = async function() {
                 return `<option value="${exp}">${exp} (${dte}d)</option>`;
             }).join('');
         
-        statusEl.textContent = `✅ Loaded ${chain.calls.length} strikes across ${expiries.length} expiries`;
+        statusEl.textContent = `✅ Loaded ${calls.length} strikes across ${expiries.length} expiries`;
         statusEl.style.color = '#00ff88';
         
-        console.log('[PMCC] Chain loaded:', chain.calls.length, 'calls');
+        console.log('[PMCC] Chain loaded:', calls.length, 'calls,', expiries.length, 'expiries');
     } catch (err) {
         console.error('[PMCC] Chain load failed:', err);
-        statusEl.textContent = '⚠️ Failed to load chain - try again';
+        statusEl.textContent = `⚠️ Failed to load chain: ${err.message}`;
         statusEl.style.color = '#ffaa00';
+        showNotification('Failed to load options chain - try again', 'error');
     }
 };
 
