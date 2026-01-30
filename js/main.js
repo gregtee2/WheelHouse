@@ -13,6 +13,7 @@ import { initChallenges, renderChallenges } from './challenges.js';
 import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from './ui.js';
 import { showNotification } from './utils.js';
 import AccountService from './services/AccountService.js';
+import TradeCardService from './services/TradeCardService.js';  // For staging trades to Ideas tab
 
 /**
  * Switch between Real and Paper trading accounts
