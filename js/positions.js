@@ -2142,8 +2142,249 @@ export function rollPosition(id) {
 }
 window.rollPosition = rollPosition;
 
+// Store the current option chain data
+let currentOptionChain = null;
+
 /**
- * Populate expiry dropdown when ticker/type are entered
+ * Load option chain when ticker is entered
+ */
+async function loadOptionChainForAddPosition() {
+    const ticker = document.getElementById('posTicker')?.value?.trim().toUpperCase();
+    const type = document.getElementById('posType')?.value;
+    const chainPicker = document.getElementById('optionChainPicker');
+    const priceStatus = document.getElementById('posPriceStatus');
+    const expirySelect = document.getElementById('posExpiry');
+    const strikeContainer = document.getElementById('strikePickerContainer');
+    
+    if (!ticker) {
+        if (chainPicker) chainPicker.style.display = 'none';
+        return;
+    }
+    
+    // Show loading state
+    if (chainPicker) chainPicker.style.display = 'block';
+    if (priceStatus) priceStatus.innerHTML = '<span style="color:#ffaa00;">⏳ Loading option chain...</span>';
+    if (expirySelect) expirySelect.innerHTML = '<option value="">⏳ Loading expiries...</option>';
+    if (strikeContainer) strikeContainer.style.display = 'none';
+    
+    try {
+        // Fetch quote and option chain in parallel
+        const [quoteRes, chainRes] = await Promise.all([
+            fetch(`/api/schwab/quote/${ticker}`),
+            fetch(`/api/schwab/options/${ticker}?strikeCount=30`)
+        ]);
+        
+        const quoteData = await quoteRes.json();
+        const chainData = await chainRes.json();
+        
+        if (!quoteRes.ok || !quoteData.success) {
+            throw new Error('Failed to fetch quote');
+        }
+        
+        if (!chainRes.ok || !chainData.success) {
+            throw new Error('Failed to fetch option chain');
+        }
+        
+        // Store chain data for later use
+        currentOptionChain = chainData;
+        
+        const quote = quoteData.quote;
+        const spotPrice = quote.lastPrice;
+        
+        // Update price status
+        if (priceStatus) {
+            priceStatus.innerHTML = `<span style="color:#00ff88;">✓ ${ticker}: $${spotPrice?.toFixed(2)}</span>`;
+        }
+        
+        // Update spot price display
+        const spotDisplay = document.getElementById('chainSpotPrice');
+        if (spotDisplay) {
+            spotDisplay.innerHTML = `Spot: <span style="color:#00d9ff; font-weight:bold;">$${spotPrice?.toFixed(2)}</span>`;
+        }
+        
+        // Populate expiry dropdown
+        const isPut = type?.includes('put');
+        const optionMap = isPut ? chainData.putExpDateMap : chainData.callExpDateMap;
+        
+        if (!optionMap || Object.keys(optionMap).length === 0) {
+            throw new Error('No options available for this ticker');
+        }
+        
+        const expiries = Object.keys(optionMap).map(key => key.split(':')[0]).filter(Boolean);
+        
+        expirySelect.innerHTML = '<option value="">Select expiry date...</option>';
+        expiries.forEach(expiry => {
+            const option = document.createElement('option');
+            option.value = expiry;
+            
+            const expiryDate = new Date(expiry);
+            const today = new Date();
+            const dte = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+            
+            option.textContent = `${expiry} (${dte} DTE)`;
+            expirySelect.appendChild(option);
+        });
+        
+        console.log(`Loaded ${expiries.length} expiry dates for ${ticker}`);
+        
+    } catch (e) {
+        console.error('Option chain load error:', e);
+        if (priceStatus) {
+            priceStatus.innerHTML = `<span style="color:#ff5252;">❌ ${e.message}</span>`;
+        }
+        if (expirySelect) {
+            expirySelect.innerHTML = '<option value="">⚠️ Failed to load</option>';
+        }
+    }
+}
+window.loadOptionChainForAddPosition = loadOptionChainForAddPosition;
+
+/**
+ * Load strikes when expiry is selected
+ */
+async function loadStrikesForExpiry() {
+    const expiry = document.getElementById('posExpiry')?.value;
+    const type = document.getElementById('posType')?.value;
+    const strikeContainer = document.getElementById('strikePickerContainer');
+    const strikePicker = document.getElementById('strikePicker');
+    const selectedDisplay = document.getElementById('selectedStrikeDisplay');
+    
+    if (!expiry || !currentOptionChain) {
+        if (strikeContainer) strikeContainer.style.display = 'none';
+        return;
+    }
+    
+    // Show strike picker
+    if (strikeContainer) strikeContainer.style.display = 'block';
+    if (selectedDisplay) selectedDisplay.style.display = 'none';
+    
+    const isPut = type?.includes('put');
+    const isLong = type?.startsWith('long_');
+    const optionMap = isPut ? currentOptionChain.putExpDateMap : currentOptionChain.callExpDateMap;
+    
+    // Find the expiry key that matches
+    const expiryKey = Object.keys(optionMap || {}).find(k => k.startsWith(expiry));
+    
+    if (!expiryKey) {
+        strikePicker.innerHTML = '<div style="padding:10px; color:#ff5252;">No strikes found for this expiry</div>';
+        return;
+    }
+    
+    const strikeMap = optionMap[expiryKey];
+    const strikes = Object.keys(strikeMap).map(k => parseFloat(k)).sort((a, b) => a - b);
+    
+    // Get spot price from the quote
+    const spotPrice = currentOptionChain.underlyingPrice || 100;
+    
+    // Build strike list HTML
+    let html = '';
+    strikes.forEach(strike => {
+        const option = strikeMap[strike.toString()][0];
+        const bid = option.bid || 0;
+        const ask = option.ask || 0;
+        const mid = ((bid + ask) / 2);
+        const delta = Math.abs(option.delta || 0);
+        
+        const itm = isPut ? (strike > spotPrice) : (strike < spotPrice);
+        const itmLabel = itm ? 'ITM' : 'OTM';
+        const itmColor = itm ? '#ffaa00' : '#00d9ff';
+        const bgColor = itm ? 'rgba(255,170,0,0.08)' : 'rgba(0,217,255,0.05)';
+        
+        // For selling options, higher bid is better; for buying, lower ask is better
+        const relevantPrice = isLong ? ask : bid;
+        const priceLabel = isLong ? 'Ask' : 'Bid';
+        
+        html += `
+            <div onclick="window.selectStrikeFromPicker(${strike}, ${mid}, ${delta})" 
+                 style="padding:10px 12px; border-bottom:1px solid rgba(0,217,255,0.1); cursor:pointer; transition:background 0.15s;"
+                 onmouseover="this.style.background='rgba(0,217,255,0.15)'"
+                 onmouseout="this.style.background='${bgColor}'"
+                 data-strike="${strike}">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <span style="color:#00d9ff; font-weight:bold; font-size:14px;">$${strike.toFixed(2)}</span>
+                        <span style="color:${itmColor}; font-size:10px; margin-left:8px; padding:2px 6px; background:${bgColor}; border-radius:3px;">${itmLabel}</span>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:12px;">
+                            <span style="color:#00ff88;">Bid $${bid.toFixed(2)}</span>
+                            <span style="color:#666;"> / </span>
+                            <span style="color:#ffaa00;">Ask $${ask.toFixed(2)}</span>
+                        </div>
+                        <div style="font-size:10px; color:#888;">Mid $${mid.toFixed(2)} • Δ ${delta.toFixed(2)}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    strikePicker.innerHTML = html || '<div style="padding:10px; color:#888;">No strikes available</div>';
+}
+window.loadStrikesForExpiry = loadStrikesForExpiry;
+
+/**
+ * When user clicks a strike in the picker
+ */
+function selectStrikeFromPicker(strike, premium, delta) {
+    // Fill in the form fields
+    document.getElementById('posStrike').value = strike.toFixed(2);
+    document.getElementById('posPremium').value = premium.toFixed(2);
+    document.getElementById('posDelta').value = delta.toFixed(2);
+    
+    // Get details for display
+    const type = document.getElementById('posType')?.value;
+    const contracts = parseInt(document.getElementById('posContracts')?.value) || 1;
+    const expiry = document.getElementById('posExpiry')?.value;
+    const isLong = type?.startsWith('long_');
+    const totalValue = premium * 100 * contracts;
+    const creditOrDebit = isLong ? 'Debit' : 'Credit';
+    const sign = isLong ? '-' : '+';
+    
+    // Show selected strike display
+    const selectedDisplay = document.getElementById('selectedStrikeDisplay');
+    if (selectedDisplay) {
+        selectedDisplay.style.display = 'block';
+        selectedDisplay.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <div style="color:#00ff88; font-weight:bold; font-size:13px;">✓ Selected</div>
+                    <div style="font-size:12px; margin-top:4px;">
+                        <span style="color:#00d9ff; font-weight:bold;">$${strike.toFixed(2)}</span>
+                        <span style="color:#888;"> @ </span>
+                        <span style="color:#fff;">$${premium.toFixed(2)}</span>
+                        <span style="color:#888;"> (Δ ${delta.toFixed(2)})</span>
+                    </div>
+                    <div style="font-size:11px; color:#888; margin-top:2px;">${expiry}</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:10px; color:#888;">${creditOrDebit}</div>
+                    <div style="color:#00ff88; font-weight:bold; font-size:16px;">${sign}$${totalValue.toFixed(0)}</div>
+                </div>
+            </div>
+            <button onclick="window.loadStrikesForExpiry()" 
+                    style="margin-top:10px; padding:4px 10px; background:transparent; border:1px solid rgba(0,217,255,0.4); border-radius:4px; color:#00d9ff; cursor:pointer; font-size:11px;">
+                ← Change Strike
+            </button>
+        `;
+    }
+    
+    // Highlight the selected row
+    document.querySelectorAll('#strikePicker > div').forEach(row => {
+        if (row.dataset.strike === strike.toString()) {
+            row.style.background = 'rgba(0,255,136,0.15)';
+            row.style.borderLeft = '3px solid #00ff88';
+        } else {
+            row.style.background = '';
+            row.style.borderLeft = '';
+        }
+    });
+    
+    showNotification(`Selected $${strike.toFixed(2)} @ $${premium.toFixed(2)}`, 'success');
+}
+window.selectStrikeFromPicker = selectStrikeFromPicker;
+
+/**
+ * Populate expiry dropdown when ticker/type are entered (LEGACY - kept for compatibility)
  */
 async function populateAddPositionExpiries() {
     const ticker = document.getElementById('posTicker')?.value?.trim();
