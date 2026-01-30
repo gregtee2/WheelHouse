@@ -9691,18 +9691,12 @@ window.stagePMCCTrade = function() {
         return;
     }
     
-    // Stage to pending
+    // Stage to pending - use correct field names for TradeCardService
     const trade = {
-        ticker: position.ticker,
-        action: 'PMCC',
-        type: 'short_call',
-        strike: shortStrike,
-        expiry,
-        premium: shortPremium,
-        contracts: 1,
-        source: 'pmcc_calculator',
-        badge: 'PMCC',
-        rationale: `PMCC: Short call against ${position.ticker} $${position.strike} LEAPS. Yield: ${document.getElementById('pmccMonthlyYield').textContent}/month`
+        newStrike: shortStrike,  // TradeCardService expects newStrike
+        newExpiry: expiry,       // TradeCardService expects newExpiry  
+        newType: 'CALL',         // Short call
+        rationale: `PMCC: Short call against ${position.ticker} $${position.strike} LEAPS. Yield: ${document.getElementById('pmccMonthlyYield')?.textContent || '?'}/month`
     };
     
     window.TradeCardService?.stageToPending(trade, {
@@ -9712,7 +9706,7 @@ window.stagePMCCTrade = function() {
     });
     
     showNotification(`PMCC short call staged to Ideas tab`, 'success');
-    document.getElementById('pmccModal').remove();
+    document.getElementById('pmccModal')?.remove();
     
     // Switch to Ideas tab
     const ideasTab = document.querySelector('[data-tab="ideas"]');
