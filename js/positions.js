@@ -3386,8 +3386,86 @@ function renderPositionsTable(container, openPositions) {
         }
     });
     
+    // Build chain info for positions with roll history
+    // (positions that share a chainId with closed positions)
+    const chainInfoMap = new Map();
+    const closedPositions = state.closedPositions || [];
+    
+    groupedPositions.forEach(pos => {
+        const chainId = pos.chainId || pos.id;
+        
+        // Get all closed positions in this chain
+        const chainClosedPositions = closedPositions.filter(p => 
+            p.chainId === chainId || p.id === chainId
+        );
+        
+        if (chainClosedPositions.length > 0) {
+            // Calculate chain stats
+            const allChainPositions = [...chainClosedPositions, pos];
+            allChainPositions.sort((a, b) => new Date(a.openDate || 0) - new Date(b.openDate || 0));
+            
+            // Total premium collected across the chain
+            let totalPremium = 0;
+            let totalBuybacks = 0;
+            
+            chainClosedPositions.forEach(cp => {
+                const prem = (cp.premium || 0) * 100 * (cp.contracts || 1);
+                totalPremium += isDebitPosition(cp.type) ? -prem : prem;
+                
+                // Subtract buyback costs for rolled positions
+                if (cp.closeReason === 'rolled' && cp.closePrice) {
+                    totalBuybacks += cp.closePrice * 100 * (cp.contracts || 1);
+                }
+            });
+            
+            // Add current position premium
+            const currentPrem = (pos.premium || 0) * 100 * (pos.contracts || 1);
+            totalPremium += isDebitPosition(pos.type) ? -currentPrem : currentPrem;
+            
+            const netCredit = totalPremium - totalBuybacks;
+            const rollCount = chainClosedPositions.length;
+            const firstOpen = allChainPositions[0].openDate || 'Unknown';
+            
+            chainInfoMap.set(pos.id, {
+                chainId,
+                rollCount,
+                netCredit,
+                firstOpen,
+                closedPositions: chainClosedPositions
+            });
+        }
+    });
+    
+    // Track which chainIds we've rendered headers for
+    const renderedChainHeaders = new Set();
+    
     groupedPositions.forEach(pos => {
         const isChildRow = pos._isChild || false;
+        
+        // Check if this position has roll history and we haven't shown a header yet
+        const chainInfo = chainInfoMap.get(pos.id);
+        if (chainInfo && !isChildRow && !renderedChainHeaders.has(chainInfo.chainId)) {
+            renderedChainHeaders.add(chainInfo.chainId);
+            
+            // Render chain header row
+            const netCreditColor = chainInfo.netCredit >= 0 ? '#00ff88' : '#ff5252';
+            html += `
+                <tr style="background:rgba(0,217,255,0.08); border-left:3px solid #00d9ff;">
+                    <td colspan="8" style="padding:6px 6px 6px 12px; color:#00d9ff; font-size:11px;">
+                        🔗 Rolled ${chainInfo.rollCount}× 
+                        <span style="color:#888;">(since ${chainInfo.firstOpen})</span>
+                    </td>
+                    <td colspan="5" style="padding:6px; text-align:right; font-size:11px; color:#888;">
+                        Chain Net:
+                    </td>
+                    <td colspan="3" style="padding:6px; text-align:left; font-weight:bold; color:${netCreditColor}; font-size:12px;">
+                        ${chainInfo.netCredit >= 0 ? '+' : ''}$${chainInfo.netCredit.toFixed(0)}
+                    </td>
+                    <td colspan="2"></td>
+                </tr>
+            `;
+        }
+        
         const urgencyInfo = getDteUrgency(pos.dte);
         const dteColor = urgencyInfo.color;
         
