@@ -6670,6 +6670,27 @@ function setupButtons() {
         addPosBtn.addEventListener('click', addPosition);
     }
     
+    // Add Position form - trigger Schwab preview on field changes
+    const posTickerInput = document.getElementById('posTicker');
+    const posTypeSelect = document.getElementById('posType');
+    const posStrikeInput = document.getElementById('posStrike');
+    const posExpiryInput = document.getElementById('posExpiry');
+    const posPremiumInput = document.getElementById('posPremium');
+    const posContractsInput = document.getElementById('posContracts');
+    
+    const triggerPreview = () => {
+        if (window.updateAddPositionSchwabPreview) {
+            window.updateAddPositionSchwabPreview();
+        }
+    };
+    
+    if (posTickerInput) posTickerInput.addEventListener('blur', triggerPreview);
+    if (posTypeSelect) posTypeSelect.addEventListener('change', triggerPreview);
+    if (posStrikeInput) posStrikeInput.addEventListener('change', triggerPreview);
+    if (posExpiryInput) posExpiryInput.addEventListener('change', triggerPreview);
+    if (posPremiumInput) posPremiumInput.addEventListener('change', triggerPreview);
+    if (posContractsInput) posContractsInput.addEventListener('change', triggerPreview);
+    
     // Cancel edit button
     const cancelEditBtn = document.getElementById('cancelEditBtn');
     if (cancelEditBtn) {

@@ -1778,7 +1778,7 @@ window.setupAutoSave = setupAutoSave;
 /**
  * Add or update a position
  */
-export function addPosition() {
+export async function addPosition() {
     const ticker = document.getElementById('posTicker').value.toUpperCase().trim();
     const type = document.getElementById('posType').value;
     const strike = parseFloat(document.getElementById('posStrike').value);
@@ -1835,6 +1835,73 @@ export function addPosition() {
     const today = new Date();
     const expiryDate = new Date(expiry);
     const dte = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+    
+    // Check if user wants to send to Schwab
+    const sendToSchwab = document.getElementById('posSendToSchwab')?.checked || false;
+    
+    // If sending to Schwab, do that first (so we can abort if it fails)
+    if (sendToSchwab && !isSpread) {
+        const isPut = type.includes('put');
+        const isLongTrade = type.startsWith('long_');
+        const instruction = isLongTrade ? 'BUY_TO_OPEN' : 'SELL_TO_OPEN';
+        
+        // Show loading state
+        const addBtn = document.getElementById('addPositionBtn');
+        const originalText = addBtn ? addBtn.textContent : '';
+        if (addBtn) {
+            addBtn.disabled = true;
+            addBtn.textContent = '⏳ Sending to Schwab...';
+            addBtn.style.background = '#888';
+        }
+        
+        try {
+            const res = await fetch('/api/schwab/place-option-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ticker,
+                    strike,
+                    expiry,
+                    type: isPut ? 'P' : 'C',
+                    instruction,
+                    quantity: contracts,
+                    limitPrice: premium,
+                    confirm: true
+                })
+            });
+            
+            const result = await res.json();
+            
+            if (!res.ok || !result.success) {
+                throw new Error(result.error || 'Order failed');
+            }
+            
+            showNotification(`📤 Order sent to Schwab: ${ticker} $${strike} @ $${premium.toFixed(2)}`, 'success');
+            
+        } catch (e) {
+            console.error('Schwab order error:', e);
+            showNotification(`❌ Schwab order failed: ${e.message}`, 'error');
+            
+            // Re-enable button
+            if (addBtn) {
+                addBtn.disabled = false;
+                addBtn.textContent = originalText;
+                addBtn.style.background = '';
+            }
+            
+            // Ask if they want to continue without Schwab
+            if (!confirm('Schwab order failed. Add to positions anyway (for tracking)?')) {
+                return;
+            }
+        } finally {
+            // Reset button state
+            if (addBtn) {
+                addBtn.disabled = false;
+                addBtn.textContent = originalText;
+                addBtn.style.background = '';
+            }
+        }
+    }
     
     // Check if we're editing an existing position
     if (state.editingPositionId !== null) {
@@ -2074,6 +2141,128 @@ export function rollPosition(id) {
     showNotification(`Rolling ${pos.ticker} - fill in new position details`, 'info');
 }
 window.rollPosition = rollPosition;
+
+/**
+ * Update Schwab preview for Add Position form
+ */
+async function updateAddPositionSchwabPreview() {
+    const checkbox = document.getElementById('posSendToSchwab');
+    const section = document.getElementById('positionSchwabSection');
+    const previewDiv = document.getElementById('posAddSchwabPreview');
+    
+    // Show/hide section based on whether ticker and type are filled
+    const ticker = document.getElementById('posTicker')?.value?.trim();
+    const type = document.getElementById('posType')?.value;
+    const strike = parseFloat(document.getElementById('posStrike')?.value);
+    const expiry = document.getElementById('posExpiry')?.value;
+    
+    // Only show if we have basic info
+    if (ticker && type && strike && expiry) {
+        section.style.display = 'block';
+    } else {
+        section.style.display = 'none';
+        return;
+    }
+    
+    if (!checkbox?.checked) {
+        if (previewDiv) previewDiv.style.display = 'none';
+        return;
+    }
+    
+    // Show preview
+    if (previewDiv) {
+        previewDiv.style.display = 'block';
+        previewDiv.innerHTML = '<div style="color:#888;">⏳ Fetching live pricing...</div>';
+    }
+    
+    const premium = parseFloat(document.getElementById('posPremium')?.value) || 0;
+    const contracts = parseInt(document.getElementById('posContracts')?.value) || 1;
+    const isPut = type.includes('put');
+    const isLongTrade = type.startsWith('long_');
+    const instruction = isLongTrade ? 'BUY_TO_OPEN' : 'SELL_TO_OPEN';
+    
+    try {
+        // Fetch live quote from Schwab
+        const quoteRes = await fetch(`/api/schwab/quote/${ticker}`);
+        const quoteData = await quoteRes.json();
+        
+        if (!quoteRes.ok || !quoteData.success) {
+            throw new Error('Failed to fetch quote');
+        }
+        
+        const quote = quoteData.quote;
+        const optionType = isPut ? 'P' : 'C';
+        
+        // Find the option chain for this expiry
+        const chainRes = await fetch(`/api/schwab/options/${ticker}?strikeCount=20`);
+        const chainData = await chainRes.json();
+        
+        let bid = null, ask = null, mid = null;
+        
+        if (chainRes.ok && chainData.success) {
+            // Find matching option
+            const optionMap = isPut ? chainData.putExpDateMap : chainData.callExpDateMap;
+            const expiryKey = Object.keys(optionMap || {}).find(k => k.startsWith(expiry));
+            
+            if (expiryKey) {
+                const strikeMap = optionMap[expiryKey];
+                const strikeKey = Object.keys(strikeMap).find(k => parseFloat(k) === strike);
+                
+                if (strikeKey) {
+                    const option = strikeMap[strikeKey][0];
+                    bid = option.bid;
+                    ask = option.ask;
+                    mid = (bid + ask) / 2;
+                }
+            }
+        }
+        
+        const suggestedPrice = mid || premium;
+        const totalCost = suggestedPrice * 100 * contracts;
+        const creditOrDebit = isLongTrade ? 'debit' : 'credit';
+        
+        let html = `
+            <div style="margin-bottom:8px;">
+                <span style="color:#888;">Current Spot:</span> 
+                <span style="color:#00d9ff; font-weight:bold;">$${quote.lastPrice?.toFixed(2) || '—'}</span>
+            </div>
+        `;
+        
+        if (mid) {
+            html += `
+                <div style="margin-bottom:8px;">
+                    <span style="color:#888;">Live Option:</span> 
+                    <span style="color:#00ff88;">Bid $${bid.toFixed(2)}</span> / 
+                    <span style="color:#ffaa00;">Ask $${ask.toFixed(2)}</span> / 
+                    <span style="color:#00d9ff;">Mid $${mid.toFixed(2)}</span>
+                </div>
+            `;
+        }
+        
+        html += `
+            <div style="margin-bottom:8px;">
+                <span style="color:#888;">Your Price:</span> 
+                <span style="color:#00d9ff; font-weight:bold;">$${premium.toFixed(2)}</span>
+            </div>
+            <div style="margin-bottom:8px;">
+                <span style="color:#888;">Order:</span> 
+                <span style="color:#fff;">${instruction} ${contracts} ${ticker} ${expiry} $${strike} ${optionType}</span>
+            </div>
+            <div style="padding:8px; background:rgba(0,255,136,0.1); border-radius:4px; margin-top:8px;">
+                <div style="color:#0f8; font-weight:bold;">Total ${creditOrDebit.toUpperCase()}: ${creditOrDebit === 'credit' ? '+' : '-'}$${totalCost.toFixed(0)}</div>
+            </div>
+        `;
+        
+        previewDiv.innerHTML = html;
+        
+    } catch (e) {
+        console.error('Preview error:', e);
+        if (previewDiv) {
+            previewDiv.innerHTML = `<div style="color:#ff5252;">❌ ${e.message}</div>`;
+        }
+    }
+}
+window.updateAddPositionSchwabPreview = updateAddPositionSchwabPreview;
 
 /**
  * Setup live calculation of roll net credit/debit
