@@ -2,6 +2,15 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.75] - 2026-01-30
+
+### Added
+- **⏱️ Total Theta Summary Card**
+  - New summary card below positions table showing aggregate daily theta
+  - "Positions collect $X.XX per day from time decay" (green) for net positive theta
+  - "Positions cost $X.XX per day from time decay" (amber) for net negative theta
+  - Updates automatically after Greeks calculation completes
+
 ## [1.17.74] - 2026-01-30
 
 ### Fixed
