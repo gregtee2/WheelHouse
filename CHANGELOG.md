@@ -2,6 +2,16 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.26] - 2026-01-29
+
+### Added
+- **Win Probability for Spreads**: Delta-based probability of profit in spread confirm modal
+  - Win Prob = 100% - |Delta| of the sold strike
+  - Green (≥70%), Orange (50-70%), Red (<50%)
+  - Tooltip shows delta and explains the tradeoff
+  - Risk Analysis grid now 3-column layout for 6 metrics
+  - See the R:R vs Win Prob tradeoff as you shift strikes!
+
 ## [1.17.25] - 2026-01-29
 
 ### Added

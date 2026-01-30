@@ -3343,7 +3343,7 @@ window.confirmStagedTrade = function(id) {
             </div>
             <div id="spreadRiskDisplay" style="background:linear-gradient(135deg, rgba(255,82,82,0.15), rgba(255,170,0,0.1)); padding:12px; border-radius:8px; border:1px solid rgba(255,82,82,0.3); margin-top:4px;">
                 <div style="font-size:11px; color:#888; margin-bottom:8px; text-transform:uppercase; letter-spacing:1px;">⚠️ Risk Analysis</div>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
                     <div>
                         <span style="color:#888; font-size:11px;">Spread Width:</span>
                         <div id="spreadWidthDisplay" style="color:#ffaa00; font-size:14px; font-weight:bold;">$${Math.abs(sellStrike - buyStrike).toFixed(0)}</div>
@@ -3351,6 +3351,10 @@ window.confirmStagedTrade = function(id) {
                     <div>
                         <span style="color:#888; font-size:11px; cursor:help;" title="Risk:Reward Ratio - How much you risk to make $1. Lower is better. < 2:1 is good, > 3:1 is risky.">R:R Ratio: ℹ️</span>
                         <div id="spreadRiskRewardRatio" style="color:#00d9ff; font-size:14px; font-weight:bold; cursor:help;">-</div>
+                    </div>
+                    <div>
+                        <span style="color:#888; font-size:11px; cursor:help;" title="Win Probability - Chance stock stays OTM at expiration. Based on delta of the sold strike. Higher is better.">Win Prob: ℹ️</span>
+                        <div id="spreadWinProb" style="color:#00ff88; font-size:14px; font-weight:bold; cursor:help;">-</div>
                     </div>
                     <div>
                         <span style="color:#888; font-size:11px;">Max Loss <span id="maxLossContractCount" style="color:#666;">(1 contract)</span>:</span>
@@ -3983,6 +3987,30 @@ async function fetchOptionPricesForModal(ticker, sellStrike, buyStrike, expiry, 
                 const ivColor = iv < 0.30 ? '#00d9ff' : iv > 0.50 ? '#ffaa00' : '#fff';
                 spreadIvDisplay.style.color = ivColor;
                 spreadIvDisplay.textContent = `${ivPct}%`;
+            }
+        }
+        
+        // Update Win Probability for spreads (based on sell strike delta)
+        const spreadWinProbEl = document.getElementById('spreadWinProb');
+        if (spreadWinProbEl && sellOption) {
+            const delta = sellOption.delta || 0;
+            if (delta !== 0) {
+                // Win prob = 100% - |delta| (for short options, prob of staying OTM)
+                const winProb = (100 - Math.abs(delta) * 100).toFixed(0);
+                spreadWinProbEl.textContent = `${winProb}%`;
+                
+                // Color code: green >=70%, orange 50-70%, red <50%
+                if (winProb >= 70) {
+                    spreadWinProbEl.style.color = '#00ff88';
+                } else if (winProb >= 50) {
+                    spreadWinProbEl.style.color = '#ffaa00';
+                } else {
+                    spreadWinProbEl.style.color = '#ff5252';
+                }
+                
+                spreadWinProbEl.title = `Delta: ${delta.toFixed(2)}\nProbability stock stays OTM at expiration: ${winProb}%\n\nHigher = safer but lower premium\nLower = riskier but higher premium`;
+            } else {
+                spreadWinProbEl.textContent = '-';
             }
         }
         
