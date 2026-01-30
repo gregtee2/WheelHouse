@@ -2,6 +2,23 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+
+## [1.17.77] - 2026-01-30
+
+### Added
+- **Risk Color Borders on Ticker Headers**
+  - Ticker group headers now show a colored left border based on worst-case risk
+  - Green border = all positions healthy
+  - Orange border = at least one position needs attention
+  - Red border = at least one position in danger
+  - Risk icon also shown in the header for quick visual scanning when collapsed
+  - Priority: red > orange > green (shows the worst case)
+
+### Fixed
+- **UI Pop During Price Refresh**
+  - Smoother height transitions when positions table updates
+  - Added 100ms delay and CSS transition before releasing min-height lock
+  - Prevents jarring visual snap when Greeks/risk statuses refresh
 ## [1.17.76] - 2026-01-30
 
 ### Added

@@ -3426,12 +3426,14 @@ function renderPositionsTable(container, openPositions) {
             html += `</tbody><tbody class="ticker-section" data-ticker="${ticker}">`;
             
             // Header row (always visible)
+            // Border will be updated by updateTickerHeaderRiskBorders() after risk statuses are calculated
             html += `
-                <tr class="ticker-group-header" data-ticker="${ticker}" onclick="window.togglePositionsTickerGroup('${ticker}')" style="cursor:pointer; background:rgba(139,92,246,0.15);">
+                <tr id="ticker-header-${ticker}" class="ticker-group-header" data-ticker="${ticker}" onclick="window.togglePositionsTickerGroup('${ticker}')" style="cursor:pointer; background:rgba(139,92,246,0.15); transition: border-left 0.3s;">
                     <td style="font-weight:bold; color:#8b5cf6; padding:8px 6px;">
                         <span class="ticker-group-arrow" style="display:inline-block; transition:transform 0.2s; ${isCollapsed ? 'transform:rotate(-90deg);' : ''}">▼</span>
                         ${ticker}
                         <span style="color:#888; font-weight:normal; font-size:11px; margin-left:8px;">(${group.positions.length} position${group.positions.length > 1 ? 's' : ''})</span>
+                        <span id="ticker-risk-indicator-${ticker}" style="margin-left:8px; font-size:10px;"></span>
                     </td>
                     <td></td>
                     <td></td>
@@ -3813,10 +3815,15 @@ function renderPositionsTable(container, openPositions) {
     
     container.innerHTML = html;
     
-    // Release the min-height lock after render completes
-    requestAnimationFrame(() => {
+    // Release the min-height lock after render completes - use longer delay to prevent "pop"
+    setTimeout(() => {
+        container.style.transition = 'min-height 0.2s ease-out';
         container.style.minHeight = '';
-    });
+        // Remove transition after it completes
+        setTimeout(() => {
+            container.style.transition = '';
+        }, 250);
+    }, 100);
     
     // Enable resizable columns
     enableResizableColumns(container);
@@ -3899,6 +3906,11 @@ function enableResizableColumns(container) {
 async function updatePositionRiskStatuses(openPositions) {
     // Get unique tickers
     const tickers = [...new Set(openPositions.map(p => p.ticker))];
+    
+    // Track worst risk per ticker for header updates
+    // Priority: red (2) > orange (1) > green (0)
+    const tickerRiskLevels = {};
+    tickers.forEach(t => tickerRiskLevels[t] = { level: 0, color: '#00ff88', icon: '✅', text: 'Healthy' });
     
     // BATCH fetch all prices in ONE request (huge performance improvement!)
     const spotPrices = await fetchStockPricesBatch(tickers);
@@ -4002,6 +4014,12 @@ async function updatePositionRiskStatuses(openPositions) {
             // Calculate risk for the spread's short leg - use real IV from CBOE!
             const realIV = ivData[pos.ticker]?.value || null;
             const risk = calculatePositionRisk(pos, spotPrice, realIV);
+            
+            // Track worst risk for this ticker (red=2, orange=1, green=0)
+            const riskLevel = risk.color === '#ff5252' ? 2 : risk.color === '#ffaa00' ? 1 : 0;
+            if (riskLevel > tickerRiskLevels[pos.ticker].level) {
+                tickerRiskLevels[pos.ticker] = { level: riskLevel, color: risk.color, icon: risk.icon, text: risk.text };
+            }
             
             if (risk.itmPct !== null) {
                 // Show IV source in tooltip
@@ -4132,6 +4150,13 @@ async function updatePositionRiskStatuses(openPositions) {
         // Calculate risk using real IV from CBOE!
         const realIV = ivData[pos.ticker]?.value || null;
         const risk = calculatePositionRisk(pos, spotPrice, realIV);
+        
+        // Track worst risk for this ticker (red=2, orange=1, green=0)
+        const riskLevel = risk.color === '#ff5252' ? 2 : risk.color === '#ffaa00' ? 1 : 0;
+        if (riskLevel > tickerRiskLevels[pos.ticker].level) {
+            tickerRiskLevels[pos.ticker] = { level: riskLevel, color: risk.color, icon: risk.icon, text: risk.text };
+        }
+        
         // Build tooltip showing IV source for transparency
         const ivSource = ivData[pos.ticker]?.live ? 'CBOE' : 'estimated';
         const ivPct = realIV ? (realIV * 100).toFixed(0) : 'N/A';
@@ -4161,6 +4186,39 @@ async function updatePositionRiskStatuses(openPositions) {
                     ${risk.icon} ${risk.text}
                 </span>
             `;
+        }
+    }
+    
+    // Update ticker header borders with worst-case risk color for each group
+    updateTickerHeaderRiskBorders(tickerRiskLevels);
+}
+
+/**
+ * Update ticker group header borders to show worst-case risk for collapsed groups
+ * Priority: red (danger) > orange (warning) > green (safe)
+ */
+function updateTickerHeaderRiskBorders(tickerRiskLevels) {
+    for (const [ticker, riskInfo] of Object.entries(tickerRiskLevels)) {
+        const headerRow = document.getElementById(`ticker-header-${ticker}`);
+        const riskIndicator = document.getElementById(`ticker-risk-indicator-${ticker}`);
+        
+        if (headerRow) {
+            // Add colored left border based on worst risk
+            if (riskInfo.level === 2) {
+                // Red - danger
+                headerRow.style.borderLeft = '4px solid #ff5252';
+            } else if (riskInfo.level === 1) {
+                // Orange - warning
+                headerRow.style.borderLeft = '4px solid #ffaa00';
+            } else {
+                // Green - healthy
+                headerRow.style.borderLeft = '4px solid #00ff88';
+            }
+        }
+        
+        if (riskIndicator) {
+            // Show risk icon/text when collapsed (helpful indicator)
+            riskIndicator.innerHTML = `<span style="color:${riskInfo.color};" title="Worst position: ${riskInfo.text}">${riskInfo.icon}</span>`;
         }
     }
 }
