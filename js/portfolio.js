@@ -1292,8 +1292,145 @@ export function showClosePanel(id) {
     if (closingPriceInput) {
         closingPriceInput.oninput = updateClosePnLPreview;
     }
+    
+    // Reset Schwab checkbox
+    const schwabCheckbox = document.getElementById('closeSendToSchwab');
+    if (schwabCheckbox) schwabCheckbox.checked = false;
+    const schwabPreview = document.getElementById('closeSchwabPreview');
+    if (schwabPreview) schwabPreview.style.display = 'none';
+    
+    // Clear cached live pricing
+    window._closeLivePricing = null;
 }
 window.showClosePanel = showClosePanel;
+
+/**
+ * Update Schwab preview when checkbox is toggled
+ */
+window.updateClosePreview = async function() {
+    const checkbox = document.getElementById('closeSendToSchwab');
+    const previewDiv = document.getElementById('closeSchwabPreview');
+    
+    if (!checkbox || !previewDiv) return;
+    
+    if (!checkbox.checked) {
+        previewDiv.style.display = 'none';
+        window._closeLivePricing = null;
+        return;
+    }
+    
+    previewDiv.style.display = 'block';
+    previewDiv.innerHTML = '<div style="color:#888; font-size:11px;">⏳ Loading Schwab preview...</div>';
+    
+    // Get the position we're closing
+    const pos = state.positions.find(p => p.id === state.closingPositionId);
+    if (!pos) {
+        previewDiv.innerHTML = '<div style="color:#ff5252;">❌ Position not found</div>';
+        return;
+    }
+    
+    // Check if spread (not supported yet)
+    if (pos.type?.includes('_spread')) {
+        previewDiv.innerHTML = '<div style="color:#ffaa00;">⚠️ Spread orders not yet supported</div>';
+        return;
+    }
+    
+    // Determine option type
+    const isPut = pos.type?.includes('put') || pos.isCall === false;
+    const optionType = isPut ? 'P' : 'C';
+    
+    // Build preview request
+    const previewData = {
+        ticker: pos.ticker,
+        expiry: pos.expiry,
+        strike: pos.strike,
+        type: optionType,
+        action: 'BUY_TO_CLOSE',  // Closing a short = BUY_TO_CLOSE
+        quantity: pos.contracts || 1,
+        limitPrice: parseFloat(document.getElementById('closeClosingPrice')?.value) || 0
+    };
+    
+    try {
+        const res = await fetch('/api/schwab/preview-option-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(previewData)
+        });
+        
+        const data = await res.json();
+        
+        if (!data.success) {
+            previewDiv.innerHTML = `<div style="color:#ff5252;">❌ ${data.error || 'Preview failed'}</div>`;
+            return;
+        }
+        
+        // Store live pricing for use when executing
+        window._closeLivePricing = {
+            hasLivePricing: data.hasLivePricing,
+            suggestedPrice: data.suggestedLimit,
+            liveBid: data.liveBid,
+            liveAsk: data.liveAsk,
+            liveMid: data.liveMid,
+            occSymbol: data.occSymbol
+        };
+        
+        // Update the closing price input with live ask (for buy orders)
+        if (data.hasLivePricing && data.suggestedLimit) {
+            const priceInput = document.getElementById('closeClosingPrice');
+            if (priceInput) {
+                priceInput.value = data.suggestedLimit.toFixed(2);
+                updateClosePnLPreview();
+            }
+        }
+        
+        // Build preview HTML with live pricing
+        const totalCost = (data.suggestedLimit || previewData.limitPrice) * 100 * previewData.quantity;
+        
+        let pricingHtml = '';
+        if (data.hasLivePricing) {
+            pricingHtml = `
+                <div style="margin-bottom:8px;">
+                    <div style="font-size:10px; color:#888; margin-bottom:4px;">📈 Live Schwab Pricing</div>
+                    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; text-align:center;">
+                        <div style="background:rgba(0,255,136,0.1); padding:4px; border-radius:4px;">
+                            <div style="font-size:9px; color:#888;">Bid</div>
+                            <div style="color:#00ff88; font-weight:bold;">$${data.liveBid?.toFixed(2) || '—'}</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.05); padding:4px; border-radius:4px;">
+                            <div style="font-size:9px; color:#888;">Mid</div>
+                            <div style="color:#fff;">$${data.liveMid?.toFixed(2) || '—'}</div>
+                        </div>
+                        <div style="background:rgba(255,82,82,0.1); padding:4px; border-radius:4px;">
+                            <div style="font-size:9px; color:#888;">Ask</div>
+                            <div style="color:#ff5252; font-weight:bold;">$${data.liveAsk?.toFixed(2) || '—'}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        previewDiv.innerHTML = `
+            ${pricingHtml}
+            <div style="font-size:11px; color:#aaa; display:grid; grid-template-columns:auto 1fr; gap:4px 12px;">
+                <span style="color:#888;">Symbol:</span>
+                <span style="font-family:monospace; color:#00d9ff;">${data.occSymbol}</span>
+                <span style="color:#888;">Action:</span>
+                <span style="color:#ff5252;">BUY TO CLOSE</span>
+                <span style="color:#888;">Limit:</span>
+                <span style="color:#fff; font-weight:bold;">$${(data.suggestedLimit || previewData.limitPrice).toFixed(2)} ${data.hasLivePricing ? '(ask)' : ''}</span>
+                <span style="color:#888;">Total Debit:</span>
+                <span style="color:#ff5252; font-weight:bold;">$${totalCost.toFixed(0)}</span>
+            </div>
+            <div style="margin-top:6px; font-size:10px; color:#ffaa00;">
+                ⚠️ Will send LIMIT order to Schwab when you confirm
+            </div>
+        `;
+        
+    } catch (err) {
+        console.error('Close preview error:', err);
+        previewDiv.innerHTML = `<div style="color:#ff5252;">❌ Error: ${err.message}</div>`;
+    }
+};
 
 /**
  * Update the P&L preview in the close panel
@@ -1315,7 +1452,7 @@ function updateClosePnLPreview() {
 /**
  * Execute the close from the panel
  */
-export function executeClose() {
+export async function executeClose() {
     const id = state.closingPositionId;
     const pos = state.positions.find(p => p.id === id);
     if (!pos) {
@@ -1325,6 +1462,7 @@ export function executeClose() {
     
     const closingPrice = parseFloat(document.getElementById('closeClosingPrice')?.value);
     const closeDateValue = document.getElementById('closeDate')?.value;
+    const sendToSchwab = document.getElementById('closeSendToSchwab')?.checked;
     
     if (isNaN(closingPrice) || closingPrice < 0) {
         showNotification('Invalid closing price', 'error');
@@ -1334,6 +1472,51 @@ export function executeClose() {
     if (!closeDateValue) {
         showNotification('Please enter a close date', 'error');
         return;
+    }
+    
+    // If sending to Schwab, do that first
+    if (sendToSchwab) {
+        const livePricing = window._closeLivePricing;
+        const isPut = pos.type?.includes('put') || pos.isCall === false;
+        const optionType = isPut ? 'P' : 'C';
+        
+        // Use live ask price if available, otherwise use entered price
+        const orderPrice = livePricing?.hasLivePricing ? livePricing.suggestedPrice : closingPrice;
+        
+        const orderData = {
+            ticker: pos.ticker,
+            expiry: pos.expiry,
+            strike: pos.strike,
+            type: optionType,
+            action: 'BUY_TO_CLOSE',
+            quantity: pos.contracts || 1,
+            limitPrice: orderPrice,
+            confirm: true  // Actually place the order
+        };
+        
+        try {
+            showNotification('📤 Sending order to Schwab...', 'info');
+            
+            const res = await fetch('/api/schwab/place-option-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(orderData)
+            });
+            
+            const data = await res.json();
+            
+            if (!data.success) {
+                showNotification(`❌ Schwab order failed: ${data.error}`, 'error');
+                return;  // Don't close position if order failed
+            }
+            
+            showNotification(`✅ Schwab order placed: BUY TO CLOSE ${pos.ticker} @ $${orderPrice.toFixed(2)}`, 'success');
+            
+        } catch (err) {
+            console.error('Schwab order error:', err);
+            showNotification(`❌ Error sending to Schwab: ${err.message}`, 'error');
+            return;  // Don't close position if order failed
+        }
     }
     
     // Calculate realized P&L (handles both credit and debit positions)
@@ -1352,7 +1535,8 @@ export function executeClose() {
         closeDate: closeDateValue,
         daysHeld,
         closingPrice,
-        realizedPnL
+        realizedPnL,
+        sentToSchwab: sendToSchwab  // Track that this was sent to broker
     });
     saveClosedPositions();
     
@@ -1360,7 +1544,10 @@ export function executeClose() {
     state.positions = state.positions.filter(p => p.id !== id);
     localStorage.setItem('wheelhouse_positions', JSON.stringify(state.positions));
     
-    showNotification(`Closed ${pos.ticker}: ${realizedPnL >= 0 ? '+' : ''}$${realizedPnL.toFixed(0)} P&L`, 
+    // Clear live pricing cache
+    window._closeLivePricing = null;
+    
+    showNotification(`Closed ${pos.ticker}: ${realizedPnL >= 0 ? '+' : ''}$${realizedPnL.toFixed(0)} P&L${sendToSchwab ? ' (order sent to Schwab)' : ''}`, 
                      realizedPnL >= 0 ? 'success' : 'warning');
     
     // Hide panel and refresh

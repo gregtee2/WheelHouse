@@ -1129,6 +1129,18 @@ Examples:
                         P&L: <span id="closePnLValue" style="font-weight:bold;">—</span>
                     </div>
                     
+                    <!-- Send to Schwab Section -->
+                    <div style="margin-top:12px; padding:12px; background:rgba(0,217,255,0.08); border:1px solid rgba(0,217,255,0.3); border-radius:8px;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:#00d9ff;">
+                            <input type="checkbox" id="closeSendToSchwab" onchange="window.updateClosePreview()" style="width:18px; height:18px; accent-color:#00d9ff;">
+                            <span style="font-weight:500;">📤 Also send order to Schwab</span>
+                        </label>
+                        
+                        <div id="closeSchwabPreview" style="display:none; margin-top:10px;">
+                            <div style="font-size:11px; color:#888; margin-bottom:6px;">Loading order preview...</div>
+                        </div>
+                    </div>
+                    
                     <div style="display: flex; gap: 8px; margin-top: 12px;">
                         <button id="executeCloseBtn" class="btn-success" style="flex:1;">✅ Confirm Close</button>
                         <button id="cancelCloseBtn" class="btn-secondary" style="flex:0.4;">✕ Cancel</button>
