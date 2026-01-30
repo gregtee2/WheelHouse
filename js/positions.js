@@ -2151,20 +2151,20 @@ async function updateAddPositionSchwabPreview() {
     const section = document.getElementById('positionSchwabSection');
     const previewDiv = document.getElementById('posAddSchwabPreview');
     
-    // Show/hide section based on whether ticker and type are filled
+    // Show/hide section based on whether ticker, type, and expiry are filled
     const ticker = document.getElementById('posTicker')?.value?.trim();
     const type = document.getElementById('posType')?.value;
     const expiry = document.getElementById('posExpiry')?.value;
     
     console.log('Form values:', { ticker, type, expiry, checked: checkbox?.checked });
     
-    // Only show section if we have basic info
+    // Only show section if we have ticker, type, and expiry (strike/premium come FROM the picker!)
     if (ticker && type && expiry) {
         section.style.display = 'block';
         console.log('Section shown');
     } else {
         section.style.display = 'none';
-        console.log('Section hidden - missing fields');
+        console.log('Section hidden - need ticker, type, and expiry');
         return;
     }
     
