@@ -1,19 +1,20 @@
 // WheelHouse - Main Entry Point
 // Initialization and tab management
 
-import { state, resetSimulation, setAccountMode, updatePaperModeIndicator, setPaperAccountBalance, getPaperAccountBalance, setSelectedAccount, getAccountDisplayName } from './state.js?v=1.17.69';
-import { draw, drawPayoffChart, drawHistogram, drawPnLChart, drawProbabilityCone, drawHeatMap, drawGreeksChart } from './charts.js?v=1.17.69';
-import { runSingle, runBatch, resetAll } from './simulation.js?v=1.17.69';
-import { priceOptions, calcGreeks } from './pricing.js?v=1.17.69';
-import { calculateRoll, generateRecommendation, suggestOptimalRoll } from './analysis.js?v=1.17.69';
-import { fetchTickerPrice, fetchHeatMapPrice, fetchPositionTickerPrice } from './api.js?v=1.17.69';
-import { loadPositions, addPosition, editPosition, cancelEdit, renderPositions, updatePortfolioSummary } from './positions.js?v=1.17.69';
-import { loadClosedPositions, renderPortfolio, renderHoldings, formatPortfolioContextForAI } from './portfolio.js?v=1.17.69';
-import { initChallenges, renderChallenges } from './challenges.js?v=1.17.69';
-import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from './ui.js?v=1.17.69';
-import { showNotification } from './utils.js?v=1.17.69';
-import AccountService from './services/AccountService.js?v=1.17.69';
-import TradeCardService from './services/TradeCardService.js?v=1.17.69';  // For staging trades to Ideas tab
+// NOTE: state.js must NOT have cache busting - all files must share the same module instance
+import { state, resetSimulation, setAccountMode, updatePaperModeIndicator, setPaperAccountBalance, getPaperAccountBalance, setSelectedAccount, getAccountDisplayName } from './state.js';
+import { draw, drawPayoffChart, drawHistogram, drawPnLChart, drawProbabilityCone, drawHeatMap, drawGreeksChart } from './charts.js?v=1.17.73';
+import { runSingle, runBatch, resetAll } from './simulation.js?v=1.17.73';
+import { priceOptions, calcGreeks } from './pricing.js?v=1.17.73';
+import { calculateRoll, generateRecommendation, suggestOptimalRoll } from './analysis.js?v=1.17.73';
+import { fetchTickerPrice, fetchHeatMapPrice, fetchPositionTickerPrice } from './api.js?v=1.17.73';
+import { loadPositions, addPosition, editPosition, cancelEdit, renderPositions, updatePortfolioSummary } from './positions.js?v=1.17.73';
+import { loadClosedPositions, renderPortfolio, renderHoldings, formatPortfolioContextForAI } from './portfolio.js?v=1.17.73';
+import { initChallenges, renderChallenges } from './challenges.js?v=1.17.73';
+import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from './ui.js?v=1.17.73';
+import { showNotification } from './utils.js?v=1.17.73';
+import AccountService from './services/AccountService.js?v=1.17.73';
+import TradeCardService from './services/TradeCardService.js?v=1.17.73';  // For staging trades to Ideas tab
 
 /**
  * Switch between Real and Paper trading accounts
@@ -289,6 +290,49 @@ function updateBalanceDisplay(buyingPower, accountValue, cashAvailable, marginUs
 }
 
 /**
+ * Auto-link PMCC positions: Find covered calls that should be linked to LEAPS
+ * This runs after Schwab sync to detect and preserve PMCC nesting
+ */
+function autoLinkPMCCPositions() {
+    const positions = state.positions || [];
+    let linked = 0;
+    
+    // Find all LEAPS (long calls with 1+ year to expiry)
+    const leapsPositions = positions.filter(p => 
+        (p.type === 'long_call' || p.type === 'long_call_leaps') &&
+        p.dte >= 180  // At least 6 months out
+    );
+    
+    // Find covered calls that might be part of PMCC
+    const coveredCalls = positions.filter(p => 
+        p.type === 'covered_call' &&
+        !p.parentPositionId  // Not already linked
+    );
+    
+    // For each covered call, see if there's a matching LEAPS on same ticker
+    for (const cc of coveredCalls) {
+        const matchingLeaps = leapsPositions.find(leaps => 
+            leaps.ticker === cc.ticker &&
+            leaps.strike < cc.strike  // LEAPS should have lower strike than short call
+        );
+        
+        if (matchingLeaps) {
+            cc.parentPositionId = matchingLeaps.id;
+            linked++;
+            console.log(`[PMCC] Auto-linked ${cc.ticker} CC $${cc.strike} → LEAPS $${matchingLeaps.strike}`);
+        }
+    }
+    
+    if (linked > 0) {
+        // Save the updated positions
+        import('./state.js').then(({ getPositionsKey }) => {
+            localStorage.setItem(getPositionsKey(), JSON.stringify(positions));
+        });
+        console.log(`[PMCC] Auto-linked ${linked} covered call(s) to LEAPS`);
+    }
+}
+
+/**
  * Refresh positions from Schwab for current account
  */
 window.refreshAccountFromSchwab = async function() {
@@ -421,6 +465,9 @@ window.refreshAccountFromSchwab = async function() {
         const { getPositionsKey, getHoldingsKey } = await import('./state.js');
         localStorage.setItem(getPositionsKey(), JSON.stringify(existingPositions));
         localStorage.setItem(getHoldingsKey(), JSON.stringify(existingHoldings));
+        
+        // Auto-link PMCC positions (covered calls to their parent LEAPS)
+        autoLinkPMCCPositions();
         
         // Refresh UI
         loadPositions();
