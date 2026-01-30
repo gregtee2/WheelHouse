@@ -3419,12 +3419,15 @@ function renderPositionsTable(container, openPositions) {
         // Render ticker group header (only if multiple tickers)
         if (showTickerHeaders) {
             const isCollapsed = collapsedTickers[ticker] || false;
-            const arrowClass = isCollapsed ? 'collapsed' : '';
             const creditColor = group.totalCredit >= 0 ? '#00ff88' : '#ff5252';
             const dteColor = group.earliestDte <= 7 ? '#ff5252' : group.earliestDte <= 21 ? '#ffaa00' : '#00ff88';
             
+            // Close previous tbody if exists, start new one for this ticker group
+            html += `</tbody><tbody class="ticker-section" data-ticker="${ticker}">`;
+            
+            // Header row (always visible)
             html += `
-                <tr class="ticker-group-header ${arrowClass}" data-ticker="${ticker}" onclick="window.togglePositionsTickerGroup('${ticker}')" style="cursor:pointer; background:rgba(139,92,246,0.15);">
+                <tr class="ticker-group-header" data-ticker="${ticker}" onclick="window.togglePositionsTickerGroup('${ticker}')" style="cursor:pointer; background:rgba(139,92,246,0.15);">
                     <td style="font-weight:bold; color:#8b5cf6; padding:8px 6px;">
                         <span class="ticker-group-arrow" style="display:inline-block; transition:transform 0.2s; ${isCollapsed ? 'transform:rotate(-90deg);' : ''}">▼</span>
                         ${ticker}
@@ -3451,14 +3454,13 @@ function renderPositionsTable(container, openPositions) {
                     <td></td>
                 </tr>
             `;
-            
-            // Start collapsible tbody for this ticker's positions
-            html += `</tbody><tbody class="positions-ticker-group ${isCollapsed ? 'collapsed' : ''}" data-ticker="${ticker}" style="${isCollapsed ? 'display:none;' : ''}">`;
         }
         
         // Render each position in this ticker group
         group.positions.forEach(pos => {
         const isChildRow = pos._isChild || false;
+        const isCollapsed = showTickerHeaders && (collapsedTickers[pos.ticker] || false);
+        const collapsedStyle = isCollapsed ? 'display:none;' : '';
         
         const urgencyInfo = getDteUrgency(pos.dte);
         const dteColor = urgencyInfo.color;
@@ -3648,7 +3650,7 @@ function renderPositionsTable(container, openPositions) {
         const childIndicator = isChildRow ? '<span style="color:#8b5cf6;margin-right:4px;" title="Covered by LEAPS above">└─</span>' : '';
         
         html += `
-            <tr style="border-bottom: 1px solid #333;${childRowBg}${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}${isChildRow ? ' | ↳ Covered by parent LEAPS' : ''}">
+            <tr class="position-row" data-ticker="${pos.ticker}" style="${collapsedStyle}border-bottom: 1px solid #333;${childRowBg}${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}${isChildRow ? ' | ↳ Covered by parent LEAPS' : ''}">
                 <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${childIndicator}${pos.ticker}${pos.openingThesis ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}${isSkip && pos.skipDte <= 60 ? '<span style="margin-left:3px;font-size:9px;" title="' + (pos.skipDte < 45 ? 'PAST EXIT WINDOW!' : 'In 45-60 DTE exit window') + '">' + (pos.skipDte < 45 ? '🚨' : '⚠️') + '</span>' : ''}</td>
                 <td style="padding: 4px; text-align: center;" id="risk-cell-${pos.id}">
                     ${initialStatusHtml}
@@ -4811,16 +4813,15 @@ window.togglePositionsTickerGroup = function(ticker) {
     collapsed[ticker] = !collapsed[ticker];
     localStorage.setItem('wheelhouse_positions_collapsed', JSON.stringify(collapsed));
     
-    // Toggle visibility
-    const tbody = document.querySelector(`.positions-ticker-group[data-ticker="${ticker}"]`);
-    const header = document.querySelector(`.ticker-group-header[data-ticker="${ticker}"]`);
+    // Toggle visibility of all position rows with this ticker
+    const rows = document.querySelectorAll(`.position-row[data-ticker="${ticker}"]`);
+    rows.forEach(row => {
+        row.style.display = collapsed[ticker] ? 'none' : '';
+    });
     
-    if (tbody) {
-        tbody.style.display = collapsed[ticker] ? 'none' : '';
-        tbody.classList.toggle('collapsed', collapsed[ticker]);
-    }
+    // Update header arrow
+    const header = document.querySelector(`.ticker-group-header[data-ticker="${ticker}"]`);
     if (header) {
-        header.classList.toggle('collapsed', collapsed[ticker]);
         const arrow = header.querySelector('.ticker-group-arrow');
         if (arrow) {
             arrow.style.transform = collapsed[ticker] ? 'rotate(-90deg)' : '';
