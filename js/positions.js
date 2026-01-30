@@ -2143,6 +2143,60 @@ export function rollPosition(id) {
 window.rollPosition = rollPosition;
 
 /**
+ * Populate expiry dropdown when ticker/type are entered
+ */
+async function populateAddPositionExpiries() {
+    const ticker = document.getElementById('posTicker')?.value?.trim();
+    const type = document.getElementById('posType')?.value;
+    const expirySelect = document.getElementById('posExpiry');
+    
+    if (!ticker || !type || !expirySelect) return;
+    
+    console.log('Fetching expiry dates for', ticker);
+    expirySelect.innerHTML = '<option value="">⏳ Loading expiries...</option>';
+    
+    try {
+        const response = await fetch(`/api/schwab/options/${ticker}?strikeCount=20`);
+        const data = await response.json();
+        
+        if (!response.ok || !data.success) {
+            throw new Error('Failed to fetch option chain');
+        }
+        
+        const isPut = type.includes('put');
+        const optionMap = isPut ? data.putExpDateMap : data.callExpDateMap;
+        
+        if (!optionMap) {
+            throw new Error('No options available');
+        }
+        
+        // Extract expiry dates from keys (format: "2026-02-21:45")
+        const expiries = Object.keys(optionMap).map(key => key.split(':')[0]).filter(Boolean);
+        
+        expirySelect.innerHTML = '<option value="">Select expiry...</option>';
+        expiries.forEach(expiry => {
+            const option = document.createElement('option');
+            option.value = expiry;
+            
+            // Calculate DTE
+            const expiryDate = new Date(expiry);
+            const today = new Date();
+            const dte = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+            
+            option.textContent = `${expiry} (${dte} DTE)`;
+            expirySelect.appendChild(option);
+        });
+        
+        console.log(`Loaded ${expiries.length} expiry dates`);
+        
+    } catch (e) {
+        console.error('Expiry fetch error:', e);
+        expirySelect.innerHTML = '<option value="">⚠️ Failed to load expiries</option>';
+    }
+}
+window.populateAddPositionExpiries = populateAddPositionExpiries;
+
+/**
  * Update Schwab preview for Add Position form
  */
 async function updateAddPositionSchwabPreview() {

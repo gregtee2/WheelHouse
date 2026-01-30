@@ -1028,7 +1028,9 @@ Examples:
                         </div>
                         <div class="control-group">
                             <label>📅 Expiry</label>
-                            <input type="date" id="posExpiry" style="width:100%; padding:6px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;">
+                            <select id="posExpiry" onchange="window.updateAddPositionSchwabPreview?.()" style="width:100%; padding:6px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff;">
+                                <option value="">Select expiry...</option>
+                            </select>
                         </div>
                     </div>
                     
@@ -1755,15 +1757,15 @@ Examples:
     </script>
     
     <!-- Theme Settings (loads before modules) -->
-    <script src="js/theme.js?v=1.17.58"></script>
+    <script src="js/theme.js?v=1.17.59"></script>
     
     <!-- Schwab API Client -->
-    <script src="js/schwab.js?v=1.17.58"></script>
+    <script src="js/schwab.js?v=1.17.59"></script>
     
     <!-- Settings Management -->
-    <script src="js/settings.js?v=1.17.58"></script>
+    <script src="js/settings.js?v=1.17.59"></script>
     
     <!-- ES6 Module Entry Point -->
-    <script type="module" src="js/main.js?v=1.17.58"></script>
+    <script type="module" src="js/main.js?v=1.17.59"></script>
 </body>
 </html>
