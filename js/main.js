@@ -3696,6 +3696,20 @@ window.confirmStagedTrade = function(id) {
                     ⏳ Fetching market prices...
                 </div>
             </div>
+            
+            <!-- Broker Integration -->
+            <div id="schwabSendSection" style="margin-top:16px; padding:12px; background:rgba(0,217,255,0.08); border:1px solid rgba(0,217,255,0.3); border-radius:8px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                    <input type="checkbox" id="sendToSchwabCheckbox" 
+                           onchange="window.updateSchwabPreview()" 
+                           style="width:18px; height:18px; cursor:pointer;">
+                    <span style="color:#00d9ff; font-weight:bold;">📤 Also send order to Schwab</span>
+                </label>
+                <div id="schwabPreviewInfo" style="display:none; margin-top:10px; font-size:12px; color:#888;">
+                    <div id="schwabOrderDetails" style="padding:8px; background:rgba(0,0,0,0.3); border-radius:4px;">Loading...</div>
+                </div>
+            </div>
+            
             <div style="display:flex; gap:12px; margin-top:20px;">
                 <button onclick="window.finalizeConfirmedTrade(${id})" 
                         style="flex:1; background:#00ff88; color:#000; border:none; padding:12px; border-radius:8px; cursor:pointer; font-weight:bold;">
@@ -4593,11 +4607,14 @@ window.executeClosePosition = function(id) {
 /**
  * Finalize the confirmed trade - add to positions
  */
-window.finalizeConfirmedTrade = function(id) {
+window.finalizeConfirmedTrade = async function(id) {
     const pending = JSON.parse(localStorage.getItem('wheelhouse_pending') || '[]');
     const trade = pending.find(p => p.id === id);
     
     if (!trade) return;
+    
+    // Check if user wants to send to Schwab
+    const sendToSchwab = document.getElementById('sendToSchwabCheckbox')?.checked || false;
     
     // Get values from modal
     const ticker = document.getElementById('confirmTicker').value;
@@ -4606,6 +4623,63 @@ window.finalizeConfirmedTrade = function(id) {
     const expiry = document.getElementById('confirmExpiry').value;
     const tradeType = document.getElementById('confirmTradeType')?.value || 'short_put';
     const isSpread = document.getElementById('confirmIsSpread')?.value === '1';
+    
+    // If sending to Schwab, do that first (so we can abort if it fails)
+    if (sendToSchwab && !isSpread) {
+        const strike = parseFloat(document.getElementById('confirmStrike')?.value) || 0;
+        const isPut = tradeType.includes('put');
+        const instruction = tradeType.startsWith('long_') ? 'BUY_TO_OPEN' : 'SELL_TO_OPEN';
+        
+        try {
+            // Show loading state
+            const btn = document.querySelector('#confirmTradeModal button[onclick*="finalizeConfirmedTrade"]');
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '⏳ Sending to Schwab...';
+                btn.style.background = '#888';
+            }
+            
+            const res = await fetch('/api/schwab/place-option-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ticker,
+                    strike,
+                    expiry,
+                    type: isPut ? 'P' : 'C',
+                    instruction,
+                    quantity: contracts,
+                    limitPrice: premium,
+                    confirm: true
+                })
+            });
+            
+            const result = await res.json();
+            
+            if (!res.ok || !result.success) {
+                throw new Error(result.error || 'Order failed');
+            }
+            
+            showNotification(`📤 Order sent to Schwab: ${ticker} $${strike}`, 'success');
+            
+        } catch (e) {
+            console.error('Schwab order error:', e);
+            showNotification(`❌ Schwab order failed: ${e.message}`, 'error');
+            
+            // Re-enable button
+            const btn = document.querySelector('#confirmTradeModal button[onclick*="finalizeConfirmedTrade"]');
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Add to Positions';
+                btn.style.background = '#00ff88';
+            }
+            
+            // Ask if they want to continue without Schwab
+            if (!confirm('Schwab order failed. Add to positions anyway (for tracking)?')) {
+                return;
+            }
+        }
+    }
     
     // Create position object
     let position = {
@@ -4686,6 +4760,114 @@ window.finalizeConfirmedTrade = function(id) {
         : `$${position.strike} ${tradeType.includes('put') ? 'put' : 'call'}`;
     
     showNotification(`✅ Added ${ticker} ${strikeDisplay} to positions!`, 'success');
+};
+
+/**
+ * Update Schwab preview when checkbox is toggled
+ */
+window.updateSchwabPreview = async function() {
+    const checkbox = document.getElementById('sendToSchwabCheckbox');
+    const previewDiv = document.getElementById('schwabPreviewInfo');
+    const detailsDiv = document.getElementById('schwabOrderDetails');
+    const isSpread = document.getElementById('confirmIsSpread')?.value === '1';
+    
+    if (!checkbox?.checked) {
+        if (previewDiv) previewDiv.style.display = 'none';
+        return;
+    }
+    
+    // Show preview section
+    if (previewDiv) previewDiv.style.display = 'block';
+    if (detailsDiv) detailsDiv.innerHTML = '⏳ Checking order requirements...';
+    
+    // Spreads not supported yet
+    if (isSpread) {
+        if (detailsDiv) {
+            detailsDiv.innerHTML = `
+                <div style="color:#ffaa00;">⚠️ Spread orders not yet supported for broker integration</div>
+                <div style="color:#888; font-size:11px; margin-top:4px;">This trade will be added to positions only (for tracking)</div>
+            `;
+        }
+        return;
+    }
+    
+    // Get trade details
+    const ticker = document.getElementById('confirmTicker')?.value;
+    const strike = parseFloat(document.getElementById('confirmStrike')?.value) || 0;
+    const premium = parseFloat(document.getElementById('confirmPremium')?.value) || 0;
+    const contracts = parseInt(document.getElementById('confirmContracts')?.value) || 1;
+    const expiry = document.getElementById('confirmExpiry')?.value;
+    const tradeType = document.getElementById('confirmTradeType')?.value || 'short_put';
+    const isPut = tradeType.includes('put');
+    const instruction = tradeType.startsWith('long_') ? 'BUY_TO_OPEN' : 'SELL_TO_OPEN';
+    
+    try {
+        const res = await fetch('/api/schwab/preview-option-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ticker,
+                strike,
+                expiry,
+                type: isPut ? 'P' : 'C',
+                instruction,
+                quantity: contracts,
+                limitPrice: premium
+            })
+        });
+        
+        const result = await res.json();
+        
+        if (!res.ok || result.error) {
+            throw new Error(result.error || 'Preview failed');
+        }
+        
+        const collateralOk = result.buyingPower >= result.collateralRequired;
+        const credit = premium * 100 * contracts;
+        
+        if (detailsDiv) {
+            detailsDiv.innerHTML = `
+                <div style="font-size:11px; font-family:monospace; color:#888; margin-bottom:6px;">
+                    OCC: ${result.occSymbol}
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                    <div>
+                        <span style="color:#888;">Order:</span>
+                        <span style="color:#00d9ff;">${instruction === 'SELL_TO_OPEN' ? 'SELL' : 'BUY'} ${contracts}x @ $${premium.toFixed(2)}</span>
+                    </div>
+                    <div>
+                        <span style="color:#888;">Credit:</span>
+                        <span style="color:#00ff88;">$${credit.toLocaleString()}</span>
+                    </div>
+                    <div>
+                        <span style="color:#888;">Collateral:</span>
+                        <span style="color:#ffaa00;">$${result.collateralRequired?.toLocaleString() || '?'}</span>
+                    </div>
+                    <div>
+                        <span style="color:#888;">Buying Power:</span>
+                        <span style="color:${collateralOk ? '#00ff88' : '#ff5252'};">$${result.buyingPower?.toLocaleString() || '?'}</span>
+                    </div>
+                </div>
+                ${!collateralOk ? `
+                    <div style="color:#ff5252; margin-top:8px; font-size:11px;">
+                        ⚠️ Insufficient buying power - order may be rejected
+                    </div>
+                ` : `
+                    <div style="color:#00ff88; margin-top:8px; font-size:11px;">
+                        ✅ Buying power OK - order will be sent as LIMIT, DAY
+                    </div>
+                `}
+            `;
+        }
+        
+    } catch (e) {
+        if (detailsDiv) {
+            detailsDiv.innerHTML = `
+                <div style="color:#ff5252;">❌ ${e.message}</div>
+                <div style="color:#888; font-size:11px; margin-top:4px;">Check Schwab connection in Settings</div>
+            `;
+        }
+    }
 };
 
 /**

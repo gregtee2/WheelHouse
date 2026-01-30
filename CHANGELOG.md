@@ -2,6 +2,38 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.48] - 2026-01-30
+
+### Added
+- **📤 Send to Schwab Checkbox in Trade Confirmation Modal**
+  - New "Also send order to Schwab" checkbox when confirming staged trades
+  - Shows live preview: OCC symbol, order details, collateral required, buying power check
+  - Green checkmark if buying power is sufficient, warning if not
+  - Order sent as LIMIT, DAY before position is added
+  - If Schwab order fails, prompts to continue adding to positions anyway (for tracking)
+  - Currently supports single-leg options (puts/calls), spreads show "not yet supported" message
+
+### Enhanced
+- **Trade Confirmation Flow**: Now async to support broker integration
+- **Order Safety**: Preview shows all details before execution
+
+## [1.17.47] - 2026-01-30
+
+### Added
+- **📤 Send to Schwab: Execute Trades from Portfolio Audit**
+  - New "Preview" and "Send" buttons on diversification recommendations
+  - Preview shows full order details: OCC symbol, collateral required, buying power check
+  - Confirms you can afford the trade before allowing execution
+  - One-click order submission to Schwab (LIMIT order, DAY duration)
+  - Success/failure feedback in modal
+  - Backend: New `/api/schwab/preview-option-order` and `/api/schwab/place-option-order` endpoints
+  - Utility: `buildOCCSymbol()` and `parseOCCSymbol()` in dateHelpers.js
+
+### Safety
+- Order placement requires explicit `confirm: true` flag
+- Preview shows buying power vs collateral requirement
+- Disabled send button if insufficient buying power
+
 ## [1.17.46] - 2026-01-30
 
 ### Fixed

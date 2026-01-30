@@ -454,6 +454,192 @@ router.delete('/accounts/:accountHash/orders/:orderId', async (req, res) => {
 });
 
 // ============================================================
+// HELPER: Build and place option order
+// ============================================================
+
+const { buildOCCSymbol } = require('../utils/dateHelpers');
+
+/**
+ * Build a Schwab order object for an option trade
+ * @param {Object} params - Order parameters
+ * @returns {Object} Schwab order object
+ */
+function buildOptionOrder(params) {
+    const { ticker, strike, expiry, type, instruction, quantity, limitPrice } = params;
+    
+    // Build OCC symbol
+    const optionSymbol = buildOCCSymbol(ticker, expiry, type, strike);
+    
+    // Determine order type based on limitPrice
+    const orderType = limitPrice ? 'LIMIT' : 'MARKET';
+    
+    const order = {
+        orderType,
+        session: 'NORMAL',
+        duration: 'DAY',
+        orderStrategyType: 'SINGLE',
+        orderLegCollection: [
+            {
+                instruction: instruction || 'SELL_TO_OPEN', // SELL_TO_OPEN, BUY_TO_CLOSE, etc.
+                quantity: quantity || 1,
+                instrument: {
+                    symbol: optionSymbol,
+                    assetType: 'OPTION'
+                }
+            }
+        ]
+    };
+    
+    // Add limit price if provided
+    if (limitPrice) {
+        order.price = limitPrice.toFixed(2);
+    }
+    
+    return order;
+}
+
+// Preview an option order (doesn't execute)
+router.post('/preview-option-order', async (req, res) => {
+    try {
+        const { ticker, strike, expiry, type, instruction, quantity, limitPrice } = req.body;
+        
+        if (!ticker || !strike || !expiry) {
+            return res.status(400).json({ error: 'Missing required fields: ticker, strike, expiry' });
+        }
+        
+        // Build the order object
+        const order = buildOptionOrder({
+            ticker,
+            strike: parseFloat(strike),
+            expiry,
+            type: type || 'P',
+            instruction: instruction || 'SELL_TO_OPEN',
+            quantity: parseInt(quantity) || 1,
+            limitPrice: limitPrice ? parseFloat(limitPrice) : null
+        });
+        
+        // Get primary account
+        const accounts = await schwabApiCall('/accounts');
+        if (!accounts || accounts.length === 0) {
+            return res.status(400).json({ error: 'No Schwab accounts found' });
+        }
+        
+        // Find margin account (preferred) or first account
+        const marginAccount = accounts.find(a => 
+            a.securitiesAccount?.type === 'MARGIN'
+        );
+        const account = marginAccount || accounts[0];
+        const accountHash = account.hashValue || account.securitiesAccount?.accountNumber;
+        
+        if (!accountHash) {
+            return res.status(400).json({ error: 'Could not determine account hash' });
+        }
+        
+        // Get buying power for display
+        const buyingPower = account.securitiesAccount?.currentBalances?.buyingPower || 0;
+        const collateralRequired = strike * 100 * (quantity || 1);
+        
+        // Preview the order
+        let preview = null;
+        let previewError = null;
+        try {
+            preview = await schwabApiCall(`/accounts/${accountHash}/previewOrder`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(order)
+            });
+        } catch (e) {
+            previewError = e.error?.message || e.message || 'Preview failed';
+            console.log('[SCHWAB] Preview error (non-fatal):', previewError);
+        }
+        
+        res.json({
+            success: true,
+            order,
+            occSymbol: order.orderLegCollection[0].instrument.symbol,
+            accountHash,
+            buyingPower,
+            collateralRequired,
+            preview,
+            previewError,
+            description: `${instruction || 'SELL_TO_OPEN'} ${quantity || 1}x ${ticker} $${strike} ${type || 'P'} exp ${expiry} @ $${limitPrice?.toFixed(2) || 'MKT'}`
+        });
+        
+    } catch (e) {
+        console.error('[SCHWAB] Preview option order error:', e);
+        res.status(e.status || 500).json({ error: e.error?.message || e.message });
+    }
+});
+
+// Place an option order (executes!)
+router.post('/place-option-order', async (req, res) => {
+    try {
+        const { ticker, strike, expiry, type, instruction, quantity, limitPrice, confirm } = req.body;
+        
+        // Safety: require explicit confirmation
+        if (confirm !== true) {
+            return res.status(400).json({ 
+                error: 'Order not confirmed. Set confirm: true to execute.',
+                hint: 'This is a safety check to prevent accidental orders.'
+            });
+        }
+        
+        if (!ticker || !strike || !expiry) {
+            return res.status(400).json({ error: 'Missing required fields: ticker, strike, expiry' });
+        }
+        
+        // Build the order object
+        const order = buildOptionOrder({
+            ticker,
+            strike: parseFloat(strike),
+            expiry,
+            type: type || 'P',
+            instruction: instruction || 'SELL_TO_OPEN',
+            quantity: parseInt(quantity) || 1,
+            limitPrice: limitPrice ? parseFloat(limitPrice) : null
+        });
+        
+        // Get primary account
+        const accounts = await schwabApiCall('/accounts');
+        if (!accounts || accounts.length === 0) {
+            return res.status(400).json({ error: 'No Schwab accounts found' });
+        }
+        
+        // Find margin account (preferred) or first account
+        const marginAccount = accounts.find(a => 
+            a.securitiesAccount?.type === 'MARGIN'
+        );
+        const account = marginAccount || accounts[0];
+        const accountHash = account.hashValue || account.securitiesAccount?.accountNumber;
+        
+        console.log(`[SCHWAB] 📤 Placing order: ${order.orderLegCollection[0].instrument.symbol} @ $${order.price || 'MKT'}`);
+        
+        // Place the order
+        const result = await schwabApiCall(`/accounts/${accountHash}/orders`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(order)
+        });
+        
+        console.log('[SCHWAB] ✅ Order placed successfully');
+        
+        res.json({
+            success: true,
+            order,
+            result,
+            message: `Order placed: ${instruction || 'SELL_TO_OPEN'} ${quantity || 1}x ${ticker} $${strike} ${type || 'P'}`
+        });
+        
+    } catch (e) {
+        console.error('[SCHWAB] ❌ Place option order error:', e);
+        res.status(e.status || 500).json({ 
+            success: false,
+            error: e.error?.message || e.error || e.message 
+        });
+    }
+});
+
+// ============================================================
 // TRANSACTION ROUTES
 // ============================================================
 

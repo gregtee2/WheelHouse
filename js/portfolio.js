@@ -5819,8 +5819,8 @@ window.runPortfolioAudit = async function() {
         localStorage.setItem('wheelhouse_portfolio_context', JSON.stringify(portfolioContext));
         console.log('[PORTFOLIO] Saved portfolio context for trade analysis:', portfolioContext);
         
-        // Show audit results in modal
-        showAuditModal(result.audit, result.model);
+        // Show audit results in modal (pass diversification candidates for order buttons)
+        showAuditModal(result.audit, result.model, result.diversificationCandidates);
         
     } catch (err) {
         console.error('Portfolio audit failed:', err);
@@ -5835,8 +5835,14 @@ window.runPortfolioAudit = async function() {
 
 /**
  * Display audit results in a modal
+ * @param {string} audit - AI audit text
+ * @param {string} model - Model used
+ * @param {Array} diversificationCandidates - Optional structured data for order buttons
  */
-function showAuditModal(audit, model) {
+function showAuditModal(audit, model, diversificationCandidates = []) {
+    // Store candidates globally for order functions
+    window._diversificationCandidates = diversificationCandidates;
+    
     // Parse markdown-style formatting
     const formatAudit = (text) => {
         return text
@@ -5850,9 +5856,70 @@ function showAuditModal(audit, model) {
             .replace(/\n/g, '<br>');
     };
     
+    // Build diversification cards with order buttons
+    let diversificationHtml = '';
+    if (diversificationCandidates && diversificationCandidates.length > 0) {
+        diversificationHtml = `
+            <div style="margin-top:20px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.1);">
+                <h2 style="color:#ffaa00; margin:0 0 15px 0;">🎯 Diversification Opportunities</h2>
+                <p style="color:#888; font-size:12px; margin-bottom:15px;">Click "Preview Order" to see full details before sending to Schwab.</p>
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    ${diversificationCandidates.map((c, i) => {
+                        const rangeColor = c.rangePosition < 30 ? '#00ff88' : c.rangePosition > 70 ? '#ff5252' : '#ffaa00';
+                        const rangeLabel = c.rangePosition < 30 ? 'Near lows' : c.rangePosition > 70 ? 'Near highs' : 'Mid-range';
+                        return `
+                            <div style="background:rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.3); border-radius:8px; padding:12px;">
+                                <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px;">
+                                    <div style="flex:1; min-width:200px;">
+                                        <div style="font-size:14px; font-weight:bold; color:#fff; margin-bottom:6px;">
+                                            ${c.ticker} <span style="color:#888; font-weight:normal;">(${c.sector})</span>
+                                            <span style="font-size:11px; color:${rangeColor}; margin-left:8px;">${rangeLabel}</span>
+                                        </div>
+                                        <div style="font-size:12px; color:#ddd;">
+                                            Sell <strong style="color:#00d9ff;">$${c.suggestedStrike} PUT</strong> exp ${c.expiry} (${c.dte}d)
+                                        </div>
+                                        <div style="font-size:11px; color:#888; margin-top:4px;">
+                                            Premium: <span style="color:#00ff88;">$${c.putPremium?.toFixed(2) || '?'}</span> | 
+                                            <span style="color:#ffaa00;">${c.annualizedYield}% ann.</span> | 
+                                            ${c.cushionPct}% cushion
+                                            ${c.putDelta ? ` | Δ${Math.round(c.putDelta * 100)}` : ''}
+                                        </div>
+                                        <div style="font-size:11px; color:#666; margin-top:2px;">
+                                            Collateral: $${c.collateral?.toLocaleString() || '?'}
+                                        </div>
+                                    </div>
+                                    <div style="display:flex; gap:6px;">
+                                        <button onclick="window.previewSchwabOrder(${i})" 
+                                            style="font-size:11px; padding:6px 12px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.5); color:#00d9ff; border-radius:4px; cursor:pointer;">
+                                            📋 Preview
+                                        </button>
+                                        <button onclick="window.sendToSchwab(${i})" 
+                                            style="font-size:11px; padding:6px 12px; background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.5); color:#00ff88; border-radius:4px; cursor:pointer;">
+                                            📤 Send
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+                <p style="color:#666; font-size:10px; margin-top:10px; font-style:italic;">
+                    ⚠️ Always verify earnings dates. Orders sent as LIMIT at displayed premium.
+                </p>
+            </div>
+        `;
+    }
+    
+    // Remove diversification section from audit text (we render it separately with buttons)
+    let auditText = audit;
+    const divOpportunityIdx = audit.indexOf('## 🎯 DIVERSIFICATION OPPORTUNITIES');
+    if (divOpportunityIdx > -1) {
+        auditText = audit.substring(0, divOpportunityIdx).trim();
+    }
+    
     const modal = createModal('portfolioAuditModal');
     modal.innerHTML = `
-        <div style="background:#1a1a2e; border:1px solid rgba(139,92,246,0.5); border-radius:10px; max-width:700px; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">
+        <div style="background:#1a1a2e; border:1px solid rgba(139,92,246,0.5); border-radius:10px; max-width:750px; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">
             ${modalHeader('🤖 AI Portfolio Audit', 'portfolioAuditModal')}
             <div style="padding:20px; overflow-y:auto; flex:1;">
                 <div style="background:rgba(139,92,246,0.1); padding:10px 12px; border-radius:6px; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
@@ -5875,8 +5942,9 @@ function showAuditModal(audit, model) {
                     <span style="font-size:10px; color:#666;">Last run: <span style="color:#8b5cf6;">${model}</span></span>
                 </div>
                 <div id="auditContent" style="color:#ddd; line-height:1.6; font-size:13px;">
-                    ${formatAudit(audit)}
+                    ${formatAudit(auditText)}
                 </div>
+                ${diversificationHtml}
             </div>
             <div style="padding:15px; border-top:1px solid rgba(255,255,255,0.1); text-align:right;">
                 <button onclick="document.getElementById('portfolioAuditModal').remove()" style="background:rgba(139,92,246,0.3); border:1px solid rgba(139,92,246,0.5); color:#fff; padding:8px 20px; border-radius:6px; cursor:pointer;">Close</button>
@@ -6074,3 +6142,239 @@ export function formatPortfolioContextForAI() {
     
     return lines.join('\n');
 }
+
+// ============================================================
+// SCHWAB ORDER INTEGRATION
+// ============================================================
+
+/**
+ * Preview a Schwab order from diversification candidates
+ * Shows order details before execution
+ */
+window.previewSchwabOrder = async function(candidateIndex) {
+    const candidates = window._diversificationCandidates || [];
+    const candidate = candidates[candidateIndex];
+    
+    if (!candidate) {
+        showNotification('Candidate not found', 'error');
+        return;
+    }
+    
+    // Show loading state
+    const existingModal = document.getElementById('schwabOrderModal');
+    if (existingModal) existingModal.remove();
+    
+    const modal = createModal('schwabOrderModal');
+    modal.innerHTML = `
+        <div style="background:#1a1a2e; border:1px solid rgba(0,217,255,0.5); border-radius:10px; max-width:500px; padding:20px;">
+            ${modalHeader('📋 Order Preview', 'schwabOrderModal')}
+            <div style="padding:20px; text-align:center; color:#888;">
+                <div style="font-size:24px; margin-bottom:10px;">⏳</div>
+                Loading order preview for ${candidate.ticker}...
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    try {
+        const res = await fetch('/api/schwab/preview-option-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ticker: candidate.ticker,
+                strike: candidate.suggestedStrike,
+                expiry: candidate.expiry,
+                type: 'P',
+                instruction: 'SELL_TO_OPEN',
+                quantity: 1,
+                limitPrice: candidate.putPremium
+            })
+        });
+        
+        const result = await res.json();
+        
+        if (!res.ok || result.error) {
+            throw new Error(result.error || 'Preview failed');
+        }
+        
+        // Update modal with preview details
+        const collateralOk = result.buyingPower >= result.collateralRequired;
+        
+        modal.innerHTML = `
+            <div style="background:#1a1a2e; border:1px solid rgba(0,217,255,0.5); border-radius:10px; max-width:550px;">
+                ${modalHeader('📋 Order Preview - ' + candidate.ticker, 'schwabOrderModal')}
+                <div style="padding:20px;">
+                    <div style="background:rgba(0,217,255,0.1); border:1px solid rgba(0,217,255,0.3); border-radius:8px; padding:15px; margin-bottom:15px;">
+                        <div style="font-size:16px; font-weight:bold; color:#00d9ff; margin-bottom:10px;">
+                            ${result.description}
+                        </div>
+                        <div style="font-size:12px; color:#888; font-family:monospace;">
+                            OCC Symbol: ${result.occSymbol}
+                        </div>
+                    </div>
+                    
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
+                        <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:6px;">
+                            <div style="font-size:11px; color:#888;">Limit Price</div>
+                            <div style="font-size:18px; color:#00ff88;">$${candidate.putPremium?.toFixed(2) || '?'}</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:6px;">
+                            <div style="font-size:11px; color:#888;">Total Credit</div>
+                            <div style="font-size:18px; color:#00ff88;">$${((candidate.putPremium || 0) * 100).toFixed(0)}</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:6px;">
+                            <div style="font-size:11px; color:#888;">Collateral Required</div>
+                            <div style="font-size:18px; color:#ffaa00;">$${result.collateralRequired?.toLocaleString()}</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:6px;">
+                            <div style="font-size:11px; color:#888;">Buying Power</div>
+                            <div style="font-size:18px; color:${collateralOk ? '#00ff88' : '#ff5252'};">$${result.buyingPower?.toLocaleString()}</div>
+                        </div>
+                    </div>
+                    
+                    ${result.previewError ? `
+                        <div style="background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.3); border-radius:6px; padding:10px; margin-bottom:15px;">
+                            <div style="font-size:11px; color:#ffaa00;">⚠️ Preview Warning</div>
+                            <div style="font-size:12px; color:#ddd;">${result.previewError}</div>
+                        </div>
+                    ` : ''}
+                    
+                    ${!collateralOk ? `
+                        <div style="background:rgba(255,82,82,0.1); border:1px solid rgba(255,82,82,0.3); border-radius:6px; padding:10px; margin-bottom:15px;">
+                            <div style="font-size:12px; color:#ff5252;">❌ Insufficient buying power for this trade</div>
+                        </div>
+                    ` : ''}
+                    
+                    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
+                        <button onclick="document.getElementById('schwabOrderModal').remove()" 
+                            style="padding:10px 20px; background:rgba(136,136,136,0.2); border:1px solid #666; color:#ddd; border-radius:6px; cursor:pointer;">
+                            Cancel
+                        </button>
+                        <button onclick="window.confirmSchwabOrder(${candidateIndex})" 
+                            style="padding:10px 20px; background:${collateralOk ? 'rgba(0,255,136,0.2)' : 'rgba(136,136,136,0.2)'}; border:1px solid ${collateralOk ? '#00ff88' : '#666'}; color:${collateralOk ? '#00ff88' : '#888'}; border-radius:6px; cursor:pointer; ${!collateralOk ? 'pointer-events:none;' : ''}"
+                            ${!collateralOk ? 'disabled' : ''}>
+                            📤 Send to Schwab
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+    } catch (e) {
+        modal.innerHTML = `
+            <div style="background:#1a1a2e; border:1px solid rgba(255,82,82,0.5); border-radius:10px; max-width:450px; padding:20px;">
+                ${modalHeader('❌ Preview Failed', 'schwabOrderModal')}
+                <div style="padding:20px;">
+                    <div style="color:#ff5252; margin-bottom:15px;">${e.message}</div>
+                    <div style="color:#888; font-size:12px; margin-bottom:20px;">
+                        Make sure you're connected to Schwab in the Settings tab.
+                    </div>
+                    <button onclick="document.getElementById('schwabOrderModal').remove()" 
+                        style="padding:8px 16px; background:rgba(136,136,136,0.2); border:1px solid #666; color:#ddd; border-radius:6px; cursor:pointer;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+};
+
+/**
+ * Skip preview and go straight to confirmation (for quick send)
+ */
+window.sendToSchwab = async function(candidateIndex) {
+    // Just call preview for now - user clicks "Send to Schwab" in the preview modal
+    await window.previewSchwabOrder(candidateIndex);
+};
+
+/**
+ * Actually execute the order after confirmation
+ */
+window.confirmSchwabOrder = async function(candidateIndex) {
+    const candidates = window._diversificationCandidates || [];
+    const candidate = candidates[candidateIndex];
+    
+    if (!candidate) {
+        showNotification('Candidate not found', 'error');
+        return;
+    }
+    
+    // Update modal to show loading
+    const modal = document.getElementById('schwabOrderModal');
+    if (modal) {
+        modal.querySelector('div').innerHTML = `
+            ${modalHeader('📤 Sending Order...', 'schwabOrderModal')}
+            <div style="padding:40px; text-align:center;">
+                <div style="font-size:32px; margin-bottom:15px;">⏳</div>
+                <div style="color:#00d9ff;">Sending order to Schwab...</div>
+                <div style="color:#888; font-size:12px; margin-top:10px;">${candidate.ticker} $${candidate.suggestedStrike} PUT</div>
+            </div>
+        `;
+    }
+    
+    try {
+        const res = await fetch('/api/schwab/place-option-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ticker: candidate.ticker,
+                strike: candidate.suggestedStrike,
+                expiry: candidate.expiry,
+                type: 'P',
+                instruction: 'SELL_TO_OPEN',
+                quantity: 1,
+                limitPrice: candidate.putPremium,
+                confirm: true  // Required safety flag
+            })
+        });
+        
+        const result = await res.json();
+        
+        if (!res.ok || !result.success) {
+            throw new Error(result.error || 'Order failed');
+        }
+        
+        // Show success
+        if (modal) {
+            modal.querySelector('div').innerHTML = `
+                ${modalHeader('✅ Order Sent!', 'schwabOrderModal')}
+                <div style="padding:30px; text-align:center;">
+                    <div style="font-size:48px; margin-bottom:15px;">✅</div>
+                    <div style="font-size:16px; color:#00ff88; margin-bottom:10px;">Order sent to Schwab</div>
+                    <div style="color:#888; font-size:13px; margin-bottom:20px;">
+                        ${result.message}<br>
+                        <span style="font-size:11px;">Check Schwab for order status (may be PENDING)</span>
+                    </div>
+                    <button onclick="document.getElementById('schwabOrderModal').remove()" 
+                        style="padding:10px 25px; background:rgba(0,255,136,0.2); border:1px solid #00ff88; color:#00ff88; border-radius:6px; cursor:pointer;">
+                        Done
+                    </button>
+                </div>
+            `;
+        }
+        
+        showNotification(`Order sent: ${candidate.ticker} $${candidate.suggestedStrike} PUT`, 'success');
+        
+    } catch (e) {
+        console.error('Schwab order error:', e);
+        
+        if (modal) {
+            modal.querySelector('div').innerHTML = `
+                ${modalHeader('❌ Order Failed', 'schwabOrderModal')}
+                <div style="padding:30px; text-align:center;">
+                    <div style="font-size:48px; margin-bottom:15px;">❌</div>
+                    <div style="font-size:14px; color:#ff5252; margin-bottom:15px;">${e.message}</div>
+                    <div style="color:#888; font-size:12px; margin-bottom:20px;">
+                        The order was not executed. Check Schwab for details.
+                    </div>
+                    <button onclick="document.getElementById('schwabOrderModal').remove()" 
+                        style="padding:10px 25px; background:rgba(136,136,136,0.2); border:1px solid #666; color:#ddd; border-radius:6px; cursor:pointer;">
+                        Close
+                    </button>
+                </div>
+            `;
+        }
+        
+        showNotification(`Order failed: ${e.message}`, 'error');
+    }
+};

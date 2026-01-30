@@ -139,8 +139,83 @@ function calculateDTE(expiry) {
     return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
 
+/**
+ * Build OCC option symbol from components
+ * OCC format: AAPL  260221P00240000
+ *   - Root symbol (6 chars, right-padded with spaces)
+ *   - Expiry (YYMMDD)
+ *   - Type (P = Put, C = Call)
+ *   - Strike (8 digits: 5 integer + 3 decimal, no decimal point)
+ * 
+ * @param {string} ticker - Stock symbol (e.g., "AAPL")
+ * @param {string} expiry - Expiry date (e.g., "2026-02-21" or "Feb 21, 2026")
+ * @param {string} type - "P" for put, "C" for call
+ * @param {number} strike - Strike price (e.g., 240 or 240.50)
+ * @returns {string} OCC symbol (e.g., "AAPL  260221P00240000")
+ */
+function buildOCCSymbol(ticker, expiry, type, strike) {
+    // Pad ticker to 6 characters
+    const root = ticker.toUpperCase().padEnd(6, ' ');
+    
+    // Parse expiry date
+    const expiryDate = parseExpiryDate(expiry);
+    if (!expiryDate) {
+        throw new Error(`Invalid expiry date: ${expiry}`);
+    }
+    
+    // Format expiry as YYMMDD
+    const yy = String(expiryDate.getFullYear()).slice(2);
+    const mm = String(expiryDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(expiryDate.getDate()).padStart(2, '0');
+    const expiryStr = `${yy}${mm}${dd}`;
+    
+    // Option type
+    const optType = type.toUpperCase() === 'C' ? 'C' : 'P';
+    
+    // Strike: multiply by 1000, pad to 8 digits
+    // e.g., 240.00 -> 00240000, 240.50 -> 00240500
+    const strikeInt = Math.round(strike * 1000);
+    const strikeStr = String(strikeInt).padStart(8, '0');
+    
+    return `${root}${expiryStr}${optType}${strikeStr}`;
+}
+
+/**
+ * Parse an OCC symbol back to components
+ * @param {string} occSymbol - OCC symbol (e.g., "AAPL  260221P00240000")
+ * @returns {Object} { ticker, expiry, type, strike }
+ */
+function parseOCCSymbol(occSymbol) {
+    if (!occSymbol || occSymbol.length < 21) {
+        throw new Error(`Invalid OCC symbol: ${occSymbol}`);
+    }
+    
+    const ticker = occSymbol.slice(0, 6).trim();
+    const expiryStr = occSymbol.slice(6, 12); // YYMMDD
+    const type = occSymbol.slice(12, 13); // P or C
+    const strikeStr = occSymbol.slice(13, 21);
+    
+    // Parse expiry
+    const yy = parseInt(expiryStr.slice(0, 2));
+    const mm = parseInt(expiryStr.slice(2, 4)) - 1;
+    const dd = parseInt(expiryStr.slice(4, 6));
+    const expiry = new Date(2000 + yy, mm, dd);
+    
+    // Parse strike (divide by 1000)
+    const strike = parseInt(strikeStr) / 1000;
+    
+    return {
+        ticker,
+        expiry: expiry.toISOString().split('T')[0], // YYYY-MM-DD
+        type: type === 'C' ? 'CALL' : 'PUT',
+        strike
+    };
+}
+
 module.exports = {
     formatExpiryForCBOE,
     parseExpiryDate,
-    calculateDTE
+    calculateDTE,
+    buildOCCSymbol,
+    parseOCCSymbol
 };
