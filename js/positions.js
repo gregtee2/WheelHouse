@@ -4298,17 +4298,47 @@ function updateThetaSummaryCard() {
     
     // Format the display
     const absTheta = Math.abs(totalTheta).toFixed(2);
+    const weeklyTheta = Math.abs(totalTheta * 7).toFixed(0);
+    
+    // Calculate annualized theta return percentage
+    // Get capital at risk from portfolio summary
+    const capitalAtRisk = openPositions.reduce((sum, p) => {
+        const isSpread = p.type?.includes('_spread');
+        if (isSpread) {
+            const width = p.spreadWidth || Math.abs((p.sellStrike || 0) - (p.buyStrike || 0));
+            const premium = p.premium || 0;
+            const isDebit = isDebitPosition(p.type);
+            const maxLoss = isDebit 
+                ? premium * 100 * p.contracts
+                : (width - premium) * 100 * p.contracts;
+            return sum + maxLoss;
+        } else if (isDebitPosition(p.type)) {
+            return sum + ((p.premium || 0) * 100 * p.contracts);
+        } else if (p.type === 'short_put' || p.type === 'buy_write') {
+            return sum + ((p.strike || 0) * 100 * p.contracts);
+        }
+        return sum;
+    }, 0);
+    
+    const annualizedTheta = totalTheta * 365;
+    const thetaROC = capitalAtRisk > 0 ? (annualizedTheta / capitalAtRisk) * 100 : 0;
     
     if (totalTheta >= 0) {
         // Positive theta = collecting from time decay (short positions)
         tileEl.style.color = '#00ff88';
-        tileEl.textContent = `+$${absTheta}`;
-        tileEl.title = `Collecting $${absTheta}/day from time decay`;
+        tileEl.innerHTML = `
+            <div style="font-size: 24px; font-weight: bold;">+$${absTheta}</div>
+            <div style="font-size: 10px; color: #888; margin-top: 2px;">~$${weeklyTheta}/wk</div>
+        `;
+        tileEl.title = `Daily theta collection\n~$${weeklyTheta}/week · ~${thetaROC.toFixed(0)}% annualized theta ROC`;
     } else {
         // Negative theta = paying for time decay (long positions)
         tileEl.style.color = '#ff5252';
-        tileEl.textContent = `-$${absTheta}`;
-        tileEl.title = `Paying $${absTheta}/day for time decay`;
+        tileEl.innerHTML = `
+            <div style="font-size: 24px; font-weight: bold;">-$${absTheta}</div>
+            <div style="font-size: 10px; color: #888; margin-top: 2px;">~$${weeklyTheta}/wk</div>
+        `;
+        tileEl.title = `Daily theta cost\n~$${weeklyTheta}/week · ~${Math.abs(thetaROC).toFixed(0)}% annualized theta cost`;
     }
 }
 
