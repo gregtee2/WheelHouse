@@ -3499,9 +3499,9 @@ function renderPositionsTable(container, openPositions) {
         }
         
         // Get chain net credit if position has roll history
-        const chainInfo = getChainNetCredit(pos);
-        const displayCredit = chainInfo.hasRolls ? chainInfo.netCredit : credit;
-        const isChainCredit = chainInfo.hasRolls;
+        const posChainInfo = getChainNetCredit(pos);
+        const displayCredit = posChainInfo.hasRolls ? posChainInfo.netCredit : credit;
+        const isChainCredit = posChainInfo.hasRolls;
         
         // Calculate breakeven price for assignment
         // Short Put: Breakeven = Strike - Premium (if assigned, you buy at strike but received premium)
