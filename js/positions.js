@@ -3730,19 +3730,6 @@ function renderPositionsTable(container, openPositions) {
     
     html += '</tbody></table>';
     
-    // Add theta summary card (populated after Greeks calculation completes)
-    html += `
-        <div id="thetaSummaryCard" style="display:none; margin-top:16px; padding:12px 16px; background:linear-gradient(135deg, rgba(0,255,136,0.08) 0%, rgba(0,217,255,0.08) 100%); border:1px solid rgba(0,255,136,0.3); border-radius:8px;">
-            <div style="display:flex; align-items:center; gap:12px;">
-                <span style="font-size:20px;">⏱️</span>
-                <div>
-                    <div style="color:#00ff88; font-weight:bold; font-size:14px;" id="thetaSummaryValue">Calculating...</div>
-                    <div style="color:#888; font-size:11px;">Daily theta decay from all positions</div>
-                </div>
-            </div>
-        </div>
-    `;
-    
     // Prevent vertical shrink during re-render by locking current height temporarily
     const currentHeight = container.offsetHeight;
     if (currentHeight > 0) {
@@ -4284,13 +4271,11 @@ async function updatePositionGreeksDisplay(positions, spotPrices, ivData = {}) {
 }
 
 /**
- * Update the total theta summary card with sum of all position theta
+ * Update the total theta summary tile with sum of all position theta
  */
 function updateThetaSummaryCard() {
-    const card = document.getElementById('thetaSummaryCard');
-    const valueEl = document.getElementById('thetaSummaryValue');
-    
-    if (!card || !valueEl) return;
+    const tileEl = document.getElementById('thetaSummaryTile');
+    if (!tileEl) return;
     
     // Sum up all _theta values from positions
     const openPositions = (state.positions || []).filter(p => p.status === 'open');
@@ -4305,28 +4290,25 @@ function updateThetaSummaryCard() {
     }
     
     if (!hasData) {
-        card.style.display = 'none';
+        tileEl.textContent = '—';
+        tileEl.style.color = '#888';
+        tileEl.title = 'Waiting for Greeks calculation...';
         return;
     }
-    
-    // Show the card
-    card.style.display = 'block';
     
     // Format the display
     const absTheta = Math.abs(totalTheta).toFixed(2);
     
     if (totalTheta >= 0) {
         // Positive theta = collecting from time decay (short positions)
-        valueEl.style.color = '#00ff88';
-        valueEl.textContent = `Positions collect $${absTheta} per day from time decay`;
-        card.style.background = 'linear-gradient(135deg, rgba(0,255,136,0.08) 0%, rgba(0,217,255,0.08) 100%)';
-        card.style.borderColor = 'rgba(0,255,136,0.3)';
+        tileEl.style.color = '#00ff88';
+        tileEl.textContent = `+$${absTheta}`;
+        tileEl.title = `Collecting $${absTheta}/day from time decay`;
     } else {
         // Negative theta = paying for time decay (long positions)
-        valueEl.style.color = '#ffaa00';
-        valueEl.textContent = `Positions cost $${absTheta} per day from time decay`;
-        card.style.background = 'linear-gradient(135deg, rgba(255,170,0,0.08) 0%, rgba(255,82,82,0.08) 100%)';
-        card.style.borderColor = 'rgba(255,170,0,0.3)';
+        tileEl.style.color = '#ff5252';
+        tileEl.textContent = `-$${absTheta}`;
+        tileEl.title = `Paying $${absTheta}/day for time decay`;
     }
 }
 
@@ -4472,7 +4454,7 @@ export function updatePortfolioSummary() {
     const summaryEl = document.getElementById('portfolioSummary');
     if (summaryEl) {
         summaryEl.innerHTML = `
-            <div class="summary-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px;">
+            <div class="summary-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 12px;">
                 <div class="summary-item" style="text-align: center;">
                     <div style="color: #888; font-size: 11px;">OPEN POSITIONS</div>
                     <div style="color: #00d9ff; font-size: 24px; font-weight: bold;">${totalOpen}</div>
@@ -4493,6 +4475,10 @@ export function updatePortfolioSummary() {
                                 font-size: 24px; font-weight: bold;">
                         ${closestDte === Infinity ? '—' : closestDte + 'd'}
                     </div>
+                </div>
+                <div class="summary-item" style="text-align: center;">
+                    <div style="color: #888; font-size: 11px;" title="Daily theta decay collected (or paid) across all positions">DAILY Θ</div>
+                    <div id="thetaSummaryTile" style="color: #888; font-size: 24px; font-weight: bold;">—</div>
                 </div>
             </div>
             <div class="summary-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; 
