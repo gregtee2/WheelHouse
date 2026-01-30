@@ -8654,12 +8654,20 @@ window.scannerQuickAdd = function(ticker, price) {
  * Analyzes existing LEAPS positions and models selling short calls against them
  */
 window.openPMCCCalculator = function() {
-    // Find all long call positions (potential LEAPS)
-    const longCalls = state.positions.filter(p => 
-        (p.type === 'long_call' || p.type === 'covered_call_leaps') && 
-        p.status === 'open' && 
-        p.dte > 180  // At least 6 months remaining
-    );
+    // Find all long call positions (potential LEAPS) - broader filter
+    const longCalls = state.positions.filter(p => {
+        // Accept any position that looks like a long call with 180+ DTE
+        const isLongCall = p.type?.toLowerCase().includes('call') && 
+                          !p.type?.toLowerCase().includes('short') &&
+                          !p.type?.toLowerCase().includes('credit') &&
+                          !p.type?.toLowerCase().includes('covered_call');  // Covered calls are different
+        const hasTime = p.dte > 180;  // At least 6 months remaining
+        const isOpen = p.status === 'open';
+        
+        return isLongCall && hasTime && isOpen;
+    });
+    
+    console.log('[PMCC] Found long call positions:', longCalls.length, longCalls.map(p => ({ ticker: p.ticker, type: p.type, dte: p.dte })));
     
     const modal = document.createElement('div');
     modal.id = 'pmccModal';
