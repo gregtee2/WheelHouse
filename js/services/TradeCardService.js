@@ -168,7 +168,8 @@ class TradeCardService {
             badge = 'ROLL',
             originalPositionId = null,
             holdingId = null,
-            rollFrom = null
+            rollFrom = null,
+            parentPositionId = null  // PMCC: ID of covering LEAPS position
         } = options;
         
         // Determine trade type
@@ -209,6 +210,7 @@ class TradeCardService {
         // Add position/holding references
         if (originalPositionId) pendingTrade.originalPositionId = originalPositionId;
         if (holdingId) pendingTrade.holdingId = holdingId;
+        if (parentPositionId) pendingTrade.parentPositionId = parentPositionId;
         
         // Load existing pending trades
         let pending = [];

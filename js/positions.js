@@ -2776,7 +2776,57 @@ function renderPositionsTable(container, openPositions) {
             <tbody>
     `;
     
-    openPositions.forEach(pos => {
+    // Group positions: LEAPS parents with their child short calls
+    // Parents with children should appear at the DTE position of their earliest-expiring child
+    const parentPositions = openPositions.filter(p => !p.parentPositionId);
+    const childPositions = openPositions.filter(p => p.parentPositionId);
+    
+    // Build a map of parent ID -> children (sorted by child DTE)
+    const childrenByParent = new Map();
+    childPositions.forEach(child => {
+        const parentId = child.parentPositionId;
+        if (!childrenByParent.has(parentId)) {
+            childrenByParent.set(parentId, []);
+        }
+        childrenByParent.get(parentId).push(child);
+    });
+    // Sort each parent's children by DTE
+    childrenByParent.forEach(children => children.sort((a, b) => a.dte - b.dte));
+    
+    // For parents with children, use the earliest child's DTE for sorting
+    const parentsWithSortKey = parentPositions.map(parent => {
+        const children = childrenByParent.get(parent.id) || [];
+        const sortDte = children.length > 0 ? Math.min(parent.dte, children[0].dte) : parent.dte;
+        return { parent, children, sortDte };
+    });
+    
+    // Sort parents by their effective DTE (considering children)
+    parentsWithSortKey.sort((a, b) => a.sortDte - b.sortDte);
+    
+    // Build final grouped list
+    const groupedPositions = [];
+    const processedChildIds = new Set();
+    
+    parentsWithSortKey.forEach(({ parent, children }) => {
+        // Add the parent position
+        groupedPositions.push({ ...parent, _isChild: false, _hasChildren: children.length > 0 });
+        
+        // Add children right after parent
+        children.forEach(child => {
+            groupedPositions.push({ ...child, _isChild: true, _parentTicker: parent.ticker });
+            processedChildIds.add(child.id);
+        });
+    });
+    
+    // Add any orphaned children (parent was closed or deleted)
+    childPositions.forEach(child => {
+        if (!processedChildIds.has(child.id)) {
+            groupedPositions.push({ ...child, _isChild: true, _orphan: true });
+        }
+    });
+    
+    groupedPositions.forEach(pos => {
+        const isChildRow = pos._isChild || false;
         const urgencyInfo = getDteUrgency(pos.dte);
         const dteColor = urgencyInfo.color;
         
@@ -2960,9 +3010,13 @@ function renderPositionsTable(container, openPositions) {
             ? `<span style="color: #8b5cf6; font-size: 11px;" title="Spread">📊</span>`
             : `<span id="risk-status-${pos.id}" style="color: #888; font-size: 10px;">⏳</span>`;
         
+        // PMCC child row styling - visually nest under parent LEAPS
+        const childRowBg = isChildRow ? 'background: rgba(139,92,246,0.08); border-left: 3px solid #8b5cf6;' : '';
+        const childIndicator = isChildRow ? '<span style="color:#8b5cf6;margin-right:4px;" title="Covered by LEAPS above">└─</span>' : '';
+        
         html += `
-            <tr style="border-bottom: 1px solid #333;${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}">
-                <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${pos.ticker}${pos.openingThesis ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}${isSkip && pos.skipDte <= 60 ? '<span style="margin-left:3px;font-size:9px;" title="' + (pos.skipDte < 45 ? 'PAST EXIT WINDOW!' : 'In 45-60 DTE exit window') + '">' + (pos.skipDte < 45 ? '🚨' : '⚠️') + '</span>' : ''}</td>
+            <tr style="border-bottom: 1px solid #333;${childRowBg}${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}${isChildRow ? ' | ↳ Covered by parent LEAPS' : ''}">
+                <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${childIndicator}${pos.ticker}${pos.openingThesis ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}${isSkip && pos.skipDte <= 60 ? '<span style="margin-left:3px;font-size:9px;" title="' + (pos.skipDte < 45 ? 'PAST EXIT WINDOW!' : 'In 45-60 DTE exit window') + '">' + (pos.skipDte < 45 ? '🚨' : '⚠️') + '</span>' : ''}</td>
                 <td style="padding: 4px; text-align: center;" id="risk-cell-${pos.id}">
                     ${initialStatusHtml}
                 </td>

@@ -4701,7 +4701,9 @@ window.finalizeConfirmedTrade = async function(id) {
         openDate: new Date().toISOString().split('T')[0],
         status: 'open',
         broker: 'Manual',
-        openingThesis: trade.openingThesis || null
+        openingThesis: trade.openingThesis || null,
+        // PMCC: Link to parent LEAPS position for nesting in UI
+        parentPositionId: trade.parentPositionId || null
     };
     
     // Handle spread vs single-leg positions
@@ -9796,13 +9798,14 @@ window.stagePMCCTrade = function() {
         newStrike: shortStrike,  // TradeCardService expects newStrike
         newExpiry: expiry,       // TradeCardService expects newExpiry  
         newType: 'CALL',         // Short call
-        rationale: `PMCC: Short call against ${position.ticker} $${position.strike} LEAPS. Yield: ${document.getElementById('pmccMonthlyYield')?.textContent || '?'}/month`
+        rationale: `PMCC: Short call against ${position.ticker} $${position.strike || position.leapsStrike} LEAPS. Yield: ${document.getElementById('pmccMonthlyYield')?.textContent || '?'}/month`
     };
     
     window.TradeCardService?.stageToPending(trade, {
         ticker: position.ticker,
         source: 'pmcc_calculator',
-        badge: 'PMCC'
+        badge: 'PMCC',
+        parentPositionId: position.id  // Link to parent LEAPS for nesting
     });
     
     showNotification(`PMCC short call staged to Ideas tab`, 'success');
