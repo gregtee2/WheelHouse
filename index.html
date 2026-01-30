@@ -1062,7 +1062,7 @@ Examples:
                     <div class="control-row">
                         <div class="control-group" style="flex:1;">
                             <label>Contracts</label>
-                            <input type="number" id="posContracts" class="value-input" min="1" max="1000" step="1" value="1" style="width:100%;">
+                            <input type="number" id="posContracts" class="value-input" min="1" max="1000" step="1" value="1" style="width:100%;" oninput="window.updateAddPositionCredit?.()">
                         </div>
                         <div class="control-group" style="flex:0.5;">
                             <label>Δ Delta</label>
@@ -1096,10 +1096,12 @@ Examples:
                     <!-- Schwab Order Section -->
                     <div id="positionSchwabSection" style="margin-top:15px; padding:12px; background:rgba(0,255,136,0.08); border:1px solid rgba(0,255,136,0.3); border-radius:6px;">
                         <label style="display:flex; align-items:center; cursor:pointer; user-select:none;">
-                            <input type="checkbox" id="posSendToSchwab" style="margin-right:8px; width:16px; height:16px; cursor:pointer;">
+                            <input type="checkbox" id="posSendToSchwab" onchange="window.updateAddPositionSchwabPreview?.()" style="margin-right:8px; width:16px; height:16px; cursor:pointer;">
                             <span style="font-weight:bold; color:#00ff88;">📤 Also send order to Schwab</span>
                         </label>
-                        <div style="font-size:10px; color:#888; margin-top:4px; margin-left:24px;">Order will be sent at mid price as a limit order</div>
+                        <div id="posAddSchwabPreview" style="display:none; margin-top:10px; padding:10px; background:rgba(0,0,0,0.3); border-radius:4px;">
+                            <!-- Order preview will be populated here -->
+                        </div>
                     </div>
                     
                     <div style="display: flex; gap: 8px; margin-top: 15px;">
@@ -1787,15 +1789,15 @@ Examples:
     </script>
     
     <!-- Theme Settings (loads before modules) -->
-    <script src="js/theme.js?v=1.17.67"></script>
+    <script src="js/theme.js?v=1.17.68"></script>
     
     <!-- Schwab API Client -->
-    <script src="js/schwab.js?v=1.17.67"></script>
+    <script src="js/schwab.js?v=1.17.68"></script>
     
     <!-- Settings Management -->
-    <script src="js/settings.js?v=1.17.67"></script>
+    <script src="js/settings.js?v=1.17.68"></script>
     
     <!-- ES6 Module Entry Point -->
-    <script type="module" src="js/main.js?v=1.17.67"></script>
+    <script type="module" src="js/main.js?v=1.17.68"></script>
 </body>
 </html>

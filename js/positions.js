@@ -2358,42 +2358,11 @@ function selectStrikeFromPicker(strike, premium, delta) {
     document.getElementById('posPremium').value = premium.toFixed(2);
     document.getElementById('posDelta').value = delta.toFixed(2);
     
-    // Get details for display
-    const type = document.getElementById('posType')?.value;
-    const contracts = parseInt(document.getElementById('posContracts')?.value) || 1;
-    const expiry = document.getElementById('posExpiry')?.value;
-    const isLong = type?.startsWith('long_');
-    const totalValue = premium * 100 * contracts;
-    const creditOrDebit = isLong ? 'Debit' : 'Credit';
-    const sign = isLong ? '-' : '+';
+    // Update the selected display
+    updateAddPositionCredit();
     
-    // Show selected strike display
-    const selectedDisplay = document.getElementById('selectedStrikeDisplay');
-    if (selectedDisplay) {
-        selectedDisplay.style.display = 'block';
-        selectedDisplay.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                    <div style="color:#00ff88; font-weight:bold; font-size:13px;">✓ Selected</div>
-                    <div style="font-size:12px; margin-top:4px;">
-                        <span style="color:#00d9ff; font-weight:bold;">$${strike.toFixed(2)}</span>
-                        <span style="color:#888;"> @ </span>
-                        <span style="color:#fff;">$${premium.toFixed(2)}</span>
-                        <span style="color:#888;"> (Δ ${delta.toFixed(2)})</span>
-                    </div>
-                    <div style="font-size:11px; color:#888; margin-top:2px;">${expiry}</div>
-                </div>
-                <div style="text-align:right;">
-                    <div style="font-size:10px; color:#888;">${creditOrDebit}</div>
-                    <div style="color:#00ff88; font-weight:bold; font-size:16px;">${sign}$${totalValue.toFixed(0)}</div>
-                </div>
-            </div>
-            <button onclick="window.loadStrikesForExpiry()" 
-                    style="margin-top:10px; padding:4px 10px; background:transparent; border:1px solid rgba(0,217,255,0.4); border-radius:4px; color:#00d9ff; cursor:pointer; font-size:11px;">
-                ← Change Strike
-            </button>
-        `;
-    }
+    // Update Schwab preview if checked
+    updateAddPositionSchwabPreview();
     
     // Highlight the selected row
     document.querySelectorAll('#strikePicker > div').forEach(row => {
@@ -2409,6 +2378,57 @@ function selectStrikeFromPicker(strike, premium, delta) {
     showNotification(`Selected $${strike.toFixed(2)} @ $${premium.toFixed(2)}`, 'success');
 }
 window.selectStrikeFromPicker = selectStrikeFromPicker;
+
+/**
+ * Update the credit/debit display when contracts change
+ */
+function updateAddPositionCredit() {
+    const strike = parseFloat(document.getElementById('posStrike')?.value) || 0;
+    const premium = parseFloat(document.getElementById('posPremium')?.value) || 0;
+    const delta = parseFloat(document.getElementById('posDelta')?.value) || 0;
+    const type = document.getElementById('posType')?.value;
+    const contracts = parseInt(document.getElementById('posContracts')?.value) || 1;
+    const expiry = document.getElementById('posExpiry')?.value;
+    
+    if (!strike || !premium) return;  // No strike selected yet
+    
+    const isLong = type?.startsWith('long_');
+    const totalValue = premium * 100 * contracts;
+    const creditOrDebit = isLong ? 'Debit' : 'Credit';
+    const sign = isLong ? '-' : '+';
+    const valueColor = isLong ? '#ff5252' : '#00ff88';
+    
+    const selectedDisplay = document.getElementById('selectedStrikeDisplay');
+    if (selectedDisplay) {
+        selectedDisplay.style.display = 'block';
+        selectedDisplay.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <div style="color:#00ff88; font-weight:bold; font-size:13px;">✓ Selected</div>
+                    <div style="font-size:12px; margin-top:4px;">
+                        <span style="color:#00d9ff; font-weight:bold;">$${strike.toFixed(2)}</span>
+                        <span style="color:#888;"> @ </span>
+                        <span style="color:#fff;">$${premium.toFixed(2)}</span>
+                        <span style="color:#888;"> (Δ ${delta.toFixed(2)})</span>
+                    </div>
+                    <div style="font-size:11px; color:#888; margin-top:2px;">${expiry} • ${contracts} contract${contracts > 1 ? 's' : ''}</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:10px; color:#888;">${creditOrDebit}</div>
+                    <div style="color:${valueColor}; font-weight:bold; font-size:16px;">${sign}$${totalValue.toFixed(0)}</div>
+                </div>
+            </div>
+            <button onclick="window.loadStrikesForExpiry()" 
+                    style="margin-top:10px; padding:4px 10px; background:transparent; border:1px solid rgba(0,217,255,0.4); border-radius:4px; color:#00d9ff; cursor:pointer; font-size:11px;">
+                ← Change Strike
+            </button>
+        `;
+    }
+    
+    // Also update Schwab preview if shown
+    updateAddPositionSchwabPreview();
+}
+window.updateAddPositionCredit = updateAddPositionCredit;
 
 /**
  * Populate expiry dropdown when ticker/type are entered (LEGACY - kept for compatibility)
@@ -2467,192 +2487,91 @@ async function populateAddPositionExpiries() {
 window.populateAddPositionExpiries = populateAddPositionExpiries;
 
 /**
- * Update Schwab preview for Add Position form
+ * Update Schwab preview for Add Position form - shows order details based on selected strike
  */
-async function updateAddPositionSchwabPreview() {
-    console.log('updateAddPositionSchwabPreview called');
+function updateAddPositionSchwabPreview() {
     const checkbox = document.getElementById('posSendToSchwab');
-    const section = document.getElementById('positionSchwabSection');
     const previewDiv = document.getElementById('posAddSchwabPreview');
-    
-    // Show/hide section based on whether ticker, type, and expiry are filled
-    const ticker = document.getElementById('posTicker')?.value?.trim();
-    const type = document.getElementById('posType')?.value;
-    const expiry = document.getElementById('posExpiry')?.value;
-    
-    console.log('Form values:', { ticker, type, expiry, checked: checkbox?.checked });
-    
-    // Only show section if we have ticker, type, and expiry (strike/premium come FROM the picker!)
-    if (ticker && type && expiry) {
-        section.style.display = 'block';
-        console.log('Section shown');
-    } else {
-        section.style.display = 'none';
-        console.log('Section hidden - need ticker, type, and expiry');
-        return;
-    }
     
     if (!checkbox?.checked) {
         if (previewDiv) previewDiv.style.display = 'none';
-        console.log('Preview hidden - checkbox not checked');
         return;
     }
     
-    console.log('Fetching strike picker data...');
+    // Get form values
+    const ticker = document.getElementById('posTicker')?.value?.trim().toUpperCase();
+    const type = document.getElementById('posType')?.value;
+    const expiry = document.getElementById('posExpiry')?.value;
+    const strike = parseFloat(document.getElementById('posStrike')?.value) || 0;
+    const premium = parseFloat(document.getElementById('posPremium')?.value) || 0;
+    const contracts = parseInt(document.getElementById('posContracts')?.value) || 1;
     
-    // Show preview
-    if (previewDiv) {
-        previewDiv.style.display = 'block';
-        previewDiv.innerHTML = '<div style="color:#888;">⏳ Fetching option chain...</div>';
-    }
+    if (!previewDiv) return;
+    previewDiv.style.display = 'block';
     
-    const isPut = type.includes('put');
-    const isLongTrade = type.startsWith('long_');
-    
-    try {
-        // Fetch live quote and option chain from Schwab
-        const [quoteRes, chainRes] = await Promise.all([
-            fetch(`/api/schwab/quote/${ticker}`),
-            fetch(`/api/schwab/chains/${ticker}?strikeCount=20`)
-        ]);
-        
-        const quoteData = await quoteRes.json();
-        const chainData = await chainRes.json();
-        
-        if (!quoteRes.ok || !quoteData.success) {
-            throw new Error('Failed to fetch quote');
-        }
-        
-        const quote = quoteData.quote;
-        const spotPrice = quote.lastPrice;
-        
-        let html = `
-            <div style="margin-bottom:12px;">
-                <span style="color:#888;">Current Spot:</span> 
-                <span style="color:#00d9ff; font-weight:bold;">$${spotPrice?.toFixed(2) || '—'}</span>
+    // Check if we have all required fields
+    if (!ticker || !type || !expiry || !strike || !premium) {
+        previewDiv.innerHTML = `
+            <div style="color:#888; font-size:12px;">
+                <div style="color:#ffaa00;">⚠️ Select a strike from the chain above</div>
+                <div style="margin-top:4px;">Order preview will appear once strike is selected</div>
             </div>
         `;
-        
-        if (chainRes.ok && chainData.success) {
-            // Get options for selected expiry
-            const optionMap = isPut ? chainData.putExpDateMap : chainData.callExpDateMap;
-            const expiryKey = Object.keys(optionMap || {}).find(k => k.startsWith(expiry));
-            
-            if (expiryKey) {
-                const strikeMap = optionMap[expiryKey];
-                const strikes = Object.keys(strikeMap).map(k => parseFloat(k)).sort((a, b) => a - b);
-                
-                // Filter to reasonable strikes (around current price)
-                const nearStrikes = strikes.filter(s => 
-                    isPut ? (s <= spotPrice * 1.15 && s >= spotPrice * 0.70) :
-                            (s >= spotPrice * 0.85 && s <= spotPrice * 1.30)
-                ).slice(0, 15);
-                
-                html += `
-                    <div style="margin-bottom:8px; color:#888; font-size:10px;">
-                        Select a strike (${nearStrikes.length} available)
-                    </div>
-                    <div style="max-height:200px; overflow-y:auto; margin-bottom:12px;">
-                `;
-                
-                nearStrikes.forEach(strike => {
-                    const option = strikeMap[strike.toString()][0];
-                    const bid = option.bid || 0;
-                    const ask = option.ask || 0;
-                    const mid = (bid + ask) / 2;
-                    const delta = Math.abs(option.delta || 0);
-                    
-                    const itm = isPut ? (strike > spotPrice) : (strike < spotPrice);
-                    const itmLabel = itm ? '💰 ITM' : '📊 OTM';
-                    const bgColor = itm ? 'rgba(255,170,0,0.1)' : 'rgba(0,217,255,0.05)';
-                    
-                    html += `
-                        <div onclick="window.selectAddPositionStrike(${strike}, ${mid})" 
-                             style="padding:8px; margin-bottom:4px; background:${bgColor}; border:1px solid rgba(0,217,255,0.3); border-radius:4px; cursor:pointer; transition:all 0.2s;"
-                             onmouseover="this.style.background='rgba(0,217,255,0.2)'"
-                             onmouseout="this.style.background='${bgColor}'">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <div>
-                                    <span style="color:#00d9ff; font-weight:bold; font-size:13px;">$${strike.toFixed(2)}</span>
-                                    <span style="color:#888; font-size:10px; margin-left:6px;">${itmLabel}</span>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div style="font-size:11px;">
-                                        <span style="color:#00ff88;">Bid $${bid.toFixed(2)}</span>
-                                        <span style="color:#888;"> / </span>
-                                        <span style="color:#ffaa00;">Ask $${ask.toFixed(2)}</span>
-                                    </div>
-                                    <div style="font-size:10px; color:#888;">Mid $${mid.toFixed(2)} • Δ ${delta.toFixed(2)}</div>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                });
-                
-                html += '</div>';
-                
-            } else {
-                html += '<div style="color:#ffaa00;">⚠️ No options found for this expiry date</div>';
-            }
-        } else {
-            html += '<div style="color:#ffaa00;">⚠️ Option chain not available</div>';
-        }
-        
-        previewDiv.innerHTML = html;
-        
-    } catch (e) {
-        console.error('Preview error:', e);
-        if (previewDiv) {
-            previewDiv.innerHTML = `<div style="color:#ff5252;">❌ ${e.message}</div>`;
-        }
+        return;
     }
+    
+    // Calculate order details
+    const isPut = type.includes('put');
+    const isLong = type.startsWith('long_');
+    const optionType = isPut ? 'PUT' : 'CALL';
+    const instruction = isLong ? 'BUY_TO_OPEN' : 'SELL_TO_OPEN';
+    const instructionDisplay = isLong ? 'Buy to Open' : 'Sell to Open';
+    const totalValue = premium * 100 * contracts;
+    const creditOrDebit = isLong ? 'Debit' : 'Credit';
+    const valueColor = isLong ? '#ff5252' : '#00ff88';
+    const sign = isLong ? '-' : '+';
+    
+    // Build option symbol (format: TICKER + YYMMDD + P/C + strike*1000)
+    const expiryDate = new Date(expiry);
+    const yy = expiryDate.getFullYear().toString().slice(-2);
+    const mm = String(expiryDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(expiryDate.getDate()).padStart(2, '0');
+    const strikeFormatted = String(Math.round(strike * 1000)).padStart(8, '0');
+    const optionSymbol = `${ticker}${yy}${mm}${dd}${isPut ? 'P' : 'C'}${strikeFormatted}`;
+    
+    previewDiv.innerHTML = `
+        <div style="font-size:12px;">
+            <div style="color:#00d9ff; font-weight:bold; margin-bottom:10px;">📋 Order Preview</div>
+            
+            <div style="display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin-bottom:10px;">
+                <span style="color:#888;">Symbol:</span>
+                <span style="color:#fff; font-family:monospace; font-size:11px;">${optionSymbol}</span>
+                
+                <span style="color:#888;">Action:</span>
+                <span style="color:${isLong ? '#ffaa00' : '#00ff88'};">${instructionDisplay}</span>
+                
+                <span style="color:#888;">Quantity:</span>
+                <span style="color:#fff;">${contracts} contract${contracts > 1 ? 's' : ''}</span>
+                
+                <span style="color:#888;">Limit Price:</span>
+                <span style="color:#fff;">$${premium.toFixed(2)} (mid)</span>
+                
+                <span style="color:#888;">Order Type:</span>
+                <span style="color:#fff;">LIMIT • Day</span>
+            </div>
+            
+            <div style="padding:8px; background:rgba(0,255,136,0.1); border-radius:4px; display:flex; justify-content:space-between; align-items:center;">
+                <span style="color:#888;">Total ${creditOrDebit}:</span>
+                <span style="color:${valueColor}; font-weight:bold; font-size:16px;">${sign}$${totalValue.toFixed(0)}</span>
+            </div>
+            
+            <div style="margin-top:8px; font-size:10px; color:#888;">
+                Order will be sent to Schwab as a limit order at mid price
+            </div>
+        </div>
+    `;
 }
 window.updateAddPositionSchwabPreview = updateAddPositionSchwabPreview;
-
-/**
- * When user clicks a strike in the Add Position Schwab preview
- */
-function selectAddPositionStrike(strike, premium) {
-    document.getElementById('posStrike').value = strike.toFixed(2);
-    document.getElementById('posPremium').value = premium.toFixed(2);
-    
-    // Update preview to show selected
-    const previewDiv = document.getElementById('posAddSchwabPreview');
-    if (previewDiv) {
-        const contracts = parseInt(document.getElementById('posContracts')?.value) || 1;
-        const type = document.getElementById('posType')?.value;
-        const isLongTrade = type?.startsWith('long_');
-        const totalCost = premium * 100 * contracts;
-        const creditOrDebit = isLongTrade ? 'debit' : 'credit';
-        
-        previewDiv.innerHTML = `
-            <div style="padding:12px; background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); border-radius:4px;">
-                <div style="color:#0f8; font-weight:bold; margin-bottom:8px;">✓ Strike Selected</div>
-                <div style="margin-bottom:4px;">
-                    <span style="color:#888;">Strike:</span> 
-                    <span style="color:#00d9ff; font-weight:bold;">$${strike.toFixed(2)}</span>
-                </div>
-                <div style="margin-bottom:4px;">
-                    <span style="color:#888;">Premium:</span> 
-                    <span style="color:#00d9ff; font-weight:bold;">$${premium.toFixed(2)}</span>
-                </div>
-                <div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,255,136,0.2);">
-                    <span style="color:#888;">Total ${creditOrDebit}:</span> 
-                    <span style="color:#0f8; font-weight:bold; font-size:14px;">${creditOrDebit === 'credit' ? '+' : '-'}$${totalCost.toFixed(0)}</span>
-                </div>
-                <div style="margin-top:8px;">
-                    <button onclick="window.updateAddPositionSchwabPreview()" 
-                            style="padding:4px 8px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); border-radius:4px; color:#00d9ff; cursor:pointer; font-size:10px;">
-                        ← Back to strike list
-                    </button>
-                </div>
-            </div>
-        `;
-    }
-    
-    showNotification(`Selected $${strike.toFixed(2)} @ $${premium.toFixed(2)}`, 'success');
-}
-window.selectAddPositionStrike = selectAddPositionStrike;
 
 /**
  * Setup live calculation of roll net credit/debit
