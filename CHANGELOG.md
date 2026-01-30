@@ -2,6 +2,19 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.27] - 2026-01-29
+
+### Added
+- **PMCC Calculator (Poor Man's Covered Call)**: Analyze selling short calls against LEAPS
+  - Pre-loads existing long call positions (180+ DTE)
+  - Shows intrinsic vs time value breakdown
+  - Calculates monthly/annualized yield on capital
+  - "If Assigned" scenarios: Exercise vs Close comparison
+  - Automatic recommendation (preserve time value or exercise)
+  - Shows breakeven, max profit, risk metrics
+  - Stage short call to Ideas tab for execution
+  - Perfect for managing LEAPS positions like INTC 721d calls
+
 ## [1.17.26] - 2026-01-29
 
 ### Added

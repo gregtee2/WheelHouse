@@ -8649,5 +8649,371 @@ window.scannerQuickAdd = function(ticker, price) {
     }
 };
 
+/**
+ * Open PMCC (Poor Man's Covered Call) Calculator
+ * Analyzes existing LEAPS positions and models selling short calls against them
+ */
+window.openPMCCCalculator = function() {
+    // Find all long call positions (potential LEAPS)
+    const longCalls = state.positions.filter(p => 
+        (p.type === 'long_call' || p.type === 'covered_call_leaps') && 
+        p.status === 'open' && 
+        p.dte > 180  // At least 6 months remaining
+    );
+    
+    const modal = document.createElement('div');
+    modal.id = 'pmccModal';
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.9); display: flex; align-items: center;
+        justify-content: center; z-index: 10001; backdrop-filter: blur(4px);
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    // Build position selector options
+    const positionOptions = longCalls.length > 0
+        ? longCalls.map(p => `<option value="${p.id}">${p.ticker} $${p.strike} ${p.expiry} (${p.dte}d) - Cost: $${p.premium * 100}</option>`).join('')
+        : '<option value="">No LEAPS positions found</option>';
+    
+    modal.innerHTML = `
+        <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 28px; border-radius: 16px; max-width: 700px; width: 90%; max-height: 90vh; overflow-y: auto; border: 2px solid #8b5cf6; box-shadow: 0 20px 60px rgba(139,92,246,0.3);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="color: #8b5cf6; margin: 0; font-size: 22px;">📊 PMCC Calculator</h2>
+                <button onclick="this.closest('#pmccModal').remove()" style="background: none; border: none; color: #888; font-size: 28px; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
+            </div>
+            
+            <div style="background: rgba(139,92,246,0.15); padding: 12px; border-radius: 8px; border: 1px solid rgba(139,92,246,0.3); margin-bottom: 20px; font-size: 13px; color: #ddd;">
+                <strong style="color: #8b5cf6;">Poor Man's Covered Call:</strong> Sell short-term calls against a long-dated (LEAPS) call to generate income while maintaining long-term upside exposure.
+            </div>
+            
+            <!-- LEAPS Position Selector -->
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; color: #8b5cf6; font-weight: bold; margin-bottom: 8px; font-size: 13px;">🎯 Select Existing LEAPS Position</label>
+                <select id="pmccPositionSelect" onchange="window.loadPMCCPosition(this.value)" style="width: 100%; padding: 10px; background: #0d0d1a; border: 1px solid #8b5cf6; color: #fff; border-radius: 6px; font-size: 13px; cursor: pointer;">
+                    <option value="">-- Select a position --</option>
+                    ${positionOptions}
+                    <option value="manual">✏️ Manual Entry (New Analysis)</option>
+                </select>
+            </div>
+            
+            <!-- LEAPS Details (Current Position) -->
+            <div id="pmccLeapsSection" style="display: none;">
+                <div style="background: linear-gradient(135deg, rgba(0,217,255,0.15), rgba(0,153,204,0.1)); padding: 16px; border-radius: 8px; border: 1px solid rgba(0,217,255,0.4); margin-bottom: 20px;">
+                    <div style="color: #00d9ff; font-weight: bold; margin-bottom: 12px; font-size: 14px;">📈 Your LEAPS Position</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; font-size: 12px;">
+                        <div>
+                            <div style="color: #888; font-size: 11px;">Ticker</div>
+                            <div id="pmccTicker" style="color: #fff; font-weight: bold; font-size: 14px;">-</div>
+                        </div>
+                        <div>
+                            <div style="color: #888; font-size: 11px;">Strike</div>
+                            <div id="pmccStrike" style="color: #fff; font-weight: bold; font-size: 14px;">-</div>
+                        </div>
+                        <div>
+                            <div style="color: #888; font-size: 11px;">Expiry</div>
+                            <div id="pmccExpiry" style="color: #fff; font-size: 13px;">-</div>
+                        </div>
+                        <div>
+                            <div style="color: #888; font-size: 11px;">Original Cost</div>
+                            <div id="pmccCost" style="color: #ff5252; font-weight: bold; font-size: 14px;">-</div>
+                        </div>
+                        <div>
+                            <div style="color: #888; font-size: 11px;">Current Value</div>
+                            <div id="pmccCurrentValue" style="color: #00ff88; font-weight: bold; font-size: 14px;">-</div>
+                        </div>
+                        <div>
+                            <div style="color: #888; font-size: 11px;">Unrealized P&L</div>
+                            <div id="pmccUnrealizedPnL" style="font-weight: bold; font-size: 14px;">-</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,217,255,0.2); display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; font-size: 12px;">
+                        <div>
+                            <div style="color: #888; font-size: 11px;">Spot Price</div>
+                            <div id="pmccSpot" style="color: #fff; font-weight: bold; font-size: 14px;">-</div>
+                        </div>
+                        <div>
+                            <div style="color: #888; font-size: 11px;">Intrinsic Value</div>
+                            <div id="pmccIntrinsic" style="color: #00ff88; font-size: 13px;">-</div>
+                        </div>
+                        <div>
+                            <div style="color: #888; font-size: 11px;">Time Value</div>
+                            <div id="pmccTimeValue" style="color: #ffaa00; font-size: 13px;">-</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Short Call Inputs -->
+                <div style="background: linear-gradient(135deg, rgba(255,82,82,0.15), rgba(255,170,0,0.1)); padding: 16px; border-radius: 8px; border: 1px solid rgba(255,82,82,0.3); margin-bottom: 20px;">
+                    <div style="color: #ff5252; font-weight: bold; margin-bottom: 12px; font-size: 14px;">💰 Short Call to Sell</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                        <div>
+                            <label style="color: #888; font-size: 11px; display: block; margin-bottom: 4px;">Strike Price</label>
+                            <input type="number" id="pmccShortStrike" step="1" placeholder="e.g., 55" oninput="window.calculatePMCC()"
+                                   style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ff5252; color: #fff; border-radius: 4px; font-size: 13px;">
+                        </div>
+                        <div>
+                            <label style="color: #888; font-size: 11px; display: block; margin-bottom: 4px;">DTE</label>
+                            <input type="number" id="pmccShortDTE" step="1" value="30" placeholder="e.g., 30" oninput="window.calculatePMCC()"
+                                   style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ff5252; color: #fff; border-radius: 4px; font-size: 13px;">
+                        </div>
+                    </div>
+                    <div>
+                        <label style="color: #888; font-size: 11px; display: block; margin-bottom: 4px;">Premium (per share)</label>
+                        <input type="number" id="pmccShortPremium" step="0.01" placeholder="e.g., 0.75" oninput="window.calculatePMCC()"
+                               style="width: 100%; padding: 8px; background: #0d0d1a; border: 1px solid #ff5252; color: #fff; border-radius: 4px; font-size: 13px;">
+                    </div>
+                </div>
+                
+                <!-- Results / What-If Scenarios -->
+                <div id="pmccResults" style="display: none;">
+                    <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+                        <div style="color: #00ff88; font-weight: bold; margin-bottom: 12px; font-size: 14px;">📊 Scenario Analysis</div>
+                        
+                        <!-- Monthly Yield -->
+                        <div style="margin-bottom: 16px; padding: 12px; background: rgba(0,255,136,0.1); border-radius: 6px; border: 1px solid rgba(0,255,136,0.2);">
+                            <div style="color: #888; font-size: 11px;">Monthly Yield on Capital</div>
+                            <div id="pmccMonthlyYield" style="color: #00ff88; font-size: 20px; font-weight: bold;">-</div>
+                            <div id="pmccAnnualizedYield" style="color: #00ff88; font-size: 12px; margin-top: 4px;">-</div>
+                        </div>
+                        
+                        <!-- If Assigned Scenario -->
+                        <div style="margin-bottom: 12px; padding: 12px; background: rgba(255,170,0,0.1); border-radius: 6px; border: 1px solid rgba(255,170,0,0.2);">
+                            <div style="color: #ffaa00; font-weight: bold; margin-bottom: 8px; font-size: 13px;">⚠️ If Assigned (Stock at Short Strike)</div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px;">
+                                <div>
+                                    <div style="color: #888; font-size: 11px;">Exercise LEAPS</div>
+                                    <div id="pmccExerciseProfit" style="font-weight: bold; font-size: 14px;">-</div>
+                                </div>
+                                <div>
+                                    <div style="color: #888; font-size: 11px;">Close LEAPS</div>
+                                    <div id="pmccCloseProfit" style="font-weight: bold; font-size: 14px;">-</div>
+                                </div>
+                            </div>
+                            <div id="pmccRecommendation" style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; font-size: 11px; color: #00d9ff;">
+                                -
+                            </div>
+                        </div>
+                        
+                        <!-- Breakeven & Warnings -->
+                        <div style="padding: 12px; background: rgba(139,92,246,0.1); border-radius: 6px; border: 1px solid rgba(139,92,246,0.2); font-size: 12px;">
+                            <div style="margin-bottom: 6px;">
+                                <span style="color: #888;">Your Breakeven:</span>
+                                <span id="pmccBreakeven" style="color: #fff; font-weight: bold; margin-left: 8px;">-</span>
+                            </div>
+                            <div style="margin-bottom: 6px;">
+                                <span style="color: #888;">Max Profit:</span>
+                                <span id="pmccMaxProfit" style="color: #00ff88; font-weight: bold; margin-left: 8px;">-</span>
+                            </div>
+                            <div>
+                                <span style="color: #888;">Max Profit at:</span>
+                                <span id="pmccMaxProfitStrike" style="color: #fff; font-weight: bold; margin-left: 8px;">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Action Button -->
+                    <button onclick="window.stagePMCCTrade()" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #00ff88 0%, #00cc66 100%); border: none; border-radius: 6px; color: #000; font-weight: bold; cursor: pointer; font-size: 14px;">
+                        📥 Stage Short Call to Ideas Tab
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+};
+
+/**
+ * Load selected LEAPS position into PMCC calculator
+ */
+window.loadPMCCPosition = async function(positionId) {
+    if (!positionId) {
+        document.getElementById('pmccLeapsSection').style.display = 'none';
+        return;
+    }
+    
+    if (positionId === 'manual') {
+        // TODO: Show manual entry form
+        showNotification('Manual entry coming soon - select an existing position for now', 'info');
+        document.getElementById('pmccPositionSelect').value = '';
+        return;
+    }
+    
+    const position = state.positions.find(p => p.id == positionId);
+    if (!position) {
+        showNotification('Position not found', 'error');
+        return;
+    }
+    
+    // Show LEAPS section
+    document.getElementById('pmccLeapsSection').style.display = 'block';
+    
+    // Populate LEAPS details
+    document.getElementById('pmccTicker').textContent = position.ticker;
+    document.getElementById('pmccStrike').textContent = `$${position.strike}`;
+    document.getElementById('pmccExpiry').textContent = position.expiry;
+    
+    const leapsCost = (position.premium || 0) * 100;
+    document.getElementById('pmccCost').textContent = `$${leapsCost.toFixed(0)}`;
+    
+    // Fetch current spot price and option value
+    try {
+        const quote = await fetch(`/api/yahoo/quote/${position.ticker}`).then(r => r.json());
+        const spotPrice = quote.price || 0;
+        
+        document.getElementById('pmccSpot').textContent = `$${spotPrice.toFixed(2)}`;
+        
+        // Calculate intrinsic and time value
+        const intrinsic = Math.max(0, (spotPrice - position.strike) * 100);
+        document.getElementById('pmccIntrinsic').textContent = `$${intrinsic.toFixed(0)}`;
+        
+        // Fetch current option price
+        const chain = await window.fetchOptionsChain(position.ticker);
+        if (chain && chain.calls) {
+            const leapsOption = chain.calls.find(c => 
+                Math.abs(c.strike - position.strike) < 0.01 && 
+                c.expiration === position.expiry
+            );
+            
+            if (leapsOption) {
+                const currentValue = ((leapsOption.bid + leapsOption.ask) / 2) * 100;
+                const timeValue = currentValue - intrinsic;
+                const unrealizedPnL = currentValue - leapsCost;
+                
+                document.getElementById('pmccCurrentValue').textContent = `$${currentValue.toFixed(0)}`;
+                document.getElementById('pmccTimeValue').textContent = `$${timeValue.toFixed(0)}`;
+                
+                const pnlEl = document.getElementById('pmccUnrealizedPnL');
+                pnlEl.textContent = `$${unrealizedPnL.toFixed(0)}`;
+                pnlEl.style.color = unrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
+                
+                // Store for calculations
+                window.pmccData = {
+                    position,
+                    spotPrice,
+                    leapsCost,
+                    currentValue,
+                    intrinsic,
+                    timeValue
+                };
+            }
+        }
+    } catch (err) {
+        console.warn('Could not fetch current LEAPS value:', err);
+    }
+};
+
+/**
+ * Calculate PMCC scenarios based on short call inputs
+ */
+window.calculatePMCC = function() {
+    if (!window.pmccData) return;
+    
+    const shortStrike = parseFloat(document.getElementById('pmccShortStrike').value) || 0;
+    const shortDTE = parseFloat(document.getElementById('pmccShortDTE').value) || 30;
+    const shortPremium = parseFloat(document.getElementById('pmccShortPremium').value) || 0;
+    
+    if (!shortStrike || !shortPremium) {
+        document.getElementById('pmccResults').style.display = 'none';
+        return;
+    }
+    
+    const { position, spotPrice, leapsCost, currentValue, intrinsic, timeValue } = window.pmccData;
+    const leapsStrike = position.strike;
+    
+    // Monthly yield calculation
+    const premiumCollected = shortPremium * 100;
+    const monthlyYield = (premiumCollected / leapsCost * 100).toFixed(1);
+    const daysToMonthly = shortDTE / 30;
+    const annualizedYield = (monthlyYield / daysToMonthly * 12).toFixed(1);
+    
+    document.getElementById('pmccMonthlyYield').textContent = `${monthlyYield}%`;
+    document.getElementById('pmccAnnualizedYield').textContent = `Annualized: ${annualizedYield}%`;
+    
+    // If assigned scenario (stock at short strike)
+    // Option 1: Exercise LEAPS
+    const exerciseProceeds = (shortStrike - leapsStrike) * 100;  // Buy at leapsStrike, sell at shortStrike
+    const exerciseProfit = exerciseProceeds - leapsCost + premiumCollected;
+    
+    // Option 2: Close LEAPS at current value
+    const closeProfit = currentValue - leapsCost + premiumCollected;
+    
+    const exerciseEl = document.getElementById('pmccExerciseProfit');
+    exerciseEl.textContent = `$${exerciseProfit.toFixed(0)}`;
+    exerciseEl.style.color = exerciseProfit >= 0 ? '#00ff88' : '#ff5252';
+    
+    const closeEl = document.getElementById('pmccCloseProfit');
+    closeEl.textContent = `$${closeProfit.toFixed(0)}`;
+    closeEl.style.color = closeProfit >= 0 ? '#00ff88' : '#ff5252';
+    
+    // Recommendation
+    const recEl = document.getElementById('pmccRecommendation');
+    if (exerciseProfit > closeProfit) {
+        recEl.textContent = `✅ Exercise LEAPS for $${(exerciseProfit - closeProfit).toFixed(0)} more profit`;
+    } else {
+        recEl.textContent = `✅ Close LEAPS for $${(closeProfit - exerciseProfit).toFixed(0)} more profit (preserve time value: $${timeValue.toFixed(0)})`;
+    }
+    
+    // Breakeven and max profit
+    const breakeven = leapsCost / 100;  // Per share breakeven
+    document.getElementById('pmccBreakeven').textContent = `$${breakeven.toFixed(2)}`;
+    
+    const maxProfit = Math.max(exerciseProfit, closeProfit);
+    document.getElementById('pmccMaxProfit').textContent = `$${maxProfit.toFixed(0)}`;
+    document.getElementById('pmccMaxProfitStrike').textContent = `$${shortStrike.toFixed(0)}`;
+    
+    // Show results
+    document.getElementById('pmccResults').style.display = 'block';
+};
+
+/**
+ * Stage the short call to Ideas tab for execution
+ */
+window.stagePMCCTrade = function() {
+    if (!window.pmccData) return;
+    
+    const { position } = window.pmccData;
+    const shortStrike = parseFloat(document.getElementById('pmccShortStrike').value);
+    const shortDTE = parseFloat(document.getElementById('pmccShortDTE').value);
+    const shortPremium = parseFloat(document.getElementById('pmccShortPremium').value);
+    
+    if (!shortStrike || !shortPremium) {
+        showNotification('Enter short call details first', 'warning');
+        return;
+    }
+    
+    // Calculate expiry date
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + shortDTE);
+    const expiry = expiryDate.toISOString().split('T')[0];
+    
+    // Stage to pending
+    const trade = {
+        ticker: position.ticker,
+        action: 'PMCC',
+        type: 'short_call',
+        strike: shortStrike,
+        expiry,
+        premium: shortPremium,
+        contracts: 1,
+        source: 'pmcc_calculator',
+        badge: 'PMCC',
+        rationale: `PMCC: Short call against ${position.ticker} $${position.strike} LEAPS. Yield: ${document.getElementById('pmccMonthlyYield').textContent}/month`
+    };
+    
+    window.TradeCardService?.stageToPending(trade, {
+        ticker: position.ticker,
+        source: 'pmcc_calculator',
+        badge: 'PMCC'
+    });
+    
+    showNotification(`PMCC short call staged to Ideas tab`, 'success');
+    document.getElementById('pmccModal').remove();
+    
+    // Switch to Ideas tab
+    const ideasTab = document.querySelector('[data-tab="ideas"]');
+    if (ideasTab) ideasTab.click();
+};
+
 // Export for potential external use
 export { setupTabs, setupButtons };

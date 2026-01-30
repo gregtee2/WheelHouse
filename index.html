@@ -771,6 +771,16 @@ Examples:
                 
                 <!-- MIDDLE: Roll Calculator & Suggestions -->
                 <div class="pnl-roll-calc">
+                    <!-- PMCC Calculator Button -->
+                    <button onclick="window.openPMCCCalculator()" 
+                            style="width:100%; padding:8px; margin-bottom:12px; background:linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); border:none; border-radius:6px; color:#fff; font-weight:bold; cursor:pointer; font-size:12px; display:flex; align-items:center; justify-content:center; gap:6px;"
+                            onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(139,92,246,0.4)';" 
+                            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+                        <span>📊</span>
+                        <span>PMCC Calculator</span>
+                        <span style="font-size:10px; opacity:0.8;">(Poor Man's Covered Call)</span>
+                    </button>
+                    
                     <h3 style="color:var(--accent-green); margin-bottom:8px; font-size:13px;">🔄 Roll Calculator <a href="docs/help.html#roll-calculator" target="_blank" class="help-link" title="Learn how to use the Roll Calculator">?</a></h3>
                     
                     <!-- Current Position Info - Compact -->
