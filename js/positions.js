@@ -2277,6 +2277,8 @@ async function loadStrikesForExpiry() {
     }
     
     const strikeMap = optionMap[expiryKey];
+    console.log('Strike map for expiry:', expiryKey, strikeMap);
+    
     const strikes = Object.keys(strikeMap).map(k => parseFloat(k)).sort((a, b) => a - b);
     
     // Get spot price from the quote
@@ -2285,7 +2287,15 @@ async function loadStrikesForExpiry() {
     // Build strike list HTML
     let html = '';
     strikes.forEach(strike => {
-        const option = strikeMap[strike.toString()][0];
+        const strikeData = strikeMap[strike.toString()];
+        // Handle both array format [option] and direct object format
+        const option = Array.isArray(strikeData) ? strikeData[0] : strikeData;
+        
+        if (!option) {
+            console.warn('No option data for strike:', strike);
+            return;
+        }
+        
         const bid = option.bid || 0;
         const ask = option.ask || 0;
         const mid = ((bid + ask) / 2);
