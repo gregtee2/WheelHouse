@@ -701,6 +701,7 @@ INSTRUCTIONS:
    - If no premium mentioned, set premium to null
 6. IMPORTANT: Stock prices are typically $50-$500+, option premiums are typically $0.50-$15
    - If you see "@" followed by a price, that's usually the stock price, NOT the option premium
+7. Look for contract count (e.g., "10 contracts", "3x", "x5"). If not specified, use 1.
 
 RESPOND WITH ONLY JSON, no explanation:
 {
@@ -711,6 +712,7 @@ RESPOND WITH ONLY JSON, no explanation:
     "buyStrike": null,
     "sellStrike": null,
     "premium": null,
+    "contracts": 1,
     "stockPrice": 167.00,
     "notes": "any additional context from the callout"
 }

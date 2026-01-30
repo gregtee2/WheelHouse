@@ -2552,6 +2552,7 @@ window.analyzeDiscordTrade = async function(tradeTextOverride, modelOverride) {
             sellStrike: parsed.sellStrike,
             expiry: parsed.expiry,
             strategy: parsed.strategy,
+            contracts: parsed.contracts || 1,
             isSpread,
             analyzedAt: new Date().toISOString(),
             priceAtAnalysis: parseFloat(tickerData.price),
@@ -2706,19 +2707,57 @@ window.stageDiscordTrade = function() {
     // Determine if call or put, debit or credit
     const isCallType = posType.includes('call');
     const isDebitType = posType.includes('long') || posType.includes('debit');
+    const isSpread = posType.includes('_spread');
+    
+    // For spreads, calculate proper strike (sell) and upperStrike (buy) based on spread type
+    // - Credit spreads: you SELL the more expensive strike (closer to spot) and BUY the cheaper one
+    // - Put credit spread: sell higher strike, buy lower strike
+    // - Call credit spread: sell lower strike, buy higher strike
+    // - Debit spreads: opposite (you BUY the more expensive strike)
+    let finalStrike = trade.strike;
+    let finalUpperStrike = trade.buyStrike || trade.sellStrike;
+    
+    if (isSpread && trade.buyStrike && trade.sellStrike) {
+        const buyNum = parseFloat(trade.buyStrike);
+        const sellNum = parseFloat(trade.sellStrike);
+        
+        if (posType === 'put_credit_spread') {
+            // Sell higher put, buy lower put
+            finalStrike = Math.max(buyNum, sellNum);
+            finalUpperStrike = Math.min(buyNum, sellNum);
+        } else if (posType === 'call_credit_spread') {
+            // Sell lower call, buy higher call  
+            finalStrike = Math.min(buyNum, sellNum);
+            finalUpperStrike = Math.max(buyNum, sellNum);
+        } else if (posType === 'put_debit_spread') {
+            // Buy higher put, sell lower put (bear put spread)
+            finalStrike = Math.max(buyNum, sellNum);  // Buy strike
+            finalUpperStrike = Math.min(buyNum, sellNum);  // Sell strike
+        } else if (posType === 'call_debit_spread') {
+            // Buy lower call, sell higher call (bull call spread)
+            finalStrike = Math.min(buyNum, sellNum);  // Buy strike
+            finalUpperStrike = Math.max(buyNum, sellNum);  // Sell strike
+        }
+        console.log(`[STAGE-DISCORD] Spread staging: ${posType} strike=$${finalStrike}, upperStrike=$${finalUpperStrike}`);
+    } else if (isSpread && trade.sellStrike) {
+        // Fallback if only sellStrike is provided
+        finalStrike = parseFloat(trade.sellStrike);
+        console.log(`[STAGE-DISCORD] Spread staging fallback: strike=$${finalStrike}`);
+    }
     
     // Create pending trade with thesis
     const pendingTrade = {
         id: Date.now(),
         ticker: trade.ticker,
         type: posType,
-        strike: trade.strike,
+        strike: finalStrike,
         buyStrike: trade.buyStrike,
         sellStrike: trade.sellStrike,
-        upperStrike: trade.buyStrike || trade.sellStrike,  // For spread display
+        upperStrike: finalUpperStrike,  // For spread display
         expiry: trade.expiry,
         currentPrice: trade.priceAtAnalysis,
-        premium: trade.premium?.mid || 0,
+        premium: trade.premium?.mid || trade.calloutPremium || 0,
+        contracts: trade.contracts || 1,
         isCall: isCallType,
         isDebit: isDebitType,
         stagedAt: new Date().toISOString(),

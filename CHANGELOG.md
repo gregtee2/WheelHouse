@@ -2,6 +2,22 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.74] - 2026-01-30
+
+### Fixed
+- **📊 Discord Analyzer Spread Staging**
+  - Spreads now correctly display both strikes (Buy $X / Sell $Y) instead of just one
+  - Credit/debit amount now properly extracted from user input
+  - Expiry date from AI parsing now preserved (was sometimes wrong)
+  - Root cause: `stageDiscordTrade` wasn't properly mapping `buyStrike`/`sellStrike` to `strike`/`upperStrike`
+  - Added logic to properly calculate strike positions based on spread type (credit vs debit)
+
+### Added
+- **🔢 Contract Count Parsing**
+  - AI now extracts contract count from trade callouts (e.g., "10 contracts")
+  - Added `contracts` field to AI parse prompt and staging flow
+  - Fallback to 1 contract if not specified
+
 ## [1.17.73] - 2026-01-30
 
 ### Fixed
