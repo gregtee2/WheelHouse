@@ -518,25 +518,28 @@ router.post('/preview-option-order', async (req, res) => {
             limitPrice: limitPrice ? parseFloat(limitPrice) : null
         });
         
-        // Get primary account
-        const accounts = await schwabApiCall('/accounts');
-        if (!accounts || accounts.length === 0) {
+        // Get account hash from accountNumbers endpoint (this has the hash we need)
+        const accountNumbers = await schwabApiCall('/accounts/accountNumbers');
+        if (!accountNumbers || accountNumbers.length === 0) {
             return res.status(400).json({ error: 'No Schwab accounts found' });
         }
         
-        // Find margin account (preferred) or first account
-        const marginAccount = accounts.find(a => 
-            a.securitiesAccount?.type === 'MARGIN'
-        );
-        const account = marginAccount || accounts[0];
-        const accountHash = account.hashValue || account.securitiesAccount?.accountNumber;
+        // Use first account hash (or find specific account if needed)
+        const accountHash = accountNumbers[0]?.hashValue;
         
         if (!accountHash) {
             return res.status(400).json({ error: 'Could not determine account hash' });
         }
         
+        // Get account details for buying power
+        const accounts = await schwabApiCall('/accounts');
+        const marginAccount = accounts?.find(a => 
+            a.securitiesAccount?.type === 'MARGIN'
+        );
+        const account = marginAccount || accounts?.[0];
+        
         // Get buying power for display
-        const buyingPower = account.securitiesAccount?.currentBalances?.buyingPower || 0;
+        const buyingPower = account?.securitiesAccount?.currentBalances?.buyingPower || 0;
         const collateralRequired = strike * 100 * (quantity || 1);
         
         // Preview the order
@@ -599,18 +602,18 @@ router.post('/place-option-order', async (req, res) => {
             limitPrice: limitPrice ? parseFloat(limitPrice) : null
         });
         
-        // Get primary account
-        const accounts = await schwabApiCall('/accounts');
-        if (!accounts || accounts.length === 0) {
+        // Get account hash from accountNumbers endpoint (this has the hash we need)
+        const accountNumbers = await schwabApiCall('/accounts/accountNumbers');
+        if (!accountNumbers || accountNumbers.length === 0) {
             return res.status(400).json({ error: 'No Schwab accounts found' });
         }
         
-        // Find margin account (preferred) or first account
-        const marginAccount = accounts.find(a => 
-            a.securitiesAccount?.type === 'MARGIN'
-        );
-        const account = marginAccount || accounts[0];
-        const accountHash = account.hashValue || account.securitiesAccount?.accountNumber;
+        // Use first account hash
+        const accountHash = accountNumbers[0]?.hashValue;
+        
+        if (!accountHash) {
+            return res.status(400).json({ error: 'Could not determine account hash' });
+        }
         
         console.log(`[SCHWAB] 📤 Placing order: ${order.orderLegCollection[0].instrument.symbol} @ $${order.price || 'MKT'}`);
         
