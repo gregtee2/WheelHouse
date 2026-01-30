@@ -2,6 +2,62 @@
 
 All notable changes to WheelHouse will be documented in this file.
 
+## [1.17.73] - 2026-01-30
+
+### Fixed
+- **🔧 Critical: Account Switching Bug (Paper vs Real)**
+  - Root cause: `state.js` with cache busting (`?v=X.X.X`) created separate module instances
+  - main.js and positions.js were reading from different `state` objects
+  - Paper trading showed real trades, real accounts showed wrong data
+  - **Fix**: `state.js` must NEVER have cache busting - all files share one module instance
+
+### Added
+- **🔗 Auto-PMCC Linking**
+  - `autoLinkPMCCPositions()` runs after every Schwab sync
+  - Automatically detects covered calls and links to matching LEAPS
+  - Prevents PMCC nesting from breaking when positions are synced
+
+## [1.17.69] - 2026-01-30
+
+### Added
+- **❌ Cancel Button in Add Position Form**
+  - Clear all form fields and reset state with one click
+  - Located at bottom of form next to Add Position button
+
+## [1.17.68] - 2026-01-30
+
+### Enhanced
+- **💰 Dynamic Credit Update**
+  - Credit/debit amount now updates automatically when changing contracts
+  - No need to re-select strike to recalculate
+- **📋 Full Schwab Order Preview**
+  - Shows OCC symbol, action, quantity, and price in Add Position form
+  - Matches detail level of other order modals
+
+## [1.17.67] - 2026-01-30
+
+### Added
+- **🎚️ Strike Count Selector**
+  - Dropdown to show 10, 20, 30, 50, or All strikes (like Schwab mobile app)
+  - Reduces clutter when you only want nearby strikes
+  - Persists selection during session
+
+## [1.17.65-66] - 2026-01-30
+
+### Enhanced
+- **🎨 Strike Color Coding**
+  - Below-spot strikes: darkened background (puts are OTM, calls are ITM)
+  - Above-spot strikes: normal styling
+  - Text colors preserved for readability
+
+## [1.17.63-64] - 2026-01-30
+
+### Fixed
+- **🔢 Strike Picker Shows All Strikes**
+  - Fixed array/object handling for strike data
+  - Preserved original strike keys (15.0 vs 15 string mismatch)
+  - All available strikes now appear correctly
+
 ## [1.17.48] - 2026-01-30
 
 ### Added
