@@ -4812,6 +4812,7 @@ window.updateSchwabPreview = async function() {
     
     // Check if this short call is covered by a LEAPS or stock position
     let isCovered = false;
+    let coverReason = '';
     if (!isPut && isSell) {
         // For short calls, check if user owns:
         // 1. A LEAPS call on this ticker (for PMCC)
@@ -4819,22 +4820,55 @@ window.updateSchwabPreview = async function() {
         const positions = window.state?.positions || JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
         const holdings = window.state?.holdings || JSON.parse(localStorage.getItem('wheelhouse_holdings') || '[]');
         
-        // Check for LEAPS (long call with DTE > 180)
-        const hasLeaps = positions.some(p => 
-            p.ticker?.toUpperCase() === ticker.toUpperCase() &&
-            (p.type === 'long_call' || p.type === 'pmcc' || p.type === 'skip_call') &&
-            p.strike <= strike  // LEAPS strike must be <= short call strike
-        );
+        console.log(`[SCHWAB] Checking coverage for ${ticker} $${strike} short call...`);
+        console.log(`[SCHWAB] Found ${positions.length} positions, ${holdings.length} holdings`);
         
-        // Check for 100+ shares
-        const hasShares = holdings.some(h => 
+        // Check for LEAPS or long call that covers this short call
+        const coveringPosition = positions.find(p => {
+            if (p.ticker?.toUpperCase() !== ticker.toUpperCase()) return false;
+            
+            // For PMCC/SKIP positions, check leapsStrike
+            if ((p.type === 'pmcc' || p.type === 'skip_call') && p.leapsStrike) {
+                const covers = p.leapsStrike <= strike;
+                if (covers) console.log(`[SCHWAB] Found covering PMCC/SKIP: LEAPS $${p.leapsStrike} covers $${strike}`);
+                return covers;
+            }
+            
+            // For long_call positions, check strike
+            if (p.type === 'long_call') {
+                const covers = p.strike <= strike;
+                if (covers) console.log(`[SCHWAB] Found covering long call: $${p.strike} covers $${strike}`);
+                return covers;
+            }
+            
+            // Covered call means they have shares
+            if (p.type === 'covered_call') {
+                console.log(`[SCHWAB] Found covered_call position - implies shares owned`);
+                return true;
+            }
+            
+            return false;
+        });
+        
+        // Check for 100+ shares in holdings
+        const coveringHolding = holdings.find(h => 
             h.ticker?.toUpperCase() === ticker.toUpperCase() &&
             (h.shares || 0) >= 100
         );
         
-        isCovered = hasLeaps || hasShares;
+        if (coveringHolding) {
+            console.log(`[SCHWAB] Found ${coveringHolding.shares} shares of ${ticker}`);
+        }
+        
+        isCovered = !!(coveringPosition || coveringHolding);
+        coverReason = coveringPosition ? 
+            (coveringPosition.type === 'long_call' ? 'LEAPS call' : coveringPosition.type.toUpperCase()) : 
+            (coveringHolding ? `${coveringHolding.shares} shares` : '');
+            
         if (isCovered) {
-            console.log(`[SCHWAB] Short call is COVERED by ${hasLeaps ? 'LEAPS position' : 'shares'}`);
+            console.log(`[SCHWAB] ✅ Short call is COVERED by ${coverReason}`);
+        } else {
+            console.log(`[SCHWAB] ⚠️ No covering position found - treating as naked`);
         }
     }
     
