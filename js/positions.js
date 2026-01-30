@@ -2171,7 +2171,7 @@ async function loadOptionChainForAddPosition() {
         // Fetch quote and option chain in parallel
         const [quoteRes, chainRes] = await Promise.all([
             fetch(`/api/schwab/quote/${ticker}`),
-            fetch(`/api/schwab/options/${ticker}?strikeCount=30`)
+            fetch(`/api/schwab/chains/${ticker}?strikeCount=30`)
         ]);
         
         const quoteData = await quoteRes.json();
@@ -2397,7 +2397,7 @@ async function populateAddPositionExpiries() {
     expirySelect.innerHTML = '<option value="">⏳ Loading expiries...</option>';
     
     try {
-        const response = await fetch(`/api/schwab/options/${ticker}?strikeCount=20`);
+        const response = await fetch(`/api/schwab/chains/${ticker}?strikeCount=20`);
         const data = await response.json();
         
         if (!response.ok || !data.success) {
@@ -2484,7 +2484,7 @@ async function updateAddPositionSchwabPreview() {
         // Fetch live quote and option chain from Schwab
         const [quoteRes, chainRes] = await Promise.all([
             fetch(`/api/schwab/quote/${ticker}`),
-            fetch(`/api/schwab/options/${ticker}?strikeCount=20`)
+            fetch(`/api/schwab/chains/${ticker}?strikeCount=20`)
         ]);
         
         const quoteData = await quoteRes.json();

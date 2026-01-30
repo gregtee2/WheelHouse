@@ -1,19 +1,19 @@
 // WheelHouse - Main Entry Point
 // Initialization and tab management
 
-import { state, resetSimulation, setAccountMode, updatePaperModeIndicator, setPaperAccountBalance, getPaperAccountBalance, setSelectedAccount, getAccountDisplayName } from './state.js?v=1.17.60';
-import { draw, drawPayoffChart, drawHistogram, drawPnLChart, drawProbabilityCone, drawHeatMap, drawGreeksChart } from './charts.js?v=1.17.60';
-import { runSingle, runBatch, resetAll } from './simulation.js?v=1.17.60';
-import { priceOptions, calcGreeks } from './pricing.js?v=1.17.60';
-import { calculateRoll, generateRecommendation, suggestOptimalRoll } from './analysis.js?v=1.17.60';
-import { fetchTickerPrice, fetchHeatMapPrice, fetchPositionTickerPrice } from './api.js?v=1.17.60';
-import { loadPositions, addPosition, editPosition, cancelEdit, renderPositions, updatePortfolioSummary } from './positions.js?v=1.17.60';
-import { loadClosedPositions, renderPortfolio, renderHoldings, formatPortfolioContextForAI } from './portfolio.js?v=1.17.60';
-import { initChallenges, renderChallenges } from './challenges.js?v=1.17.60';
-import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from './ui.js?v=1.17.60';
-import { showNotification } from './utils.js?v=1.17.60';
-import AccountService from './services/AccountService.js?v=1.17.60';
-import TradeCardService from './services/TradeCardService.js?v=1.17.60';  // For staging trades to Ideas tab
+import { state, resetSimulation, setAccountMode, updatePaperModeIndicator, setPaperAccountBalance, getPaperAccountBalance, setSelectedAccount, getAccountDisplayName } from './state.js?v=1.17.61';
+import { draw, drawPayoffChart, drawHistogram, drawPnLChart, drawProbabilityCone, drawHeatMap, drawGreeksChart } from './charts.js?v=1.17.61';
+import { runSingle, runBatch, resetAll } from './simulation.js?v=1.17.61';
+import { priceOptions, calcGreeks } from './pricing.js?v=1.17.61';
+import { calculateRoll, generateRecommendation, suggestOptimalRoll } from './analysis.js?v=1.17.61';
+import { fetchTickerPrice, fetchHeatMapPrice, fetchPositionTickerPrice } from './api.js?v=1.17.61';
+import { loadPositions, addPosition, editPosition, cancelEdit, renderPositions, updatePortfolioSummary } from './positions.js?v=1.17.61';
+import { loadClosedPositions, renderPortfolio, renderHoldings, formatPortfolioContextForAI } from './portfolio.js?v=1.17.61';
+import { initChallenges, renderChallenges } from './challenges.js?v=1.17.61';
+import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from './ui.js?v=1.17.61';
+import { showNotification } from './utils.js?v=1.17.61';
+import AccountService from './services/AccountService.js?v=1.17.61';
+import TradeCardService from './services/TradeCardService.js?v=1.17.61';  // For staging trades to Ideas tab
 
 /**
  * Switch between Real and Paper trading accounts
