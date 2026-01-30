@@ -1754,6 +1754,8 @@ Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy")
                         // Get options chain with more strikes
                         const chain = await MarketDataService.getOptionsChain(candidate.ticker, { strikeCount: 20 });
                         
+                        console.log(`[AI] ${candidate.ticker}: quote source=${quote.source}, chain source=${chain?.source || 'none'}, puts=${chain?.puts?.length || 0}`);
+                        
                         // Find ~30-45 DTE expiration
                         const targetDte = 35;
                         let bestExpiry = null;
@@ -1834,6 +1836,7 @@ Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy")
                                 suggestedStrike = bestPut.strike;
                                 putPremium = bestPut.mid || ((bestPut.bid || 0) + (bestPut.ask || 0)) / 2;
                                 putDelta = bestPut.delta ? Math.abs(bestPut.delta) : null;
+                                console.log(`[AI] ${candidate.ticker} best put: $${suggestedStrike} bid=$${bestPut.bid?.toFixed(2)} ask=$${bestPut.ask?.toFixed(2)} mid=$${putPremium?.toFixed(2)} delta=${putDelta?.toFixed(2)}`);
                             }
                         }
                         
