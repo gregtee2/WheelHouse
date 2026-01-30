@@ -2167,11 +2167,15 @@ async function loadOptionChainForAddPosition() {
     if (expirySelect) expirySelect.innerHTML = '<option value="">⏳ Loading expiries...</option>';
     if (strikeContainer) strikeContainer.style.display = 'none';
     
+    // Get selected strike count (default 30)
+    const strikeCountSelect = document.getElementById('strikeCountSelect');
+    const strikeCount = strikeCountSelect?.value || '30';
+    
     try {
         // Fetch quote and option chain in parallel
         const [quoteRes, chainRes] = await Promise.all([
             fetch(`/api/schwab/quote/${ticker}`),
-            fetch(`/api/schwab/chains/${ticker}?strikeCount=30`)
+            fetch(`/api/schwab/chains/${ticker}?strikeCount=${strikeCount}`)
         ]);
         
         const quoteData = await quoteRes.json();

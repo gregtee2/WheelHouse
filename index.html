@@ -1028,11 +1028,23 @@ Examples:
                             <span id="chainSpotPrice" style="font-size:12px; color:#888;"></span>
                         </div>
                         
-                        <div style="margin-bottom:12px;">
-                            <label style="color:#888; font-size:11px;">Select Expiry:</label>
-                            <select id="posExpiry" onchange="window.loadStrikesForExpiry?.()" style="width:100%; padding:8px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; margin-top:4px;">
-                                <option value="">Loading expiries...</option>
-                            </select>
+                        <div style="display:flex; gap:12px; margin-bottom:12px;">
+                            <div style="flex:2;">
+                                <label style="color:#888; font-size:11px;">Select Expiry:</label>
+                                <select id="posExpiry" onchange="window.loadStrikesForExpiry?.()" style="width:100%; padding:8px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; margin-top:4px;">
+                                    <option value="">Loading expiries...</option>
+                                </select>
+                            </div>
+                            <div style="flex:1;">
+                                <label style="color:#888; font-size:11px;">Strikes:</label>
+                                <select id="strikeCountSelect" onchange="window.loadOptionChainForAddPosition?.()" style="width:100%; padding:8px; background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.3); border-radius:4px; color:#fff; margin-top:4px;">
+                                    <option value="10">10 Strikes</option>
+                                    <option value="20">20 Strikes</option>
+                                    <option value="30" selected>30 Strikes</option>
+                                    <option value="50">50 Strikes</option>
+                                    <option value="100">All Strikes</option>
+                                </select>
+                            </div>
                         </div>
                         
                         <div id="strikePickerContainer" style="display:none;">
@@ -1775,15 +1787,15 @@ Examples:
     </script>
     
     <!-- Theme Settings (loads before modules) -->
-    <script src="js/theme.js?v=1.17.66"></script>
+    <script src="js/theme.js?v=1.17.67"></script>
     
     <!-- Schwab API Client -->
-    <script src="js/schwab.js?v=1.17.66"></script>
+    <script src="js/schwab.js?v=1.17.67"></script>
     
     <!-- Settings Management -->
-    <script src="js/settings.js?v=1.17.66"></script>
+    <script src="js/settings.js?v=1.17.67"></script>
     
     <!-- ES6 Module Entry Point -->
-    <script type="module" src="js/main.js?v=1.17.66"></script>
+    <script type="module" src="js/main.js?v=1.17.67"></script>
 </body>
 </html>
