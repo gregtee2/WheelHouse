@@ -5,10 +5,12 @@ All notable changes to WheelHouse will be documented in this file.
 ## [1.17.76] - 2026-01-30
 
 ### Added
-- **🔗 Roll Chain Grouping in Positions Tab**
-  - Positions with roll history now show a chain header row
-  - Header displays "🔗 Rolled X× (since date)" with chain net credit
-  - Chain Net shows total premium collected minus buyback costs across all rolls
+- **� Ticker Grouping in Positions Tab**
+  - Positions are now grouped by ticker with collapsible headers
+  - Click ticker header to collapse/expand that ticker's positions
+  - Header shows position count, earliest DTE, and total credit
+  - Only shows headers when multiple tickers exist (single ticker = no header)
+  - Collapse state persists in localStorage
   - Matches the grouping style used in Closed Positions (Portfolio tab)
 
 ## [1.17.75] - 2026-01-30

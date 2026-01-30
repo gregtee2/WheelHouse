@@ -3386,85 +3386,79 @@ function renderPositionsTable(container, openPositions) {
         }
     });
     
-    // Build chain info for positions with roll history
-    // (positions that share a chainId with closed positions)
-    const chainInfoMap = new Map();
-    const closedPositions = state.closedPositions || [];
-    
+    // GROUP BY TICKER - similar to Closed Positions in Portfolio
+    const tickerGroups = {};
     groupedPositions.forEach(pos => {
-        const chainId = pos.chainId || pos.id;
-        
-        // Get all closed positions in this chain
-        const chainClosedPositions = closedPositions.filter(p => 
-            p.chainId === chainId || p.id === chainId
-        );
-        
-        if (chainClosedPositions.length > 0) {
-            // Calculate chain stats
-            const allChainPositions = [...chainClosedPositions, pos];
-            allChainPositions.sort((a, b) => new Date(a.openDate || 0) - new Date(b.openDate || 0));
-            
-            // Total premium collected across the chain
-            let totalPremium = 0;
-            let totalBuybacks = 0;
-            
-            chainClosedPositions.forEach(cp => {
-                const prem = (cp.premium || 0) * 100 * (cp.contracts || 1);
-                totalPremium += isDebitPosition(cp.type) ? -prem : prem;
-                
-                // Subtract buyback costs for rolled positions
-                if (cp.closeReason === 'rolled' && cp.closePrice) {
-                    totalBuybacks += cp.closePrice * 100 * (cp.contracts || 1);
-                }
-            });
-            
-            // Add current position premium
-            const currentPrem = (pos.premium || 0) * 100 * (pos.contracts || 1);
-            totalPremium += isDebitPosition(pos.type) ? -currentPrem : currentPrem;
-            
-            const netCredit = totalPremium - totalBuybacks;
-            const rollCount = chainClosedPositions.length;
-            const firstOpen = allChainPositions[0].openDate || 'Unknown';
-            
-            chainInfoMap.set(pos.id, {
-                chainId,
-                rollCount,
-                netCredit,
-                firstOpen,
-                closedPositions: chainClosedPositions
-            });
+        const ticker = pos.ticker || 'Unknown';
+        if (!tickerGroups[ticker]) {
+            tickerGroups[ticker] = {
+                positions: [],
+                totalCredit: 0,
+                totalContracts: 0,
+                earliestDte: Infinity
+            };
         }
+        tickerGroups[ticker].positions.push(pos);
+        const credit = (pos.premium || 0) * 100 * (pos.contracts || 1);
+        tickerGroups[ticker].totalCredit += isDebitPosition(pos.type) ? -credit : credit;
+        tickerGroups[ticker].totalContracts += pos.contracts || 1;
+        tickerGroups[ticker].earliestDte = Math.min(tickerGroups[ticker].earliestDte, pos.dte || Infinity);
     });
     
-    // Track which chainIds we've rendered headers for
-    const renderedChainHeaders = new Set();
+    // Sort tickers by earliest DTE (most urgent first)
+    const sortedTickers = Object.entries(tickerGroups)
+        .sort((a, b) => a[1].earliestDte - b[1].earliestDte);
     
-    groupedPositions.forEach(pos => {
-        const isChildRow = pos._isChild || false;
-        
-        // Check if this position has roll history and we haven't shown a header yet
-        const chainInfo = chainInfoMap.get(pos.id);
-        if (chainInfo && !isChildRow && !renderedChainHeaders.has(chainInfo.chainId)) {
-            renderedChainHeaders.add(chainInfo.chainId);
+    // Get collapsed state from localStorage
+    const collapsedTickers = JSON.parse(localStorage.getItem('wheelhouse_positions_collapsed') || '{}');
+    
+    // Only show ticker headers if there are multiple tickers
+    const showTickerHeaders = sortedTickers.length > 1;
+    
+    for (const [ticker, group] of sortedTickers) {
+        // Render ticker group header (only if multiple tickers)
+        if (showTickerHeaders) {
+            const isCollapsed = collapsedTickers[ticker] || false;
+            const arrowClass = isCollapsed ? 'collapsed' : '';
+            const creditColor = group.totalCredit >= 0 ? '#00ff88' : '#ff5252';
+            const dteColor = group.earliestDte <= 7 ? '#ff5252' : group.earliestDte <= 21 ? '#ffaa00' : '#00ff88';
             
-            // Render chain header row
-            const netCreditColor = chainInfo.netCredit >= 0 ? '#00ff88' : '#ff5252';
             html += `
-                <tr style="background:rgba(0,217,255,0.08); border-left:3px solid #00d9ff;">
-                    <td colspan="8" style="padding:6px 6px 6px 12px; color:#00d9ff; font-size:11px;">
-                        🔗 Rolled ${chainInfo.rollCount}× 
-                        <span style="color:#888;">(since ${chainInfo.firstOpen})</span>
+                <tr class="ticker-group-header ${arrowClass}" data-ticker="${ticker}" onclick="window.togglePositionsTickerGroup('${ticker}')" style="cursor:pointer; background:rgba(139,92,246,0.15);">
+                    <td style="font-weight:bold; color:#8b5cf6; padding:8px 6px;">
+                        <span class="ticker-group-arrow" style="display:inline-block; transition:transform 0.2s; ${isCollapsed ? 'transform:rotate(-90deg);' : ''}">▼</span>
+                        ${ticker}
+                        <span style="color:#888; font-weight:normal; font-size:11px; margin-left:8px;">(${group.positions.length} position${group.positions.length > 1 ? 's' : ''})</span>
                     </td>
-                    <td colspan="5" style="padding:6px; text-align:right; font-size:11px; color:#888;">
-                        Chain Net:
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td style="text-align:right; color:${dteColor}; font-weight:bold;">${group.earliestDte}d</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td style="text-align:right; font-weight:bold; color:${creditColor};">
+                        ${group.totalCredit >= 0 ? '+' : ''}$${group.totalCredit.toFixed(0)}
                     </td>
-                    <td colspan="3" style="padding:6px; text-align:left; font-weight:bold; color:${netCreditColor}; font-size:12px;">
-                        ${chainInfo.netCredit >= 0 ? '+' : ''}$${chainInfo.netCredit.toFixed(0)}
-                    </td>
-                    <td colspan="2"></td>
+                    <td></td>
+                    <td></td>
                 </tr>
             `;
+            
+            // Start collapsible tbody for this ticker's positions
+            html += `</tbody><tbody class="positions-ticker-group ${isCollapsed ? 'collapsed' : ''}" data-ticker="${ticker}" style="${isCollapsed ? 'display:none;' : ''}">`;
         }
+        
+        // Render each position in this ticker group
+        group.positions.forEach(pos => {
+        const isChildRow = pos._isChild || false;
         
         const urgencyInfo = getDteUrgency(pos.dte);
         const dteColor = urgencyInfo.color;
@@ -3804,7 +3798,8 @@ function renderPositionsTable(container, openPositions) {
                 </td>
             </tr>
         `;
-    });
+        }); // End group.positions.forEach
+    } // End for (const [ticker, group] of sortedTickers)
     
     html += '</tbody></table>';
     
@@ -4807,6 +4802,31 @@ window.assignPosition = assignPosition;
 window.renderPositions = renderPositions;
 window.updatePortfolioSummary = updatePortfolioSummary;
 window.undoLastAction = undoLastAction;
+
+/**
+ * Toggle collapse/expand for ticker group in positions table
+ */
+window.togglePositionsTickerGroup = function(ticker) {
+    const collapsed = JSON.parse(localStorage.getItem('wheelhouse_positions_collapsed') || '{}');
+    collapsed[ticker] = !collapsed[ticker];
+    localStorage.setItem('wheelhouse_positions_collapsed', JSON.stringify(collapsed));
+    
+    // Toggle visibility
+    const tbody = document.querySelector(`.positions-ticker-group[data-ticker="${ticker}"]`);
+    const header = document.querySelector(`.ticker-group-header[data-ticker="${ticker}"]`);
+    
+    if (tbody) {
+        tbody.style.display = collapsed[ticker] ? 'none' : '';
+        tbody.classList.toggle('collapsed', collapsed[ticker]);
+    }
+    if (header) {
+        header.classList.toggle('collapsed', collapsed[ticker]);
+        const arrow = header.querySelector('.ticker-group-arrow');
+        if (arrow) {
+            arrow.style.transform = collapsed[ticker] ? 'rotate(-90deg)' : '';
+        }
+    }
+};
 
 /**
  * Export all data to a JSON file for backup
