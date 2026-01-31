@@ -3312,12 +3312,14 @@ window.whatIfExcludedPositions = whatIfExcludedPositions;
 
 // Toggle position in/out of what-if simulation
 window.toggleWhatIfPosition = function(positionId) {
-    if (whatIfExcludedPositions.has(positionId)) {
-        whatIfExcludedPositions.delete(positionId);
+    // Ensure we're working with numbers (onclick passes string from HTML attribute)
+    const id = Number(positionId);
+    if (whatIfExcludedPositions.has(id)) {
+        whatIfExcludedPositions.delete(id);
     } else {
-        whatIfExcludedPositions.add(positionId);
+        whatIfExcludedPositions.add(id);
     }
-    // Update the gauge immediately
+    // Update the gauge immediately (without re-rendering the whole table)
     updatePortfolioSummary();
 };
 
@@ -3674,7 +3676,7 @@ function renderPositionsTable(container, openPositions) {
         const childIndicator = isChildRow ? '<span style="color:#8b5cf6;margin-right:4px;" title="Covered by LEAPS above">└─</span>' : '';
         
         // Check if this position is excluded from what-if
-        const isExcluded = whatIfExcludedPositions.has(pos.id);
+        const isExcluded = whatIfExcludedPositions.has(Number(pos.id));
         const excludedStyle = isExcluded ? 'opacity: 0.5;' : '';
         
         html += `
@@ -4598,7 +4600,7 @@ export function updatePortfolioSummary() {
     // WHAT-IF: Calculate simulated Capital at Risk (excluding unchecked positions)
     const simulatedCapitalAtRisk = openPositions.reduce((sum, p) => {
         // Skip positions that are unchecked (excluded from simulation)
-        if (whatIfExcludedPositions.has(p.id)) {
+        if (whatIfExcludedPositions.has(Number(p.id))) {
             return sum;
         }
         
