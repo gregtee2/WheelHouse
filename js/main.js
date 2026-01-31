@@ -15,6 +15,7 @@ import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePi
 import { showNotification } from './utils.js?v=1.17.73';
 import AccountService from './services/AccountService.js?v=1.17.73';
 import TradeCardService from './services/TradeCardService.js?v=1.17.73';  // For staging trades to Ideas tab
+import StreamingService from './services/StreamingService.js?v=1.17.99';  // Real-time option quote streaming
 
 /**
  * Switch between Real and Paper trading accounts
@@ -746,6 +747,9 @@ export function init() {
     loadClosedPositions();
     initChallenges();
     
+    // Initialize real-time streaming for option quotes
+    initStreamingService();
+    
     // Restore collapsed section states
     setTimeout(() => window.restoreCollapsedStates?.(), 100);
     
@@ -775,6 +779,79 @@ export function init() {
 let liveIndicatorInterval = null;
 let lastDataRefresh = Date.now();
 let serverConnected = true;
+
+/**
+ * Initialize real-time streaming service for option quotes
+ */
+function initStreamingService() {
+    try {
+        // Connect to Socket.IO server
+        StreamingService.connect();
+        
+        // Listen for streamer status changes
+        StreamingService.on('streamer-status', (status) => {
+            console.log('[STREAMING] Status:', status.connected ? '✓ Connected' : '✗ Disconnected');
+            updateStreamingIndicator(status.connected);
+        });
+        
+        // Listen for option quotes
+        StreamingService.on('option-quote', (quote) => {
+            // StreamingService handles DOM updates automatically
+            // Just log for debugging
+            if (state.debugMode) {
+                console.log('[QUOTE]', quote.symbol, `$${quote.mid?.toFixed(2) || '?'}`);
+            }
+        });
+        
+        // Subscribe to current positions after a short delay
+        setTimeout(() => {
+            if (state.positions && state.positions.length > 0) {
+                StreamingService.subscribePositions(state.positions);
+            }
+        }, 1000);
+        
+        console.log('[STREAMING] Service initialized');
+    } catch (e) {
+        console.warn('[STREAMING] Init failed:', e.message);
+    }
+}
+
+/**
+ * Update streaming indicator in the header
+ */
+function updateStreamingIndicator(connected) {
+    let indicator = document.getElementById('streamingIndicator');
+    
+    // Create indicator if it doesn't exist
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'streamingIndicator';
+        indicator.className = 'streaming-status disconnected';
+        indicator.innerHTML = `
+            <span class="streaming-dot" style="width:6px; height:6px; border-radius:50%; background:#888;"></span>
+            <span>STREAM</span>
+        `;
+        indicator.title = 'Real-time streaming status';
+        
+        // Insert before the account switcher
+        const accountSwitcher = document.getElementById('accountSwitcherHeader');
+        if (accountSwitcher && accountSwitcher.parentNode) {
+            accountSwitcher.parentNode.insertBefore(indicator, accountSwitcher);
+        }
+    }
+    
+    // Update status
+    if (connected) {
+        indicator.className = 'streaming-status connected';
+        indicator.querySelector('.streaming-dot').style.background = '#00ff88';
+    } else {
+        indicator.className = 'streaming-status disconnected';
+        indicator.querySelector('.streaming-dot').style.background = '#ff5252';
+    }
+}
+
+// Expose for global access
+window.StreamingService = StreamingService;
 
 function initLiveIndicator() {
     // Update timestamp display every second

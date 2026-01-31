@@ -53,6 +53,34 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const ivCache = new Map();
 
 /**
+ * Convert position to OCC option symbol for streaming
+ * OCC format: 6-char ticker + YYMMDD + P/C + 8-digit strike (strike × 1000)
+ * Example: "AAPL  260221P00200000" = AAPL Feb 21 2026 $200 Put
+ */
+function positionToOCC(ticker, expiry, strike, type) {
+    if (!ticker || !expiry || !strike) return null;
+    
+    // Pad ticker to 6 characters
+    const paddedTicker = ticker.toUpperCase().padEnd(6, ' ');
+    
+    // Parse expiry (YYYY-MM-DD)
+    const expDate = new Date(expiry + 'T00:00:00');
+    const yy = String(expDate.getFullYear()).slice(-2);
+    const mm = String(expDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(expDate.getDate()).padStart(2, '0');
+    const dateStr = `${yy}${mm}${dd}`;
+    
+    // Put or Call based on type
+    const pc = type?.toLowerCase().includes('put') ? 'P' : 'C';
+    
+    // Strike: multiply by 1000, pad to 8 digits
+    const strikeInt = Math.round(strike * 1000);
+    const strikeStr = String(strikeInt).padStart(8, '0');
+    
+    return `${paddedTicker}${dateStr}${pc}${strikeStr}`;
+}
+
+/**
  * Fetch real IV from CBOE for a ticker (cached)
  * @param {string} ticker - Stock ticker
  * @returns {number|null} IV as decimal (e.g., 0.45 for 45%) or null if unavailable
@@ -3703,8 +3731,14 @@ function renderPositionsTable(container, openPositions) {
         const isExcluded = whatIfExcludedPositions.has(Number(pos.id));
         const excludedStyle = isExcluded ? 'opacity: 0.5;' : '';
         
+        // Generate OCC symbol for streaming subscription
+        const occSymbol = !isSpread ? positionToOCC(pos.ticker, pos.expiry, pos.strike, pos.type) : '';
+        // For spreads, generate both leg symbols
+        const occSymbolBuy = isSpread ? positionToOCC(pos.ticker, pos.expiry, pos.buyStrike, pos.type.includes('put') ? 'put' : 'call') : '';
+        const occSymbolSell = isSpread ? positionToOCC(pos.ticker, pos.expiry, pos.sellStrike, pos.type.includes('put') ? 'put' : 'call') : '';
+        
         html += `
-            <tr class="position-row" data-ticker="${pos.ticker}" data-position-id="${pos.id}" style="${collapsedStyle}border-bottom: 1px solid #333;${childRowBg}${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}${excludedStyle}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}${isChildRow ? ' | ↳ Covered by parent LEAPS' : ''}">
+            <tr class="position-row" data-ticker="${pos.ticker}" data-position-id="${pos.id}" ${occSymbol ? `data-occ-symbol="${occSymbol}"` : ''} ${occSymbolBuy ? `data-occ-symbol-buy="${occSymbolBuy}" data-occ-symbol-sell="${occSymbolSell}"` : ''} style="${collapsedStyle}border-bottom: 1px solid #333;${childRowBg}${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}${excludedStyle}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}${isChildRow ? ' | ↳ Covered by parent LEAPS' : ''}">
                 <td style="padding: 6px; text-align: center;">
                     <input type="checkbox" ${isExcluded ? '' : 'checked'} 
                            onclick="event.stopPropagation(); window.toggleWhatIfPosition(${pos.id})" 
@@ -3717,17 +3751,17 @@ function renderPositionsTable(container, openPositions) {
                 </td>
                 <td style="padding: 6px; color: #aaa; font-size: 10px;">${pos.broker || 'Schwab'}</td>
                 <td style="padding: 6px; color: ${typeColor}; font-size: 10px;" title="${isLeaps ? 'LEAPS (1+ year) - Evaluate thesis, not theta' : isLongDated ? 'Long-dated (6+ mo) - IV changes matter more' : ''}">${typeDisplay}${isSkip ? '<br><span style="font-size:8px;color:#888;">LEAPS+SKIP</span>' : ''}</td>
-                <td id="spot-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 11px;">⏳</td>
+                <td id="spot-${pos.id}" data-field="spot" style="padding: 6px; text-align: right; color: #888; font-size: 11px;">⏳</td>
                 <td style="padding: 6px; text-align: right; ${isSpread || isSkip ? 'font-size:10px;' : ''}">${strikeDisplay}</td>
                 <td style="padding: 6px; text-align: right; font-size: 11px; color: #ffaa00;" title="Breakeven if assigned">${breakeven ? '$' + breakeven.toFixed(2) : '—'}</td>
-                <td id="itm-${pos.id}" style="padding: 6px; text-align: center;">⏳</td>
+                <td id="itm-${pos.id}" data-field="itm" style="padding: 6px; text-align: center;">⏳</td>
                 <td style="padding: 6px; text-align: right;">${isDebitPosition(pos.type) ? '-' : ''}$${pos.premium.toFixed(2)}</td>
                 <td style="padding: 6px; text-align: right;">${pos.contracts}</td>
                 <td style="padding: 6px; text-align: right; color: ${dteColor}; font-weight: bold;">
                     ${isSkip ? `<span title="SKIP DTE">${pos.skipDte}d</span>` : pos.dte + 'd'}
                 </td>
-                <td id="delta-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
-                <td id="theta-${pos.id}" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
+                <td id="delta-${pos.id}" data-field="delta" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
+                <td id="theta-${pos.id}" data-field="theta" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
                 ${(() => {
                     // P/L % column - just the percentage
                     const pctColor = unrealizedPnLPct >= 50 ? '#00d9ff' : (unrealizedPnLPct >= 0 ? '#00ff88' : '#ff5252');

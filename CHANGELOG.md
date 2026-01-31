@@ -3,6 +3,48 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.18.0] - 2026-01-31
+
+### Added
+- **🔴 Real-Time Schwab Streaming Infrastructure (COMPLETE)**
+  - Added `positionToOCC()` function to convert positions to OCC option symbols
+  - Added `data-occ-symbol` attributes to position table rows for streaming lookup
+  - Added `data-occ-symbol-buy` and `data-occ-symbol-sell` for spread positions
+  - Added `data-field` attributes to spot, delta, theta, ITM cells for surgical updates
+  - StreamingService now updates `window.state.positions` with live prices
+  - P/L cells update in real-time with flash animations
+  - Position delta/theta values update live from stream
+
+### Changed
+- **StreamingService**: Now finds rows by OCC symbol and updates P/L calculations surgically
+- **Architecture**: Surgical DOM updates instead of full innerHTML replacement
+
+## [1.17.99] - 2026-01-31
+
+### Added
+- **🔴 Real-Time Schwab Streaming (WIP)**
+  - Added Socket.IO server to Node.js backend for real-time data
+  - Created `StreamingService.js` for frontend streaming client
+  - Created `streamingRoutes.js` for WebSocket bridge to Python streamer
+  - Added OCC symbol conversion for option symbols
+  - New streaming status indicator in header bar
+  - CSS flash animations for price updates (green up, red down)
+  - Note: Requires Python streamer service (wheelhouse-streamer) to be running
+
+### Changed
+- **Architecture**: Prepared for surgical DOM updates instead of full table re-renders
+- **Dependencies**: Added `socket.io` and `ws` packages
+
+## [1.17.98] - 2026-01-31
+
+### Fixed
+- **🔥 Schwab API Rate Limiting (403 Flood)**
+  - Added 10-second minimum between refresh calls
+  - Exponential backoff on errors (30s → 1m → 2m → 5m max)
+  - `refreshInProgress` flag prevents concurrent API calls
+  - Fixed recursive loop in `updatePortfolioSummary()` that caused API hammering
+  - Added `accountRefreshScheduled` flag to prevent cascade refreshes
+
 ## [1.17.77] - 2026-01-30
 
 ### Added

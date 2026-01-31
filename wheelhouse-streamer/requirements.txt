@@ -1,0 +1,7 @@
+# WheelHouse Streamer - Schwab Real-Time Data
+# Python 3.10+ required
+
+schwab-py>=1.4.0
+websockets>=12.0
+python-dotenv>=1.0.0
+httpx>=0.27.0

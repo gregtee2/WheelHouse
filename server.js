@@ -10,6 +10,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
+const { Server: SocketIOServer } = require('socket.io');
 
 // Initialize secure storage if running in Electron mode
 const secureStore = require('./src/secureStore');
@@ -28,6 +29,7 @@ const cboeRoutes = require('./src/routes/cboeRoutes');
 const updateRoutes = require('./src/routes/updateRoutes');
 const aiRoutes = require('./src/routes/aiRoutes');
 const scannerRoutes = require('./src/routes/scannerRoutes');
+const streamingRoutes = require('./src/routes/streamingRoutes');
 
 // ============================================================================
 // UTILITY MODULES (extracted for modularity)
@@ -236,6 +238,17 @@ app.use((err, req, res, next) => {
 
 const server = http.createServer(app);
 
+// Create Socket.IO server for real-time streaming
+const io = new SocketIOServer(server, {
+    cors: {
+        origin: '*',
+        methods: ['GET', 'POST']
+    }
+});
+
+// Initialize streaming routes with Socket.IO
+streamingRoutes.init({ app, socketIO: io });
+
 // Handle uncaught exceptions to prevent server crash
 process.on('uncaughtException', (err) => {
     console.error('[FATAL] Uncaught exception:', err.message);
@@ -259,6 +272,7 @@ server.listen(PORT, () => {
 ║  • CBOE options proxy at /api/cboe/{TICKER}.json   ║
 ║  • Settings API at /api/settings                   ║
 ║  • Update check at /api/update/check               ║
+║  • Real-time streaming at /api/streaming/*         ║
 ╚════════════════════════════════════════════════════╝
 `);
 });

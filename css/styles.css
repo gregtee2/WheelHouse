@@ -90,6 +90,53 @@
     100% { transform: translateX(100%); }
 }
 
+/* Flash animations for real-time streaming updates */
+@keyframes flash-green {
+    0% { background-color: rgba(0, 255, 136, 0.5); }
+    100% { background-color: transparent; }
+}
+
+@keyframes flash-red {
+    0% { background-color: rgba(255, 82, 82, 0.5); }
+    100% { background-color: transparent; }
+}
+
+.flash-green {
+    animation: flash-green 0.8s ease-out forwards;
+}
+
+.flash-red {
+    animation: flash-red 0.8s ease-out forwards;
+}
+
+/* Streaming status indicator */
+.streaming-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+}
+
+.streaming-status.connected {
+    background: rgba(0, 255, 136, 0.1);
+    border: 1px solid rgba(0, 255, 136, 0.3);
+    color: #00ff88;
+}
+
+.streaming-status.disconnected {
+    background: rgba(255, 82, 82, 0.1);
+    border: 1px solid rgba(255, 82, 82, 0.3);
+    color: #ff5252;
+}
+
+.streaming-status.connecting {
+    background: rgba(255, 170, 0, 0.1);
+    border: 1px solid rgba(255, 170, 0, 0.3);
+    color: #ffaa00;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 button {
