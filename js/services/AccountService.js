@@ -145,13 +145,14 @@ const AccountService = {
             
             // 1. First try to match selectedAccount from state
             if (window.state?.selectedAccount) {
-                const selectedId = window.state.selectedAccount;
+                const selectedId = String(window.state.selectedAccount);
                 account = accounts.find(a => {
                     const acctNum = a.securitiesAccount?.accountNumber;
+                    if (!acctNum) return false;
                     // Match by full account ID or partial (last 4 digits)
                     return acctNum === selectedId || 
                            selectedId.includes(acctNum) || 
-                           acctNum?.endsWith(selectedId.replace(/\D/g, '').slice(-4));
+                           acctNum.endsWith(selectedId.replace(/\D/g, '').slice(-4));
                 });
                 if (account) {
                     console.log('[AccountService] Using selected account:', selectedId);
