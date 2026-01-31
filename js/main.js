@@ -1751,6 +1751,42 @@ window.showXSentimentHistory = function() {
 };
 
 /**
+ * Helper to update X Sentiment progress UI
+ */
+function updateXProgress(step, message, totalSteps) {
+    const progressBar = document.getElementById('xProgressBar');
+    const stepEl = document.getElementById(`xStep${step}`);
+    
+    // Update progress bar
+    const pct = Math.round((step / totalSteps) * 100);
+    if (progressBar) progressBar.style.width = `${pct}%`;
+    
+    // Mark previous steps as complete
+    for (let i = 1; i < step; i++) {
+        const prevStep = document.getElementById(`xStep${i}`);
+        if (prevStep) {
+            prevStep.style.opacity = '1';
+            const icon = prevStep.querySelector('.step-icon');
+            if (icon) icon.textContent = '✅';
+        }
+    }
+    
+    // Update current step with spinner
+    if (stepEl) {
+        stepEl.style.opacity = '1';
+        const icon = stepEl.querySelector('.step-icon');
+        if (icon) {
+            icon.innerHTML = '<span class="spinner" style="width:14px; height:14px; display:inline-block; border:2px solid #333; border-top-color:#1da1f2; border-radius:50%; animation:spin 1s linear infinite;"></span>';
+        }
+        // Update message if provided
+        if (message) {
+            const msgSpan = stepEl.querySelector('span:last-child');
+            if (msgSpan) msgSpan.textContent = message;
+        }
+    }
+}
+
+/**
  * Get X/Twitter sentiment via Grok (Grok-only feature)
  */
 window.getXSentiment = async function() {
@@ -1802,20 +1838,64 @@ window.getXSentiment = async function() {
     
     // Get previous runs for trend comparison (last 5 runs)
     const previousRuns = JSON.parse(localStorage.getItem('wheelhouse_x_sentiment_history') || '[]').slice(0, 5);
+    
+    // DEBUG: Log what we're sending
+    console.log(`[X Sentiment] Holdings:`, holdings.map(h => h.ticker));
+    console.log(`[X Sentiment] Options:`, optionsPositions.map(p => `${p.ticker} $${p.strike}`));
+    console.log(`[X Sentiment] All Tickers:`, allTickers);
+    console.log(`[X Sentiment] Sector Keywords:`, sectorKeywords);
     console.log(`[X Sentiment] Sending ${previousRuns.length} previous runs, ${holdings.length} holdings, ${optionsPositions.length} options, ${sectorKeywords.length} sector keywords`);
     
-    // Show loading
+    // Show loading with progress animation
     if (ideaBtn) {
         ideaBtn.disabled = true;
         ideaBtn.textContent = '⏳ Scanning X...';
     }
     ideaResults.style.display = 'block';
-    ideaContent.innerHTML = '<span style="color:#1da1f2;">🔄 Grok is scanning X/Twitter for trader sentiment... (may take 30-60 seconds with live search)</span>';
+    
+    // Build progress UI similar to Week Summary
+    ideaContent.innerHTML = `
+        <div style="padding:20px;">
+            <div style="text-align:center; margin-bottom:20px;">
+                <div style="font-size:24px; margin-bottom:10px;">🐦</div>
+                <div style="color:#1da1f2; font-weight:bold;">Scanning X/Twitter...</div>
+                <div style="color:#666; font-size:11px; margin-top:4px;">${allTickers.length} tickers • ${holdings.length} stocks • ${optionsPositions.length} options</div>
+            </div>
+            
+            <!-- Progress bar -->
+            <div style="background:#1a1a2e; border-radius:8px; height:6px; margin-bottom:20px; overflow:hidden;">
+                <div id="xProgressBar" style="background:linear-gradient(90deg,#1da1f2,#00ff88); height:100%; width:0%; transition:width 0.5s ease;"></div>
+            </div>
+            
+            <!-- Steps -->
+            <div style="font-size:12px;">
+                <div id="xStep1" class="x-step" style="display:flex; align-items:center; gap:10px; padding:8px 0; opacity:0.5;">
+                    <span class="step-icon" style="width:20px; text-align:center;">⏳</span>
+                    <span>Analyzing your ${allTickers.length} positions...</span>
+                </div>
+                <div id="xStep2" class="x-step" style="display:flex; align-items:center; gap:10px; padding:8px 0; opacity:0.5;">
+                    <span class="step-icon" style="width:20px; text-align:center;">⏳</span>
+                    <span>Searching X for your tickers...</span>
+                </div>
+                <div id="xStep3" class="x-step" style="display:flex; align-items:center; gap:10px; padding:8px 0; opacity:0.5;">
+                    <span class="step-icon" style="width:20px; text-align:center;">⏳</span>
+                    <span>Checking sector trends...</span>
+                </div>
+                <div id="xStep4" class="x-step" style="display:flex; align-items:center; gap:10px; padding:8px 0; opacity:0.5;">
+                    <span class="step-icon" style="width:20px; text-align:center;">⏳</span>
+                    <span>Generating report...</span>
+                </div>
+            </div>
+        </div>
+    `;
     
     try {
         const response = await fetch('/api/ai/x-sentiment', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'text/event-stream'  // Request SSE streaming
+            },
             body: JSON.stringify({ 
                 buyingPower, 
                 holdings,           // Stock holdings
@@ -1831,7 +1911,43 @@ window.getXSentiment = async function() {
             throw new Error(err.error || 'API error');
         }
         
-        const result = await response.json();
+        // Process SSE stream for progress updates
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let result = null;
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.substring(6));
+                        
+                        if (data.type === 'progress') {
+                            // Update progress UI
+                            updateXProgress(data.step, data.message, data.totalSteps || 4);
+                        } else if (data.type === 'complete') {
+                            result = data;
+                        } else if (data.type === 'error') {
+                            throw new Error(data.error);
+                        }
+                    } catch (parseErr) {
+                        // Ignore parse errors for incomplete chunks
+                    }
+                }
+            }
+        }
+        
+        if (!result) {
+            throw new Error('No result received from X sentiment scan');
+        }
         
         // Extract tickers from the response for Deep Dive and Trade Ideas integration
         // Multiple patterns to catch different formats:

@@ -490,26 +490,58 @@ ${holdingsList}
 `;
         }
         
-        // Build options context (options positions) - NEW!
+        // Build options context with EXPLICIT ticker list
         let optionsContext = '';
+        let optionsTickers = [];
         if (optionsPositions && optionsPositions.length > 0) {
+            optionsTickers = [...new Set(optionsPositions.map(p => p.ticker))];
             const optionsList = optionsPositions.map(p => {
                 const type = p.type?.includes('call') ? 'CALL' : 'PUT';
-                return `${p.ticker} $${p.strike} ${type} exp ${p.expiry}`;
-            }).join(', ');
+                return `- ${p.ticker} $${p.strike} ${type} exp ${p.expiry}`;
+            }).join('\n');
             optionsContext = `
-**MY OPTIONS POSITIONS:**
+**MY OPTIONS POSITIONS (I NEED X SENTIMENT ON EACH TICKER):**
 ${optionsList}
+
+⚠️ CRITICAL: You MUST search X for EACH of these tickers: ${optionsTickers.join(', ')}
+Report what you find for EACH ONE - do NOT skip any just because they're smaller stocks.
 `;
         }
         
-        // Build sector keywords context - NEW!
+        // Infer sector keywords from known tickers (fallback if positions don't have tags)
+        const inferredSectors = [];
+        const sectorMap = {
+            'IREN': ['Bitcoin mining', 'crypto mining', 'BTC miners'],
+            'CIFR': ['Bitcoin mining', 'crypto mining', 'Cipher Mining'],
+            'MARA': ['Bitcoin mining', 'Marathon Digital'],
+            'RIOT': ['Bitcoin mining', 'Riot Platforms'],
+            'TSLL': ['Tesla', 'TSLA', 'EV', 'leveraged ETF'],
+            'NVDA': ['AI chips', 'GPU', 'artificial intelligence'],
+            'INTC': ['semiconductors', 'Intel', 'chip stocks', 'foundry'],
+            'AMD': ['semiconductors', 'AI chips', 'data center'],
+            'NBIS': ['Nebius', 'AI infrastructure', 'cloud computing'],
+            'SLV': ['silver', 'precious metals', 'commodities'],
+            'BABA': ['China tech', 'Alibaba', 'Chinese stocks'],
+            'DJT': ['Trump Media', 'Truth Social', 'MAGA stocks']
+        };
+        
+        // Collect sector keywords from positions AND infer from tickers
+        const allSectorKeywords = [...(sectorKeywords || [])];
+        (allTickers || []).forEach(ticker => {
+            if (sectorMap[ticker]) {
+                allSectorKeywords.push(...sectorMap[ticker]);
+            }
+        });
+        const uniqueSectorKeywords = [...new Set(allSectorKeywords)];
+        
+        // Build sector keywords context
         let sectorContext = '';
-        if (sectorKeywords && sectorKeywords.length > 0) {
+        if (uniqueSectorKeywords.length > 0) {
             sectorContext = `
-**SECTOR CONTEXT - ALSO SEARCH THESE TERMS:**
-${sectorKeywords.join(', ')}
-(These sectors affect my positions even if the ticker isn't mentioned directly - e.g., "Bitcoin mining" news affects my crypto mining stocks)
+**SECTOR KEYWORDS TO SEARCH (if ticker-specific news is sparse):**
+${uniqueSectorKeywords.join(', ')}
+
+Use these as fallback searches - e.g., if no posts about "IREN", search "Bitcoin mining" or "crypto miners".
 `;
         }
         
@@ -518,15 +550,19 @@ ${sectorKeywords.join(', ')}
             ? allTickers.join(', ')
             : (holdings || []).map(h => h.ticker).join(', ') || 'none';
         
-        // Build the complete positions context
+        // Build the complete positions context - MORE FORCEFUL
         let positionsContext = '';
         if (holdingsContext || optionsContext) {
             positionsContext = `
-**IMPORTANT - CHECK MY POSITIONS FIRST:**
+**🚨 PRIORITY #1 - MY POSITIONS (SEARCH X FOR EACH ONE):**
 ${holdingsContext}${optionsContext}${sectorContext}
-Search X for ANY news, sentiment, or buzz about BOTH my stock holdings AND the underlying tickers of my options.
-Put this in a section called "⚡ YOUR HOLDINGS ALERT" at the very top.
-If nothing notable, just say "No significant X chatter about your holdings/options today."
+⚡ Put findings in "⚡ YOUR HOLDINGS ALERT" section at the VERY TOP.
+For EACH ticker above, report:
+- What X/Twitter is saying (bullish/bearish/quiet)
+- Any news, rumors, or notable posts
+- If truly nothing, say "No X buzz on [TICKER]"
+
+DO NOT skip my options tickers just because they're smaller - I need intel on IREN, CIFR, TSLL, etc.!
 `;
         }
         
@@ -592,26 +628,88 @@ Then continue with:
 
 5. **🚀 SECTOR MOMENTUM** - What sectors are traders most bullish/bearish on today?
 
-IMPORTANT: Base your answers on what you can actually see on X right now. If you're not sure about something, say so rather than guessing.
+REMEMBER: 
+- ⚡ YOUR HOLDINGS ALERT section MUST come FIRST and cover EVERY ticker I listed (TSLL, IREN, CIFR, NBIS, etc.)
+- If no direct ticker buzz, check sector keywords (e.g., "Bitcoin mining" for IREN/CIFR)
+- Even "no significant chatter" is useful - tell me that explicitly
 FORMAT each ticker mention like: **TICKER** @ $XX.XX
 Focus on wheel-friendly stocks ($5-$200 range).`;
 
-        // Use grok-4 which has built-in real-time X awareness
-        const result = await AIService.callGrokWithSearch(prompt, {
-            xSearch: true,
-            webSearch: true,
-            maxTokens: 2000,
-            model: 'grok-4'  // grok-4 has better real-time awareness
-        });
+        // Check if client wants SSE streaming
+        const acceptsSSE = req.headers.accept?.includes('text/event-stream');
         
-        res.json({ 
-            success: true, 
-            sentiment: result.content,
-            citations: result.citations || [],
-            source: 'grok-4-realtime',
-            timestamp: new Date().toISOString()
-        });
-        console.log(`[AI] ✅ X sentiment retrieved`);
+        if (acceptsSSE) {
+            // SSE streaming mode with progress updates
+            res.set({
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            });
+            res.flushHeaders();
+            
+            const sendProgress = (step, message, extra = {}) => {
+                res.write(`data: ${JSON.stringify({ type: 'progress', step, message, totalSteps: 4, ...extra })}\n\n`);
+            };
+            
+            try {
+                // Step 1: Analyzing positions
+                sendProgress(1, `Analyzing ${allTickers?.length || 0} positions...`);
+                await new Promise(r => setTimeout(r, 300)); // Small delay for UX
+                
+                // Step 2: Searching X
+                sendProgress(2, `Searching X for ${optionsTickers.length} option tickers...`);
+                await new Promise(r => setTimeout(r, 300));
+                
+                // Step 3: Sector trends
+                sendProgress(3, uniqueSectorKeywords.length > 0 
+                    ? `Checking ${uniqueSectorKeywords.length} sector keywords...` 
+                    : 'Checking general market sentiment...');
+                
+                // Step 4: Generate the actual report (this is the slow part)
+                sendProgress(4, 'Generating comprehensive report...');
+                
+                const result = await AIService.callGrokWithSearch(prompt, {
+                    xSearch: true,
+                    webSearch: true,
+                    maxTokens: 2000,
+                    model: 'grok-4'
+                });
+                
+                // Send complete result
+                res.write(`data: ${JSON.stringify({ 
+                    type: 'complete', 
+                    success: true, 
+                    sentiment: result.content,
+                    citations: result.citations || [],
+                    source: 'grok-4-realtime',
+                    timestamp: new Date().toISOString()
+                })}\n\n`);
+                res.end();
+                
+                console.log(`[AI] ✅ X sentiment retrieved (SSE)`);
+            } catch (e) {
+                res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+                res.end();
+                console.log('[AI] ❌ X sentiment SSE error:', e.message);
+            }
+        } else {
+            // Non-SSE mode (legacy/fallback)
+            const result = await AIService.callGrokWithSearch(prompt, {
+                xSearch: true,
+                webSearch: true,
+                maxTokens: 2000,
+                model: 'grok-4'
+            });
+            
+            res.json({ 
+                success: true, 
+                sentiment: result.content,
+                citations: result.citations || [],
+                source: 'grok-4-realtime',
+                timestamp: new Date().toISOString()
+            });
+            console.log(`[AI] ✅ X sentiment retrieved`);
+        }
     } catch (e) {
         console.log('[AI] ❌ X sentiment error:', e.message);
         res.status(500).json({ error: e.message });
