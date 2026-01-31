@@ -1620,7 +1620,13 @@ Examples:
                         <button onclick="syncAccountFromSchwab()" 
                                 id="schwabSyncBtn"
                                 style="padding:8px 16px; background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#fa0; border-radius:6px; cursor:pointer;">
-                            🔄 Sync Account
+                            🔄 Sync Positions
+                        </button>
+                        <button onclick="syncSchwabTransactions()" 
+                                id="schwabSyncTransactionsBtn"
+                                style="padding:8px 16px; background:rgba(138,43,226,0.2); border:1px solid rgba(138,43,226,0.4); color:#a78bfa; border-radius:6px; cursor:pointer;"
+                                title="Import closed trades from Schwab transaction history (last 90 days)">
+                            📜 Sync Closed Trades
                         </button>
                         <button onclick="viewSchwabOrders()" 
                                 style="padding:8px 16px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#a78bfa; border-radius:6px; cursor:pointer;">
@@ -1628,6 +1634,7 @@ Examples:
                         </button>
                     </div>
                     <div id="schwabSyncStatus" style="margin-top:10px; font-size:12px; color:#888; display:none;"></div>
+                    <div id="schwabTransactionSyncStatus" style="margin-top:5px; font-size:12px; color:#888;"></div>
                     
                     <!-- Orders Panel (hidden by default) -->
                     <div id="schwabOrdersPanel" style="display:none; margin-top:15px; padding:15px; background:rgba(0,0,0,0.3); border-radius:8px; border:1px solid #333;">

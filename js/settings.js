@@ -440,6 +440,52 @@ async function syncAccountFromSchwab() {
             }
         }
         
+        // DETECT POSITIONS CLOSED ON SCHWAB (in WheelHouse but not in Schwab)
+        // Find positions that exist locally but are not in the Schwab sync
+        const closedKey = getStorageKey('closed_positions');
+        let closedPositions = JSON.parse(localStorage.getItem(closedKey) || '[]');
+        let movedToClosed = 0;
+        
+        const positionsToRemove = [];
+        for (const localPos of existingPositions) {
+            // Skip if already marked closed
+            if (localPos.status === 'closed') continue;
+            // Skip if not from Schwab sync originally
+            if (localPos.source !== 'schwab_sync' && localPos.broker !== 'Schwab') continue;
+            
+            // Check if this position still exists in Schwab
+            const stillInSchwab = optionPositions.some(sp => 
+                sp.ticker === localPos.ticker &&
+                sp.strike === localPos.strike &&
+                sp.expiry === localPos.expiry
+            );
+            
+            if (!stillInSchwab) {
+                // Position no longer in Schwab - move to closed
+                console.log(`[Schwab Sync] Position closed on Schwab: ${localPos.ticker} $${localPos.strike}`);
+                
+                const closedPos = {
+                    ...localPos,
+                    status: 'closed',
+                    closeDate: new Date().toISOString().split('T')[0],
+                    closeReason: 'schwab_sync_detected',
+                    closePrice: localPos.lastOptionPrice || 0,
+                    realizedPnL: localPos.premium ? 
+                        (localPos.premium - (localPos.lastOptionPrice || 0)) * 100 * localPos.contracts : 0
+                };
+                
+                closedPositions.push(closedPos);
+                positionsToRemove.push(localPos.id);
+                movedToClosed++;
+            }
+        }
+        
+        // Remove closed positions from open list
+        if (positionsToRemove.length > 0) {
+            existingPositions = existingPositions.filter(p => !positionsToRemove.includes(p.id));
+            localStorage.setItem(closedKey, JSON.stringify(closedPositions));
+        }
+        
         // Save to localStorage (using account-aware keys)
         localStorage.setItem(positionsKey, JSON.stringify(existingPositions));
         localStorage.setItem(holdingsKey, JSON.stringify(existingHoldings));
@@ -449,6 +495,7 @@ async function syncAccountFromSchwab() {
         if (imported > 0) messages.push(`✅ Imported ${imported} option position${imported > 1 ? 's' : ''}`);
         if (holdingsImported > 0) messages.push(`✅ Synced ${holdingsImported} stock holding${holdingsImported > 1 ? 's' : ''}`);
         if (skipped > 0) messages.push(`⏭️ Skipped ${skipped} duplicate${skipped > 1 ? 's' : ''}`);
+        if (movedToClosed > 0) messages.push(`📦 Moved ${movedToClosed} closed position${movedToClosed > 1 ? 's' : ''}`);
         
         if (statusEl) {
             statusEl.innerHTML = `<span style="color:#00ff88;">${messages.join(' | ')}</span>`;
@@ -462,7 +509,7 @@ async function syncAccountFromSchwab() {
         // Show notification
         if (window.showNotification) {
             window.showNotification(
-                `Schwab Sync: ${imported} options, ${holdingsImported} stocks imported`, 
+                `Schwab Sync: ${imported} options, ${holdingsImported} stocks${movedToClosed > 0 ? `, ${movedToClosed} closed` : ''}`, 
                 'success'
             );
         }
@@ -476,6 +523,217 @@ async function syncAccountFromSchwab() {
         if (syncBtn) syncBtn.disabled = false;
     }
 }
+
+/**
+ * Sync closed trades from Schwab transaction history
+ * This imports closed option trades that aren't already in WheelHouse
+ */
+async function syncSchwabTransactions() {
+    const syncBtn = document.getElementById('schwabSyncTransactionsBtn');
+    const statusEl = document.getElementById('schwabTransactionSyncStatus');
+    
+    if (syncBtn) syncBtn.disabled = true;
+    if (statusEl) statusEl.innerHTML = '<span style="color:#00d9ff;">⏳ Fetching transaction history...</span>';
+    
+    try {
+        // Get account info
+        const state = window.state;
+        const account = state?.selectedAccount;
+        if (!account?.hashValue) {
+            throw new Error('No Schwab account selected');
+        }
+        
+        // Fetch transactions from last 90 days (or longer for more history)
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 90); // 90 days back
+        
+        const response = await fetch(`/api/schwab/accounts/${account.hashValue}/transactions?types=TRADE&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`);
+        
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || `Schwab API error: ${response.status}`);
+        }
+        
+        const transactions = await response.json();
+        console.log('[Transaction Sync] Raw transactions:', transactions?.length || 0);
+        
+        // Get account-aware storage keys
+        const getStorageKey = (baseKey) => {
+            if (state?.accountMode === 'paper') {
+                return `wheelhouse_paper_${baseKey}`;
+            }
+            const acct = state?.selectedAccount;
+            if (acct && acct.accountNumber) {
+                const suffix = `${acct.type || 'ACCT'}_${acct.accountNumber.slice(-4)}`;
+                return `wheelhouse_${suffix}_${baseKey}`;
+            }
+            return `wheelhouse_${baseKey}`;
+        };
+        
+        const closedKey = getStorageKey('closed_positions');
+        const positionsKey = getStorageKey('positions');
+        let closedPositions = JSON.parse(localStorage.getItem(closedKey) || '[]');
+        let openPositions = JSON.parse(localStorage.getItem(positionsKey) || '[]');
+        
+        // Group transactions by option symbol to find open/close pairs
+        const optionTrades = {};
+        
+        (transactions || []).forEach(t => {
+            // Find the OPTION item in transferItems
+            const optionItem = (t.transferItems || []).find(item => 
+                item.instrument?.assetType === 'OPTION'
+            );
+            if (!optionItem) return;
+            
+            const inst = optionItem.instrument;
+            const underlying = inst?.underlyingSymbol;
+            const strike = parseFloat(inst?.strikePrice || 0);
+            const putCall = inst?.putCall;
+            const expiry = inst?.expirationDate?.split('T')[0];
+            const qty = Math.abs(optionItem?.amount || 0);
+            const price = Math.abs(optionItem?.price || 0);
+            const positionEffect = optionItem?.positionEffect; // OPENING or CLOSING
+            const tradeDate = t.tradeDate?.split('T')[0];
+            
+            // Create a unique key for this option contract
+            const key = `${underlying}_${strike}_${expiry}_${putCall}`;
+            
+            if (!optionTrades[key]) {
+                optionTrades[key] = {
+                    underlying,
+                    strike,
+                    expiry,
+                    putCall,
+                    opens: [],
+                    closes: []
+                };
+            }
+            
+            const trade = { qty, price, date: tradeDate, positionEffect };
+            if (positionEffect === 'OPENING') {
+                optionTrades[key].opens.push(trade);
+            } else if (positionEffect === 'CLOSING') {
+                optionTrades[key].closes.push(trade);
+            }
+        });
+        
+        // Find completed trades (have both open and close) that aren't in WheelHouse
+        let imported = 0;
+        let skipped = 0;
+        
+        for (const [key, trade] of Object.entries(optionTrades)) {
+            // Skip if no closing trade
+            if (trade.closes.length === 0) {
+                continue;
+            }
+            
+            // Check if already exists in closed positions
+            const alreadyClosed = closedPositions.some(p => 
+                p.ticker === trade.underlying &&
+                Math.abs((p.strike || 0) - trade.strike) < 0.01 &&
+                p.expiry === trade.expiry
+            );
+            
+            if (alreadyClosed) {
+                skipped++;
+                continue;
+            }
+            
+            // Check if it's currently open (don't import as closed)
+            const currentlyOpen = openPositions.some(p =>
+                p.ticker === trade.underlying &&
+                Math.abs((p.strike || 0) - trade.strike) < 0.01 &&
+                p.expiry === trade.expiry &&
+                p.status !== 'closed'
+            );
+            
+            if (currentlyOpen) {
+                skipped++;
+                continue;
+            }
+            
+            // Calculate totals
+            const totalOpenQty = trade.opens.reduce((sum, o) => sum + o.qty, 0);
+            const totalCloseQty = trade.closes.reduce((sum, c) => sum + c.qty, 0);
+            const avgOpenPrice = trade.opens.length > 0 ? 
+                trade.opens.reduce((sum, o) => sum + o.price * o.qty, 0) / totalOpenQty : 0;
+            const avgClosePrice = trade.closes.reduce((sum, c) => sum + c.price * c.qty, 0) / totalCloseQty;
+            const openDate = trade.opens.length > 0 ? 
+                trade.opens.reduce((earliest, o) => o.date < earliest ? o.date : earliest, trade.opens[0].date) : 
+                trade.closes[0].date;
+            const closeDate = trade.closes.reduce((latest, c) => c.date > latest ? c.date : latest, trade.closes[0].date);
+            
+            // Determine type
+            const isShort = trade.opens.some(o => o.positionEffect === 'OPENING'); // Sell to Open = short
+            const type = trade.putCall === 'PUT' ? 
+                (isShort ? 'short_put' : 'long_put') : 
+                (isShort ? 'covered_call' : 'long_call');
+            
+            // Calculate P&L (for short positions: open - close; for long: close - open)
+            const contracts = Math.min(totalOpenQty, totalCloseQty);
+            const pnl = isShort ? 
+                (avgOpenPrice - avgClosePrice) * 100 * contracts :
+                (avgClosePrice - avgOpenPrice) * 100 * contracts;
+            
+            // Create closed position
+            const closedPos = {
+                id: Date.now() + imported,
+                chainId: Date.now() + imported,
+                ticker: trade.underlying,
+                type: type,
+                strike: trade.strike,
+                contracts: contracts,
+                premium: avgOpenPrice,
+                expiry: trade.expiry,
+                openDate: openDate,
+                closeDate: closeDate,
+                closePrice: avgClosePrice,
+                status: 'closed',
+                closeReason: 'closed',
+                broker: 'Schwab',
+                source: 'schwab_transaction_sync',
+                realizedPnL: pnl
+            };
+            
+            console.log(`[Transaction Sync] Importing: ${trade.underlying} $${trade.strike} ${trade.putCall} - P&L: $${pnl.toFixed(2)}`);
+            closedPositions.push(closedPos);
+            imported++;
+        }
+        
+        // Save to localStorage
+        if (imported > 0) {
+            localStorage.setItem(closedKey, JSON.stringify(closedPositions));
+            state.closedPositions = closedPositions;
+        }
+        
+        // Show results
+        if (statusEl) {
+            if (imported > 0) {
+                statusEl.innerHTML = `<span style="color:#00ff88;">✅ Imported ${imported} closed trade${imported > 1 ? 's' : ''}</span>`;
+            } else if (skipped > 0) {
+                statusEl.innerHTML = `<span style="color:#ffaa00;">⏭️ ${skipped} trades already imported</span>`;
+            } else {
+                statusEl.innerHTML = `<span style="color:#888;">No new closed trades found (90 days)</span>`;
+            }
+        }
+        
+        if (imported > 0 && window.showNotification) {
+            window.showNotification(`Imported ${imported} closed trades from Schwab`, 'success');
+        }
+        
+    } catch (error) {
+        console.error('Transaction sync error:', error);
+        if (statusEl) {
+            statusEl.innerHTML = `<span style="color:#ff5252;">❌ ${error.message}</span>`;
+        }
+    } finally {
+        if (syncBtn) syncBtn.disabled = false;
+    }
+}
+
+// Expose for button onclick
+window.syncSchwabTransactions = syncSchwabTransactions;
 
 async function testOpenAIConnection() {
     const settings = {

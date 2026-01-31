@@ -399,10 +399,28 @@ function importParsedBrokerData() {
             try {
                 const importData = JSON.parse(e.target.result);
                 
+                // Get account-aware storage keys
+                const getStorageKey = (baseKey) => {
+                    const state = window.state;
+                    if (state?.accountMode === 'paper') {
+                        return `wheelhouse_paper_${baseKey}`;
+                    }
+                    const acct = state?.selectedAccount;
+                    if (acct && acct.accountNumber) {
+                        const suffix = `${acct.type || 'ACCT'}_${acct.accountNumber.slice(-4)}`;
+                        return `wheelhouse_${suffix}_${baseKey}`;
+                    }
+                    return `wheelhouse_${baseKey}`;
+                };
+                
+                const positionsKey = getStorageKey('positions');
+                const closedKey = getStorageKey('closed_positions');
+                const holdingsKey = getStorageKey('holdings');
+                
                 // Merge with existing data
-                const existingPositions = JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
-                const existingClosed = JSON.parse(localStorage.getItem('wheelhouse_closed_positions') || '[]');
-                const existingHoldings = JSON.parse(localStorage.getItem('wheelhouse_holdings') || '[]');
+                const existingPositions = JSON.parse(localStorage.getItem(positionsKey) || '[]');
+                const existingClosed = JSON.parse(localStorage.getItem(closedKey) || '[]');
+                const existingHoldings = JSON.parse(localStorage.getItem(holdingsKey) || '[]');
                 
                 // Add new positions (avoid duplicates by checking ticker+openDate+strike)
                 const newPositions = importData.positions.filter(p => 
@@ -421,8 +439,8 @@ function importParsedBrokerData() {
                 const mergedPositions = [...existingPositions, ...newPositions];
                 const mergedClosed = [...existingClosed, ...newClosed];
                 
-                localStorage.setItem('wheelhouse_positions', JSON.stringify(mergedPositions));
-                localStorage.setItem('wheelhouse_closed_positions', JSON.stringify(mergedClosed));
+                localStorage.setItem(positionsKey, JSON.stringify(mergedPositions));
+                localStorage.setItem(closedKey, JSON.stringify(mergedClosed));
                 
                 // Update state
                 if (window.state) {

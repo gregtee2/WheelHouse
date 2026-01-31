@@ -306,6 +306,14 @@ h1 {
     border: 1px solid rgba(255,255,255,0.1);
 }
 
+/* Prevent layout shifts during content updates */
+#portfolioSummary {
+    contain: layout style;
+}
+#positionsTable {
+    contain: layout style;
+}
+
 .controls-panel { max-height: calc(100vh - 100px); overflow-y: auto; }
 
 /* P&L Tab - 3-column wide layout */

@@ -1607,13 +1607,12 @@ async function performAutoSave() {
     if (!autoSaveFileHandle) return;
     
     try {
-        const CLOSED_KEY = 'wheelhouse_closed_positions';
         const exportData = {
             version: 1,
             exportDate: new Date().toISOString(),
             positions: state.positions || [],
             holdings: state.holdings || [],
-            closedPositions: JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
+            closedPositions: JSON.parse(localStorage.getItem(getClosedKey()) || '[]')
         };
         
         const writable = await autoSaveFileHandle.createWritable();
@@ -1680,13 +1679,12 @@ function setupAutoSaveDownloadFallback() {
     // Save a backup copy every 2 minutes to a separate localStorage key
     autoSaveDownloadInterval = setInterval(() => {
         try {
-            const CLOSED_KEY = 'wheelhouse_closed_positions';
             const backup = {
                 version: 1,
                 backupDate: new Date().toISOString(),
                 positions: state.positions || [],
                 holdings: state.holdings || [],
-                closedPositions: JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
+                closedPositions: JSON.parse(localStorage.getItem(getClosedKey()) || '[]')
             };
             localStorage.setItem('wheelhouse_backup', JSON.stringify(backup));
             updateAutoSaveStatus('saved');
@@ -1699,13 +1697,12 @@ function setupAutoSaveDownloadFallback() {
     
     // Do an immediate backup
     try {
-        const CLOSED_KEY = 'wheelhouse_closed_positions';
         const backup = {
             version: 1,
             backupDate: new Date().toISOString(),
             positions: state.positions || [],
             holdings: state.holdings || [],
-            closedPositions: JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
+            closedPositions: JSON.parse(localStorage.getItem(getClosedKey()) || '[]')
         };
         localStorage.setItem('wheelhouse_backup', JSON.stringify(backup));
     } catch (e) {
@@ -1721,13 +1718,12 @@ function setupAutoSaveDownloadFallback() {
  */
 window.downloadBackup = function() {
     try {
-        const CLOSED_KEY = 'wheelhouse_closed_positions';
         const backup = {
             version: 1,
             exportDate: new Date().toISOString(),
             positions: state.positions || [],
             holdings: state.holdings || [],
-            closedPositions: JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
+            closedPositions: JSON.parse(localStorage.getItem(getClosedKey()) || '[]')
         };
         
         const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -3310,10 +3306,10 @@ export function renderPositions() {
  */
 function renderPositionsTable(container, openPositions) {
     let html = `
-        <table style="width: 100%; border-collapse: collapse; font-size: 12px; table-layout: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;">
             <thead>
                 <tr style="background: #1a1a2e; color: #888;">
-                    <th style="padding: 6px; text-align: left; white-space: nowrap;">Ticker</th>
+                    <th style="padding: 6px; text-align: left; width: 75px; overflow: hidden;">Ticker</th>
                     <th style="padding: 6px; text-align: center; width: 45px;" title="ITM probability - click to analyze">Risk</th>
                     <th style="padding: 6px; text-align: left; width: 50px;">Broker</th>
                     <th style="padding: 6px; text-align: left; width: 65px;">Type</th>
@@ -3331,7 +3327,7 @@ function renderPositionsTable(container, openPositions) {
                     <th style="padding: 6px; text-align: right; width: 60px;" title="Unrealized P&L - Total profit/loss since open">P/L Open</th>
                     <th style="padding: 6px; text-align: right; width: 50px;" title="Credit received (green) or Debit paid (red)">Cr/Dr</th>
                     <th style="padding: 6px; text-align: right; width: 45px;" title="Annualized Return on Capital">Ann%</th>
-                    <th style="padding: 6px; text-align: left; white-space: nowrap;">Actions</th>
+                    <th style="padding: 6px; text-align: left; width: 320px; overflow: hidden;">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -3807,20 +3803,18 @@ function renderPositionsTable(container, openPositions) {
     
     html += '</tbody></table>';
     
-    // Prevent visual "pop" during re-render
-    // Strategy: Hide content briefly, update, then reveal
-    container.style.opacity = '0.7';
-    container.style.transition = 'opacity 0.1s';
+    // Prevent layout shift: lock height during innerHTML replacement
+    const currentHeight = container.offsetHeight;
+    if (currentHeight > 100) {
+        container.style.minHeight = currentHeight + 'px';
+    }
     
     container.innerHTML = html;
     
-    // Restore opacity after paint
-    requestAnimationFrame(() => {
-        container.style.opacity = '1';
-        setTimeout(() => {
-            container.style.transition = '';
-        }, 150);
-    });
+    // Release lock only after content is fully painted (delayed)
+    setTimeout(() => {
+        container.style.minHeight = '';
+    }, 100);
     
     // Enable resizable columns
     enableResizableColumns(container);
@@ -4627,6 +4621,7 @@ export function updatePortfolioSummary() {
     // Update summary elements
     const summaryEl = document.getElementById('portfolioSummary');
     if (summaryEl) {
+        // CSS handles fixed height, just update content
         summaryEl.innerHTML = `
             <div class="summary-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 12px;">
                 <div class="summary-item" style="text-align: center;">
@@ -4692,6 +4687,7 @@ export function updatePortfolioSummary() {
                 </div>
             </div>
         `;
+        // No height lock release needed - CSS has fixed height
     }
 }
 
@@ -4886,6 +4882,29 @@ window.debugThesis = function() {
     return { total: positions.length, withThesis: withThesis.length, details: withThesis.map(p => ({ ticker: p.ticker, strike: p.strike, thesisKeys: Object.keys(p.openingThesis) })) };
 };
 
+// Debug function to check raw localStorage for thesis data
+window.debugLocalStorage = function() {
+    const key = getStorageKey();
+    console.log(`Storage key: ${key}`);
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+        console.log('No data in localStorage');
+        return null;
+    }
+    try {
+        const positions = JSON.parse(raw);
+        const withThesis = positions.filter(p => p.openingThesis && Object.keys(p.openingThesis).length > 0);
+        console.log(`Raw localStorage has ${positions.length} positions, ${withThesis.length} with thesis`);
+        withThesis.forEach(p => {
+            console.log(`  ${p.ticker} $${p.strike}: thesis keys = ${Object.keys(p.openingThesis).join(', ')}`);
+        });
+        return { key, total: positions.length, withThesis: withThesis.length };
+    } catch (e) {
+        console.error('Failed to parse localStorage:', e);
+        return null;
+    }
+};
+
 /**
  * Toggle collapse/expand for ticker group in positions table
  */
@@ -4914,14 +4933,12 @@ window.togglePositionsTickerGroup = function(ticker) {
  * Export all data to a JSON file for backup
  */
 export function exportAllData() {
-    const CLOSED_KEY = 'wheelhouse_closed_positions';
-    
     const exportData = {
         version: 1,
         exportDate: new Date().toISOString(),
         positions: state.positions || [],
         holdings: state.holdings || [],
-        closedPositions: JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
+        closedPositions: JSON.parse(localStorage.getItem(getClosedKey()) || '[]')
     };
     
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });

@@ -777,9 +777,10 @@ async function refreshAllPositionPrices() {
         if (window.savePositionsToStorage) {
             window.savePositionsToStorage();
         }
-        // Re-render the positions table
+        
+        // Re-render the positions table (it handles its own height locking)
         renderPositions();
-        // Also update the portfolio summary bar
+        // Also update the portfolio summary bar (it handles its own height locking)
         if (window.updatePortfolioSummary) {
             window.updatePortfolioSummary();
         }
