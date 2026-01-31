@@ -3,6 +3,46 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.18.1] - 2026-01-30
+
+### Added
+- **📊 Capital at Risk in Portfolio Balances**
+  - Added Capital at Risk display to Portfolio tab balances banner
+  - Shows total margin exposure across all open positions
+  - Real-time calculation updates with position changes
+
+- **⛽ Leverage Gauge Dynamic Updates**
+  - Leverage gauge now updates every 2 seconds with streaming prices
+  - Debounced updates prevent flicker while maintaining reactivity
+
+### Changed
+- **Leverage Gauge Thresholds - Margin Call Risk Based**
+  - Completely redesigned thresholds based on actual margin call risk:
+    - 🟢 **0-100%**: Cash-Secured (fully covered, no margin call possible)
+    - 🟡 **100-200%**: Margin (using margin, would need 50%+ total loss to wipe out)
+    - 🟠 **200-300%**: High Margin (33-50% adverse move is dangerous)
+    - 🔴 **300%+**: Danger Zone (margin call territory!)
+  - Gauge now scales from 0-300% (was 0-150%)
+  - Zone markers at 100% and 200% for clear visual reference
+  - Bottom stats now show "Margin capacity available" or "Using $X in margin"
+
+### Fixed
+- **🔧 Account Selection & Value Display**
+  - Fixed 80 million percent leverage bug caused by wrong account selection
+  - AccountService now correctly uses `selectedAccount.accountNumber`
+  - Prefers MARGIN account with highest equity when multiple accounts exist
+  - Fixed display to use `liquidationValue` (Net Liquidating Value) instead of `equity`
+
+- **📈 Leverage Gauge What-If Mode**
+  - Bar now correctly shrinks when positions are unchecked
+  - Shows original position as faint indicator line
+  - Striped "reduction zone" shows potential savings from closing positions
+
+- **🚫 Screen Flicker Eliminated**
+  - Streaming price updates skip redundant polling when connected
+  - Surgical cell updates via `data-col` attributes instead of full re-renders
+  - `updatePositionPriceCells()` for targeted P/L column updates
+
 ## [1.18.0] - 2026-01-31
 
 ### Added

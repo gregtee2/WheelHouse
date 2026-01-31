@@ -32,6 +32,10 @@ class StreamingServiceClass {
         // DOM update tracking
         this.updateQueue = [];
         this.rafScheduled = false;
+        
+        // Debounced gauge update (don't update every tick, just every 2 seconds)
+        this.gaugeUpdateScheduled = false;
+        this.gaugeUpdateDelay = 2000; // 2 seconds
     }
     
     /**
@@ -139,6 +143,29 @@ class StreamingServiceClass {
                 this.updateSpotPrice(update.data);
             }
         }
+        
+        // Schedule a debounced update of the leverage gauge
+        // This prevents updating 100 times per second, but keeps it reactive
+        this.scheduleGaugeUpdate();
+    }
+    
+    /**
+     * Debounced leverage gauge update
+     * Updates the gauge at most once every 2 seconds to avoid flickering
+     */
+    scheduleGaugeUpdate() {
+        if (this.gaugeUpdateScheduled) return;
+        
+        this.gaugeUpdateScheduled = true;
+        setTimeout(() => {
+            this.gaugeUpdateScheduled = false;
+            
+            // Only update if Portfolio Summary function exists and we're on the Positions tab
+            if (window.updatePortfolioSummary && 
+                document.querySelector('#positions')?.classList.contains('active')) {
+                window.updatePortfolioSummary();
+            }
+        }, this.gaugeUpdateDelay);
     }
     
     /**

@@ -109,6 +109,47 @@ window.getAIPredictionLog = getAIPredictionLog;
 const PREFERRED_ACCOUNT_KEY = 'wheelhouse_preferred_account';
 
 /**
+ * Calculate Capital at Risk from open positions
+ * Same logic as positions.js buildLeverageGauge
+ */
+function calculateCapitalAtRisk() {
+    const positions = state.positions || [];
+    const openPositions = positions.filter(p => p.status === 'open');
+    
+    return openPositions.reduce((sum, p) => {
+        const isSpread = p.type?.includes('_spread');
+        const isDebit = isDebitPosition(p.type);
+        
+        if (isSpread) {
+            if (p.maxLoss) return sum + p.maxLoss;
+            const width = p.spreadWidth || Math.abs((p.sellStrike || 0) - (p.buyStrike || 0));
+            const premium = p.premium || 0;
+            const maxLoss = isDebit 
+                ? premium * 100 * p.contracts
+                : (width - premium) * 100 * p.contracts;
+            return sum + maxLoss;
+        } else if (isDebit) {
+            return sum + ((p.premium || 0) * 100 * p.contracts);
+        } else if (p.type === 'short_put' || p.type === 'buy_write') {
+            return sum + ((p.strike || 0) * 100 * p.contracts);
+        }
+        return sum;
+    }, 0);
+}
+
+/**
+ * Update Capital at Risk display in balances banner
+ */
+function updateCapitalAtRiskDisplay() {
+    const carEl = document.getElementById('balCapitalAtRisk');
+    if (carEl) {
+        const capitalAtRisk = calculateCapitalAtRisk();
+        const formatted = '$' + capitalAtRisk.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        carEl.textContent = formatted;
+    }
+}
+
+/**
  * Fetch and display Schwab account balances
  * Now respects state.selectedAccount from the header account switcher
  */
@@ -149,14 +190,15 @@ export async function fetchAccountBalances() {
             
             document.getElementById('balCashAvailable').textContent = fmt(bal.availableFunds ?? bal.cashBalance);
             document.getElementById('balBuyingPower').textContent = fmt(bal.buyingPower);
-            document.getElementById('balAccountValue').textContent = fmt(bal.equity ?? bal.liquidationValue);
+            document.getElementById('balAccountValue').textContent = fmt(bal.liquidationValue ?? bal.equity);
             document.getElementById('balMarginUsed').textContent = fmt(bal.marginBalance || 0);
             document.getElementById('balDayTradeBP').textContent = fmt(bal.dayTradingBuyingPower);
+            updateCapitalAtRiskDisplay();
             
             // Update AccountService cache
             AccountService.updateCache({
                 buyingPower: bal.buyingPower,
-                accountValue: bal.equity || bal.liquidationValue,
+                accountValue: bal.liquidationValue || bal.equity,
                 cashAvailable: bal.availableFunds || bal.cashBalance,
                 marginUsed: bal.marginBalance,
                 dayTradeBP: bal.dayTradingBuyingPower,
@@ -200,9 +242,17 @@ export async function fetchAccountBalances() {
         }
         
         if (!account) {
-            // Try MARGIN type first
-            account = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
-            if (account) console.log('[BALANCES] Found MARGIN account');
+            // Try MARGIN type first - but pick the one with highest equity if multiple
+            const marginAccounts = accounts.filter(a => a.securitiesAccount?.type === 'MARGIN');
+            if (marginAccounts.length > 0) {
+                // Sort by equity descending and pick the largest
+                account = marginAccounts.sort((a, b) => {
+                    const eqA = a.securitiesAccount?.currentBalances?.equity || a.securitiesAccount?.currentBalances?.liquidationValue || 0;
+                    const eqB = b.securitiesAccount?.currentBalances?.equity || b.securitiesAccount?.currentBalances?.liquidationValue || 0;
+                    return eqB - eqA;
+                })[0];
+                console.log('[BALANCES] Found MARGIN account with highest equity:', account.securitiesAccount?.accountNumber?.slice(-4));
+            }
         }
         
         if (!account) {
@@ -233,12 +283,13 @@ export async function fetchAccountBalances() {
             return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         };
         
-        // Update display - use correct Schwab field names
+        // Update display - use correct Schwab field names (liquidationValue = Net Liquidating Value)
         document.getElementById('balCashAvailable').textContent = fmt(bal.availableFunds ?? bal.cashBalance);
         document.getElementById('balBuyingPower').textContent = fmt(bal.buyingPower);
-        document.getElementById('balAccountValue').textContent = fmt(bal.equity ?? bal.liquidationValue);
+        document.getElementById('balAccountValue').textContent = fmt(bal.liquidationValue ?? bal.equity);
         document.getElementById('balMarginUsed').textContent = fmt(bal.marginBalance || 0);
         document.getElementById('balDayTradeBP').textContent = fmt(bal.dayTradingBuyingPower);
+        updateCapitalAtRiskDisplay();
         
         // Timestamp with account info
         const now = new Date();
@@ -254,7 +305,7 @@ export async function fetchAccountBalances() {
         // Update AccountService cache (single source of truth)
         AccountService.updateCache({
             buyingPower: bal.buyingPower,
-            accountValue: bal.equity || bal.liquidationValue,
+            accountValue: bal.liquidationValue || bal.equity,
             cashAvailable: bal.availableFunds || bal.cashBalance,
             marginUsed: bal.marginBalance,
             dayTradeBP: bal.dayTradingBuyingPower,
@@ -298,7 +349,7 @@ window.showAccountSwitcher = function() {
         const bal = sec?.currentBalances || {};
         const accNum = sec?.accountNumber || '';
         const type = sec?.type || 'Unknown';
-        const equity = bal.equity || bal.liquidationValue || 0;
+        const equity = bal.liquidationValue || bal.equity || 0;
         const isSelected = accNum === preferredHash;
         
         return `
@@ -621,6 +672,65 @@ export function formatPatternForAI(pattern) {
 window.formatPatternForAI = formatPatternForAI;
 
 /**
+ * Surgically update price-related cells for a position (no full table re-render)
+ * This prevents flicker when prices update
+ */
+function updatePositionPriceCells(pos) {
+    const row = document.querySelector(`tr[data-position-id="${pos.id}"]`);
+    if (!row) return;
+    
+    // Update P/L Open cell
+    const plOpenCell = row.querySelector('[data-col="pl-open"]');
+    if (plOpenCell && pos.lastOptionPrice !== undefined) {
+        const isDebit = isDebitPosition(pos.type);
+        const entryValue = pos.premium * 100 * (pos.contracts || 1);
+        const currentValue = pos.lastOptionPrice * 100 * (pos.contracts || 1);
+        const unrealizedPnL = isDebit ? currentValue - entryValue : entryValue - currentValue;
+        
+        const color = unrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
+        const sign = unrealizedPnL >= 0 ? '+' : '';
+        plOpenCell.textContent = `${sign}$${Math.abs(unrealizedPnL).toFixed(0)}`;
+        plOpenCell.style.color = color;
+    }
+    
+    // Update P/L % cell
+    const plPctCell = row.querySelector('[data-col="pl-pct"]');
+    if (plPctCell && pos.lastOptionPrice !== undefined && pos.premium > 0) {
+        const isDebit = isDebitPosition(pos.type);
+        const pctChange = isDebit 
+            ? ((pos.lastOptionPrice - pos.premium) / pos.premium) * 100
+            : ((pos.premium - pos.lastOptionPrice) / pos.premium) * 100;
+        
+        const color = pctChange >= 0 ? '#00ff88' : '#ff5252';
+        const sign = pctChange >= 0 ? '+' : '';
+        plPctCell.textContent = `${sign}${pctChange.toFixed(0)}%`;
+        plPctCell.style.color = color;
+    }
+    
+    // Update P/L Day cell if we have day change data
+    const plDayCell = row.querySelector('[data-col="pl-day"]');
+    if (plDayCell && pos.dayChange !== undefined) {
+        const dayPnL = pos.dayChange * 100 * (pos.contracts || 1);
+        const color = dayPnL >= 0 ? '#00ff88' : '#ff5252';
+        const sign = dayPnL >= 0 ? '+' : '';
+        plDayCell.textContent = `${sign}$${Math.abs(dayPnL).toFixed(0)}`;
+        plDayCell.style.color = color;
+    }
+    
+    // Update Cr/Dr cell
+    const crDrCell = row.querySelector('[data-col="cr-dr"]');
+    if (crDrCell && pos.lastOptionPrice !== undefined) {
+        const isDebit = isDebitPosition(pos.type);
+        if (isDebit) {
+            // Long position: show current value
+            const currentValue = pos.lastOptionPrice * 100 * (pos.contracts || 1);
+            crDrCell.textContent = `$${currentValue.toFixed(0)}`;
+        }
+        // Short positions keep original premium, no update needed
+    }
+}
+
+/**
  * Refresh prices for ALL open positions from Schwab (or CBOE fallback)
  * Updates lastOptionPrice and markedPrice on each position
  */
@@ -779,9 +889,12 @@ async function refreshAllPositionPrices() {
             window.savePositionsToStorage();
         }
         
-        // Re-render the positions table (it handles its own height locking)
-        renderPositions();
-        // Also update the portfolio summary bar (it handles its own height locking)
+        // Do SURGICAL updates to price cells instead of full re-render (prevents flicker)
+        for (const pos of positions) {
+            updatePositionPriceCells(pos);
+        }
+        
+        // Also update the portfolio summary bar
         if (window.updatePortfolioSummary) {
             window.updatePortfolioSummary();
         }
@@ -856,10 +969,15 @@ function startAutoRefreshPrices() {
         }
     }, AUTO_REFRESH_INTERVAL);
     
-    // Do an immediate refresh when starting
-    refreshAllPositionPrices().then(() => {
+    // Do an immediate refresh when starting ONLY if streaming not connected
+    if (!StreamingService.isConnected()) {
+        refreshAllPositionPrices().then(() => {
+            updatePriceLastUpdated();
+        });
+    } else {
+        console.log('⚡ Streaming connected - skipping initial price fetch');
         updatePriceLastUpdated();
-    });
+    }
 }
 
 /**

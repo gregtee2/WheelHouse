@@ -3767,9 +3767,9 @@ function renderPositionsTable(container, openPositions) {
                     const pctColor = unrealizedPnLPct >= 50 ? '#00d9ff' : (unrealizedPnLPct >= 0 ? '#00ff88' : '#ff5252');
                     const pctStyle = unrealizedPnLPct >= 50 ? 'text-shadow:0 0 4px #00d9ff;' : '';
                     if (currentOptionPrice === null) {
-                        return `<td style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">⏳</span></td>`;
+                        return `<td data-col="pl-pct" style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">⏳</span></td>`;
                     }
-                    return `<td style="padding: 6px; text-align: right; font-size: 11px;" title="Entry: $${pos.premium.toFixed(2)} → Current: $${currentOptionPrice.toFixed(2)}">
+                    return `<td data-col="pl-pct" style="padding: 6px; text-align: right; font-size: 11px;" title="Entry: $${pos.premium.toFixed(2)} → Current: $${currentOptionPrice.toFixed(2)}">
                         <span style="color:${pctColor};font-weight:bold;${pctStyle}">${unrealizedPnLPct >= 50 ? '✓' : ''}${unrealizedPnLPct >= 0 ? '+' : ''}${unrealizedPnLPct.toFixed(0)}%</span>
                     </td>`;
                 })()}
@@ -3781,9 +3781,9 @@ function renderPositionsTable(container, openPositions) {
                     const pnlDay = isLongPosition ? (dayChange * 100 * pos.contracts) : (-dayChange * 100 * pos.contracts);
                     const pnlDayColor = pnlDay >= 0 ? '#00ff88' : '#ff5252';
                     if (dayChange === 0 && !pos.priceUpdatedAt) {
-                        return `<td style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">—</span></td>`;
+                        return `<td data-col="pl-day" style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">—</span></td>`;
                     }
-                    return `<td style="padding: 6px; text-align: right; font-size: 11px;" title="Option day change: ${dayChange >= 0 ? '+' : ''}$${dayChange.toFixed(2)}/share">
+                    return `<td data-col="pl-day" style="padding: 6px; text-align: right; font-size: 11px;" title="Option day change: ${dayChange >= 0 ? '+' : ''}$${dayChange.toFixed(2)}/share">
                         <span style="color:${pnlDayColor}">${pnlDay >= 0 ? '+' : ''}$${pnlDay.toFixed(0)}</span>
                     </td>`;
                 })()}
@@ -4840,7 +4840,8 @@ export function updatePortfolioSummary() {
 
 /**
  * Build a visual fuel gauge showing leverage ratio (Capital at Risk / Account Value)
- * Green = Conservative (<50%), Yellow = Moderate (50-80%), Orange = Aggressive (80-100%), Red = Danger (>100%)
+ * Green = Cash-Secured (<100%), Yellow = Margin (100-200%), Orange = High Margin (200-300%), Red = Danger (>300%)
+ * At 300%+ leverage, even a moderate adverse move could trigger a margin call
  * When in What-If mode, shows comparison between current and simulated leverage
  */
 function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode) {
@@ -4852,6 +4853,7 @@ function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)
     if (window.AccountService) {
         accountValue = window.AccountService.getAccountValue() || 0;
         buyingPower = window.AccountService.getBuyingPower() || 0;
+        console.log('[LEVERAGE] From AccountService:', { accountValue, buyingPower });
     }
     
     // Fallback: try to parse from DOM (Portfolio tab elements)
@@ -4859,6 +4861,7 @@ function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)
         const valEl = document.getElementById('balAccountValue');
         if (valEl && valEl.textContent && valEl.textContent !== '—') {
             accountValue = parseFloat(valEl.textContent.replace(/[$,]/g, '')) || 0;
+            console.log('[LEVERAGE] From DOM balAccountValue:', accountValue, 'raw:', valEl.textContent);
         }
     }
     if (!buyingPower) {
@@ -4887,49 +4890,58 @@ function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)
     const capitalReduction = capitalAtRisk - simulatedCapitalAtRisk;
     const leverageReduction = leverageRatio - simulatedLeverageRatio;
     
-    // Determine zone and color for CURRENT leverage
+    // Determine zone and color for CURRENT leverage (based on margin call risk)
+    // 0-100% = cash-secured (no margin call possible)
+    // 100-200% = using margin, but a 50%+ loss on ALL positions needed to wipe out
+    // 200-300% = significant margin, 33-50% adverse move is dangerous
+    // 300%+ = margin call territory, a 25-33% move against you triggers call
     let zoneColor, zoneName, zoneIcon;
-    if (leverageRatio <= 50) {
+    if (leverageRatio <= 100) {
         zoneColor = '#00ff88';
-        zoneName = 'Conservative';
+        zoneName = 'Cash-Secured';
         zoneIcon = '🛡️';
-    } else if (leverageRatio <= 80) {
+    } else if (leverageRatio <= 200) {
         zoneColor = '#ffaa00';
-        zoneName = 'Moderate';
+        zoneName = 'Margin';
         zoneIcon = '⚡';
-    } else if (leverageRatio <= 100) {
+    } else if (leverageRatio <= 300) {
         zoneColor = '#ff7744';
-        zoneName = 'Aggressive';
+        zoneName = 'High Margin';
         zoneIcon = '⚠️';
     } else {
         zoneColor = '#ff5252';
-        zoneName = 'Over-Leveraged';
+        zoneName = 'Danger Zone';
         zoneIcon = '🚨';
     }
     
-    // Determine zone for SIMULATED leverage (what-if mode)
+    // Determine zone for SIMULATED leverage (what-if mode) - same thresholds as current
     let simZoneColor, simZoneName, simZoneIcon;
-    if (simulatedLeverageRatio <= 50) {
+    if (simulatedLeverageRatio <= 100) {
         simZoneColor = '#00ff88';
-        simZoneName = 'Conservative';
+        simZoneName = 'Cash-Secured';
         simZoneIcon = '🛡️';
-    } else if (simulatedLeverageRatio <= 80) {
+    } else if (simulatedLeverageRatio <= 200) {
         simZoneColor = '#ffaa00';
-        simZoneName = 'Moderate';
+        simZoneName = 'Margin';
         simZoneIcon = '⚡';
-    } else if (simulatedLeverageRatio <= 100) {
+    } else if (simulatedLeverageRatio <= 300) {
         simZoneColor = '#ff7744';
-        simZoneName = 'Aggressive';
+        simZoneName = 'High Margin';
         simZoneIcon = '⚠️';
     } else {
         simZoneColor = '#ff5252';
-        simZoneName = 'Over-Leveraged';
+        simZoneName = 'Danger Zone';
         simZoneIcon = '🚨';
     }
     
-    // Calculate fill percentages (cap at 150% for visual)
-    const fillPercent = Math.min(leverageRatio, 150);
-    const simFillPercent = Math.min(simulatedLeverageRatio, 150);
+    // Calculate fill percentages (cap at 300% for visual, matching danger threshold)
+    const fillPercent = Math.min(leverageRatio, 300);
+    const simFillPercent = Math.min(simulatedLeverageRatio, 300);
+    
+    // In what-if mode, the bar shows the SIMULATED (reduced) leverage
+    // The original position is shown as a faint outline
+    const displayFillPercent = isWhatIfMode ? simFillPercent : fillPercent;
+    const displayZoneColor = isWhatIfMode ? simZoneColor : zoneColor;
     
     // Calculate runway in dollars
     const runwayDollars = accountValue - capitalAtRisk;
@@ -4991,46 +5003,59 @@ function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)
                 </div>
             </div>
             
-            <!-- Gauge bar -->
+            <!-- Gauge bar - scales from 0% to 300% leverage -->
             <div style="position: relative; height: 24px; background: #1a1a2e; border-radius: 12px; overflow: hidden; border: 1px solid #333;">
-                <!-- Zone markers -->
-                <div style="position: absolute; left: 33.3%; top: 0; bottom: 0; width: 1px; background: #444; z-index: 1;"></div>
-                <div style="position: absolute; left: 53.3%; top: 0; bottom: 0; width: 1px; background: #444; z-index: 1;"></div>
-                <div style="position: absolute; left: 66.6%; top: 0; bottom: 0; width: 1px; background: #666; z-index: 1;"></div>
+                <!-- Zone markers at 100% (cash-secured limit) and 200% (high margin starts) -->
+                <div style="position: absolute; left: 33.3%; top: 0; bottom: 0; width: 2px; background: #00ff88; opacity: 0.5; z-index: 1;" title="100% - Cash Secured Limit"></div>
+                <div style="position: absolute; left: 66.6%; top: 0; bottom: 0; width: 1px; background: #ff7744; opacity: 0.5; z-index: 1;" title="200% - High Margin Zone"></div>
                 
-                <!-- Fill bar -->
+                <!-- Fill bar (divide by 3 to scale 300% → 100% bar width) -->
                 <div style="
                     position: absolute;
                     left: 0;
                     top: 0;
                     height: 100%;
-                    width: ${fillPercent / 1.5}%;
+                    width: ${displayFillPercent / 3}%;
                     background: linear-gradient(90deg, 
-                        ${leverageRatio <= 50 ? '#00ff88' : '#00ff88'} 0%, 
-                        ${leverageRatio <= 50 ? '#00ff88' : leverageRatio <= 80 ? '#ffaa00' : leverageRatio <= 100 ? '#ff7744' : '#ff5252'} 100%
+                        ${displayZoneColor} 0%, 
+                        ${displayZoneColor} 100%
                     );
                     border-radius: 12px 0 0 12px;
                     transition: width 0.5s ease, background 0.5s ease;
                 "></div>
                 
                 ${isWhatIfMode ? `
-                <!-- Simulated position indicator (dashed line showing where you'd be) -->
+                <!-- Original position indicator (shows where you WERE before unchecking) -->
                 <div style="
                     position: absolute;
-                    left: calc(${Math.min(simFillPercent / 1.5, 98)}% - 1px);
+                    left: calc(${Math.min(fillPercent / 3, 98)}% - 1px);
                     top: 0;
                     height: 100%;
                     width: 2px;
-                    background: repeating-linear-gradient(to bottom, #00d9ff 0px, #00d9ff 4px, transparent 4px, transparent 8px);
+                    background: ${zoneColor};
+                    opacity: 0.5;
                     z-index: 3;
-                    box-shadow: 0 0 6px #00d9ff;
+                "></div>
+                <div style="
+                    position: absolute;
+                    left: ${displayFillPercent / 3}%;
+                    top: 0;
+                    height: 100%;
+                    width: ${(fillPercent - simFillPercent) / 3}%;
+                    background: repeating-linear-gradient(45deg, 
+                        rgba(255,255,255,0.05) 0px, 
+                        rgba(255,255,255,0.05) 2px, 
+                        transparent 2px, 
+                        transparent 4px
+                    );
+                    z-index: 2;
                 "></div>
                 ` : ''}
                 
                 <!-- Current position indicator -->
                 <div style="
                     position: absolute;
-                    left: calc(${Math.min(fillPercent / 1.5, 98)}% - 2px);
+                    left: calc(${Math.min(fillPercent / 3, 98)}% - 2px);
                     top: 0;
                     height: 100%;
                     width: 4px;
@@ -5039,21 +5064,27 @@ function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)
                     z-index: 2;
                 "></div>
                 
-                <!-- Zone labels inside bar -->
-                <div style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 9px; color: rgba(0,0,0,0.5); font-weight: bold; z-index: 3;">SAFE</div>
-                <div style="position: absolute; left: 38%; top: 50%; transform: translateY(-50%); font-size: 9px; color: rgba(255,255,255,0.3); font-weight: bold; z-index: 3;">MOD</div>
-                <div style="position: absolute; left: 58%; top: 50%; transform: translateY(-50%); font-size: 9px; color: rgba(255,255,255,0.3); font-weight: bold; z-index: 3;">AGG</div>
-                <div style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 9px; color: rgba(255,255,255,0.3); font-weight: bold; z-index: 3;">DANGER</div>
+                <!-- Zone labels inside bar: 0-100% Cash-Secured | 100-200% Margin | 200-300% High Margin | 300%+ Danger -->
+                <div style="position: absolute; left: 10%; top: 50%; transform: translate(-50%, -50%); font-size: 9px; color: rgba(0,255,136,0.6); font-weight: bold; z-index: 3;">SAFE</div>
+                <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 9px; color: rgba(255,170,0,0.6); font-weight: bold; z-index: 3;">MARGIN</div>
+                <div style="position: absolute; left: 83%; top: 50%; transform: translate(-50%, -50%); font-size: 9px; color: rgba(255,119,68,0.6); font-weight: bold; z-index: 3;">HIGH</div>
             </div>
             
             <!-- Bottom stats -->
             <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px;">
                 <div>
-                    <span style="color: #888;">Runway: </span>
-                    <span style="color: ${runwayDollars >= 0 ? '#00ff88' : '#ff5252'}; font-weight: bold;">
-                        ${runwayDollars >= 0 ? '' : '-'}$${Math.abs(runwayDollars).toLocaleString('en-US', {maximumFractionDigits: 0})}
-                    </span>
-                    <span style="color: #666;"> until 100%</span>
+                    ${runwayDollars >= 0 
+                        ? `<span style="color: #888;">Margin capacity: </span>
+                           <span style="color: #00ff88; font-weight: bold;">
+                               $${runwayDollars.toLocaleString('en-US', {maximumFractionDigits: 0})}
+                           </span>
+                           <span style="color: #666;"> available</span>`
+                        : `<span style="color: #888;">Using: </span>
+                           <span style="color: #ffaa00; font-weight: bold;">
+                               $${Math.abs(runwayDollars).toLocaleString('en-US', {maximumFractionDigits: 0})}
+                           </span>
+                           <span style="color: #666;"> in margin</span>`
+                    }
                 </div>
                 <div style="color: #888;">
                     ${formatCurrency(capitalAtRisk)} committed of ${formatCurrency(accountValue)}

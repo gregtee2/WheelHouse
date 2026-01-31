@@ -144,8 +144,8 @@ const AccountService = {
             let account = null;
             
             // 1. First try to match selectedAccount from state
-            if (window.state?.selectedAccount) {
-                const selectedId = String(window.state.selectedAccount);
+            if (window.state?.selectedAccount?.accountNumber) {
+                const selectedId = window.state.selectedAccount.accountNumber;
                 account = accounts.find(a => {
                     const acctNum = a.securitiesAccount?.accountNumber;
                     if (!acctNum) return false;
@@ -155,13 +155,24 @@ const AccountService = {
                            acctNum.endsWith(selectedId.replace(/\D/g, '').slice(-4));
                 });
                 if (account) {
-                    console.log('[AccountService] Using selected account:', selectedId);
+                    const bal = account.securitiesAccount?.currentBalances;
+                    console.log('[AccountService] Using selected account:', selectedId, 
+                        '| equity:', bal?.equity || bal?.liquidationValue);
                 }
             }
             
-            // 2. Fall back to margin account or highest equity
+            // 2. Fall back to margin account with highest equity, or any account with highest equity
             if (!account) {
-                account = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
+                const marginAccounts = accounts.filter(a => a.securitiesAccount?.type === 'MARGIN');
+                if (marginAccounts.length > 0) {
+                    // Pick the margin account with highest equity
+                    account = marginAccounts.sort((a, b) => {
+                        const eqA = a.securitiesAccount?.currentBalances?.equity || a.securitiesAccount?.currentBalances?.liquidationValue || 0;
+                        const eqB = b.securitiesAccount?.currentBalances?.equity || b.securitiesAccount?.currentBalances?.liquidationValue || 0;
+                        return eqB - eqA;
+                    })[0];
+                    console.log('[AccountService] Using MARGIN account with highest equity:', account.securitiesAccount?.accountNumber?.slice(-4));
+                }
             }
             if (!account) {
                 account = accounts
@@ -181,9 +192,10 @@ const AccountService = {
             const bal = account.securitiesAccount.currentBalances;
             const acct = account.securitiesAccount;
             
+            // Prefer liquidationValue (Net Liquidating Value) over equity for accurate leverage calc
             this.updateCache({
                 buyingPower: bal.buyingPower,
-                accountValue: bal.equity || bal.liquidationValue,
+                accountValue: bal.liquidationValue || bal.equity,
                 cashAvailable: bal.availableFunds || bal.cashBalance,
                 marginUsed: bal.marginBalance,
                 dayTradeBP: bal.dayTradingBuyingPower,

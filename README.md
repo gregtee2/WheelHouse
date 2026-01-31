@@ -5,8 +5,37 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-Proprietary-red)
-![Version](https://img.shields.io/badge/version-1.17.36-blue)
+![Version](https://img.shields.io/badge/version-1.18.1-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
+
+---
+
+
+## 🆕 What's New in v1.18.1
+
+### ⛽ Leverage Gauge - Margin Call Risk Based
+Complete redesign of the leverage gauge to reflect **actual margin call risk**:
+
+| Leverage | Zone | Color | What It Means |
+|----------|------|-------|---------------|
+| **0-100%** | Cash-Secured | 🟢 Green | Fully covered - no margin call possible |
+| **100-200%** | Margin | 🟡 Yellow | Using margin, but safe - would need 50%+ total loss |
+| **200-300%** | High Margin | 🟠 Orange | Getting risky - 33-50% adverse move is dangerous |
+| **300%+** | Danger Zone | 🔴 Red | Margin call territory! |
+
+- **Real-time updates**: Gauge updates every 2 seconds with streaming prices
+- **What-If Mode**: Uncheck positions to see leverage impact of closing them
+- **Visual indicators**: Zone markers at 100% and 200%, faint line shows original position in What-If mode
+
+### 📊 Portfolio Improvements
+- **Capital at Risk** now displayed in Portfolio balances banner
+- **Net Liquidating Value** used instead of Margin Equity for accurate account value
+- **Account Selection** prefers MARGIN account with highest equity
+
+### 🔴 Real-Time Streaming (v1.18.0)
+- **Live option quotes** via Schwab streaming API
+- **Surgical DOM updates** - individual cells flash green/red, no full re-renders
+- **No more screen flicker** during price updates
 
 ---
 
