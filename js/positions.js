@@ -4520,6 +4520,15 @@ function updateThetaSummaryCard() {
  * Update portfolio summary stats
  */
 export function updatePortfolioSummary() {
+    // Ensure AccountService has data (needed for leverage gauge)
+    if (window.AccountService && !window.AccountService.getAccountValue()) {
+        // Trigger async refresh - gauge will show "loading" message until data arrives
+        window.AccountService.refresh().then(() => {
+            // Re-render after data loads
+            updatePortfolioSummary();
+        }).catch(() => {});
+    }
+    
     // Ensure positions is an array
     if (!Array.isArray(state.positions)) {
         state.positions = [];
@@ -4774,23 +4783,29 @@ function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)
         buyingPower = window.AccountService.getBuyingPower() || 0;
     }
     
-    // Fallback: try to parse from DOM
+    // Fallback: try to parse from DOM (Portfolio tab elements)
     if (!accountValue) {
         const valEl = document.getElementById('balAccountValue');
-        if (valEl) {
+        if (valEl && valEl.textContent && valEl.textContent !== '—') {
             accountValue = parseFloat(valEl.textContent.replace(/[$,]/g, '')) || 0;
         }
     }
     if (!buyingPower) {
         const bpEl = document.getElementById('balBuyingPower');
-        if (bpEl) {
+        if (bpEl && bpEl.textContent && bpEl.textContent !== '—') {
             buyingPower = parseFloat(bpEl.textContent.replace(/[$,]/g, '')) || 0;
         }
     }
     
-    // If we still don't have account value, don't show the gauge
+    // If we still don't have account value, show a helpful message
     if (!accountValue || accountValue <= 0) {
-        return '';
+        return `
+            <div style="margin-top: 12px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px dashed #444;">
+                <div style="color: #888; font-size: 11px; text-align: center;">
+                    📊 Leverage Gauge — <span style="color: #ffaa00;">Visit Portfolio tab to load account data</span>
+                </div>
+            </div>
+        `;
     }
     
     // Calculate leverage ratio: Capital at Risk / Account Value
