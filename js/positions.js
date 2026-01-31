@@ -4548,14 +4548,22 @@ function updateThetaSummaryCard() {
 /**
  * Update portfolio summary stats
  */
+let accountRefreshScheduled = false; // Prevent multiple refresh loops
 export function updatePortfolioSummary() {
     // Ensure AccountService has data (needed for leverage gauge)
-    if (window.AccountService && !window.AccountService.getAccountValue()) {
-        // Trigger async refresh - gauge will show "loading" message until data arrives
-        window.AccountService.refresh().then(() => {
-            // Re-render after data loads
-            updatePortfolioSummary();
-        }).catch(() => {});
+    // Only trigger ONE refresh attempt, not a loop
+    if (window.AccountService && !window.AccountService.getAccountValue() && !accountRefreshScheduled) {
+        accountRefreshScheduled = true;
+        // Try to refresh, but don't retry if it fails (rate limiting protection)
+        window.AccountService.refresh().then((result) => {
+            accountRefreshScheduled = false;
+            if (result) {
+                // Only re-render if we actually got data
+                updatePortfolioSummary();
+            }
+        }).catch(() => {
+            accountRefreshScheduled = false;
+        });
     }
     
     // Ensure positions is an array

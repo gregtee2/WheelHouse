@@ -18,7 +18,13 @@
 // Cache of account balances
 let balanceCache = null;
 let lastFetchTime = 0;
+let lastErrorTime = 0;  // Track when we last got an error
+let errorCount = 0;     // Track consecutive errors for backoff
+let refreshInProgress = false; // Prevent concurrent refresh calls
 const CACHE_TTL = 60000; // 1 minute cache
+const MIN_REFRESH_INTERVAL = 10000; // At least 10 seconds between refreshes
+const ERROR_BACKOFF_BASE = 30000; // Base backoff on error (30 sec)
+const MAX_BACKOFF = 300000; // Max backoff 5 minutes
 
 const AccountService = {
     
@@ -91,12 +97,45 @@ const AccountService = {
      * @returns {Promise<Object|null>}
      */
     async refresh() {
+        // Prevent concurrent refresh calls
+        if (refreshInProgress) {
+            console.log('[AccountService] Refresh already in progress, skipping');
+            return null;
+        }
+        
+        // Rate limiting: check minimum interval
+        const now = Date.now();
+        const timeSinceLastFetch = now - lastFetchTime;
+        if (timeSinceLastFetch < MIN_REFRESH_INTERVAL) {
+            console.log(`[AccountService] Rate limited - wait ${Math.ceil((MIN_REFRESH_INTERVAL - timeSinceLastFetch) / 1000)}s`);
+            return null;
+        }
+        
+        // Exponential backoff after errors
+        if (errorCount > 0) {
+            const backoffTime = Math.min(ERROR_BACKOFF_BASE * Math.pow(2, errorCount - 1), MAX_BACKOFF);
+            const timeSinceError = now - lastErrorTime;
+            if (timeSinceError < backoffTime) {
+                console.log(`[AccountService] In error backoff - wait ${Math.ceil((backoffTime - timeSinceError) / 1000)}s`);
+                return null;
+            }
+        }
+        
+        refreshInProgress = true;
+        lastFetchTime = now;
+        
         try {
             const res = await fetch('/api/schwab/accounts');
             if (!res.ok) {
-                console.log('[AccountService] Schwab not connected');
+                errorCount++;
+                lastErrorTime = now;
+                refreshInProgress = false;
+                console.log(`[AccountService] Schwab error (${res.status}), backoff ${errorCount}`);
                 return null;
             }
+            
+            // Success - reset error count
+            errorCount = 0;
             
             const accounts = await res.json();
             
@@ -154,9 +193,38 @@ const AccountService = {
             return balanceCache;
             
         } catch (e) {
+            errorCount++;
+            lastErrorTime = Date.now();
             console.error('[AccountService] Refresh failed:', e.message);
             return null;
+        } finally {
+            refreshInProgress = false;
         }
+    },
+    
+    /**
+     * Get current rate limit status (for debugging)
+     */
+    getRateLimitStatus() {
+        const now = Date.now();
+        return {
+            errorCount,
+            inBackoff: errorCount > 0,
+            backoffRemaining: errorCount > 0 ? 
+                Math.max(0, Math.min(ERROR_BACKOFF_BASE * Math.pow(2, errorCount - 1), MAX_BACKOFF) - (now - lastErrorTime)) : 0,
+            canRefresh: !refreshInProgress && 
+                        (now - lastFetchTime >= MIN_REFRESH_INTERVAL) &&
+                        (errorCount === 0 || now - lastErrorTime >= Math.min(ERROR_BACKOFF_BASE * Math.pow(2, errorCount - 1), MAX_BACKOFF))
+        };
+    },
+    
+    /**
+     * Reset error state (call after user re-authenticates)
+     */
+    resetErrors() {
+        errorCount = 0;
+        lastErrorTime = 0;
+        console.log('[AccountService] Error state reset');
     },
     
     /**
