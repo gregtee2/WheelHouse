@@ -4,7 +4,7 @@
 
 **WheelHouse** is a Wheel Strategy Options Analyzer & Position Tracker built with vanilla JavaScript (ES6 modules) and Node.js. It provides Monte Carlo-based options pricing, real-time CBOE quotes, position tracking, and portfolio analytics.
 
-**Version**: 1.16.0  
+**Version**: 1.19.0  
 **Repository**: https://github.com/gregtee2/WheelHouse  
 **Branches**: `main` (development), `stable` (releases)
 
@@ -956,7 +956,50 @@ git push origin main:stable
 
 ## 📋 Recent Features (January 2026)
 
-### v1.16.0 (Current)
+### v1.19.0 (Current)
+- **📊 Week Summary Report**: Comprehensive weekly portfolio review
+  - 4-step AI pipeline with SSE progress streaming:
+    1. Identify At-Risk Positions (DTE-based urgency)
+    2. Position Checkups (individual AI analysis)
+    3. Portfolio Audit (leverage, concentration, bias)
+    4. Synthesis (actionable report with recommendations)
+  - DTE urgency badges: 🔴 URGENT (≤7 DTE), 🟠 ACTION (8-21 DTE), 🟡 WATCH (22+ DTE)
+  - Collapsible sections for detailed AI outputs
+  - "Week Summary" button in Portfolio tab header
+
+- **🐦 X/Twitter Sentiment Integration (Grok Only)**
+  - When Grok-3 is the AI model, Week Summary includes real-time X sentiment
+  - AI searches X for sentiment on your specific tickers
+  - Breaking news, Fed policy, sector rotation woven into recommendations
+  - Provides "trader's edge" context beyond static data analysis
+  - **Discoverable UI**: When non-Grok model selected, shows "Switch to Grok for live 𝕏 sentiment" link
+  - Clicking switches to Grok instantly; badge changes to "✓ 𝕏 Live sentiment enabled"
+
+- **🔧 Account-Specific Storage Keys**
+  - Week Summary reads from correct account-specific localStorage key
+  - Format: `wheelhouse_MARGIN_XXXX_closed_positions`
+  - Matches `state.js` `getStorageKey()` logic
+  - Prevents paper trading data bleeding into real account reports
+
+- **🚫 AI Anti-Hallucination**
+  - Explicit instructions: "THESE ARE THE ONLY TRADES CLOSED THIS WEEK"
+  - Closed trades listed by exact ticker/strike/date
+  - Warning when no trades: "Do NOT invent or hallucinate any closed trades"
+
+### v1.18.0
+- **🔴 Real-Time Schwab Streaming Infrastructure**
+  - Socket.IO server for real-time price updates
+  - OCC symbol conversion for option positions
+  - Surgical DOM updates instead of full table re-renders
+  - `StreamingService.js` for frontend streaming client
+  - Flash animations for price changes (green up, red down)
+
+- **📊 Capital at Risk in Portfolio Balances**
+  - Added Capital at Risk display to Portfolio tab
+  - Leverage gauge dynamic updates every 2 seconds
+  - Redesigned leverage thresholds based on margin call risk
+
+### v1.16.0
 - **🌐 Global AI Model Selector**: One model setting for all features
   - New dropdown in header bar (next to Account switcher)
   - Local "Override" dropdowns let you customize per-feature if needed

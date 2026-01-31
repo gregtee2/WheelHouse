@@ -1282,6 +1282,7 @@ Examples:
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                         <h3 style="color:var(--accent-cyan); margin:0;">💼 Holdings & Trade History</h3>
                         <div style="display:flex; gap:12px; align-items:center;">
+                            <button id="weekSummaryBtn" onclick="window.showWeekSummary()" class="btn-primary" style="padding:6px 12px; background:linear-gradient(135deg, rgba(0,217,255,0.25), rgba(0,217,255,0.15)); border-color:rgba(0,217,255,0.5); color:#00d9ff;" title="Generate AI weekly performance summary">📊 Week Summary</button>
                             <button id="refreshPortfolioBtn" class="btn-primary" style="padding:6px 12px;">🔄 Refresh Prices</button>
                         </div>
                     </div>
@@ -1812,7 +1813,10 @@ Examples:
     <!-- Settings Management -->
     <script src="js/settings.js?v=1.17.73"></script>
     
+    <!-- Services (before ES6 modules) -->
+    <script src="js/services/WeeklySummaryService.js?v=1.18.11"></script>
+    
     <!-- ES6 Module Entry Point -->
-    <script type="module" src="js/main.js?v=1.17.73"></script>
+    <script type="module" src="js/main.js?v=1.18.1"></script>
 </body>
 </html>

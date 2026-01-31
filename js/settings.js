@@ -6,6 +6,177 @@
  */
 
 // ============================================================================
+// SECTOR LOOKUP UTILITY
+// ============================================================================
+
+/**
+ * Get sector classification for a ticker
+ * Returns sector name and related search keywords for X sentiment
+ */
+function getSectorInfo(ticker) {
+    const upperTicker = (ticker || '').toUpperCase();
+    
+    // Sector mapping - ticker to { sector, keywords }
+    const sectorMap = {
+        // Crypto miners
+        'IREN': { sector: 'Crypto Mining', keywords: ['Bitcoin mining', 'crypto mining', 'BTC miners'] },
+        'CIFR': { sector: 'Crypto Mining', keywords: ['Bitcoin mining', 'crypto mining', 'Cipher Mining'] },
+        'MARA': { sector: 'Crypto Mining', keywords: ['Bitcoin mining', 'crypto mining', 'Marathon Digital'] },
+        'RIOT': { sector: 'Crypto Mining', keywords: ['Bitcoin mining', 'crypto mining', 'Riot Platforms'] },
+        'HUT': { sector: 'Crypto Mining', keywords: ['Bitcoin mining', 'crypto mining'] },
+        'CLSK': { sector: 'Crypto Mining', keywords: ['Bitcoin mining', 'crypto mining', 'CleanSpark'] },
+        'BTBT': { sector: 'Crypto Mining', keywords: ['Bitcoin mining', 'crypto mining'] },
+        'COIN': { sector: 'Crypto Exchange', keywords: ['crypto exchange', 'Bitcoin', 'cryptocurrency'] },
+        'MSTR': { sector: 'Crypto/Tech', keywords: ['Bitcoin', 'MicroStrategy', 'BTC treasury'] },
+        
+        // Semiconductors
+        'INTC': { sector: 'Semiconductors', keywords: ['chip stocks', 'semiconductors', 'Intel'] },
+        'AMD': { sector: 'Semiconductors', keywords: ['chip stocks', 'semiconductors', 'AI chips'] },
+        'NVDA': { sector: 'Semiconductors', keywords: ['AI chips', 'semiconductors', 'GPU', 'Nvidia'] },
+        'TSM': { sector: 'Semiconductors', keywords: ['chip stocks', 'semiconductors', 'TSMC'] },
+        'AVGO': { sector: 'Semiconductors', keywords: ['semiconductors', 'Broadcom'] },
+        'QCOM': { sector: 'Semiconductors', keywords: ['semiconductors', '5G chips', 'Qualcomm'] },
+        'MU': { sector: 'Semiconductors', keywords: ['memory chips', 'semiconductors', 'Micron'] },
+        'SMCI': { sector: 'Semiconductors', keywords: ['AI servers', 'semiconductors', 'Super Micro'] },
+        'ARM': { sector: 'Semiconductors', keywords: ['chip design', 'semiconductors', 'ARM Holdings'] },
+        
+        // Precious metals
+        'SLV': { sector: 'Precious Metals', keywords: ['silver', 'precious metals', 'silver ETF'] },
+        'GLD': { sector: 'Precious Metals', keywords: ['gold', 'precious metals', 'gold ETF'] },
+        'AG': { sector: 'Precious Metals', keywords: ['silver miners', 'precious metals'] },
+        'GOLD': { sector: 'Precious Metals', keywords: ['gold miners', 'Barrick Gold'] },
+        
+        // EV and clean energy
+        'TSLA': { sector: 'Electric Vehicles', keywords: ['electric vehicles', 'EV stocks', 'Tesla'] },
+        'RIVN': { sector: 'Electric Vehicles', keywords: ['electric vehicles', 'EV stocks', 'Rivian'] },
+        'LCID': { sector: 'Electric Vehicles', keywords: ['electric vehicles', 'EV stocks', 'Lucid'] },
+        'NIO': { sector: 'Electric Vehicles', keywords: ['electric vehicles', 'China EV', 'NIO'] },
+        'ENPH': { sector: 'Clean Energy', keywords: ['solar stocks', 'clean energy', 'Enphase'] },
+        'SEDG': { sector: 'Clean Energy', keywords: ['solar stocks', 'clean energy', 'SolarEdge'] },
+        'FSLR': { sector: 'Clean Energy', keywords: ['solar stocks', 'clean energy', 'First Solar'] },
+        
+        // Leveraged ETFs - tag with underlying sector
+        'TSLL': { sector: 'Leveraged ETF (EV)', keywords: ['Tesla', 'TSLA', 'electric vehicles'] },
+        'NVDL': { sector: 'Leveraged ETF (Semis)', keywords: ['Nvidia', 'NVDA', 'AI chips'] },
+        'SOXL': { sector: 'Leveraged ETF (Semis)', keywords: ['semiconductors', 'chip stocks'] },
+        'TQQQ': { sector: 'Leveraged ETF (Tech)', keywords: ['Nasdaq', 'tech stocks', 'QQQ'] },
+        'SQQQ': { sector: 'Leveraged ETF (Tech)', keywords: ['Nasdaq', 'tech stocks', 'QQQ'] },
+        'SPXL': { sector: 'Leveraged ETF (S&P)', keywords: ['S&P 500', 'SPY', 'broad market'] },
+        
+        // China tech
+        'BABA': { sector: 'China Tech', keywords: ['China tech', 'Alibaba', 'China stocks'] },
+        'JD': { sector: 'China Tech', keywords: ['China tech', 'JD.com', 'China stocks'] },
+        'PDD': { sector: 'China Tech', keywords: ['China tech', 'Pinduoduo', 'China stocks'] },
+        'BIDU': { sector: 'China Tech', keywords: ['China tech', 'Baidu', 'China AI'] },
+        'NIO': { sector: 'China Tech', keywords: ['China EV', 'NIO', 'China stocks'] },
+        
+        // Big Tech
+        'AAPL': { sector: 'Big Tech', keywords: ['Apple', 'iPhone', 'tech stocks'] },
+        'MSFT': { sector: 'Big Tech', keywords: ['Microsoft', 'Azure', 'AI'] },
+        'GOOGL': { sector: 'Big Tech', keywords: ['Google', 'Alphabet', 'AI'] },
+        'GOOG': { sector: 'Big Tech', keywords: ['Google', 'Alphabet', 'AI'] },
+        'META': { sector: 'Big Tech', keywords: ['Meta', 'Facebook', 'AI'] },
+        'AMZN': { sector: 'Big Tech', keywords: ['Amazon', 'AWS', 'e-commerce'] },
+        
+        // Fintech
+        'SOFI': { sector: 'Fintech', keywords: ['fintech', 'SoFi', 'digital banking'] },
+        'HOOD': { sector: 'Fintech', keywords: ['Robinhood', 'retail trading', 'fintech'] },
+        'AFRM': { sector: 'Fintech', keywords: ['buy now pay later', 'Affirm', 'fintech'] },
+        'PYPL': { sector: 'Fintech', keywords: ['PayPal', 'digital payments', 'fintech'] },
+        'SQ': { sector: 'Fintech', keywords: ['Square', 'Block', 'fintech'] },
+        
+        // Aerospace/Defense
+        'BA': { sector: 'Aerospace', keywords: ['Boeing', 'aerospace', 'airlines'] },
+        'LMT': { sector: 'Defense', keywords: ['Lockheed Martin', 'defense', 'military'] },
+        'RTX': { sector: 'Defense', keywords: ['Raytheon', 'defense', 'aerospace'] },
+        
+        // Energy
+        'XOM': { sector: 'Oil & Gas', keywords: ['oil stocks', 'energy', 'Exxon'] },
+        'CVX': { sector: 'Oil & Gas', keywords: ['oil stocks', 'Chevron', 'energy'] },
+        'OXY': { sector: 'Oil & Gas', keywords: ['oil stocks', 'Occidental', 'energy'] },
+        
+        // Robotics/AI
+        'SERV': { sector: 'Robotics', keywords: ['robotics', 'delivery robots', 'Serve Robotics'] },
+        'PATH': { sector: 'Automation', keywords: ['RPA', 'UiPath', 'automation'] },
+        'PLTR': { sector: 'AI/Data', keywords: ['Palantir', 'AI', 'government contracts'] },
+        
+        // Telecom
+        'T': { sector: 'Telecom', keywords: ['AT&T', 'telecom', '5G'] },
+        'VZ': { sector: 'Telecom', keywords: ['Verizon', 'telecom', '5G'] },
+        'TMUS': { sector: 'Telecom', keywords: ['T-Mobile', 'telecom', '5G'] },
+        
+        // Meme/Speculative
+        'DJT': { sector: 'Meme Stock', keywords: ['Trump Media', 'DWAC', 'meme stocks'] },
+        'GME': { sector: 'Meme Stock', keywords: ['GameStop', 'meme stocks', 'retail'] },
+        'AMC': { sector: 'Meme Stock', keywords: ['AMC', 'meme stocks', 'movies'] },
+        
+        // Biotech (add more as needed)
+        'NBIS': { sector: 'Biotech', keywords: ['biotech', 'Nebius', 'AI infrastructure'] },
+        
+        // Penny/Micro caps
+        'SRMX': { sector: 'Penny Stock', keywords: [] },
+        'GTEH': { sector: 'Penny Stock', keywords: [] }
+    };
+    
+    return sectorMap[upperTicker] || { sector: null, keywords: [] };
+}
+
+/**
+ * Tag all positions in an array with sector info
+ */
+function tagPositionsWithSectors(positions) {
+    let tagged = 0;
+    for (const pos of positions) {
+        if (!pos.sector && pos.ticker) {
+            const info = getSectorInfo(pos.ticker);
+            if (info.sector) {
+                pos.sector = info.sector;
+                pos.sectorKeywords = info.keywords;
+                tagged++;
+            }
+        }
+    }
+    return tagged;
+}
+
+/**
+ * Run one-time migration to tag existing positions with sectors
+ */
+function migratePositionsToSectors() {
+    console.log('[SECTOR] Starting sector migration...');
+    
+    // Get all position storage keys
+    const keys = Object.keys(localStorage).filter(k => 
+        k.includes('positions') || k.includes('holdings')
+    );
+    
+    let totalTagged = 0;
+    
+    for (const key of keys) {
+        try {
+            const data = JSON.parse(localStorage.getItem(key) || '[]');
+            if (!Array.isArray(data)) continue;
+            
+            const tagged = tagPositionsWithSectors(data);
+            if (tagged > 0) {
+                localStorage.setItem(key, JSON.stringify(data));
+                console.log(`[SECTOR] Tagged ${tagged} positions in ${key}`);
+                totalTagged += tagged;
+            }
+        } catch (e) {
+            console.warn(`[SECTOR] Could not process ${key}:`, e.message);
+        }
+    }
+    
+    console.log(`[SECTOR] Migration complete. Tagged ${totalTagged} positions.`);
+    return totalTagged;
+}
+
+// Expose globally for console access
+window.getSectorInfo = getSectorInfo;
+window.migratePositionsToSectors = migratePositionsToSectors;
+
+// ============================================================================
 // LOAD SETTINGS ON PAGE LOAD
 // ============================================================================
 
@@ -379,6 +550,7 @@ async function syncAccountFromSchwab() {
             }
             
             // Convert Schwab position to WheelHouse format
+            const sectorInfo = getSectorInfo(schwabPos.ticker);
             const newPosition = {
                 id: Date.now() + imported,
                 chainId: Date.now() + imported,
@@ -395,7 +567,10 @@ async function syncAccountFromSchwab() {
                 schwabSymbol: schwabPos.symbol,
                 currentSpot: null, // Will be fetched on next refresh
                 lastOptionPrice: schwabPos.currentPrice || null,
-                markedPrice: schwabPos.currentPrice || null
+                markedPrice: schwabPos.currentPrice || null,
+                // Sector tagging for X sentiment awareness
+                sector: sectorInfo.sector || null,
+                sectorKeywords: sectorInfo.keywords || []
             };
             
             // Calculate DTE
@@ -419,9 +594,16 @@ async function syncAccountFromSchwab() {
                 existingHolding.totalCost = schwabStock.shares * schwabStock.averagePrice;
                 existingHolding.currentPrice = schwabStock.currentPrice;
                 existingHolding.marketValue = schwabStock.marketValue;
+                // Also update sector if not already set
+                if (!existingHolding.sector) {
+                    const info = getSectorInfo(schwabStock.ticker);
+                    existingHolding.sector = info.sector || null;
+                    existingHolding.sectorKeywords = info.keywords || [];
+                }
                 holdingsImported++;
             } else {
                 // Create new holding
+                const sectorInfo = getSectorInfo(schwabStock.ticker);
                 const newHolding = {
                     id: Date.now() + imported + holdingsImported,
                     ticker: schwabStock.ticker,
@@ -433,7 +615,10 @@ async function syncAccountFromSchwab() {
                     source: 'schwab_sync',
                     assignedDate: new Date().toISOString().split('T')[0],
                     acquiredDate: new Date().toISOString().split('T')[0],
-                    premiumCredit: 0
+                    premiumCredit: 0,
+                    // Sector tagging for X sentiment awareness
+                    sector: sectorInfo.sector || null,
+                    sectorKeywords: sectorInfo.keywords || []
                 };
                 existingHoldings.push(newHolding);
                 holdingsImported++;

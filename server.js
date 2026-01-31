@@ -30,6 +30,7 @@ const updateRoutes = require('./src/routes/updateRoutes');
 const aiRoutes = require('./src/routes/aiRoutes');
 const scannerRoutes = require('./src/routes/scannerRoutes');
 const streamingRoutes = require('./src/routes/streamingRoutes');
+const summaryRoutes = require('./src/routes/summaryRoutes');
 
 // ============================================================================
 // UTILITY MODULES (extracted for modularity)
@@ -159,6 +160,10 @@ app.use('/api/ai', aiRoutes);
 // Mount Scanner routes (wheel candidate scanner)
 scannerRoutes.init({ DataService });
 app.use('/api/scanner', scannerRoutes);
+
+// Initialize and mount Summary routes (weekly summaries)
+summaryRoutes.init({ AIService, promptBuilders });
+app.use('/api/summary', summaryRoutes);
 
 
 // Main request handler (converted to Express middleware)

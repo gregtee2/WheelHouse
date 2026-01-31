@@ -382,6 +382,25 @@ Instead of binary FOLLOW/PASS, Discord Analyzer now gives **three perspectives**
 
 ## ✨ Key Features
 
+### 📡 Data Sources & Automatic Fallback
+
+WheelHouse automatically detects what data sources you have and adapts - **no configuration needed**:
+
+| Priority | Source | What You Get | Delay | Auth Required? |
+|----------|--------|--------------|-------|----------------|
+| 1️⃣ | **Schwab Streaming** | Live quotes, Greeks, fills | ~0 sec | ✅ Schwab account |
+| 2️⃣ | **Schwab REST API** | Quotes, options chains | ~0 sec | ✅ Schwab account |
+| 3️⃣ | **CBOE** | Options chains, stock prices | ~15 min | ❌ Free |
+| 4️⃣ | **Yahoo Finance** | Stock prices only | ~0 sec | ❌ Free |
+| 5️⃣ | **Black-Scholes** | Calculated option prices | N/A | ❌ Built-in |
+
+**How it works:**
+- **Have Schwab?** → Real-time streaming with live Greeks ✨
+- **No Schwab?** → CBOE delayed quotes (still accurate, just 15-min old)
+- **CBOE missing an option?** → Black-Scholes theoretical pricing
+
+The app just *senses* what you have and uses the best available source. Old school still works great!
+
 ### 📡 Real-Time Options Pricing (Schwab + CBOE)
 - **Schwab API integration** - Real-time bid/ask/last from your brokerage account
 - **Full Greeks from Schwab** - Delta, Theta, Gamma, IV for accurate risk assessment

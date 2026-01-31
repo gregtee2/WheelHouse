@@ -468,26 +468,65 @@ router.post('/grok', async (req, res) => {
 router.post('/x-sentiment', async (req, res) => {
     try {
         const data = req.body;
-        const { buyingPower, holdings, previousRuns } = data;
+        const { buyingPower, holdings, optionsPositions, allTickers, sectorKeywords, previousRuns } = data;
         
         if (!process.env.GROK_API_KEY) {
             return res.status(400).json({ error: 'X Sentiment requires Grok API. Configure in Settings.' });
         }
         
-        console.log('[AI] 🔥 Fetching LIVE X/Twitter sentiment via Grok Search...');
+        console.log(`[AI] 🔥 Fetching LIVE X/Twitter sentiment via Grok Search...`);
+        console.log(`[AI]    Holdings: ${holdings?.length || 0}, Options: ${optionsPositions?.length || 0}, Tickers: ${allTickers?.length || 0}, Sector Keywords: ${sectorKeywords?.length || 0}`);
         
         const today = new Date();
         const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
         
+        // Build holdings context (stock holdings)
         let holdingsContext = '';
         if (holdings && holdings.length > 0) {
             const holdingsList = holdings.map(h => `${h.ticker} (${h.shares || h.quantity || 100} shares @ $${h.costBasis || h.avgCost || '?'})`).join(', ');
             holdingsContext = `
-
-**IMPORTANT - CHECK MY HOLDINGS FIRST:**
-I currently hold these stocks: ${holdingsList}
-
-BEFORE the main analysis, search X for ANY news, sentiment, or buzz about my holdings. Put this in a section called "⚡ YOUR HOLDINGS ALERT" at the very top. If nothing notable, just say "No significant X chatter about your holdings today."
+**MY STOCK HOLDINGS:**
+${holdingsList}
+`;
+        }
+        
+        // Build options context (options positions) - NEW!
+        let optionsContext = '';
+        if (optionsPositions && optionsPositions.length > 0) {
+            const optionsList = optionsPositions.map(p => {
+                const type = p.type?.includes('call') ? 'CALL' : 'PUT';
+                return `${p.ticker} $${p.strike} ${type} exp ${p.expiry}`;
+            }).join(', ');
+            optionsContext = `
+**MY OPTIONS POSITIONS:**
+${optionsList}
+`;
+        }
+        
+        // Build sector keywords context - NEW!
+        let sectorContext = '';
+        if (sectorKeywords && sectorKeywords.length > 0) {
+            sectorContext = `
+**SECTOR CONTEXT - ALSO SEARCH THESE TERMS:**
+${sectorKeywords.join(', ')}
+(These sectors affect my positions even if the ticker isn't mentioned directly - e.g., "Bitcoin mining" news affects my crypto mining stocks)
+`;
+        }
+        
+        // Combine all tickers for explicit search
+        const tickersToSearch = allTickers && allTickers.length > 0 
+            ? allTickers.join(', ')
+            : (holdings || []).map(h => h.ticker).join(', ') || 'none';
+        
+        // Build the complete positions context
+        let positionsContext = '';
+        if (holdingsContext || optionsContext) {
+            positionsContext = `
+**IMPORTANT - CHECK MY POSITIONS FIRST:**
+${holdingsContext}${optionsContext}${sectorContext}
+Search X for ANY news, sentiment, or buzz about BOTH my stock holdings AND the underlying tickers of my options.
+Put this in a section called "⚡ YOUR HOLDINGS ALERT" at the very top.
+If nothing notable, just say "No significant X chatter about your holdings/options today."
 `;
         }
         
@@ -525,7 +564,9 @@ This helps me spot sustained momentum vs flash-in-the-pan hype.
         }
         
         const prompt = `Today is ${dateStr}. You have access to real-time X/Twitter data. I'm a wheel strategy options trader with $${buyingPower || 25000} buying power.
-${holdingsContext}${trendContext}
+${positionsContext}${trendContext}
+**MY TICKERS TO WATCH:** ${tickersToSearch}
+
 Please check X/Twitter for the following and report what's ACTUALLY being discussed TODAY:
 
 **📊 MARKET PULSE** (Put this FIRST - keep it brief, 3-4 lines max)

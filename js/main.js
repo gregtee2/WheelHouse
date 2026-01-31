@@ -1767,16 +1767,42 @@ window.getXSentiment = async function() {
     const buyingPower = parseFloat(document.getElementById('ideaBuyingPower2')?.value) || 
                         parseFloat(document.getElementById('ideaBuyingPower')?.value) || 25000;
     
-    // Get holdings for impact check
+    // Get STOCK holdings for impact check
     const holdings = (state.holdings || []).map(h => ({
         ticker: h.ticker,
         shares: h.shares || h.quantity || 100,
-        costBasis: h.costBasis || h.avgCost
+        costBasis: h.costBasis || h.avgCost,
+        type: 'stock'
     }));
+    
+    // Get OPTIONS positions - these are just as important!
+    const optionsPositions = (state.positions || []).map(p => ({
+        ticker: p.ticker,
+        strike: p.strike,
+        expiry: p.expiry,
+        type: p.type || 'short_put',
+        premium: p.premium,
+        contracts: p.contracts || 1,
+        sector: p.sector,
+        sectorKeywords: p.sectorKeywords
+    }));
+    
+    // Combine all tickers for X sentiment search
+    const allTickers = [...new Set([
+        ...holdings.map(h => h.ticker),
+        ...optionsPositions.map(p => p.ticker)
+    ])].filter(t => t && t.length <= 5 && !/^\d/.test(t)); // Filter out CUSIPs, money markets
+    
+    // Collect sector keywords from positions
+    const sectorKeywords = [...new Set(
+        optionsPositions
+            .filter(p => p.sectorKeywords)
+            .flatMap(p => p.sectorKeywords)
+    )];
     
     // Get previous runs for trend comparison (last 5 runs)
     const previousRuns = JSON.parse(localStorage.getItem('wheelhouse_x_sentiment_history') || '[]').slice(0, 5);
-    console.log(`[X Sentiment] Sending ${previousRuns.length} previous runs for trend comparison`);
+    console.log(`[X Sentiment] Sending ${previousRuns.length} previous runs, ${holdings.length} holdings, ${optionsPositions.length} options, ${sectorKeywords.length} sector keywords`);
     
     // Show loading
     if (ideaBtn) {
@@ -1790,7 +1816,14 @@ window.getXSentiment = async function() {
         const response = await fetch('/api/ai/x-sentiment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ buyingPower, holdings, previousRuns })
+            body: JSON.stringify({ 
+                buyingPower, 
+                holdings,           // Stock holdings
+                optionsPositions,   // Options positions (NEW!)
+                allTickers,         // Combined unique tickers
+                sectorKeywords,     // Sector search terms (NEW!)
+                previousRuns 
+            })
         });
         
         if (!response.ok) {

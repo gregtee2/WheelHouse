@@ -3,6 +3,89 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.0] - 2026-01-31
+
+### Added
+- **📊 Week Summary Report** - New "Week Summary" button in Portfolio tab header
+  - 4-step AI pipeline with SSE progress streaming:
+    1. **Identify At-Risk Positions** - Flags positions by DTE urgency
+    2. **Position Checkups** - Individual AI analysis per at-risk position
+    3. **Portfolio Audit** - Holistic risk assessment (leverage, concentration, bias)
+    4. **Create Summary** - Synthesized report with actionable recommendations
+  - Collapsible sections for Position Checkups and Portfolio Audit details
+  - DTE-based urgency badges: 🔴 URGENT (≤7 DTE), 🟠 ACTION (8-21 DTE), 🟡 WATCH (22+ DTE)
+  - Real-time progress indicator shows which AI step is running
+
+- **� Historical Trend Analysis**
+  - Week Summary now compares against last 4 saved weeks when available
+  - Shows week-by-week breakdown: account value, realized P&L, leverage trends
+  - Calculates win rate (winning vs losing weeks) and total realized P&L
+  - AI identifies good trends to continue and bad patterns to fix
+  - New "📈 Trend Analysis" section in final report compares current week to history
+
+- **�🐦 X/Twitter Sentiment Integration (Grok Only)**
+  - When using Grok-3 as the AI model, Week Summary includes real-time X sentiment
+  - AI searches X for sentiment on your specific tickers (SLV, IREN, INTC, etc.)
+  - Breaking news and sector rotation signals woven into recommendations
+  - Progress shows "Creating report with X sentiment..." when Grok is active
+  - Provides "trader's edge" context that static data analysis can't offer
+  - **Discoverable hint**: When non-Grok model selected, shows clickable "Switch to Grok for live 𝕏 sentiment" link
+  - Click the link to instantly switch; shows "✓ 𝕏 Live sentiment enabled" when Grok active
+  - **Now includes OPTIONS positions**: X sentiment searches both stock holdings AND options underlyings
+  - AI sees your short puts/calls and searches for news on those tickers too
+
+- **📈 Realized P&L Tracking**
+  - Week Summary correctly identifies trades closed in the past 7 days
+  - Shows individual closed trades with realized P&L amounts
+  - Anti-hallucination instructions prevent AI from inventing trades
+
+- **🧭 Sector-Aware X Sentiment**
+  - AI now searches for sector keywords, not just individual tickers
+  - Crypto miners (IREN, CIFR, MARA) trigger "Bitcoin mining" and "crypto mining" searches
+  - Semiconductor stocks trigger "chip stocks" and "AI chips" searches
+  - Silver/gold ETFs trigger "precious metals" searches
+  - Catches sector-wide news that affects your positions even without ticker mentions
+  - **Position-Level Sector Tagging**: Positions are now tagged with their sector at creation time
+  - New `sector` and `sectorKeywords` fields added to positions during Schwab sync
+  - Run `migratePositionsToSectors()` in console to tag existing positions
+  - 100+ tickers mapped to sectors: Crypto Mining, Semiconductors, Precious Metals, EV, Clean Energy, Leveraged ETFs, China Tech, Big Tech, Fintech, Aerospace, Oil & Gas, Robotics, and more
+
+- **📦 Unified Holdings Endpoint**
+  - New `/api/summary/all-holdings` returns ALL positions in one call
+  - Server reads from `wheelhouse_autosave.json` (single source of truth)
+  - No more fragmented localStorage lookups - server handles everything
+  - Returns options tickers, holdings tickers, closed this week, and sector keywords
+
+### Fixed
+- **� Stock Holdings Integration**
+  - Week Summary now includes your stock holdings alongside options positions
+  - Holdings sent to AI with ticker, shares, cost basis, current price, and P&L
+  - New "📈 Stock Holdings Check" section in report when holdings exist
+  - X sentiment searches cover both options underlyings AND stock holdings
+  - Filters out money market funds (SWVXX) and CUSIPs - only real tickers
+
+- **�🔧 Account-Specific localStorage Keys**
+  - Week Summary now reads from correct account-specific storage key
+  - Format: `wheelhouse_MARGIN_XXXX_closed_positions` (not legacy `wheelhouse_closed`)
+  - Matches state.js `getStorageKey()` logic for consistency
+  - Prevents phantom trades from paper trading bleeding into real account reports
+
+- **🚫 AI Hallucination Prevention**
+  - Added explicit instructions: "THESE ARE THE ONLY TRADES CLOSED THIS WEEK"
+  - Warning when no trades: "Do NOT invent or hallucinate any closed trades"
+  - Closed trades listed by exact ticker/strike/date for verification
+
+### Changed
+- **Backend Architecture**: New `src/routes/summaryRoutes.js` (~865 lines)
+  - Modular prompt builders: `buildPositionCheckupsPrompt()`, `buildPortfolioAuditPrompt()`, `buildSynthesisPrompt()`
+  - SSE streaming for real-time progress updates
+  - `isGrok` flag detection for X sentiment conditional logic
+
+- **Frontend Architecture**: New `js/services/WeeklySummaryService.js` (~970 lines)
+  - Modal UI with progress bar, step indicators, and collapsible details
+  - Account-aware data gathering (reads correct localStorage keys)
+  - Renders urgency-tagged position cards with P&L and DTE
+
 ## [1.18.1] - 2026-01-30
 
 ### Added
