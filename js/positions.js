@@ -3304,12 +3304,37 @@ export function renderPositions() {
 /**
  * Render the positions table (sync, with placeholder statuses)
  */
+// Track positions excluded from "What-If" simulation (checkbox unchecked)
+let whatIfExcludedPositions = new Set();
+
+// Export for use in gauge
+window.whatIfExcludedPositions = whatIfExcludedPositions;
+
+// Toggle position in/out of what-if simulation
+window.toggleWhatIfPosition = function(positionId) {
+    if (whatIfExcludedPositions.has(positionId)) {
+        whatIfExcludedPositions.delete(positionId);
+    } else {
+        whatIfExcludedPositions.add(positionId);
+    }
+    // Update the gauge immediately
+    updatePortfolioSummary();
+};
+
+// Clear all what-if exclusions
+window.clearWhatIfExclusions = function() {
+    whatIfExcludedPositions.clear();
+    // Re-render table to update checkboxes
+    updatePositionsDisplay();
+};
+
 function renderPositionsTable(container, openPositions) {
     let html = `
         <table style="width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;">
             <thead>
                 <tr style="background: #1a1a2e; color: #888;">
-                    <th style="padding: 6px; text-align: left; width: 75px; overflow: hidden;">Ticker</th>
+                    <th style="padding: 6px; text-align: center; width: 28px;" title="What-If: Uncheck to exclude from leverage calculation">📊</th>
+                    <th style="padding: 6px; text-align: left; width: 70px; overflow: hidden;">Ticker</th>
                     <th style="padding: 6px; text-align: center; width: 45px;" title="ITM probability - click to analyze">Risk</th>
                     <th style="padding: 6px; text-align: left; width: 50px;">Broker</th>
                     <th style="padding: 6px; text-align: left; width: 65px;">Type</th>
@@ -3425,6 +3450,7 @@ function renderPositionsTable(container, openPositions) {
             // Border will be updated by updateTickerHeaderRiskBorders() after risk statuses are calculated
             html += `
                 <tr id="ticker-header-${ticker}" class="ticker-group-header" data-ticker="${ticker}" onclick="window.togglePositionsTickerGroup('${ticker}')" style="cursor:pointer; background:rgba(139,92,246,0.15); transition: border-left 0.3s;">
+                    <td></td>
                     <td style="font-weight:bold; color:#8b5cf6; padding:8px 6px;">
                         <span class="ticker-group-arrow" style="display:inline-block; transition:transform 0.2s; ${isCollapsed ? 'transform:rotate(-90deg);' : ''}">▼</span>
                         ${ticker}
@@ -3647,8 +3673,18 @@ function renderPositionsTable(container, openPositions) {
         const childRowBg = isChildRow ? 'background: rgba(139,92,246,0.08); border-left: 3px solid #8b5cf6;' : '';
         const childIndicator = isChildRow ? '<span style="color:#8b5cf6;margin-right:4px;" title="Covered by LEAPS above">└─</span>' : '';
         
+        // Check if this position is excluded from what-if
+        const isExcluded = whatIfExcludedPositions.has(pos.id);
+        const excludedStyle = isExcluded ? 'opacity: 0.5;' : '';
+        
         html += `
-            <tr class="position-row" data-ticker="${pos.ticker}" style="${collapsedStyle}border-bottom: 1px solid #333;${childRowBg}${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}${isChildRow ? ' | ↳ Covered by parent LEAPS' : ''}">
+            <tr class="position-row" data-ticker="${pos.ticker}" data-position-id="${pos.id}" style="${collapsedStyle}border-bottom: 1px solid #333;${childRowBg}${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}${excludedStyle}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}${isChildRow ? ' | ↳ Covered by parent LEAPS' : ''}">
+                <td style="padding: 6px; text-align: center;">
+                    <input type="checkbox" ${isExcluded ? '' : 'checked'} 
+                           onclick="event.stopPropagation(); window.toggleWhatIfPosition(${pos.id})" 
+                           title="${isExcluded ? 'Click to include in leverage calculation' : 'Uncheck to see impact of closing this position'}"
+                           style="cursor: pointer; width: 16px; height: 16px; accent-color: #00d9ff;" />
+                </td>
                 <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${childIndicator}${pos.ticker}${(pos.openingThesis && Object.keys(pos.openingThesis).length > 0) ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}${isSkip && pos.skipDte <= 60 ? '<span style="margin-left:3px;font-size:9px;" title="' + (pos.skipDte < 45 ? 'PAST EXIT WINDOW!' : 'In 45-60 DTE exit window') + '">' + (pos.skipDte < 45 ? '🚨' : '⚠️') + '</span>' : ''}</td>
                 <td style="padding: 4px; text-align: center;" id="risk-cell-${pos.id}">
                     ${initialStatusHtml}
@@ -4550,6 +4586,36 @@ export function updatePortfolioSummary() {
         return sum;
     }, 0);
     
+    // WHAT-IF: Calculate simulated Capital at Risk (excluding unchecked positions)
+    const simulatedCapitalAtRisk = openPositions.reduce((sum, p) => {
+        // Skip positions that are unchecked (excluded from simulation)
+        if (whatIfExcludedPositions.has(p.id)) {
+            return sum;
+        }
+        
+        const isSpread = p.type?.includes('_spread');
+        
+        if (isSpread) {
+            if (p.maxLoss) {
+                return sum + p.maxLoss;
+            }
+            const width = p.spreadWidth || Math.abs((p.sellStrike || 0) - (p.buyStrike || 0));
+            const premium = p.premium || 0;
+            const maxLoss = isDebitPosition(p.type) 
+                ? premium * 100 * p.contracts
+                : (width - premium) * 100 * p.contracts;
+            return sum + maxLoss;
+        } else if (isDebitPosition(p.type)) {
+            return sum + ((p.premium || 0) * 100 * p.contracts);
+        } else if (p.type === 'short_put' || p.type === 'buy_write') {
+            return sum + ((p.strike || 0) * 100 * p.contracts);
+        }
+        return sum;
+    }, 0);
+    
+    // Check if we're in "what-if" mode (any positions excluded)
+    const isWhatIfMode = whatIfExcludedPositions.size > 0;
+    
     // Calculate Unrealized P/L - sum of all P/L values from the table
     // P/L = (entry premium - current price) * 100 * contracts for short positions
     // P/L = (current price - entry premium) * 100 * contracts for long positions
@@ -4686,7 +4752,7 @@ export function updatePortfolioSummary() {
                     </div>
                 </div>
             </div>
-            ${buildLeverageGauge(capitalAtRisk)}
+            ${buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)}
         `;
         // No height lock release needed - CSS has fixed height
     }
@@ -4695,8 +4761,9 @@ export function updatePortfolioSummary() {
 /**
  * Build a visual fuel gauge showing leverage ratio (Capital at Risk / Account Value)
  * Green = Conservative (<50%), Yellow = Moderate (50-80%), Orange = Aggressive (80-100%), Red = Danger (>100%)
+ * When in What-If mode, shows comparison between current and simulated leverage
  */
-function buildLeverageGauge(capitalAtRisk) {
+function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode) {
     // Get account value from AccountService
     let accountValue = 0;
     let buyingPower = 0;
@@ -4729,42 +4796,106 @@ function buildLeverageGauge(capitalAtRisk) {
     // Calculate leverage ratio: Capital at Risk / Account Value
     const leverageRatio = (capitalAtRisk / accountValue) * 100;
     
-    // Determine zone and color
-    let zoneColor, zoneName, zoneIcon, runwayText;
+    // Calculate simulated leverage ratio for what-if mode
+    const simulatedLeverageRatio = (simulatedCapitalAtRisk / accountValue) * 100;
+    const capitalReduction = capitalAtRisk - simulatedCapitalAtRisk;
+    const leverageReduction = leverageRatio - simulatedLeverageRatio;
+    
+    // Determine zone and color for CURRENT leverage
+    let zoneColor, zoneName, zoneIcon;
     if (leverageRatio <= 50) {
-        zoneColor = '#00ff88';  // Green
+        zoneColor = '#00ff88';
         zoneName = 'Conservative';
         zoneIcon = '🛡️';
-        runwayText = `${(100 - leverageRatio).toFixed(0)}% runway`;
     } else if (leverageRatio <= 80) {
-        zoneColor = '#ffaa00';  // Yellow
+        zoneColor = '#ffaa00';
         zoneName = 'Moderate';
         zoneIcon = '⚡';
-        runwayText = `${(100 - leverageRatio).toFixed(0)}% runway`;
     } else if (leverageRatio <= 100) {
-        zoneColor = '#ff7744';  // Orange
+        zoneColor = '#ff7744';
         zoneName = 'Aggressive';
         zoneIcon = '⚠️';
-        runwayText = `${(100 - leverageRatio).toFixed(0)}% until 100%`;
     } else {
-        zoneColor = '#ff5252';  // Red
+        zoneColor = '#ff5252';
         zoneName = 'Over-Leveraged';
         zoneIcon = '🚨';
-        runwayText = `${(leverageRatio - 100).toFixed(0)}% OVER capacity`;
     }
     
-    // Calculate fill percentage (cap at 150% for visual)
+    // Determine zone for SIMULATED leverage (what-if mode)
+    let simZoneColor, simZoneName, simZoneIcon;
+    if (simulatedLeverageRatio <= 50) {
+        simZoneColor = '#00ff88';
+        simZoneName = 'Conservative';
+        simZoneIcon = '🛡️';
+    } else if (simulatedLeverageRatio <= 80) {
+        simZoneColor = '#ffaa00';
+        simZoneName = 'Moderate';
+        simZoneIcon = '⚡';
+    } else if (simulatedLeverageRatio <= 100) {
+        simZoneColor = '#ff7744';
+        simZoneName = 'Aggressive';
+        simZoneIcon = '⚠️';
+    } else {
+        simZoneColor = '#ff5252';
+        simZoneName = 'Over-Leveraged';
+        simZoneIcon = '🚨';
+    }
+    
+    // Calculate fill percentages (cap at 150% for visual)
     const fillPercent = Math.min(leverageRatio, 150);
+    const simFillPercent = Math.min(simulatedLeverageRatio, 150);
     
     // Calculate runway in dollars
     const runwayDollars = accountValue - capitalAtRisk;
+    const simRunwayDollars = accountValue - simulatedCapitalAtRisk;
     
+    // Build what-if comparison section if in simulation mode
+    const whatIfSection = isWhatIfMode ? `
+        <div style="margin-top: 10px; padding: 10px; background: rgba(0,217,255,0.1); border: 1px dashed #00d9ff; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div style="color: #00d9ff; font-size: 12px; font-weight: bold;">
+                    📊 What-If Simulation (${whatIfExcludedPositions.size} position${whatIfExcludedPositions.size > 1 ? 's' : ''} unchecked)
+                </div>
+                <button onclick="window.clearWhatIfExclusions()" style="background: #333; color: #00d9ff; border: 1px solid #00d9ff; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 10px;">Clear</button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center;">
+                <!-- Current -->
+                <div style="text-align: center;">
+                    <div style="color: #888; font-size: 10px; margin-bottom: 2px;">CURRENT</div>
+                    <div style="font-size: 20px; font-weight: bold; color: ${zoneColor};">${leverageRatio.toFixed(0)}%</div>
+                    <div style="font-size: 10px; color: #888;">${formatCurrency(capitalAtRisk)}</div>
+                </div>
+                <!-- Arrow -->
+                <div style="font-size: 24px; color: #00d9ff;">→</div>
+                <!-- Simulated -->
+                <div style="text-align: center;">
+                    <div style="color: #00d9ff; font-size: 10px; margin-bottom: 2px;">IF CLOSED</div>
+                    <div style="font-size: 20px; font-weight: bold; color: ${simZoneColor};">${simulatedLeverageRatio.toFixed(0)}%</div>
+                    <div style="font-size: 10px; color: #888;">${formatCurrency(simulatedCapitalAtRisk)}</div>
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0,217,255,0.2);">
+                <span style="color: #00ff88; font-weight: bold;">
+                    ↓ ${leverageReduction.toFixed(0)}% leverage
+                </span>
+                <span style="color: #888; margin: 0 8px;">|</span>
+                <span style="color: #00ff88; font-weight: bold;">
+                    +${formatCurrency(capitalReduction)} runway
+                </span>
+                <span style="color: #888; margin: 0 8px;">|</span>
+                <span style="font-weight: bold; color: ${simZoneColor};">
+                    ${simZoneIcon} ${simZoneName}
+                </span>
+            </div>
+        </div>
+    ` : '';
+
     return `
-        <div style="margin-top: 12px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+        <div style="margin-top: 12px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px;${isWhatIfMode ? ' border: 1px solid rgba(0,217,255,0.3);' : ''}">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <div style="color: #888; font-size: 11px; text-transform: uppercase;">
                     Leverage Gauge 
-                    <span title="Capital at Risk ÷ Account Value. Shows how much of your account is committed to current positions. Over 100% means you're using margin.">ⓘ</span>
+                    <span title="Capital at Risk ÷ Account Value. Uncheck positions in the table to simulate closing them.">ⓘ</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-size: 16px;">${zoneIcon}</span>
@@ -4795,6 +4926,20 @@ function buildLeverageGauge(capitalAtRisk) {
                     border-radius: 12px 0 0 12px;
                     transition: width 0.5s ease, background 0.5s ease;
                 "></div>
+                
+                ${isWhatIfMode ? `
+                <!-- Simulated position indicator (dashed line showing where you'd be) -->
+                <div style="
+                    position: absolute;
+                    left: calc(${Math.min(simFillPercent / 1.5, 98)}% - 1px);
+                    top: 0;
+                    height: 100%;
+                    width: 2px;
+                    background: repeating-linear-gradient(to bottom, #00d9ff 0px, #00d9ff 4px, transparent 4px, transparent 8px);
+                    z-index: 3;
+                    box-shadow: 0 0 6px #00d9ff;
+                "></div>
+                ` : ''}
                 
                 <!-- Current position indicator -->
                 <div style="
@@ -4828,6 +4973,8 @@ function buildLeverageGauge(capitalAtRisk) {
                     ${formatCurrency(capitalAtRisk)} committed of ${formatCurrency(accountValue)}
                 </div>
             </div>
+            
+            ${whatIfSection}
         </div>
     `;
 }
