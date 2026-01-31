@@ -235,6 +235,31 @@ router.get('/status', (req, res) => {
     });
 });
 
+// Get access token for streaming (used by Python streamer)
+router.get('/streaming-token', async (req, res) => {
+    try {
+        const token = await getAccessToken();
+        const creds = getCredentials();
+        
+        // Get account hash for streaming
+        const accountsResp = await schwabApiCall('/accounts/accountNumbers');
+        const accounts = Array.isArray(accountsResp) ? accountsResp : [];
+        
+        res.json({
+            accessToken: token,
+            expiresAt: tokenCache.accessExpiry,
+            accounts: accounts.map(a => ({
+                accountNumber: a.accountNumber,
+                hashValue: a.hashValue
+            })),
+            appKey: creds.appKey
+        });
+    } catch (e) {
+        console.error('[SCHWAB] Streaming token error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Generate OAuth authorization URL
 router.get('/authorize-url', (req, res) => {
     const creds = getCredentials();

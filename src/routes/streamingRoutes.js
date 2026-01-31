@@ -132,6 +132,12 @@ function sendToStreamer(message) {
 function handleStreamerMessage(message) {
     const { type, data, timestamp } = message;
     
+    // Skip if no type
+    if (!type) {
+        console.log('[STREAMER] Ignoring message without type');
+        return;
+    }
+    
     switch (type) {
         case 'option_quote':
             stats.quotesReceived++;
@@ -160,12 +166,12 @@ function handleStreamerMessage(message) {
             break;
             
         case 'status':
-            stats.subscribedSymbols = data.subscribed_options || [];
+            stats.subscribedSymbols = data?.subscribed_options || [];
             if (io) {
                 io.emit('streamer-status', {
                     connected: true,
-                    subscribedOptions: data.subscribed_options,
-                    subscribedEquities: data.subscribed_equities
+                    subscribedOptions: data?.subscribed_options || [],
+                    subscribedEquities: data?.subscribed_equities || []
                 });
             }
             break;

@@ -31,13 +31,18 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from schwab.auth import easy_client
+    import aiohttp
+except ImportError:
+    print("ERROR: aiohttp not installed. Run: pip install aiohttp")
+    sys.exit(1)
+
+try:
     from schwab.streaming import StreamClient
 except ImportError:
     print("ERROR: schwab-py not installed. Run: pip install schwab-py")
     sys.exit(1)
 
-from config import get_credentials, LOCAL_WS_HOST, LOCAL_WS_PORT, TOKEN_PATH
+from config import LOCAL_WS_HOST, LOCAL_WS_PORT
 
 # Connected browser clients (via Node.js relay)
 connected_clients = set()
@@ -289,41 +294,75 @@ async def connect_to_schwab():
     """Connect to Schwab and initialize streaming"""
     global schwab_client, stream_client
     
-    creds = get_credentials()
-    
-    if not creds['app_key'] or not creds['app_secret']:
-        print("[AUTH] Missing Schwab credentials!")
-        print("[AUTH] Create wheelhouse-streamer/local_config.json with:")
-        print('  {"app_key": "YOUR_KEY", "app_secret": "YOUR_SECRET"}')
-        return False
-    
     try:
-        print("[AUTH] Connecting to Schwab...")
+        print("[AUTH] Getting token from WheelHouse server...")
         
-        # Create HTTP client (handles OAuth)
-        schwab_client = easy_client(
-            api_key=creds['app_key'],
-            app_secret=creds['app_secret'],
-            callback_url=creds['callback_url'],
-            token_path=creds['token_path']
-        )
+        # Get access token from Node.js server (it handles OAuth)
+        async with aiohttp.ClientSession() as session:
+            async with session.get('http://localhost:8888/api/schwab/streaming-token') as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    print(f"[AUTH] Failed to get token: {resp.status} - {error_text}")
+                    return False
+                
+                token_data = await resp.json()
         
-        # Get account numbers for streaming
-        accounts_resp = schwab_client.get_account_numbers()
-        if accounts_resp.status_code != 200:
-            print(f"[AUTH] Failed to get accounts: {accounts_resp.status_code}")
+        access_token = token_data.get('accessToken')
+        accounts = token_data.get('accounts', [])
+        app_key = token_data.get('appKey')
+        
+        if not access_token:
+            print("[AUTH] No access token received from server!")
             return False
         
-        accounts = accounts_resp.json()
         if not accounts:
             print("[AUTH] No accounts found")
             return False
         
-        account_id = accounts[0].get('accountNumber')
-        print(f"[AUTH] Using account: ...{str(account_id)[-4:]}")
+        account_hash = accounts[0].get('hashValue')
+        account_num = accounts[0].get('accountNumber')
+        print(f"[AUTH] Got token, using account: ...{str(account_num)[-4:]}")
+        
+        # Create a fake token object that schwab-py expects
+        # The token object needs creation_timestamp, token, and refresh_token fields
+        import time
+        fake_token = {
+            'creation_timestamp': int(time.time()),
+            'token': {
+                'access_token': access_token,
+                'token_type': 'Bearer',
+                'expires_in': 1800,
+                'scope': 'api',
+                'id_token': ''
+            },
+            'refresh_token': {
+                'token': 'managed-by-node-server',
+                'expires_in': 604800
+            }
+        }
+        
+        # Token management functions for schwab-py
+        def token_read():
+            return fake_token
+        
+        def token_write(token):
+            # We don't need to write since Node.js manages tokens
+            pass
+        
+        # Create client using access functions (synchronous for now)
+        from schwab.auth import client_from_access_functions
+        
+        # Note: This creates a sync client which we need for StreamClient
+        schwab_client = client_from_access_functions(
+            api_key=app_key,
+            app_secret='managed-by-node-server',  # Not needed for streaming
+            token_read_func=token_read,
+            token_write_func=token_write,
+            asyncio=False  # StreamClient needs sync client
+        )
         
         # Create streaming client
-        stream_client = StreamClient(schwab_client, account_id=account_id)
+        stream_client = StreamClient(schwab_client, account_id=account_hash)
         
         # Login to streaming
         print("[STREAM] Logging in to streaming...")
@@ -349,15 +388,26 @@ async def stream_message_loop():
     global stream_client
     
     if not stream_client:
+        print("[STREAM] No stream_client, cannot start message loop")
         return
     
     print("[STREAM] Starting message loop...")
     
     try:
         while True:
-            await stream_client.handle_message()
+            try:
+                await stream_client.handle_message()
+            except asyncio.TimeoutError:
+                # Normal - no message within timeout, just continue
+                pass
+            except Exception as inner_e:
+                print(f"[STREAM] handle_message error: {type(inner_e).__name__}: {inner_e}")
+                await asyncio.sleep(1)  # Avoid tight loop on persistent errors
+    except asyncio.CancelledError:
+        print("[STREAM] Message loop cancelled")
+        raise  # Re-raise so it can be handled properly
     except Exception as e:
-        print(f"[STREAM] Message loop error: {e}")
+        print(f"[STREAM] Message loop fatal error: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
 
@@ -432,7 +482,7 @@ async def main():
 
 
 def signal_handler(sig, frame):
-    print("\n[EXIT] Shutting down...")
+    print("\n[EXIT] Shutting down (signal received)...")
     sys.exit(0)
 
 
@@ -443,3 +493,7 @@ if __name__ == '__main__':
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\n[EXIT] Interrupted by user")
+    except Exception as e:
+        print(f"\n[EXIT] Fatal error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
