@@ -100,8 +100,29 @@ const AccountService = {
             
             const accounts = await res.json();
             
-            // Find margin account or highest equity account
-            let account = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
+            // IMPORTANT: Use the selected account from state, not just any margin account
+            // This ensures the leverage gauge shows data for the account the user is viewing
+            let account = null;
+            
+            // 1. First try to match selectedAccount from state
+            if (window.state?.selectedAccount) {
+                const selectedId = window.state.selectedAccount;
+                account = accounts.find(a => {
+                    const acctNum = a.securitiesAccount?.accountNumber;
+                    // Match by full account ID or partial (last 4 digits)
+                    return acctNum === selectedId || 
+                           selectedId.includes(acctNum) || 
+                           acctNum?.endsWith(selectedId.replace(/\D/g, '').slice(-4));
+                });
+                if (account) {
+                    console.log('[AccountService] Using selected account:', selectedId);
+                }
+            }
+            
+            // 2. Fall back to margin account or highest equity
+            if (!account) {
+                account = accounts.find(a => a.securitiesAccount?.type === 'MARGIN');
+            }
             if (!account) {
                 account = accounts
                     .filter(a => a.securitiesAccount?.currentBalances)
