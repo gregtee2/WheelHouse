@@ -4686,9 +4686,150 @@ export function updatePortfolioSummary() {
                     </div>
                 </div>
             </div>
+            ${buildLeverageGauge(capitalAtRisk)}
         `;
         // No height lock release needed - CSS has fixed height
     }
+}
+
+/**
+ * Build a visual fuel gauge showing leverage ratio (Capital at Risk / Account Value)
+ * Green = Conservative (<50%), Yellow = Moderate (50-80%), Orange = Aggressive (80-100%), Red = Danger (>100%)
+ */
+function buildLeverageGauge(capitalAtRisk) {
+    // Get account value from AccountService
+    let accountValue = 0;
+    let buyingPower = 0;
+    
+    // Try to get from AccountService (imported module)
+    if (window.AccountService) {
+        accountValue = window.AccountService.getAccountValue() || 0;
+        buyingPower = window.AccountService.getBuyingPower() || 0;
+    }
+    
+    // Fallback: try to parse from DOM
+    if (!accountValue) {
+        const valEl = document.getElementById('balAccountValue');
+        if (valEl) {
+            accountValue = parseFloat(valEl.textContent.replace(/[$,]/g, '')) || 0;
+        }
+    }
+    if (!buyingPower) {
+        const bpEl = document.getElementById('balBuyingPower');
+        if (bpEl) {
+            buyingPower = parseFloat(bpEl.textContent.replace(/[$,]/g, '')) || 0;
+        }
+    }
+    
+    // If we still don't have account value, don't show the gauge
+    if (!accountValue || accountValue <= 0) {
+        return '';
+    }
+    
+    // Calculate leverage ratio: Capital at Risk / Account Value
+    const leverageRatio = (capitalAtRisk / accountValue) * 100;
+    
+    // Determine zone and color
+    let zoneColor, zoneName, zoneIcon, runwayText;
+    if (leverageRatio <= 50) {
+        zoneColor = '#00ff88';  // Green
+        zoneName = 'Conservative';
+        zoneIcon = '🛡️';
+        runwayText = `${(100 - leverageRatio).toFixed(0)}% runway`;
+    } else if (leverageRatio <= 80) {
+        zoneColor = '#ffaa00';  // Yellow
+        zoneName = 'Moderate';
+        zoneIcon = '⚡';
+        runwayText = `${(100 - leverageRatio).toFixed(0)}% runway`;
+    } else if (leverageRatio <= 100) {
+        zoneColor = '#ff7744';  // Orange
+        zoneName = 'Aggressive';
+        zoneIcon = '⚠️';
+        runwayText = `${(100 - leverageRatio).toFixed(0)}% until 100%`;
+    } else {
+        zoneColor = '#ff5252';  // Red
+        zoneName = 'Over-Leveraged';
+        zoneIcon = '🚨';
+        runwayText = `${(leverageRatio - 100).toFixed(0)}% OVER capacity`;
+    }
+    
+    // Calculate fill percentage (cap at 150% for visual)
+    const fillPercent = Math.min(leverageRatio, 150);
+    
+    // Calculate runway in dollars
+    const runwayDollars = accountValue - capitalAtRisk;
+    
+    return `
+        <div style="margin-top: 12px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div style="color: #888; font-size: 11px; text-transform: uppercase;">
+                    Leverage Gauge 
+                    <span title="Capital at Risk ÷ Account Value. Shows how much of your account is committed to current positions. Over 100% means you're using margin.">ⓘ</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 16px;">${zoneIcon}</span>
+                    <span style="color: ${zoneColor}; font-weight: bold; font-size: 14px;">${zoneName}</span>
+                    <span style="color: #888; font-size: 12px;">|</span>
+                    <span style="color: ${zoneColor}; font-size: 14px; font-weight: bold;">${leverageRatio.toFixed(0)}%</span>
+                </div>
+            </div>
+            
+            <!-- Gauge bar -->
+            <div style="position: relative; height: 24px; background: #1a1a2e; border-radius: 12px; overflow: hidden; border: 1px solid #333;">
+                <!-- Zone markers -->
+                <div style="position: absolute; left: 33.3%; top: 0; bottom: 0; width: 1px; background: #444; z-index: 1;"></div>
+                <div style="position: absolute; left: 53.3%; top: 0; bottom: 0; width: 1px; background: #444; z-index: 1;"></div>
+                <div style="position: absolute; left: 66.6%; top: 0; bottom: 0; width: 1px; background: #666; z-index: 1;"></div>
+                
+                <!-- Fill bar -->
+                <div style="
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    height: 100%;
+                    width: ${fillPercent / 1.5}%;
+                    background: linear-gradient(90deg, 
+                        ${leverageRatio <= 50 ? '#00ff88' : '#00ff88'} 0%, 
+                        ${leverageRatio <= 50 ? '#00ff88' : leverageRatio <= 80 ? '#ffaa00' : leverageRatio <= 100 ? '#ff7744' : '#ff5252'} 100%
+                    );
+                    border-radius: 12px 0 0 12px;
+                    transition: width 0.5s ease, background 0.5s ease;
+                "></div>
+                
+                <!-- Current position indicator -->
+                <div style="
+                    position: absolute;
+                    left: calc(${Math.min(fillPercent / 1.5, 98)}% - 2px);
+                    top: 0;
+                    height: 100%;
+                    width: 4px;
+                    background: #fff;
+                    box-shadow: 0 0 8px ${zoneColor};
+                    z-index: 2;
+                "></div>
+                
+                <!-- Zone labels inside bar -->
+                <div style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 9px; color: rgba(0,0,0,0.5); font-weight: bold; z-index: 3;">SAFE</div>
+                <div style="position: absolute; left: 38%; top: 50%; transform: translateY(-50%); font-size: 9px; color: rgba(255,255,255,0.3); font-weight: bold; z-index: 3;">MOD</div>
+                <div style="position: absolute; left: 58%; top: 50%; transform: translateY(-50%); font-size: 9px; color: rgba(255,255,255,0.3); font-weight: bold; z-index: 3;">AGG</div>
+                <div style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 9px; color: rgba(255,255,255,0.3); font-weight: bold; z-index: 3;">DANGER</div>
+            </div>
+            
+            <!-- Bottom stats -->
+            <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px;">
+                <div>
+                    <span style="color: #888;">Runway: </span>
+                    <span style="color: ${runwayDollars >= 0 ? '#00ff88' : '#ff5252'}; font-weight: bold;">
+                        ${runwayDollars >= 0 ? '' : '-'}$${Math.abs(runwayDollars).toLocaleString('en-US', {maximumFractionDigits: 0})}
+                    </span>
+                    <span style="color: #666;"> until 100%</span>
+                </div>
+                <div style="color: #888;">
+                    ${formatCurrency(capitalAtRisk)} committed of ${formatCurrency(accountValue)}
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 /**
