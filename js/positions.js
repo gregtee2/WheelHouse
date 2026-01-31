@@ -3653,7 +3653,7 @@ function renderPositionsTable(container, openPositions) {
         
         html += `
             <tr class="position-row" data-ticker="${pos.ticker}" style="${collapsedStyle}border-bottom: 1px solid #333;${childRowBg}${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}${isChildRow ? ' | ↳ Covered by parent LEAPS' : ''}">
-                <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${childIndicator}${pos.ticker}${pos.openingThesis ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}${isSkip && pos.skipDte <= 60 ? '<span style="margin-left:3px;font-size:9px;" title="' + (pos.skipDte < 45 ? 'PAST EXIT WINDOW!' : 'In 45-60 DTE exit window') + '">' + (pos.skipDte < 45 ? '🚨' : '⚠️') + '</span>' : ''}</td>
+                <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${childIndicator}${pos.ticker}${(pos.openingThesis && Object.keys(pos.openingThesis).length > 0) ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}${isSkip && pos.skipDte <= 60 ? '<span style="margin-left:3px;font-size:9px;" title="' + (pos.skipDte < 45 ? 'PAST EXIT WINDOW!' : 'In 45-60 DTE exit window') + '">' + (pos.skipDte < 45 ? '🚨' : '⚠️') + '</span>' : ''}</td>
                 <td style="padding: 4px; text-align: center;" id="risk-cell-${pos.id}">
                     ${initialStatusHtml}
                 </td>
@@ -3761,7 +3761,7 @@ function renderPositionsTable(container, openPositions) {
                             style="width: 28px; background: rgba(0,180,220,0.3); border: 1px solid rgba(0,180,220,0.5); color: #6dd; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Analyze">📊</button>
                     `}
-                    ${pos.openingThesis ? `
+                    ${pos.openingThesis && Object.keys(pos.openingThesis).length > 0 ? `
                     <button onclick="window.runPositionCheckup(${pos.id})" 
                             style="width: 28px; background: rgba(0,255,136,0.3); border: 1px solid rgba(0,255,136,0.5); color: #0f8; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Thesis Checkup - Compare opening assumptions to current state">🩺</button>
@@ -3807,27 +3807,19 @@ function renderPositionsTable(container, openPositions) {
     
     html += '</tbody></table>';
     
-    // Prevent vertical shrink during re-render by locking current height temporarily
-    const currentHeight = container.scrollHeight;  // Use scrollHeight, more reliable than offsetHeight
-    if (currentHeight > 100) {  // Only lock if there's meaningful content
-        container.style.minHeight = currentHeight + 'px';
-    }
+    // Prevent visual "pop" during re-render
+    // Strategy: Hide content briefly, update, then reveal
+    container.style.opacity = '0.7';
+    container.style.transition = 'opacity 0.1s';
     
     container.innerHTML = html;
     
-    // Release the min-height lock after DOM settles - longer delay to prevent visual "pop"
+    // Restore opacity after paint
     requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            // Double RAF ensures layout is complete before we release
-            setTimeout(() => {
-                container.style.transition = 'min-height 0.3s ease-out';
-                container.style.minHeight = '';
-                // Remove transition after it completes
-                setTimeout(() => {
-                    container.style.transition = '';
-                }, 350);
-            }, 50);
-        });
+        container.style.opacity = '1';
+        setTimeout(() => {
+            container.style.transition = '';
+        }, 150);
     });
     
     // Enable resizable columns
@@ -4020,11 +4012,15 @@ async function updatePositionRiskStatuses(openPositions) {
             const realIV = ivData[pos.ticker]?.value || null;
             const risk = calculatePositionRisk(pos, spotPrice, realIV);
             
-            // Track worst risk for this ticker (red=2, orange=1, green=0)
-            // Use includes for color matching since CSS values might be hex or rgb format
-            const riskLevel = risk.needsAttention && (risk.color.includes('ff5252') || risk.color.includes('255, 82, 82') || risk.color.includes('255,82,82')) ? 2 
-                : risk.needsAttention && (risk.color.includes('ffaa00') || risk.color.includes('255, 170, 0') || risk.color.includes('255,170,0')) ? 1 
-                : 0;
+            // Track worst risk for this ticker (red=2, orange/yellow=1, green=0)
+            // Check color value - handles hex (#ffaa00) and rgb() formats
+            const colorLower = (risk.color || '').toLowerCase();
+            const isRed = colorLower.includes('ff5252') || colorLower.includes('255, 82, 82') || colorLower.includes('255,82,82');
+            const isOrangeYellow = colorLower.includes('ffaa00') || colorLower.includes('ff8800') || colorLower.includes('ffff00') || 
+                                   colorLower.includes('255, 170, 0') || colorLower.includes('255,170,0') ||
+                                   colorLower.includes('255, 136, 0') || colorLower.includes('255,136,0') ||
+                                   colorLower.includes('255, 255, 0') || colorLower.includes('255,255,0');
+            const riskLevel = isRed ? 2 : isOrangeYellow ? 1 : 0;
             if (tickerRiskLevels[pos.ticker] && riskLevel > tickerRiskLevels[pos.ticker].level) {
                 tickerRiskLevels[pos.ticker] = { level: riskLevel, color: risk.color, icon: risk.icon, text: risk.text };
             }
@@ -4159,11 +4155,15 @@ async function updatePositionRiskStatuses(openPositions) {
         const realIV = ivData[pos.ticker]?.value || null;
         const risk = calculatePositionRisk(pos, spotPrice, realIV);
         
-        // Track worst risk for this ticker (red=2, orange=1, green=0)
-        // Use includes for color matching since CSS values might be hex or rgb format
-        const riskLevel = risk.needsAttention && (risk.color.includes('ff5252') || risk.color.includes('255, 82, 82') || risk.color.includes('255,82,82')) ? 2 
-            : risk.needsAttention && (risk.color.includes('ffaa00') || risk.color.includes('255, 170, 0') || risk.color.includes('255,170,0')) ? 1 
-            : 0;
+        // Track worst risk for this ticker (red=2, orange/yellow=1, green=0)
+        // Check color value - handles hex (#ffaa00) and rgb() formats
+        const colorLower = (risk.color || '').toLowerCase();
+        const isRed = colorLower.includes('ff5252') || colorLower.includes('255, 82, 82') || colorLower.includes('255,82,82');
+        const isOrangeYellow = colorLower.includes('ffaa00') || colorLower.includes('ff8800') || colorLower.includes('ffff00') || 
+                               colorLower.includes('255, 170, 0') || colorLower.includes('255,170,0') ||
+                               colorLower.includes('255, 136, 0') || colorLower.includes('255,136,0') ||
+                               colorLower.includes('255, 255, 0') || colorLower.includes('255,255,0');
+        const riskLevel = isRed ? 2 : isOrangeYellow ? 1 : 0;
         if (tickerRiskLevels[pos.ticker] && riskLevel > tickerRiskLevels[pos.ticker].level) {
             tickerRiskLevels[pos.ticker] = { level: riskLevel, color: risk.color, icon: risk.icon, text: risk.text };
         }
@@ -4873,6 +4873,18 @@ window.assignPosition = assignPosition;
 window.renderPositions = renderPositions;
 window.updatePortfolioSummary = updatePortfolioSummary;
 window.undoLastAction = undoLastAction;
+
+// Debug function to check thesis data
+window.debugThesis = function() {
+    const positions = state.positions || [];
+    const withThesis = positions.filter(p => p.openingThesis && Object.keys(p.openingThesis).length > 0);
+    console.log(`Total positions: ${positions.length}`);
+    console.log(`Positions with thesis: ${withThesis.length}`);
+    withThesis.forEach(p => {
+        console.log(`  ${p.ticker} $${p.strike}: thesis keys = ${Object.keys(p.openingThesis).join(', ')}`);
+    });
+    return { total: positions.length, withThesis: withThesis.length, details: withThesis.map(p => ({ ticker: p.ticker, strike: p.strike, thesisKeys: Object.keys(p.openingThesis) })) };
+};
 
 /**
  * Toggle collapse/expand for ticker group in positions table
