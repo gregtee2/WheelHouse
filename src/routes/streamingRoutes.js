@@ -120,9 +120,12 @@ function scheduleReconnect() {
  */
 function sendToStreamer(message) {
     if (streamerSocket && streamerSocket.readyState === WebSocket.OPEN) {
-        streamerSocket.send(JSON.stringify(message));
+        const msgStr = JSON.stringify(message);
+        console.log(`[STREAMER] → Python: ${message.command || message.type}`);
+        streamerSocket.send(msgStr);
         return true;
     }
+    console.log(`[STREAMER] Cannot send to Python (not connected): ${message.command || message.type}`);
     return false;
 }
 
@@ -337,8 +340,13 @@ function init(deps) {
             
             // Handle subscription requests from browser
             socket.on('subscribe-positions', (positions) => {
+                console.log(`[STREAMER] Browser requested subscription for ${positions?.length || 0} positions`);
+                
                 const occSymbols = positionsToOCCSymbols(positions);
                 const tickers = [...new Set(positions.map(p => p.ticker))];
+                
+                console.log(`[STREAMER] OCC symbols: ${occSymbols.slice(0, 3).join(', ')}${occSymbols.length > 3 ? '...' : ''}`);
+                console.log(`[STREAMER] Tickers: ${tickers.join(', ')}`);
                 
                 subscribeOptions(occSymbols);
                 subscribeEquities(tickers);
