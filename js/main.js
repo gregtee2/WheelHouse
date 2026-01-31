@@ -1986,9 +1986,11 @@ window.getXSentiment = async function() {
         
         // Format the response with nice styling
         let formatted = result.sentiment
+            .replace(/\n/g, '<br>')  // Convert newlines to HTML breaks FIRST
             .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#1da1f2;">$1</strong>')
             .replace(/(\$[\d,]+\.?\d*)/g, '<span style="color:#ffaa00;">$1</span>')
-            .replace(/(🔥|📢|⚠️|💰|🚀)/g, '<span style="font-size:14px;">$1</span>');
+            .replace(/(🔥|📢|⚠️|💰|🚀|🆕|📉)/g, '<span style="font-size:14px;">$1</span>')
+            .replace(/^- /gm, '• ');  // Convert markdown bullets to nice bullets
         
         // Make tickers clickable for Deep Dive
         window._xTrendingTickers.forEach(ticker => {

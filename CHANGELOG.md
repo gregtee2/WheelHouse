@@ -3,6 +3,24 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.1] - 2026-01-31
+
+### Added
+- **🐦 Enhanced X/Twitter Sentiment** - Full options coverage with sector-aware fallbacks
+  - Searches X for ALL tickers (stocks + options underlyings like TSLL, IREN, CIFR, NBIS)
+  - Sector keyword fallbacks when ticker-specific buzz is sparse
+  - Infers sectors from tickers: IREN→"Bitcoin mining", TSLL→"Tesla", SLV→"silver"
+  - 4-step SSE streaming with progress animation
+  - Forces Grok to report on EVERY ticker, not just popular ones
+
+### Fixed
+- **Week Summary data source** - Now reads from frontend localStorage (correct account-specific key)
+  - Previously was reading from server autosave file which had different/older data
+  - Correctly shows trades closed this week with accurate realized P&L
+- **X Sentiment newline formatting** - Response now properly formatted with line breaks
+
+---
+
 ## [1.19.0] - 2026-01-31
 
 ### Added

@@ -5,13 +5,31 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-Proprietary-red)
-![Version](https://img.shields.io/badge/version-1.18.1-blue)
+![Version](https://img.shields.io/badge/version-1.19.1-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
 
-## 🆕 What's New in v1.18.1
+## 🆕 What's New in v1.19.1
+
+### 🐦 Enhanced X/Twitter Sentiment ("Trending on X")
+- **Full options coverage**: Now searches X for ALL your positions (stocks + options underlyings)
+- **Sector-aware fallbacks**: If ticker has no buzz, searches sector keywords instead
+  - IREN/CIFR → "Bitcoin mining", "crypto miners"
+  - TSLL → "Tesla", "EV", "leveraged ETF"
+  - INTC → "semiconductors", "chip stocks"
+  - SLV → "silver", "precious metals"
+- **Progress animation**: 4-step SSE streaming with visual progress bar
+- **Every ticker reported**: Grok now reports sentiment for EACH of your tickers, not just popular ones
+
+### 📊 Week Summary Improvements
+- **Fixed data source**: Now reads from your localStorage (correct account), not server autosave
+- **Accurate closed trades**: Shows actual trades closed this week with correct P&L
+
+---
+
+## What's New in v1.18.1
 
 ### ⛽ Leverage Gauge - Margin Call Risk Based
 Complete redesign of the leverage gauge to reflect **actual margin call risk**:
