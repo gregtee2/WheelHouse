@@ -952,11 +952,19 @@ function startAutoRefresh() {
             return;
         }
         
+        // Skip if streaming is connected - it handles updates
+        const StreamingService = (await import('./services/StreamingService.js')).default;
+        if (StreamingService.isConnected()) {
+            lastRefreshTime = new Date();
+            updateRefreshStatus();
+            return;
+        }
+        
         lastRefreshTime = new Date();
         updateRefreshStatus();
         
-        // Refresh Portfolio
-        console.log('🔄 Auto-refreshing Portfolio...');
+        // Refresh Portfolio (only when streaming not connected)
+        console.log('🔄 Auto-refreshing Portfolio (streaming not connected)...');
         const { renderPortfolio } = await import('./portfolio.js');
         await renderPortfolio(true);
         

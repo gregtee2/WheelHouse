@@ -6,6 +6,7 @@ import { showNotification, isDebitPosition, calculateRealizedPnL, colors, create
 import { fetchStockPrice, fetchStockPricesBatch, fetchOptionsChain, findOption } from './api.js';
 import { saveHoldingsToStorage, renderPositions } from './positions.js';
 import AccountService from './services/AccountService.js';
+import StreamingService from './services/StreamingService.js';
 
 // Dynamic storage key based on account mode
 function getClosedStorageKey() { return getClosedKey(); }
@@ -839,7 +840,14 @@ function startAutoRefreshPrices() {
             return;
         }
         
-        console.log('🔄 Auto-refreshing prices...');
+        // Skip polling if streaming is connected (streaming updates cells directly)
+        if (StreamingService.isConnected()) {
+            // Just update the timestamp to show streaming is working
+            updatePriceLastUpdated();
+            return;
+        }
+        
+        console.log('🔄 Auto-refreshing prices (streaming not connected)...');
         try {
             await refreshAllPositionPrices();
             updatePriceLastUpdated();

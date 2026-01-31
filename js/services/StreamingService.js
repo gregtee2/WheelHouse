@@ -35,6 +35,13 @@ class StreamingServiceClass {
     }
     
     /**
+     * Check if streaming is fully connected (Socket.IO + Python streamer)
+     */
+    isConnected() {
+        return this.connected && this.streamerConnected;
+    }
+    
+    /**
      * Connect to Socket.IO server
      */
     connect() {
