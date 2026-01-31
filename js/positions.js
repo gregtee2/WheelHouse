@@ -3808,22 +3808,27 @@ function renderPositionsTable(container, openPositions) {
     html += '</tbody></table>';
     
     // Prevent vertical shrink during re-render by locking current height temporarily
-    const currentHeight = container.offsetHeight;
-    if (currentHeight > 0) {
+    const currentHeight = container.scrollHeight;  // Use scrollHeight, more reliable than offsetHeight
+    if (currentHeight > 100) {  // Only lock if there's meaningful content
         container.style.minHeight = currentHeight + 'px';
     }
     
     container.innerHTML = html;
     
-    // Release the min-height lock after render completes - use longer delay to prevent "pop"
-    setTimeout(() => {
-        container.style.transition = 'min-height 0.2s ease-out';
-        container.style.minHeight = '';
-        // Remove transition after it completes
-        setTimeout(() => {
-            container.style.transition = '';
-        }, 250);
-    }, 100);
+    // Release the min-height lock after DOM settles - longer delay to prevent visual "pop"
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            // Double RAF ensures layout is complete before we release
+            setTimeout(() => {
+                container.style.transition = 'min-height 0.3s ease-out';
+                container.style.minHeight = '';
+                // Remove transition after it completes
+                setTimeout(() => {
+                    container.style.transition = '';
+                }, 350);
+            }, 50);
+        });
+    });
     
     // Enable resizable columns
     enableResizableColumns(container);
@@ -4016,8 +4021,11 @@ async function updatePositionRiskStatuses(openPositions) {
             const risk = calculatePositionRisk(pos, spotPrice, realIV);
             
             // Track worst risk for this ticker (red=2, orange=1, green=0)
-            const riskLevel = risk.color === '#ff5252' ? 2 : risk.color === '#ffaa00' ? 1 : 0;
-            if (riskLevel > tickerRiskLevels[pos.ticker].level) {
+            // Use includes for color matching since CSS values might be hex or rgb format
+            const riskLevel = risk.needsAttention && (risk.color.includes('ff5252') || risk.color.includes('255, 82, 82') || risk.color.includes('255,82,82')) ? 2 
+                : risk.needsAttention && (risk.color.includes('ffaa00') || risk.color.includes('255, 170, 0') || risk.color.includes('255,170,0')) ? 1 
+                : 0;
+            if (tickerRiskLevels[pos.ticker] && riskLevel > tickerRiskLevels[pos.ticker].level) {
                 tickerRiskLevels[pos.ticker] = { level: riskLevel, color: risk.color, icon: risk.icon, text: risk.text };
             }
             
@@ -4152,8 +4160,11 @@ async function updatePositionRiskStatuses(openPositions) {
         const risk = calculatePositionRisk(pos, spotPrice, realIV);
         
         // Track worst risk for this ticker (red=2, orange=1, green=0)
-        const riskLevel = risk.color === '#ff5252' ? 2 : risk.color === '#ffaa00' ? 1 : 0;
-        if (riskLevel > tickerRiskLevels[pos.ticker].level) {
+        // Use includes for color matching since CSS values might be hex or rgb format
+        const riskLevel = risk.needsAttention && (risk.color.includes('ff5252') || risk.color.includes('255, 82, 82') || risk.color.includes('255,82,82')) ? 2 
+            : risk.needsAttention && (risk.color.includes('ffaa00') || risk.color.includes('255, 170, 0') || risk.color.includes('255,170,0')) ? 1 
+            : 0;
+        if (tickerRiskLevels[pos.ticker] && riskLevel > tickerRiskLevels[pos.ticker].level) {
             tickerRiskLevels[pos.ticker] = { level: riskLevel, color: risk.color, icon: risk.icon, text: risk.text };
         }
         
