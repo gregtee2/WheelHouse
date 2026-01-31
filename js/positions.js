@@ -3310,14 +3310,38 @@ let whatIfExcludedPositions = new Set();
 // Export for use in gauge
 window.whatIfExcludedPositions = whatIfExcludedPositions;
 
+// Sync checkbox visual state with the Set (call after any table render)
+function syncWhatIfCheckboxes() {
+    whatIfExcludedPositions.forEach(posId => {
+        const row = document.querySelector(`tr[data-position-id="${posId}"]`);
+        if (row) {
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            if (checkbox && checkbox.checked) {
+                checkbox.checked = false;
+            }
+            row.style.opacity = '0.5';
+        }
+    });
+}
+
 // Toggle position in/out of what-if simulation
 window.toggleWhatIfPosition = function(positionId) {
     // Ensure we're working with numbers (onclick passes string from HTML attribute)
     const id = Number(positionId);
+    const row = document.querySelector(`tr[data-position-id="${id}"]`);
+    
     if (whatIfExcludedPositions.has(id)) {
         whatIfExcludedPositions.delete(id);
+        // Update DOM directly
+        if (row) {
+            row.style.opacity = '1';
+        }
     } else {
         whatIfExcludedPositions.add(id);
+        // Update DOM directly
+        if (row) {
+            row.style.opacity = '0.5';
+        }
     }
     // Update the gauge immediately (without re-rendering the whole table)
     updatePortfolioSummary();
@@ -3848,6 +3872,9 @@ function renderPositionsTable(container, openPositions) {
     }
     
     container.innerHTML = html;
+    
+    // Sync what-if checkboxes after render (price updates re-render but checkboxes lose state)
+    syncWhatIfCheckboxes();
     
     // Release lock only after content is fully painted (delayed)
     setTimeout(() => {
