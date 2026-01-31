@@ -298,9 +298,26 @@ async function syncAccountFromSchwab() {
         const optionPositions = schwabPositions.filter(p => p.type !== 'stock');
         const stockPositions = schwabPositions.filter(p => p.type === 'stock');
         
+        // Get account-aware storage keys (must match state.js logic)
+        const getStorageKey = (baseKey) => {
+            const state = window.state;
+            if (state?.accountMode === 'paper') {
+                return `wheelhouse_paper_${baseKey}`;
+            }
+            const acct = state?.selectedAccount;
+            if (acct && acct.accountNumber) {
+                const suffix = `${acct.type || 'ACCT'}_${acct.accountNumber.slice(-4)}`;
+                return `wheelhouse_${suffix}_${baseKey}`;
+            }
+            return `wheelhouse_${baseKey}`;
+        };
+        const positionsKey = getStorageKey('positions');
+        const holdingsKey = getStorageKey('holdings');
+        console.log('[Schwab Sync] Using storage keys:', { positionsKey, holdingsKey });
+        
         // Load existing positions
-        const existingPositions = JSON.parse(localStorage.getItem('wheelhouse_positions') || '[]');
-        const existingHoldings = JSON.parse(localStorage.getItem('wheelhouse_holdings') || '[]');
+        const existingPositions = JSON.parse(localStorage.getItem(positionsKey) || '[]');
+        const existingHoldings = JSON.parse(localStorage.getItem(holdingsKey) || '[]');
         
         let imported = 0;
         let skipped = 0;
@@ -423,9 +440,9 @@ async function syncAccountFromSchwab() {
             }
         }
         
-        // Save to localStorage
-        localStorage.setItem('wheelhouse_positions', JSON.stringify(existingPositions));
-        localStorage.setItem('wheelhouse_holdings', JSON.stringify(existingHoldings));
+        // Save to localStorage (using account-aware keys)
+        localStorage.setItem(positionsKey, JSON.stringify(existingPositions));
+        localStorage.setItem(holdingsKey, JSON.stringify(existingHoldings));
         
         // Show results
         const messages = [];
