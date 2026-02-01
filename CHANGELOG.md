@@ -3,6 +3,17 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.2] - 2026-01-31
+
+### Added
+- **🐦 X Sentiment Integration in Week Summary** - Pre-fetched X/Twitter insights now flow into AI analysis
+  - "Trending on X" data is included in the Week Summary synthesis step
+  - Works with ALL AI models (Ollama + Grok) - not just Grok's live search
+  - AI can now reference X sentiment when making position recommendations
+  - Fetches cached X Sentiment from localStorage if less than 24 hours old
+
+---
+
 ## [1.19.1] - 2026-01-31
 
 ### Added

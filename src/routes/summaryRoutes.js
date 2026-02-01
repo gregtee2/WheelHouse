@@ -335,7 +335,7 @@ function calculatePositionPnL(pos) {
 /**
  * Generate a weekly summary
  */
-function generateSummary(positions, accountValue, closedThisWeek = [], holdings = []) {
+function generateSummary(positions, accountValue, closedThisWeek = [], holdings = [], xSentiment = null) {
     const openPositions = positions.filter(p => p.status === 'open');
     
     // Calculate P&L for all open positions
@@ -460,6 +460,15 @@ function generateSummary(positions, accountValue, closedThisWeek = [], holdings 
             realizedPnL: p.realizedPnL || p.closePnL || 0
         })),
         
+        // X/Twitter sentiment data (from "Trending on X" feature)
+        xSentiment: xSentiment ? {
+            timestamp: xSentiment.timestamp,
+            ageHours: xSentiment.ageHours,
+            tickers: xSentiment.tickers || [],
+            // Strip HTML tags for AI consumption
+            rawText: xSentiment.html?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || null
+        } : null,
+        
         // AI analysis placeholder (filled in by separate call)
         aiAnalysis: null
     };
@@ -535,6 +544,22 @@ Currently up +$${summary.biggestWinner.pnl} (+${summary.biggestWinner.pnlPercent
             }
             prompt += '\n';
         }
+    }
+
+    // Add X/Twitter sentiment context if available
+    if (summary.xSentiment && summary.xSentiment.rawText) {
+        prompt += `\n## 🐦 X/Twitter Sentiment (from "Trending on X" - ${summary.xSentiment.ageHours}h ago)
+
+The trader ran an X/Twitter sentiment scan that found the following insights about their positions. INTEGRATE these insights into your analysis where relevant:
+
+${summary.xSentiment.rawText.substring(0, 3000)}
+${summary.xSentiment.rawText.length > 3000 ? '...(truncated)' : ''}
+
+When giving recommendations, consider:
+- Is X sentiment bullish/bearish on their losers? Should they cut or hold?
+- Any upcoming catalysts (earnings, events) that X is buzzing about?
+- Sector momentum that affects multiple positions
+`;
     }
 
     prompt += `
@@ -695,17 +720,18 @@ router.post('/migrate-sectors', async (req, res) => {
 router.post('/generate', async (req, res) => {
     try {
         // Frontend now sends ALL data - no need to read from autosave
-        const { accountValue = 0, closedThisWeek = [], holdings = [], positions = [] } = req.body;
+        const { accountValue = 0, closedThisWeek = [], holdings = [], positions = [], xSentiment = null } = req.body;
         
         console.log(`[SUMMARY] Received from frontend:`, {
             closedThisWeek: closedThisWeek.length,
             holdings: holdings.length,
             positions: positions.length,
-            accountValue
+            accountValue,
+            hasXSentiment: !!xSentiment
         });
         
         // Use positions from frontend, not from autosave
-        const summary = generateSummary(positions, accountValue, closedThisWeek, holdings);
+        const summary = generateSummary(positions, accountValue, closedThisWeek, holdings, xSentiment);
         
         res.json({ success: true, summary });
     } catch (e) {
@@ -1266,7 +1292,15 @@ ${positionCheckups || 'All positions appear healthy - no urgent attention needed
 
 ## Portfolio Audit (from AI #2)
 ${portfolioAudit || 'No major structural issues identified.'}
+${summary.xSentiment && summary.xSentiment.rawText ? `
+## 🐦 X/Twitter Sentiment (from "Trending on X" - ${summary.xSentiment.ageHours}h ago)
+The trader ran a separate X sentiment analysis. Here's what was found:
 
+${summary.xSentiment.rawText.substring(0, 2000)}
+${summary.xSentiment.rawText.length > 2000 ? '...(truncated)' : ''}
+
+Incorporate any relevant insights from X into your recommendations. If a position has notable bullish/bearish sentiment on X, mention it in your analysis.
+` : ''}
 ## Your Task: Create the Final Week-Ending Report
 
 Write a comprehensive but readable summary with these sections:

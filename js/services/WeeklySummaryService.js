@@ -70,6 +70,33 @@ class WeeklySummaryService {
             });
             console.log('[SUMMARY] Closed this week:', closedThisWeek.map(p => `${p.ticker} $${p.strike} closed ${p.closeDate}`));
             
+            // Get the latest X Sentiment report if available (from "Trending on X" feature)
+            let xSentimentData = null;
+            try {
+                const saved = localStorage.getItem('wheelhouse_x_sentiment');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    // Only use if less than 24 hours old
+                    const ageHours = (Date.now() - parsed.timestamp) / (1000 * 60 * 60);
+                    if (ageHours < 24) {
+                        xSentimentData = {
+                            html: parsed.html,
+                            tickers: parsed.tickers,
+                            timestamp: new Date(parsed.timestamp).toLocaleString(),
+                            ageHours: ageHours.toFixed(1)
+                        };
+                        console.log('[SUMMARY] Including X Sentiment data:', {
+                            tickers: xSentimentData.tickers?.length,
+                            age: `${xSentimentData.ageHours} hours old`
+                        });
+                    } else {
+                        console.log('[SUMMARY] X Sentiment data too old (', ageHours.toFixed(1), 'hours), skipping');
+                    }
+                }
+            } catch (e) {
+                console.log('[SUMMARY] No X Sentiment data available');
+            }
+            
             // Generate summary from server
             // Include options positions for AI analysis
             const res = await fetch('/api/summary/generate', {
@@ -79,7 +106,8 @@ class WeeklySummaryService {
                     accountValue, 
                     closedThisWeek, 
                     holdings,
-                    positions: allPositions  // Open options positions
+                    positions: allPositions,  // Open options positions
+                    xSentiment: xSentimentData // X/Twitter sentiment if available
                 })
             });
             const data = await res.json();
