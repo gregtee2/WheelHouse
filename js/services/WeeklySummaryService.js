@@ -1054,34 +1054,108 @@ class WeeklySummaryService {
 </html>
         `;
         
-        // For Electron: Use hidden iframe approach instead of window.open
-        // Remove any existing print frame
-        const existingFrame = document.getElementById('printFrame');
-        if (existingFrame) existingFrame.remove();
+        // Close the summary modal temporarily
+        const summaryModal = document.getElementById('weekSummaryModal');
+        if (summaryModal) summaryModal.style.display = 'none';
         
-        // Create hidden iframe
-        const iframe = document.createElement('iframe');
-        iframe.id = 'printFrame';
-        iframe.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0;';
-        document.body.appendChild(iframe);
+        // Create print preview overlay
+        const printOverlay = document.createElement('div');
+        printOverlay.id = 'printPreviewOverlay';
+        printOverlay.innerHTML = `
+            <style>
+                #printPreviewOverlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: #fff;
+                    z-index: 99999;
+                    overflow-y: auto;
+                    padding: 20px;
+                }
+                #printPreviewOverlay .print-controls {
+                    position: fixed;
+                    top: 10px;
+                    right: 10px;
+                    display: flex;
+                    gap: 10px;
+                    z-index: 100000;
+                }
+                #printPreviewOverlay .print-controls button {
+                    padding: 10px 20px;
+                    font-size: 14px;
+                    cursor: pointer;
+                    border-radius: 6px;
+                    border: none;
+                }
+                #printPreviewOverlay .print-btn {
+                    background: #0066cc;
+                    color: white;
+                }
+                #printPreviewOverlay .cancel-btn {
+                    background: #666;
+                    color: white;
+                }
+                @media print {
+                    #printPreviewOverlay .print-controls {
+                        display: none !important;
+                    }
+                    #printPreviewOverlay {
+                        position: static;
+                        padding: 0;
+                    }
+                }
+            </style>
+            <div class="print-controls">
+                <button class="print-btn" onclick="window.print()">🖨️ Print</button>
+                <button class="cancel-btn" id="closePrintPreview">✕ Close</button>
+            </div>
+            <div id="printContent">
+                <h1 style="font-size:18pt; margin-bottom:5px; color:#000;">📊 Week Ending Summary</h1>
+                <div style="color:#666; font-size:11pt; margin-bottom:20px;">${summary.weekEnding}</div>
+                
+                <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:15px; margin-bottom:25px;">
+                    <div style="border:1px solid #ddd; border-radius:6px; padding:12px; text-align:center;">
+                        <div style="font-size:9pt; color:#666; text-transform:uppercase; margin-bottom:3px;">Account Value</div>
+                        <div style="font-size:16pt; font-weight:600;">$${(summary.accountValue || 0).toLocaleString()}</div>
+                    </div>
+                    <div style="border:1px solid #ddd; border-radius:6px; padding:12px; text-align:center;">
+                        <div style="font-size:9pt; color:#666; text-transform:uppercase; margin-bottom:3px;">Unrealized P&L</div>
+                        <div style="font-size:16pt; font-weight:600; color:${summary.unrealizedPnL >= 0 ? '#0a0' : '#c00'};">${summary.unrealizedPnL >= 0 ? '+' : ''}$${(summary.unrealizedPnL || 0).toLocaleString()}</div>
+                    </div>
+                    <div style="border:1px solid #ddd; border-radius:6px; padding:12px; text-align:center;">
+                        <div style="font-size:9pt; color:#666; text-transform:uppercase; margin-bottom:3px;">Realized P&L</div>
+                        <div style="font-size:16pt; font-weight:600; color:${(summary.realizedPnL || 0) >= 0 ? '#0a0' : '#c00'};">${(summary.realizedPnL || 0) >= 0 ? '+' : ''}$${(summary.realizedPnL || 0).toLocaleString()}</div>
+                    </div>
+                    <div style="border:1px solid #ddd; border-radius:6px; padding:12px; text-align:center;">
+                        <div style="font-size:9pt; color:#666; text-transform:uppercase; margin-bottom:3px;">Leverage</div>
+                        <div style="font-size:16pt; font-weight:600; color:${summary.leverageRatio > 150 ? '#c00' : summary.leverageRatio > 100 ? '#c80' : '#000'};">${summary.leverageRatio || 0}%</div>
+                    </div>
+                </div>
+                
+                ${aiAnalysisHtml ? `
+                <div style="margin-top:20px; padding-top:15px; border-top:2px solid #333;">
+                    <h2 style="font-size:14pt; margin-bottom:10px; color:#000;">🤖 AI Analysis</h2>
+                    <div style="font-size:11pt; line-height:1.6; color:#333;">${aiAnalysisHtml}</div>
+                </div>
+                ` : `
+                <div style="color:#666; font-style:italic;">No AI analysis generated yet.</div>
+                `}
+                
+                <div style="margin-top:30px; padding-top:15px; border-top:1px solid #ddd; font-size:9pt; color:#888; text-align:center;">
+                    Generated by WheelHouse • ${new Date().toLocaleString()}
+                </div>
+            </div>
+        `;
         
-        // Write content to iframe
-        const iframeDoc = iframe.contentWindow || iframe.contentDocument;
-        const doc = iframeDoc.document || iframeDoc;
-        doc.open();
-        doc.write(printContent);
-        doc.close();
+        document.body.appendChild(printOverlay);
         
-        // Wait for content to load, then print
-        setTimeout(() => {
-            iframe.contentWindow.focus();
-            iframe.contentWindow.print();
-            
-            // Clean up after print dialog closes
-            setTimeout(() => {
-                iframe.remove();
-            }, 1000);
-        }, 250);
+        // Close button handler
+        document.getElementById('closePrintPreview').onclick = () => {
+            printOverlay.remove();
+            if (summaryModal) summaryModal.style.display = 'flex';
+        };
     }
     
     /**
