@@ -5,15 +5,26 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-Proprietary-red)
-![Version](https://img.shields.io/badge/version-1.19.1-blue)
+![Version](https://img.shields.io/badge/version-1.19.3-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
 
-## 🆕 What's New in v1.19.1
+## 🆕 What's New in v1.19.3
 
-### 🐦 Enhanced X/Twitter Sentiment ("Trending on X")
+### 🖨️ Print Report Button
+- **One-click printing**: New "🖨️ Print Report" button in Week Summary
+- **Print preview**: Full-screen preview before printing
+- **Clean formatting**: Black & white friendly with proper headings, bullet points, and spacing
+- **All data included**: Metrics grid + full AI analysis + timestamp
+
+### 🐦 X Sentiment → Week Summary Integration (v1.19.2)
+- **AI uses X insights**: The "Trending on X" report is now included in Week Summary AI analysis
+- **Works with ALL models**: Ollama (Qwen) and Grok both see the pre-fetched X data
+- **Better recommendations**: AI can reference Twitter sentiment when making position suggestions
+
+### 🐦 Enhanced X/Twitter Sentiment (v1.19.1)
 - **Full options coverage**: Now searches X for ALL your positions (stocks + options underlyings)
 - **Sector-aware fallbacks**: If ticker has no buzz, searches sector keywords instead
   - IREN/CIFR → "Bitcoin mining", "crypto miners"
@@ -21,9 +32,9 @@ A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBO
   - INTC → "semiconductors", "chip stocks"
   - SLV → "silver", "precious metals"
 - **Progress animation**: 4-step SSE streaming with visual progress bar
-- **Every ticker reported**: Grok now reports sentiment for EACH of your tickers, not just popular ones
+- **Every ticker reported**: Grok now reports sentiment for EACH of your tickers
 
-### 📊 Week Summary Improvements
+### 📊 Week Summary Improvements (v1.19.0-1.19.1)
 - **Fixed data source**: Now reads from your localStorage (correct account), not server autosave
 - **Accurate closed trades**: Shows actual trades closed this week with correct P&L
 
