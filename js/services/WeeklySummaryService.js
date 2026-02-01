@@ -837,6 +837,43 @@ class WeeklySummaryService {
     }
     
     /**
+     * Format AI response for print (clean, black & white friendly)
+     */
+    formatForPrint(text) {
+        if (!text) return '';
+        
+        return text
+            // Headers with emoji - make them section titles with proper styling
+            .replace(/^###\s*([📊💰⚠️📈📋🎯🤖📌🔴🟠🟡✅❌⭐🏆💡🔥📉📈🚀💎🐦]?\s*.*?)$/gm, 
+                '<h3 style="color:#0066cc; font-size:13pt; margin:20px 0 10px; padding-bottom:5px; border-bottom:1px solid #ccc;">$1</h3>')
+            .replace(/^##\s*([📊💰⚠️📈📋🎯🤖📌🔴🟠🟡✅❌⭐🏆💡🔥📉📈🚀💎🐦]?\s*.*?)$/gm, 
+                '<h2 style="color:#000; font-size:14pt; margin:25px 0 12px; padding-bottom:5px; border-bottom:2px solid #333;">$1</h2>')
+            .replace(/^#\s*([📊💰⚠️📈📋🎯🤖📌🔴🟠🟡✅❌⭐🏆💡🔥📉📈🚀💎🐦]?\s*.*?)$/gm, 
+                '<h1 style="color:#000; font-size:16pt; margin:25px 0 15px;">$1</h1>')
+            // Bold text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            // Italic text
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            // Bullet points
+            .replace(/^[•\-]\s+(.*?)$/gm, '<li style="margin-left:20px; margin-bottom:6px;">$1</li>')
+            // Numbered lists
+            .replace(/^(\d+)\.\s+(.*?)$/gm, '<li style="margin-left:20px; margin-bottom:6px;"><strong>$1.</strong> $2</li>')
+            // Wrap consecutive list items in <ul>
+            .replace(/(<li[^>]*>.*?<\/li>\n?)+/g, '<ul style="list-style:none; padding:0; margin:10px 0;">$&</ul>')
+            // Paragraphs - double newlines become paragraph breaks
+            .replace(/\n\n+/g, '</p><p style="margin:12px 0; line-height:1.6;">')
+            // Single newlines in remaining text become line breaks
+            .replace(/\n/g, '<br>')
+            // Wrap in paragraph
+            .replace(/^(.+)/, '<p style="margin:12px 0; line-height:1.6;">$1')
+            .replace(/(.+)$/, '$1</p>')
+            // Clean up empty paragraphs
+            .replace(/<p[^>]*>\s*<\/p>/g, '')
+            // Clean up nested ul issues
+            .replace(/<\/ul>\s*<ul[^>]*>/g, '');
+    }
+    
+    /**
      * Save summary to history
      */
     async saveSummary() {
@@ -907,9 +944,10 @@ class WeeklySummaryService {
         // Try to get the AI analysis section (the main report)
         const reportDiv = contentDiv?.querySelector('[style*="white-space:pre-wrap"]');
         if (reportDiv) {
-            aiAnalysisHtml = reportDiv.innerHTML;
+            // Get raw text and reformat for print
+            aiAnalysisHtml = this.formatForPrint(summary.aiAnalysis || reportDiv.textContent);
         } else if (summary.aiAnalysis) {
-            aiAnalysisHtml = this.formatAIResponse(summary.aiAnalysis);
+            aiAnalysisHtml = this.formatForPrint(summary.aiAnalysis);
         }
         
         // Build print-friendly HTML
