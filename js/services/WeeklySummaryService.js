@@ -1054,14 +1054,34 @@ class WeeklySummaryService {
 </html>
         `;
         
-        // Open print window
-        const printWindow = window.open('', '_blank', 'width=800,height=600');
-        if (printWindow) {
-            printWindow.document.write(printContent);
-            printWindow.document.close();
-        } else {
-            alert('Please allow popups to print the report.');
-        }
+        // For Electron: Use hidden iframe approach instead of window.open
+        // Remove any existing print frame
+        const existingFrame = document.getElementById('printFrame');
+        if (existingFrame) existingFrame.remove();
+        
+        // Create hidden iframe
+        const iframe = document.createElement('iframe');
+        iframe.id = 'printFrame';
+        iframe.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0;';
+        document.body.appendChild(iframe);
+        
+        // Write content to iframe
+        const iframeDoc = iframe.contentWindow || iframe.contentDocument;
+        const doc = iframeDoc.document || iframeDoc;
+        doc.open();
+        doc.write(printContent);
+        doc.close();
+        
+        // Wait for content to load, then print
+        setTimeout(() => {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+            
+            // Clean up after print dialog closes
+            setTimeout(() => {
+                iframe.remove();
+            }, 1000);
+        }, 250);
     }
     
     /**
