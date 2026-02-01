@@ -1227,6 +1227,17 @@ class WeeklySummaryService {
                 });
             }
             
+            const printBtn = modal.querySelector('#summaryPrintBtn');
+            if (printBtn) {
+                console.log('[MODAL] Attaching Print button listener');
+                printBtn.addEventListener('click', (e) => {
+                    console.log('[SUMMARY] Print button clicked!');
+                    e.stopPropagation();
+                    e.preventDefault();
+                    this.printReport();
+                });
+            }
+            
             // Attach history card click handlers
             const historyCards = modal.querySelectorAll('.history-card');
             historyCards.forEach(card => {
