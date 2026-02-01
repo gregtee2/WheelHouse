@@ -5,11 +5,25 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-Proprietary-red)
-![Version](https://img.shields.io/badge/version-1.19.3-blue)
+![Version](https://img.shields.io/badge/version-1.19.4-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
+
+## 🆕 What's New in v1.19.4
+
+### 🛟 Comprehensive Button Tooltips
+- **60+ tooltips added**: Hover over any button to see what it does
+- **Better discoverability**: No more guessing - tooltips explain every function
+- **All tabs covered**: Ideas, Analyze, P&L, Positions, Portfolio, Settings
+- **Examples:**
+  - "🔄 Scan Now" → "Scan for oversold stocks near 3-month lows - good wheel entry points"
+  - "✨ Suggest" → "AI suggests optimal roll strikes based on current market conditions"
+  - "💲 Refresh Prices" → "Fetch real-time option prices from Schwab (or CBOE if not connected)"
+  - "🔄 Sync Positions" → "Import open positions from your selected Schwab account"
+
+---
 
 ## 🆕 What's New in v1.19.3
 

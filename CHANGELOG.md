@@ -3,6 +3,25 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.4] - 2026-01-31
+
+### Added
+- **🛟 Comprehensive Button Tooltips** - Added hover tooltips to all clickable buttons across the entire UI
+  - Main tab navigation buttons now explain what each tab contains
+  - Ideas tab: Scanner, Strategy Advisor, Discord Analyzer, Wisdom buttons
+  - Analyze tab: Pricing, Monte Carlo, Greeks sub-tabs and action buttons
+  - P&L tab: Roll Calculator, What-If, PMCC Calculator, AI Insight buttons
+  - Positions tab: Add Position, Export, Import, Reconcile, Load Chain buttons
+  - Portfolio tab: Week Summary, Refresh Prices, Greeks, AI Audit buttons
+  - Settings tab: All API connection test buttons and Schwab sync actions
+  - ~60+ tooltips added for better discoverability
+
+### Changed
+- Improved UX: Users can now hover over any button to see what it does before clicking
+- Better onboarding: New users can explore features without guessing button functions
+
+---
+
 ## [1.19.3] - 2026-01-31
 
 ### Added

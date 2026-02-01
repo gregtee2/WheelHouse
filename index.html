@@ -48,13 +48,13 @@
                             <option value="grok-3-mini">🚀 Grok-3 Mini</option>
                         </select>
                     </div>
-                    <button class="tab-btn" data-tab="ideas">🎯 Ideas</button>
-                    <button class="tab-btn" data-tab="analyze">📊 Analyze</button>
-                    <button class="tab-btn" data-tab="pnl">💰 P&L</button>
-                    <button class="tab-btn active" data-tab="positions">📋 Positions</button>
-                    <button class="tab-btn" data-tab="portfolio">💼 Portfolio</button>
-                    <button class="tab-btn" data-tab="challenges">🏆</button>
-                    <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
+                    <button class="tab-btn" data-tab="ideas" title="Trade Ideas: AI suggestions, Discord analyzer, wisdom management">🎯 Ideas</button>
+                    <button class="tab-btn" data-tab="analyze" title="Pricing tools, Monte Carlo simulation, and Greeks calculator">📊 Analyze</button>
+                    <button class="tab-btn" data-tab="pnl" title="Roll calculator and trade analysis">💰 P&L</button>
+                    <button class="tab-btn active" data-tab="positions" title="Open positions with live pricing">📋 Positions</button>
+                    <button class="tab-btn" data-tab="portfolio" title="Closed trades, P&L history, and analytics">💼 Portfolio</button>
+                    <button class="tab-btn" data-tab="challenges" title="Trading challenges and goals">🏆</button>
+                    <button class="tab-btn" data-tab="settings" title="API keys, broker integration, and preferences">⚙️ Settings</button>
                     
                     <!-- Utility buttons group -->
                     <span style="display:inline-flex; align-items:center; margin-left:15px; gap:8px;">
@@ -84,7 +84,7 @@
                                 <span style="color:#00d9ff; font-weight:bold; font-size:15px;">🔍 Wheel Scanner</span>
                                 <div style="font-size:11px; color:#0099cc; margin-top:2px;">Find oversold stocks near 3-month lows • Good wheel entry points</div>
                             </div>
-                            <button id="scannerBtn" onclick="window.runWheelScanner()" class="btn-primary" style="padding:8px 16px; background:linear-gradient(135deg, #00d9ff 0%, #0099cc 100%); border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer;">
+                            <button id="scannerBtn" onclick="window.runWheelScanner()" class="btn-primary" style="padding:8px 16px; background:linear-gradient(135deg, #00d9ff 0%, #0099cc 100%); border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer;" title="Scan for oversold stocks near 3-month lows - good wheel entry points">
                                 🔄 Scan Now
                             </button>
                         </div>
@@ -180,7 +180,7 @@
                             <input type="text" id="strategyAdvisorTicker" placeholder="Enter ticker (e.g., PLTR, TSLA, NVDA)" 
                                 style="flex:1; padding:10px 14px; background:#0d0d1a; border:1px solid #6d28d9; border-radius:6px; color:#fff; font-size:14px; text-transform:uppercase;"
                                 onkeypress="if(event.key==='Enter') window.runStrategyAdvisor()">
-                            <button onclick="window.runStrategyAdvisor()" class="btn-primary" style="padding:10px 20px; background:linear-gradient(135deg, #9333ea 0%, #6d28d9 100%); border:none; border-radius:6px; color:#fff; font-weight:bold; cursor:pointer;">
+                            <button onclick="window.runStrategyAdvisor()" class="btn-primary" style="padding:10px 20px; background:linear-gradient(135deg, #9333ea 0%, #6d28d9 100%); border:none; border-radius:6px; color:#fff; font-weight:bold; cursor:pointer;" title="AI analyzes all 6 strategies (sell put, covered call, SKIP, call spread, etc.) and recommends the best one for this ticker">
                                 🔮 Analyze All Strategies
                             </button>
                         </div>
@@ -217,7 +217,7 @@
                         <div style="color:#666; font-size:11px;">Or click to upload • Paste from clipboard with Ctrl+V</div>
                         <div id="imagePreview" style="margin-top:10px; display:none;">
                             <img id="previewImg" style="max-width:100%; max-height:150px; border-radius:6px; border:1px solid #333;">
-                            <button onclick="parseUploadedImage(event)" style="margin-top:8px; padding:8px 16px; background:linear-gradient(135deg, #00d9ff 0%, #0099cc 100%); border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer;">
+                            <button onclick="parseUploadedImage(event)" style="margin-top:8px; padding:8px 16px; background:linear-gradient(135deg, #00d9ff 0%, #0099cc 100%); border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer;" title="Use AI (Qwen2-VL) to extract trade details from broker screenshot">
                                 🔍 Extract Trade Details
                             </button>
                         </div>
@@ -230,7 +230,7 @@
                             <button onclick="document.getElementById('imageParseResult').style.display='none'" style="background:none; border:none; color:#888; cursor:pointer;">✕</button>
                         </div>
                         <div id="imageParseContent" style="font-family:monospace; font-size:12px; color:#ddd;"></div>
-                        <button onclick="useExtractedTrade()" style="margin-top:10px; padding:8px 16px; background:#7a8a94; border:none; border-radius:6px; color:#fff; cursor:pointer;">
+                        <button onclick="useExtractedTrade()" style="margin-top:10px; padding:8px 16px; background:#7a8a94; border:none; border-radius:6px; color:#fff; cursor:pointer;" title="Send extracted trade details to Discord analyzer for AI analysis">
                             ➡️ Send to Analyzer
                         </button>
                     </div>
@@ -252,7 +252,7 @@
                                     <option value="grok-4-1-fast">⚡ Grok 4.1 Fast</option>
                                     <option value="grok-3-mini">🚀 Grok Mini</option>
                                 </select>
-                                <button onclick="window.analyzeDiscordTrade2()" class="btn-primary" style="padding:6px 14px;">🔍 Analyze Trade</button>
+                                <button onclick="window.analyzeDiscordTrade2()" class="btn-primary" style="padding:6px 14px;" title="AI analyzes the trade with live CBOE pricing and gives verdict (Aggressive/Moderate/Conservative)">🔍 Analyze Trade</button>
                             </div>
                         </div>
                         <textarea id="pasteTradeInput2" placeholder="Paste a trade from Discord, Twitter, or any callout...
@@ -297,7 +297,7 @@ Examples:
                                 <img id="wisdomPreviewImg" style="max-width:100%; max-height:100px; border-radius:6px; border:1px solid #22c55e;">
                                 <button onclick="clearWisdomImage(event)" style="position:absolute; top:4px; right:4px; background:#ff5252; border:none; border-radius:50%; width:20px; height:20px; color:#fff; cursor:pointer; font-size:12px;">×</button>
                             </div>
-                            <button onclick="window.extractWisdomFromImage()" style="margin-top:8px; padding:6px 12px; background:rgba(34,197,94,0.3); border:1px solid rgba(34,197,94,0.5); color:#22c55e; border-radius:6px; cursor:pointer; font-size:11px;">
+                            <button onclick="window.extractWisdomFromImage()" style="margin-top:8px; padding:6px 12px; background:rgba(34,197,94,0.3); border:1px solid rgba(34,197,94,0.5); color:#22c55e; border-radius:6px; cursor:pointer; font-size:11px;" title="Use AI (Qwen2-VL) to extract text from trading advice screenshots">
                                 📷 Extract Text from Image
                             </button>
                         </div>
@@ -317,10 +317,10 @@ Examples:
 • Don't sell CSPs into earnings week" 
                             style="width:100%; height:80px; background:#0d0d1a; border:1px solid #333; border-radius:6px; color:#ddd; font-size:12px; padding:10px; resize:vertical;"></textarea>
                         <div style="display:flex; gap:8px; margin-top:8px;">
-                            <button onclick="window.addWisdom()" class="btn-success" style="flex:1; padding:8px; font-size:12px; background:rgba(34,197,94,0.3); border:1px solid rgba(34,197,94,0.5); color:#22c55e;">
+                            <button onclick="window.addWisdom()" class="btn-success" style="flex:1; padding:8px; font-size:12px; background:rgba(34,197,94,0.3); border:1px solid rgba(34,197,94,0.5); color:#22c55e;" title="AI extracts wisdom from your input and saves it with vector embeddings for semantic search">
                                 🧠 Process & Save
                             </button>
-                            <button onclick="window.showWisdomList()" style="padding:8px 12px; font-size:12px; background:#1a1a2e; border:1px solid #333; color:#888; border-radius:4px; cursor:pointer;">
+                            <button onclick="window.showWisdomList()" style="padding:8px 12px; font-size:12px; background:#1a1a2e; border:1px solid #333; color:#888; border-radius:4px; cursor:pointer;" title="View all stored wisdom entries with edit/delete options">
                                 📖 View All
                             </button>
                             <button onclick="window.testWisdomForType()" style="padding:8px 12px; font-size:12px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#8a9aa8; border-radius:4px; cursor:pointer;" title="See which wisdom applies to different position types">
@@ -378,13 +378,13 @@ Examples:
                     </div>
                     
                     <button id="ideaBtn2" class="btn-success" style="width:100%; padding:12px; font-size:14px; background:linear-gradient(135deg, #7a8a94 0%, #6a7a88 100%);" 
-                            onclick="window.getTradeIdeas2()">
+                            onclick="window.getTradeIdeas2()" title="AI generates trade ideas based on your buying power and portfolio constraints">
                         💡 Generate Trade Ideas
                     </button>
                     
                     <!-- X/Twitter Sentiment (Grok only) -->
                     <button id="xSentimentBtn2" class="btn-success" style="width:100%; margin-top:8px; padding:12px; font-size:14px; background:linear-gradient(135deg, #1da1f2 0%, #0d8ecf 100%); display:none;" 
-                            onclick="window.getXSentiment()">
+                            onclick="window.getXSentiment()" title="Grok-3 searches X/Twitter for trending tickers with strong sentiment (bullish/bearish)">
                         🔥 Trending on X (Grok)
                     </button>
                     
@@ -412,9 +412,9 @@ Examples:
         <!-- ANALYZE TAB (combines Simulator, Options, Greeks) -->
         <div class="tab-content" id="analyze">
             <div class="sub-tabs" style="display:flex; gap:4px; margin-bottom:15px; padding:4px; background:#0d0d1a; border-radius:8px; width:fit-content;">
-                <button class="sub-tab-btn active" data-subtab="analyze-pricing" onclick="switchSubTab('analyze', 'analyze-pricing')">📈 Pricing</button>
-                <button class="sub-tab-btn" data-subtab="analyze-simulator" onclick="switchSubTab('analyze', 'analyze-simulator')">🎲 Monte Carlo</button>
-                <button class="sub-tab-btn" data-subtab="analyze-greeks" onclick="switchSubTab('analyze', 'analyze-greeks')">Δ Greeks</button>
+                <button class="sub-tab-btn active" data-subtab="analyze-pricing" onclick="switchSubTab('analyze', 'analyze-pricing')" title="Price options using Black-Scholes with live spot/IV data">📈 Pricing</button>
+                <button class="sub-tab-btn" data-subtab="analyze-simulator" onclick="switchSubTab('analyze', 'analyze-simulator')" title="Monte Carlo simulation: 10,000 price paths to see win probability">🎲 Monte Carlo</button>
+                <button class="sub-tab-btn" data-subtab="analyze-greeks" onclick="switchSubTab('analyze', 'analyze-greeks')" title="Calculate Delta, Theta, Gamma, Vega for any option">Δ Greeks</button>
             </div>
             
             <!-- Pricing Sub-tab (formerly Options tab) -->
@@ -515,7 +515,7 @@ Examples:
                         </div>
                         
                         <button id="runMcBtn" class="btn-primary" style="width:100%; padding:12px; font-size:14px; background:linear-gradient(135deg, #7a8a94 0%, #6a7a88 100%);"
-                                onclick="window.runMonteCarloRisk()">
+                                onclick="window.runMonteCarloRisk()" title="Simulate 10,000 random price paths to see win probability and risk scenarios">
                             🎲 Run Monte Carlo Simulation
                         </button>
                         
@@ -556,7 +556,7 @@ Examples:
                         <div id="contextTicker" style="font-weight:bold; color:#fff; font-size:14px;">—</div>
                         <div id="contextDetails" style="color:#888; font-size:12px;">—</div>
                     </div>
-                    <button id="clearContextBtn" class="btn-secondary" style="padding:4px 8px; font-size:11px;">✕ Clear</button>
+                    <button id="clearContextBtn" class="btn-secondary" style="padding:4px 8px; font-size:11px;" title="Clear loaded position context">✕ Clear</button>
                 </div>
             </div>
             
@@ -567,7 +567,7 @@ Examples:
                         <label>Ticker</label>
                         <div style="display:flex; gap:4px;">
                             <input type="text" id="tickerInput" placeholder="AAPL..." style="flex:1; padding:5px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; text-transform:uppercase; font-size:12px;">
-                            <button id="fetchTickerBtn" class="btn-secondary" style="padding:5px 8px; font-size:11px;">📊</button>
+                            <button id="fetchTickerBtn" class="btn-secondary" style="padding:5px 8px; font-size:11px;" title="Fetch live spot price and IV from CBOE">📊</button>
                         </div>
                         <div id="priceStatus" style="font-size:10px; color:#888; margin-top:2px;"></div>
                     </div>
@@ -607,7 +607,7 @@ Examples:
                             <input type="checkbox" id="syncCheckbox" checked style="cursor:pointer;">
                             📡 Live
                         </label>
-                        <button id="priceBtn" class="btn-primary" style="flex:2; padding:6px; font-size:12px;">💵 Price Options</button>
+                        <button id="priceBtn" class="btn-primary" style="flex:2; padding:6px; font-size:12px;" title="Calculate call and put prices using Black-Scholes model">💵 Price Options</button>
                     </div>
                     <div class="running" id="optRunning"><div class="spinner"></div>Pricing...</div>
                 </div>
@@ -712,7 +712,7 @@ Examples:
                             </div>
                             <div style="display:flex; align-items:flex-end;">
                                 <button onclick="window.calculateWhatIf()" 
-                                    style="width:100%; padding:8px; background:#00d9ff; border:none; border-radius:4px; color:#000; font-weight:bold; cursor:pointer; font-size:11px;">
+                                    style="width:100%; padding:8px; background:#00d9ff; border:none; border-radius:4px; color:#000; font-weight:bold; cursor:pointer; font-size:11px;" title="Project option value at target price and date using Black-Scholes">
                                     ▶ Calculate
                                 </button>
                             </div>
@@ -775,7 +775,8 @@ Examples:
                     <button onclick="window.openPMCCCalculator()" 
                             style="width:100%; padding:8px; margin-bottom:12px; background:linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); border:none; border-radius:6px; color:#fff; font-weight:bold; cursor:pointer; font-size:12px; display:flex; align-items:center; justify-content:center; gap:6px;"
                             onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(139,92,246,0.4)';" 
-                            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+                            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';'
+                            title="Poor Man's Covered Call: Buy LEAPS call, sell shorter-dated calls against it">
                         <span>📊</span>
                         <span>PMCC Calculator</span>
                         <span style="font-size:10px; opacity:0.8;">(Poor Man's Covered Call)</span>
@@ -815,8 +816,8 @@ Examples:
                         </div>
                     </div>
                     <div style="display:flex; gap:6px; margin-bottom:6px;">
-                        <button id="rollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px;">🧮 Calc</button>
-                        <button id="suggestRollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px; background:linear-gradient(135deg, #7a8a94, #6a7a88);">✨ Suggest</button>
+                        <button id="rollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px;" title="Calculate net credit/debit and metrics for this roll">🧮 Calc</button>
+                        <button id="suggestRollBtn" class="btn-primary" style="flex:1; padding:6px; font-size:12px; background:linear-gradient(135deg, #7a8a94, #6a7a88);" title="AI suggests optimal roll strikes based on current market conditions">✨ Suggest</button>
                     </div>
                     
                     <!-- IV Summary Bar -->
@@ -862,7 +863,7 @@ Examples:
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                             <span style="color:var(--accent-cyan); font-weight:bold; font-size:12px;">🧠 AI Trade Advisor</span>
                             <a href="docs/help.html#ai-trade-advisor" target="_blank" class="help-link" title="Learn how the AI Trade Advisor works">?</a>
-                            <button id="aiInsightBtn" onclick="getAIInsight()" class="btn-mini" style="font-size:10px; padding:3px 8px;">💡 Get Insight</button>
+                            <button id="aiInsightBtn" onclick="getAIInsight()" class="btn-mini" style="font-size:10px; padding:3px 8px;" title="Get AI recommendation (HOLD/ROLL/CLOSE) with reasoning and risk analysis">💡 Get Insight</button>
                         </div>
                         <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
                             <label style="font-size:10px; color:#666;" title="Override the global AI model for this panel only">Override:</label>
@@ -907,7 +908,7 @@ Examples:
                             <span id="autoSaveStatus" style="font-size:10px; color:#666; padding:6px 8px;">⚪ Auto-save OFF</span>
                             <button onclick="setupAutoSave()" class="btn-toolbar" title="Pick a file location for automatic saving">💾 Enable Auto-save</button>
                             <button onclick="window.showReconcileModal()" class="btn-toolbar" title="Compare your positions with Schwab transactions">🔄 Reconcile</button>
-                            <button onclick="exportAllData()" class="btn-toolbar">📤 Export</button>
+                            <button onclick="exportAllData()" class="btn-toolbar" title="Export all positions and history to JSON file">📤 Export</button>
                             <label class="btn-toolbar" style="cursor:pointer;">
                                 📥 Import
                                 <input type="file" id="importFileInput" accept=".json" onchange="importAllData(event)" style="display:none;">
@@ -925,7 +926,7 @@ Examples:
                         <label>Ticker</label>
                         <div style="display:flex; gap:5px;">
                             <input type="text" id="posTicker" class="value-input" placeholder="AAPL" style="flex:1; text-transform:uppercase;" onchange="window.loadOptionChainForAddPosition?.()">
-                            <button id="posFetchPriceBtn" class="btn-secondary" style="padding:6px 10px;" onclick="window.loadOptionChainForAddPosition?.()">📊 Load Chain</button>
+                            <button id="posFetchPriceBtn" class="btn-secondary" style="padding:6px 10px;" onclick="window.loadOptionChainForAddPosition?.()" title="Load live option chain from Schwab or CBOE for this ticker">📊 Load Chain</button>
                         </div>
                         <div id="posPriceStatus" style="font-size:11px; color:#888; margin-top:4px;"></div>
                     </div>
@@ -1105,9 +1106,9 @@ Examples:
                     </div>
                     
                     <div style="display: flex; gap: 8px; margin-top: 15px;">
-                        <button id="addPositionBtn" class="btn-success" style="flex:1;">➕ Add Position</button>
-                        <button id="cancelEditBtn" class="btn-secondary" style="flex:0.4; display:none;">✕ Cancel</button>
-                        <button onclick="window.clearAddPositionForm?.()" class="btn-secondary" style="flex:0.4;">✕ Cancel</button>
+                        <button id="addPositionBtn" class="btn-success" style="flex:1;" title="Save this position to your portfolio">➕ Add Position</button>
+                        <button id="cancelEditBtn" class="btn-secondary" style="flex:0.4; display:none;" title="Cancel editing this position">✕ Cancel</button>
+                        <button onclick="window.clearAddPositionForm?.()" class="btn-secondary" style="flex:0.4;" title="Clear all fields in the form">✕ Cancel</button>
                     </div>
                     
                     <div style="margin-top:15px; padding:10px; background:rgba(255,170,0,0.1); border-radius:6px; font-size:12px; color:var(--accent-orange);">
@@ -1150,8 +1151,8 @@ Examples:
                     </div>
                     
                     <div style="display: flex; gap: 8px; margin-top: 12px;">
-                        <button id="executeRollBtn" class="btn-success" style="flex:1; background:#9c27b0;">🔄 Execute Roll</button>
-                        <button id="cancelRollBtn" class="btn-secondary" style="flex:0.4;">✕ Cancel</button>
+                        <button id="executeRollBtn" class="btn-success" style="flex:1; background:#9c27b0;" title="Close current position and open new rolled position">🔄 Execute Roll</button>
+                        <button id="cancelRollBtn" class="btn-secondary" style="flex:0.4;" title="Cancel this roll">✕ Cancel</button>
                     </div>
                 </div>
                 
@@ -1188,8 +1189,8 @@ Examples:
                     </div>
                     
                     <div style="display: flex; gap: 8px; margin-top: 12px;">
-                        <button id="executeCloseBtn" class="btn-success" style="flex:1;">✅ Confirm Close</button>
-                        <button id="cancelCloseBtn" class="btn-secondary" style="flex:0.4;">✕ Cancel</button>
+                        <button id="executeCloseBtn" class="btn-success" style="flex:1;" title="Close this position and record P&L">✅ Confirm Close</button>
+                        <button id="cancelCloseBtn" class="btn-secondary" style="flex:0.4;" title="Cancel closing this position">✕ Cancel</button>
                     </div>
                 </div>
             </div>
@@ -1266,9 +1267,9 @@ Examples:
                         <div class="results-box" style="background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.3); margin:0; padding:12px;">
                             <h3 style="color:#ffaa00; font-size:13px; margin-bottom:6px;">📅 Expirations</h3>
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                <button onclick="window.changeCalendarMonth(-1)" style="background:none; border:none; color:#ffaa00; cursor:pointer; font-size:12px;">◀</button>
+                                <button onclick="window.changeCalendarMonth(-1)" style="background:none; border:none; color:#ffaa00; cursor:pointer; font-size:12px;" title="Previous month">◀</button>
                                 <span id="calendarMonthLabel" style="font-weight:600; color:#ddd; font-size:11px;">January 2026</span>
-                                <button onclick="window.changeCalendarMonth(1)" style="background:none; border:none; color:#ffaa00; cursor:pointer; font-size:12px;">▶</button>
+                                <button onclick="window.changeCalendarMonth(1)" style="background:none; border:none; color:#ffaa00; cursor:pointer; font-size:12px;" title="Next month">▶</button>
                             </div>
                             <div id="expirationCalendar" style="font-size:10px;"></div>
                             <div id="calendarLegend" style="font-size:8px; color:#888; margin-top:4px; display:flex; gap:8px; justify-content:center;">
@@ -1283,7 +1284,7 @@ Examples:
                         <h3 style="color:var(--accent-cyan); margin:0;">💼 Holdings & Trade History</h3>
                         <div style="display:flex; gap:12px; align-items:center;">
                             <button id="weekSummaryBtn" onclick="window.showWeekSummary()" class="btn-primary" style="padding:6px 12px; background:linear-gradient(135deg, rgba(0,217,255,0.25), rgba(0,217,255,0.15)); border-color:rgba(0,217,255,0.5); color:#00d9ff;" title="Generate AI weekly performance summary">📊 Week Summary</button>
-                            <button id="refreshPortfolioBtn" class="btn-primary" style="padding:6px 12px;">🔄 Refresh Prices</button>
+                            <button id="refreshPortfolioBtn" class="btn-primary" style="padding:6px 12px;" title="Fetch latest spot prices for all tickers in your portfolio">🔄 Refresh Prices</button>
                         </div>
                     </div>
                     
@@ -1372,7 +1373,7 @@ Examples:
                         </div>
                         <div style="display:flex; gap:8px; margin-top:10px;">
                             <button id="refreshPricesBtn" class="btn-primary" style="flex:1; padding:8px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4);" title="Fetch real-time option prices from Schwab (or CBOE if not connected)">💲 Refresh Prices</button>
-                            <button id="refreshGreeksBtn" class="btn-primary" style="flex:1; padding:8px;">🔄 Greeks & IV</button>
+                            <button id="refreshGreeksBtn" class="btn-primary" style="flex:1; padding:8px;" title="Calculate Greeks (Delta, Theta, Gamma, Vega) for all open positions">🔄 Greeks & IV</button>
                         </div>
                         <div style="display:flex; align-items:center; gap:10px; margin-top:8px; padding:6px 10px; background:rgba(0,0,0,0.2); border-radius:6px;">
                             <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:#aaa;">
@@ -1443,7 +1444,7 @@ Examples:
                         <input type="range" id="bumpSlider" min="0.005" max="0.05" step="0.005" value="0.01">
                     </div>
                     
-                    <button id="greeksBtn" class="btn-primary" style="width:100%;">🧮 Calculate Greeks</button>
+                    <button id="greeksBtn" class="btn-primary" style="width:100%;" title="Calculate Delta, Gamma, and Vega for call and put options using numerical differentiation">🧮 Calculate Greeks</button>
                     
                     <div class="running" id="greekRunning"><div class="spinner"></div>Computing...</div>
                     
@@ -1482,9 +1483,9 @@ Examples:
                 </div>
                 <div class="controls-panel">
                     <h3 style="color:var(--accent-cyan); margin-bottom:15px;">💾 Export Options</h3>
-                    <button class="btn-success" style="width:100%; margin-bottom:10px;" onclick="window.exportJSON()">📥 Export JSON</button>
-                    <button class="btn-secondary" style="width:100%; margin-bottom:10px;" onclick="window.exportCSV()">📥 Export CSV</button>
-                    <button class="btn-secondary" style="width:100%; margin-bottom:20px;" onclick="window.copyData()">📋 Copy to Clipboard</button>
+                    <button class="btn-success" style="width:100%; margin-bottom:10px;" onclick="window.exportJSON()" title="Export all simulation data as JSON file">📥 Export JSON</button>
+                    <button class="btn-secondary" style="width:100%; margin-bottom:10px;" onclick="window.exportCSV()" title="Export simulation data as CSV spreadsheet">📥 Export CSV</button>
+                    <button class="btn-secondary" style="width:100%; margin-bottom:20px;" onclick="window.copyData()" title="Copy simulation data to clipboard for pasting into spreadsheets">📋 Copy to Clipboard</button>
                     
                     <!-- AI Trade Ideas Section -->
                     <div style="border-top:1px solid #333; padding-top:15px; margin-top:10px;">
@@ -1523,13 +1524,13 @@ Examples:
                         </div>
                         
                         <button id="ideaBtn" class="btn-success" style="width:100%; background:linear-gradient(135deg, #7a8a94 0%, #6a7a88 100%);" 
-                                onclick="window.getTradeIdeas()">
+                                onclick="window.getTradeIdeas()" title="AI generates trade ideas based on your buying power and constraints">
                             💡 Generate Ideas
                         </button>
                         
                         <!-- X/Twitter Sentiment (Grok only) -->
                         <button id="xSentimentBtn" class="btn-success" style="width:100%; margin-top:8px; background:linear-gradient(135deg, #1da1f2 0%, #0d8ecf 100%); display:none;" 
-                                onclick="window.getXSentiment()">
+                                onclick="window.getXSentiment()" title="Grok searches X/Twitter for trending tickers with strong sentiment">
                             🔥 Trending on X (Grok)
                         </button>
                         
@@ -1608,23 +1609,23 @@ Examples:
                             <option value="">-- Click "Load Accounts" after authenticating --</option>
                         </select>
                         <button onclick="loadSchwabAccounts()" 
-                                style="margin-top:8px; padding:6px 12px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#a78bfa; border-radius:6px; cursor:pointer; font-size:11px;">
+                                style="margin-top:8px; padding:6px 12px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#a78bfa; border-radius:6px; cursor:pointer; font-size:11px;" title="Fetch list of your Schwab accounts after authenticating">
                             📋 Load Accounts
                         </button>
                     </div>
                     
                     <div style="display:flex; gap:10px; flex-wrap:wrap;">
                         <button onclick="testSchwabConnection()" 
-                                style="padding:8px 16px; background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#0f8; border-radius:6px; cursor:pointer;">
+                                style="padding:8px 16px; background:rgba(0,255,136,0.2); border:1px solid rgba(0,255,136,0.4); color:#0f8; border-radius:6px; cursor:pointer;" title="Verify Schwab API credentials and connection">
                             🔌 Test Connection
                         </button>
                         <button onclick="startSchwabOAuth()" 
-                                style="padding:8px 16px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); color:#0df; border-radius:6px; cursor:pointer;">
+                                style="padding:8px 16px; background:rgba(0,217,255,0.2); border:1px solid rgba(0,217,255,0.4); color:#0df; border-radius:6px; cursor:pointer;" title="Opens Schwab login page to authorize WheelHouse access">
                             🔐 Authenticate with Schwab
                         </button>
                         <button onclick="syncAccountFromSchwab()" 
                                 id="schwabSyncBtn"
-                                style="padding:8px 16px; background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#fa0; border-radius:6px; cursor:pointer;">
+                                style="padding:8px 16px; background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#fa0; border-radius:6px; cursor:pointer;" title="Import open positions from your selected Schwab account">
                             🔄 Sync Positions
                         </button>
                         <button onclick="syncSchwabTransactions()" 
@@ -1634,7 +1635,7 @@ Examples:
                             📜 Sync Closed Trades
                         </button>
                         <button onclick="viewSchwabOrders()" 
-                                style="padding:8px 16px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#a78bfa; border-radius:6px; cursor:pointer;">
+                                style="padding:8px 16px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#a78bfa; border-radius:6px; cursor:pointer;" title="View recent orders sent to Schwab from WheelHouse">
                             📋 View Orders
                         </button>
                     </div>
@@ -1676,7 +1677,7 @@ Examples:
                     </div>
                     
                     <button onclick="testOpenAIConnection()" 
-                            style="padding:8px 16px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#8a9aa8; border-radius:6px; cursor:pointer;">
+                            style="padding:8px 16px; background:rgba(122,138,148,0.2); border:1px solid rgba(122,138,148,0.4); color:#8a9aa8; border-radius:6px; cursor:pointer;" title="Verify OpenAI API key and send test request">
                         🔌 Test Connection
                     </button>
                 </div>
@@ -1703,7 +1704,7 @@ Examples:
                     </div>
                     
                     <button onclick="testGrokConnection()" 
-                            style="padding:8px 16px; background:rgba(255,107,53,0.2); border:1px solid rgba(255,107,53,0.4); color:#ff6b35; border-radius:6px; cursor:pointer;">
+                            style="padding:8px 16px; background:rgba(255,107,53,0.2); border:1px solid rgba(255,107,53,0.4); color:#ff6b35; border-radius:6px; cursor:pointer;" title="Verify xAI Grok API key and send test request">
                         🔌 Test Connection
                     </button>
                 </div>
@@ -1728,11 +1729,11 @@ Examples:
                     
                     <div style="display:flex; gap:10px; flex-wrap:wrap;">
                         <button onclick="window.checkOllamaStatus()" 
-                                style="padding:8px 16px; background:rgba(34,197,94,0.2); border:1px solid rgba(34,197,94,0.4); color:#22c55e; border-radius:6px; cursor:pointer;">
+                                style="padding:8px 16px; background:rgba(34,197,94,0.2); border:1px solid rgba(34,197,94,0.4); color:#22c55e; border-radius:6px; cursor:pointer;" title="Check if Ollama is running and list installed models">
                             🔍 Check Status
                         </button>
                         <button onclick="window.restartOllama()" 
-                                style="padding:8px 16px; background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#ffaa00; border-radius:6px; cursor:pointer;">
+                                style="padding:8px 16px; background:rgba(255,170,0,0.2); border:1px solid rgba(255,170,0,0.4); color:#ffaa00; border-radius:6px; cursor:pointer;" title="Restart Ollama service if models are stuck or crashed">
                             🔄 Restart Ollama
                         </button>
                     </div>
@@ -1765,7 +1766,7 @@ Examples:
                     </div>
                     
                     <button onclick="testTelegramConnection()" 
-                            style="padding:8px 16px; background:rgba(0,136,204,0.2); border:1px solid rgba(0,136,204,0.4); color:#0df; border-radius:6px; cursor:pointer;">
+                            style="padding:8px 16px; background:rgba(0,136,204,0.2); border:1px solid rgba(0,136,204,0.4); color:#0df; border-radius:6px; cursor:pointer;" title="Send test message to your Telegram chat to verify bot is working">
                         🔌 Test Connection
                     </button>
                 </div>
@@ -1773,7 +1774,7 @@ Examples:
                 <!-- Save Button -->
                 <div style="text-align:center; margin-top:30px;">
                     <button onclick="saveAllSettings()" 
-                            style="padding:12px 40px; background:linear-gradient(135deg, #00ff88 0%, #00d9ff 100%); border:none; color:#0d0d1a; font-weight:bold; border-radius:8px; cursor:pointer; font-size:14px;">
+                            style="padding:12px 40px; background:linear-gradient(135deg, #00ff88 0%, #00d9ff 100%); border:none; color:#0d0d1a; font-weight:bold; border-radius:8px; cursor:pointer; font-size:14px;" title="Save all API keys and settings to server .env file">
                         💾 Save All Settings
                     </button>
                     <div id="settingsSaveStatus" style="margin-top:10px; font-size:12px; color:#888;"></div>
