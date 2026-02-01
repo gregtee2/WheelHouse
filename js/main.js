@@ -16,6 +16,7 @@ import { showNotification } from './utils.js?v=1.17.73';
 import AccountService from './services/AccountService.js?v=1.17.73';
 import TradeCardService from './services/TradeCardService.js?v=1.17.73';  // For staging trades to Ideas tab
 import StreamingService from './services/StreamingService.js?v=1.17.99';  // Real-time option quote streaming
+import PositionsService from './services/PositionsService.js';  // Single source of truth for positions CRUD
 
 /**
  * Switch between Real and Paper trading accounts

@@ -6,6 +6,7 @@ import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUnd
 import { fetchPositionTickerPrice, fetchStockPrice, fetchStockPricesBatch } from './api.js';
 import { drawPayoffChart } from './charts.js';
 import { updateDteDisplay } from './ui.js';
+import PositionsService from './services/PositionsService.js';
 
 // Dynamic storage keys based on account mode (real vs paper)
 function getStorageKey() { return getPositionsKey(); }

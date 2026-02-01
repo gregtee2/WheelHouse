@@ -3,6 +3,23 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.5] - 2026-01-31
+
+### Added
+- **📋 PositionsService** - New single source of truth for all position CRUD operations
+  - Centralizes all position access through one service module
+  - Eliminates scattered localStorage access across 12+ files
+  - Auto-normalizes positions (fixes `realizedPnL` vs `closePnL` inconsistency)
+  - Chain operations: `getChain()`, `hasRollHistory()`, `getChainPremium()`
+  - Holdings support: `getHoldings()`, `addHolding()`, `removeHolding()`
+  - Location: `js/services/PositionsService.js`
+
+### Changed
+- Imported PositionsService into main.js and positions.js for future migration
+- Updated copilot-instructions.md with PositionsService documentation
+
+---
+
 ## [1.19.4] - 2026-01-31
 
 ### Added

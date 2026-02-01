@@ -415,7 +415,86 @@ TradeCardService.stageToPending(trade, { ticker, source: 'ai_checkup' });
 
 ---
 
-## �📊 Key Data Structures
+## 📋 PositionsService - SINGLE SOURCE OF TRUTH FOR POSITIONS
+
+**CRITICAL: All new features that access positions MUST use PositionsService!**
+
+Location: `js/services/PositionsService.js`
+
+### Why This Exists
+Position access was scattered across 12+ files with inconsistent localStorage key usage:
+- main.js (12+ occurrences)
+- portfolio.js (4+ occurrences)  
+- positions.js (multiple occurrences)
+- settings.js (2+ occurrences)
+
+Each file accessed `wheelhouse_positions` or `wheelhouse_closed` directly, leading to:
+- Inconsistent key names (some used account-specific keys, some didn't)
+- No normalization (realizedPnL vs closePnL confusion)
+- Duplicated find/filter logic everywhere
+
+### Available Functions
+
+```javascript
+import PositionsService from './services/PositionsService.js';
+
+// === OPEN POSITIONS ===
+const positions = PositionsService.getAll();         // Array of all open positions
+const pos = PositionsService.find(positionId);       // Find by ID
+const pltrPos = PositionsService.findByTicker('PLTR'); // Find by ticker
+PositionsService.add(newPosition);                   // Add (auto-generates ID if missing)
+PositionsService.update(id, { strike: 95 });         // Update fields
+PositionsService.remove(id);                         // Delete position
+PositionsService.setAll(positionsArray);             // Replace all (for imports)
+
+// === CLOSED POSITIONS ===
+const closed = PositionsService.getClosed();         // All closed positions
+const closedPos = PositionsService.findClosed(id);   // Find closed by ID
+PositionsService.addClosed(position);                // Add to closed
+PositionsService.setAllClosed(closedArray);          // Replace all closed
+
+// === CLOSE A POSITION (move open → closed) ===
+PositionsService.close(id, {
+    closePrice: 0.50,
+    closeDate: '2026-01-21',
+    closeReason: 'expired'  // expired | rolled | closed | assigned
+});
+
+// === CHAIN OPERATIONS (roll history) ===
+const chain = PositionsService.getChain(chainId);    // All positions in chain
+const hasHistory = PositionsService.hasRollHistory(id);
+const premium = PositionsService.getChainPremium(chainId);  // Net premium
+
+// === HOLDINGS (stock from assignments) ===
+const holdings = PositionsService.getHoldings();
+PositionsService.addHolding(holding);
+PositionsService.removeHolding(id);
+
+// === LOAD/SAVE ===
+PositionsService.load();    // Load from localStorage (call on app startup)
+PositionsService.saveAll(); // Force save all (usually auto-saved)
+```
+
+### ⚠️ NEVER Do This Again
+```javascript
+// ❌ WRONG - Direct localStorage access with inconsistent keys
+const saved = localStorage.getItem('wheelhouse_positions');
+state.positions = JSON.parse(saved) || [];
+
+// ❌ WRONG - Finding positions manually everywhere
+const pos = state.positions.find(p => p.id === Number(id));
+
+// ❌ WRONG - Inconsistent P&L access
+const pnl = pos.realizedPnL || pos.closePnL;  // Could be either!
+
+// ✅ CORRECT - Use PositionsService (normalizes automatically)
+const pos = PositionsService.find(id);  // Always returns normalized position
+const positions = PositionsService.getAll();
+```
+
+---
+
+## 📊 Key Data Structures
 
 ### Position Object
 ```javascript
