@@ -3,6 +3,18 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.3] - 2026-01-31
+
+### Added
+- **🖨️ Print Report Button** - Print Week Summary directly from the modal
+  - New "🖨️ Print Report" button in Week Summary header
+  - Opens print-friendly view with clean formatting
+  - Auto-triggers browser print dialog
+  - Includes metrics grid and full AI analysis
+  - Black & white friendly with proper margins
+
+---
+
 ## [1.19.2] - 2026-01-31
 
 ### Added

@@ -191,6 +191,9 @@ class WeeklySummaryService {
                             <button type="button" id="summarySaveBtn" class="btn-primary" style="padding:8px 16px; background:linear-gradient(135deg, rgba(0,255,136,0.2), rgba(0,255,136,0.1)); border-color:rgba(0,255,136,0.4);">
                                 💾 Save to History
                             </button>
+                            <button type="button" id="summaryPrintBtn" class="btn-primary" style="padding:8px 16px; background:linear-gradient(135deg, rgba(100,100,255,0.2), rgba(100,100,255,0.1)); border-color:rgba(100,100,255,0.4);">
+                                🖨️ Print Report
+                            </button>
                         </div>
                         <div id="xSentimentHint" style="font-size:11px; transition:all 0.2s;"></div>
                     </div>
@@ -886,6 +889,182 @@ class WeeklySummaryService {
     }
     
     /**
+     * Print the Week Summary report
+     */
+    printReport() {
+        if (!this.currentSummary) {
+            alert('No summary to print. Please generate a summary first.');
+            return;
+        }
+        
+        const summary = this.currentSummary;
+        const modal = document.getElementById('weekSummaryModal');
+        
+        // Get the AI analysis content if available
+        const contentDiv = modal?.querySelector('#weekSummaryContent');
+        let aiAnalysisHtml = '';
+        
+        // Try to get the AI analysis section (the main report)
+        const reportDiv = contentDiv?.querySelector('[style*="white-space:pre-wrap"]');
+        if (reportDiv) {
+            aiAnalysisHtml = reportDiv.innerHTML;
+        } else if (summary.aiAnalysis) {
+            aiAnalysisHtml = this.formatAIResponse(summary.aiAnalysis);
+        }
+        
+        // Build print-friendly HTML
+        const printContent = `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Week Ending Summary - ${summary.weekEnding}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 12pt;
+            line-height: 1.5;
+            color: #333;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 18pt;
+            margin-bottom: 5px;
+            color: #000;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 11pt;
+            margin-bottom: 20px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .metric-box {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 12px;
+            text-align: center;
+        }
+        .metric-label {
+            font-size: 9pt;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 3px;
+        }
+        .metric-value {
+            font-size: 16pt;
+            font-weight: 600;
+        }
+        .positive { color: #0a0; }
+        .negative { color: #c00; }
+        .warning { color: #c80; }
+        
+        .ai-report {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 2px solid #333;
+        }
+        .ai-report h2, .ai-report h3, .ai-report h4 {
+            margin-top: 18px;
+            margin-bottom: 8px;
+            color: #000;
+        }
+        .ai-report h2 { font-size: 14pt; }
+        .ai-report h3 { font-size: 12pt; }
+        .ai-report h4 { font-size: 11pt; }
+        .ai-report p, .ai-report div {
+            margin-bottom: 8px;
+        }
+        .ai-report strong {
+            font-weight: 600;
+        }
+        
+        .footer {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+            font-size: 9pt;
+            color: #888;
+            text-align: center;
+        }
+        
+        @media print {
+            body {
+                padding: 0;
+            }
+            .no-print {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>📊 Week Ending Summary</h1>
+    <div class="subtitle">${summary.weekEnding}</div>
+    
+    <div class="metrics-grid">
+        <div class="metric-box">
+            <div class="metric-label">Account Value</div>
+            <div class="metric-value">$${(summary.accountValue || 0).toLocaleString()}</div>
+        </div>
+        <div class="metric-box">
+            <div class="metric-label">Unrealized P&L</div>
+            <div class="metric-value ${summary.unrealizedPnL >= 0 ? 'positive' : 'negative'}">${summary.unrealizedPnL >= 0 ? '+' : ''}$${(summary.unrealizedPnL || 0).toLocaleString()}</div>
+        </div>
+        <div class="metric-box">
+            <div class="metric-label">Realized P&L</div>
+            <div class="metric-value ${(summary.realizedPnL || 0) >= 0 ? 'positive' : 'negative'}">${(summary.realizedPnL || 0) >= 0 ? '+' : ''}$${(summary.realizedPnL || 0).toLocaleString()}</div>
+        </div>
+        <div class="metric-box">
+            <div class="metric-label">Leverage</div>
+            <div class="metric-value ${summary.leverageRatio > 150 ? 'negative' : summary.leverageRatio > 100 ? 'warning' : ''}">${summary.leverageRatio || 0}%</div>
+        </div>
+    </div>
+    
+    ${aiAnalysisHtml ? `
+    <div class="ai-report">
+        <h2>🤖 AI Analysis</h2>
+        ${aiAnalysisHtml}
+    </div>
+    ` : `
+    <div style="color:#666; font-style:italic;">No AI analysis generated yet. Click "AI Analysis" to generate.</div>
+    `}
+    
+    <div class="footer">
+        Generated by WheelHouse • ${new Date().toLocaleString()}
+    </div>
+    
+    <script>
+        // Auto-print when loaded
+        window.onload = function() {
+            window.print();
+        };
+    </script>
+</body>
+</html>
+        `;
+        
+        // Open print window
+        const printWindow = window.open('', '_blank', 'width=800,height=600');
+        if (printWindow) {
+            printWindow.document.write(printContent);
+            printWindow.document.close();
+        } else {
+            alert('Please allow popups to print the report.');
+        }
+    }
+    
+    /**
      * Show the modal
      */
     showModal(content) {
@@ -983,6 +1162,16 @@ class WeeklySummaryService {
                         console.error('[SUMMARY] Save error:', err);
                         alert('Save Error: ' + err.message);
                     });
+                });
+            }
+            
+            const printBtn = modal.querySelector('#summaryPrintBtn');
+            if (printBtn) {
+                printBtn.addEventListener('click', (e) => {
+                    console.log('[SUMMARY] Print button clicked');
+                    e.stopPropagation();
+                    e.preventDefault();
+                    this.printReport();
                 });
             }
         }, 0);  // setTimeout 0 lets DOM finish parsing
