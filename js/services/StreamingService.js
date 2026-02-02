@@ -28,6 +28,7 @@ class StreamingServiceClass {
         // Quote cache for quick lookups
         this.optionQuotes = new Map(); // OCC symbol -> quote data
         this.equityQuotes = new Map(); // ticker -> quote data
+        this.futuresQuotes = new Map(); // futures symbol -> quote data (e.g., /ES, /NQ)
         
         // DOM update tracking
         this.updateQueue = [];
@@ -100,6 +101,15 @@ class StreamingServiceClass {
             this.queueDOMUpdate('equity', data);
         });
         
+        // Futures quote updates (e.g., /ES, /NQ, /YM, /RTY)
+        this.socket.on('futures-quote', (data) => {
+            this.futuresQuotes.set(data.symbol, data);
+            this._emit('futures-quote', data);
+            
+            // Queue DOM update for futures panel
+            this.queueDOMUpdate('futures', data);
+        });
+        
         // Account activity (fills, etc)
         this.socket.on('account-activity', (data) => {
             this._emit('account-activity', data);
@@ -141,6 +151,8 @@ class StreamingServiceClass {
                 this.updatePositionRow(update.data);
             } else if (update.type === 'equity') {
                 this.updateSpotPrice(update.data);
+            } else if (update.type === 'futures') {
+                this.updateFuturesPanel(update.data);
             }
         }
         
@@ -290,6 +302,78 @@ class StreamingServiceClass {
     }
     
     /**
+     * Update futures panel with latest quote
+     */
+    updateFuturesPanel(quote) {
+        // Find the futures tile for this symbol
+        const tile = document.querySelector(`[data-futures-symbol="${quote.symbol}"]`);
+        if (!tile) return;
+        
+        // Update price
+        const priceEl = tile.querySelector('.futures-price');
+        if (priceEl) {
+            const oldValue = parseFloat(priceEl.textContent.replace(/[^0-9.-]/g, ''));
+            const newValue = quote.last || quote.mark || quote.bid;
+            
+            if (newValue) {
+                priceEl.textContent = newValue.toLocaleString('en-US', { 
+                    minimumFractionDigits: 2, 
+                    maximumFractionDigits: 2 
+                });
+                
+                // Flash animation
+                if (Math.abs(newValue - oldValue) > 0.01) {
+                    priceEl.classList.remove('flash-green', 'flash-red');
+                    void priceEl.offsetWidth;
+                    priceEl.classList.add(newValue > oldValue ? 'flash-green' : 'flash-red');
+                }
+            }
+        }
+        
+        // Update change
+        const changeEl = tile.querySelector('.futures-change');
+        if (changeEl && quote.netChange !== undefined) {
+            const change = quote.netChange;
+            const pctChange = quote.netChangePercent || 0;
+            const sign = change >= 0 ? '+' : '';
+            const color = change >= 0 ? '#00ff88' : '#ff5252';
+            
+            changeEl.innerHTML = `
+                <span style="color:${color}">${sign}${change.toFixed(2)}</span>
+                <span style="color:${color};opacity:0.7;margin-left:4px">(${sign}${pctChange.toFixed(2)}%)</span>
+            `;
+        }
+        
+        // Update bid/ask if displayed
+        const bidEl = tile.querySelector('.futures-bid');
+        const askEl = tile.querySelector('.futures-ask');
+        if (bidEl && quote.bid) bidEl.textContent = quote.bid.toFixed(2);
+        if (askEl && quote.ask) askEl.textContent = quote.ask.toFixed(2);
+    }
+    
+    /**
+     * Subscribe to futures symbols
+     * @param {string[]} symbols - e.g., ['/ES', '/NQ', '/YM', '/RTY']
+     */
+    async subscribeFutures(symbols) {
+        if (!symbols || symbols.length === 0) return false;
+        
+        try {
+            const res = await fetch('/api/streaming/futures', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbols })
+            });
+            const data = await res.json();
+            console.log(`[STREAMING] Subscribed to futures: ${symbols.join(', ')}`, data);
+            return data.success;
+        } catch (e) {
+            console.error('[STREAMING] Failed to subscribe to futures:', e);
+            return false;
+        }
+    }
+    
+    /**
      * Get latest quote for an option (from cache)
      */
     getOptionQuote(occSymbol) {
@@ -301,6 +385,21 @@ class StreamingServiceClass {
      */
     getEquityQuote(ticker) {
         return this.equityQuotes.get(ticker);
+    }
+    
+    /**
+     * Get latest quote for a futures symbol (from cache)
+     * @param {string} symbol - e.g., '/ES'
+     */
+    getFuturesQuote(symbol) {
+        return this.futuresQuotes.get(symbol);
+    }
+    
+    /**
+     * Get all cached futures quotes
+     */
+    getAllFuturesQuotes() {
+        return Object.fromEntries(this.futuresQuotes);
     }
     
     /**
@@ -346,7 +445,8 @@ class StreamingServiceClass {
             streamerConnected: this.streamerConnected,
             subscribedSymbols: this.subscribedSymbols.length,
             cachedOptions: this.optionQuotes.size,
-            cachedEquities: this.equityQuotes.size
+            cachedEquities: this.equityQuotes.size,
+            cachedFutures: this.futuresQuotes.size
         };
     }
     

@@ -50,6 +50,7 @@ connected_clients = set()
 # Current subscriptions
 subscribed_options = set()
 subscribed_equities = set()
+subscribed_futures = set()
 
 # Schwab client references
 schwab_client = None
@@ -80,6 +81,14 @@ async def handle_node_connection(websocket):
                     symbols = data.get('symbols', [])
                     await subscribe_equities(symbols)
                     
+                elif cmd == 'subscribe_futures':
+                    symbols = data.get('symbols', [])
+                    await subscribe_futures(symbols)
+                    
+                elif cmd == 'unsubscribe_futures':
+                    symbols = data.get('symbols', [])
+                    await unsubscribe_futures(symbols)
+                    
                 elif cmd == 'unsubscribe_options':
                     symbols = data.get('symbols', [])
                     await unsubscribe_options(symbols)
@@ -89,7 +98,8 @@ async def handle_node_connection(websocket):
                         'type': 'status',
                         'connected': stream_client is not None,
                         'subscribed_options': list(subscribed_options),
-                        'subscribed_equities': list(subscribed_equities)
+                        'subscribed_equities': list(subscribed_equities),
+                        'subscribed_futures': list(subscribed_futures)
                     }))
                     
                 elif cmd == 'ping':
@@ -203,6 +213,46 @@ async def handle_equity_quote(msg):
         print(f"[STREAM] Error handling equity quote: {e}")
 
 
+async def handle_futures_quote(msg):
+    """Handle level 1 futures quote from Schwab"""
+    try:
+        for item in msg.get('content', []):
+            quote_data = {
+                'symbol': item.get('key', item.get('SYMBOL', '')),
+                'bid': item.get('BID_PRICE'),
+                'ask': item.get('ASK_PRICE'),
+                'last': item.get('LAST_PRICE'),
+                'bidSize': item.get('BID_SIZE'),
+                'askSize': item.get('ASK_SIZE'),
+                'volume': item.get('TOTAL_VOLUME'),
+                'high': item.get('HIGH_PRICE'),
+                'low': item.get('LOW_PRICE'),
+                'open': item.get('OPEN_PRICE'),
+                'close': item.get('CLOSE_PRICE'),
+                'netChange': item.get('NET_CHANGE'),
+                'netChangePercent': item.get('FUTURE_CHANGE_PERCENT'),
+                'openInterest': item.get('OPEN_INTEREST'),
+                'mark': item.get('MARK'),
+                'tick': item.get('TICK'),
+                'tickAmount': item.get('TICK_AMOUNT'),
+                'multiplier': item.get('FUTURE_MULTIPLIER'),
+                'settlementPrice': item.get('FUTURE_SETTLEMENT_PRICE'),
+                'activeSymbol': item.get('FUTURE_ACTIVE_SYMBOL'),
+                'expirationDate': item.get('FUTURE_EXPIRATION_DATE'),
+                'description': item.get('DESCRIPTION'),
+                'quoteTime': item.get('QUOTE_TIME_MILLIS'),
+                'tradeTime': item.get('TRADE_TIME_MILLIS'),
+            }
+            
+            # Remove None values
+            quote_data = {k: v for k, v in quote_data.items() if v is not None}
+            
+            await broadcast_to_node('futures_quote', quote_data)
+            
+    except Exception as e:
+        print(f"[STREAM] Error handling futures quote: {e}")
+
+
 async def handle_account_activity(msg):
     """Handle account activity (order fills, etc.)"""
     try:
@@ -284,6 +334,50 @@ async def unsubscribe_options(symbols: list):
         print(f"[STREAM] Unsubscribed from options: {to_remove}")
     except Exception as e:
         print(f"[STREAM] Error unsubscribing: {e}")
+
+
+async def subscribe_futures(symbols: list):
+    """Subscribe to futures quotes"""
+    global subscribed_futures
+    
+    if not stream_client:
+        print("[STREAM] Not connected, cannot subscribe to futures")
+        return
+    
+    new_symbols = [s for s in symbols if s not in subscribed_futures]
+    if not new_symbols:
+        return
+    
+    try:
+        if subscribed_futures:
+            await stream_client.level_one_futures_add(new_symbols)
+        else:
+            await stream_client.level_one_futures_subs(new_symbols)
+        
+        subscribed_futures.update(new_symbols)
+        print(f"[STREAM] Subscribed to futures: {new_symbols}")
+        
+    except Exception as e:
+        print(f"[STREAM] Error subscribing to futures: {e}")
+
+
+async def unsubscribe_futures(symbols: list):
+    """Unsubscribe from futures quotes"""
+    global subscribed_futures
+    
+    if not stream_client:
+        return
+    
+    to_remove = [s for s in symbols if s in subscribed_futures]
+    if not to_remove:
+        return
+    
+    try:
+        await stream_client.level_one_futures_unsubs(to_remove)
+        subscribed_futures.difference_update(to_remove)
+        print(f"[STREAM] Unsubscribed from futures: {to_remove}")
+    except Exception as e:
+        print(f"[STREAM] Error unsubscribing from futures: {e}")
 
 
 # ============================================================================
@@ -372,6 +466,7 @@ async def connect_to_schwab():
         # Register handlers
         stream_client.add_level_one_option_handler(handle_option_quote)
         stream_client.add_level_one_equity_handler(handle_equity_quote)
+        stream_client.add_level_one_futures_handler(handle_futures_quote)
         stream_client.add_account_activity_handler(handle_account_activity)
         
         return True

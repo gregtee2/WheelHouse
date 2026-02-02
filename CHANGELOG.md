@@ -3,6 +3,28 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.6] - 2026-01-31
+
+### Added
+- **📈 Real-Time Futures Display** - Live streaming futures quotes in header
+  - New futures ticker strip below header bar showing /ES, /NQ, /YM, /RTY
+  - Real-time bid/ask/last prices with change and percent change
+  - Color-coded tiles: S&P (cyan), Nasdaq (purple), Dow (green), Russell (orange)
+  - Flash animations on price changes (green up, red down)
+  - One-click "▶ Live" button to subscribe to real-time data
+  - Status indicator shows connection state
+  
+- **🔧 Streaming Infrastructure for Futures**
+  - Python streamer: `handle_futures_quote()`, `subscribe_futures()`, `unsubscribe_futures()`
+  - Node.js relay: `futures_quote` case in handleStreamerMessage, `/api/streaming/futures` endpoint
+  - Browser: `StreamingService.subscribeFutures()`, `getFuturesQuote()`, `updateFuturesPanel()`
+
+### Technical
+- Uses Schwab's `level_one_futures_subs()` via schwab-py library
+- Full field support: bid, ask, last, volume, open interest, net change, mark, tick, multiplier
+
+---
+
 ## [1.19.5] - 2026-01-31
 
 ### Added

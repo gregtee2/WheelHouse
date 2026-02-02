@@ -65,6 +65,33 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Futures Ticker Strip -->
+        <div id="futuresStrip" class="futures-strip" style="display:flex; align-items:center; gap:15px; padding:6px 15px; background:linear-gradient(135deg, rgba(0,0,0,0.6) 0%, rgba(26,26,46,0.8) 100%); border-bottom:1px solid #333; flex-wrap:wrap;">
+            <span style="font-size:11px; color:#666; margin-right:5px;">📈 Futures:</span>
+            <div data-futures-symbol="/ES" class="futures-tile" style="display:inline-flex; align-items:center; gap:8px; padding:4px 10px; background:rgba(0,217,255,0.1); border-radius:5px; border:1px solid rgba(0,217,255,0.2);">
+                <span style="font-weight:bold; color:#00d9ff; font-size:12px;">S&P 500</span>
+                <span class="futures-price" style="font-family:monospace; font-size:12px; color:#fff;">--</span>
+                <span class="futures-change" style="font-size:11px;"></span>
+            </div>
+            <div data-futures-symbol="/NQ" class="futures-tile" style="display:inline-flex; align-items:center; gap:8px; padding:4px 10px; background:rgba(139,92,246,0.1); border-radius:5px; border:1px solid rgba(139,92,246,0.2);">
+                <span style="font-weight:bold; color:#8b5cf6; font-size:12px;">Nasdaq</span>
+                <span class="futures-price" style="font-family:monospace; font-size:12px; color:#fff;">--</span>
+                <span class="futures-change" style="font-size:11px;"></span>
+            </div>
+            <div data-futures-symbol="/YM" class="futures-tile" style="display:inline-flex; align-items:center; gap:8px; padding:4px 10px; background:rgba(0,255,136,0.1); border-radius:5px; border:1px solid rgba(0,255,136,0.2);">
+                <span style="font-weight:bold; color:#00ff88; font-size:12px;">Dow</span>
+                <span class="futures-price" style="font-family:monospace; font-size:12px; color:#fff;">--</span>
+                <span class="futures-change" style="font-size:11px;"></span>
+            </div>
+            <div data-futures-symbol="/RTY" class="futures-tile" style="display:inline-flex; align-items:center; gap:8px; padding:4px 10px; background:rgba(255,170,0,0.1); border-radius:5px; border:1px solid rgba(255,170,0,0.2);">
+                <span style="font-weight:bold; color:#ffaa00; font-size:12px;">Russell</span>
+                <span class="futures-price" style="font-family:monospace; font-size:12px; color:#fff;">--</span>
+                <span class="futures-change" style="font-size:11px;"></span>
+            </div>
+            <button onclick="window.subscribeFutures()" style="margin-left:auto; padding:3px 10px; font-size:10px; background:rgba(0,217,255,0.2); color:#00d9ff; border:1px solid rgba(0,217,255,0.4); border-radius:4px; cursor:pointer;" title="Subscribe to real-time futures">▶ Live</button>
+            <span id="futuresStatus" style="font-size:10px; color:#666;">Disconnected</span>
+        </div>
 
         <!-- IDEAS TAB (NEW) -->
         <div class="tab-content" id="ideas">

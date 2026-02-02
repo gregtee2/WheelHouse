@@ -162,6 +162,15 @@ function handleStreamerMessage(message) {
             }
             break;
             
+        case 'futures_quote':
+            if (io) {
+                io.emit('futures-quote', {
+                    ...data,
+                    serverTimestamp: timestamp
+                });
+            }
+            break;
+            
         case 'account_activity':
             if (io) {
                 io.emit('account-activity', data);
@@ -174,7 +183,8 @@ function handleStreamerMessage(message) {
                 io.emit('streamer-status', {
                     connected: true,
                     subscribedOptions: data?.subscribed_options || [],
-                    subscribedEquities: data?.subscribed_equities || []
+                    subscribedEquities: data?.subscribed_equities || [],
+                    subscribedFutures: data?.subscribed_futures || []
                 });
             }
             break;
@@ -216,6 +226,23 @@ function subscribeEquities(symbols) {
 function unsubscribeOptions(symbols) {
     if (!Array.isArray(symbols) || symbols.length === 0) return false;
     return sendToStreamer({ command: 'unsubscribe_options', symbols });
+}
+
+/**
+ * Subscribe to futures symbols
+ * @param {string[]} symbols - Futures symbols (e.g., /ES, /NQ, /YM, /RTY)
+ */
+function subscribeFutures(symbols) {
+    if (!Array.isArray(symbols) || symbols.length === 0) return false;
+    return sendToStreamer({ command: 'subscribe_futures', symbols });
+}
+
+/**
+ * Unsubscribe from futures symbols
+ */
+function unsubscribeFutures(symbols) {
+    if (!Array.isArray(symbols) || symbols.length === 0) return false;
+    return sendToStreamer({ command: 'unsubscribe_futures', symbols });
 }
 
 /**
@@ -329,6 +356,21 @@ function init(deps) {
         res.json({ success: ok });
     });
     
+    app.post('/api/streaming/futures', (req, res) => {
+        const { symbols } = req.body;
+        
+        if (!symbols || !Array.isArray(symbols)) {
+            return res.status(400).json({ error: 'symbols array required (e.g., ["/ES", "/NQ"])' });
+        }
+        
+        const ok = subscribeFutures(symbols);
+        res.json({
+            success: ok,
+            subscribedFutures: symbols,
+            streamerConnected: stats.connected
+        });
+    });
+    
     // Handle Socket.IO connections for streaming
     if (io) {
         io.on('connection', (socket) => {
@@ -372,7 +414,9 @@ module.exports = {
     connectToStreamer,
     subscribeOptions,
     subscribeEquities,
+    subscribeFutures,
     unsubscribeOptions,
+    unsubscribeFutures,
     positionToOCC,
     positionsToOCCSymbols,
     getStats

@@ -854,6 +854,58 @@ function updateStreamingIndicator(connected) {
 // Expose for global access
 window.StreamingService = StreamingService;
 
+/**
+ * Subscribe to real-time futures quotes (/ES, /NQ, /YM, /RTY)
+ */
+window.subscribeFutures = async function() {
+    const statusEl = document.getElementById('futuresStatus');
+    const btn = document.querySelector('[onclick="window.subscribeFutures()"]');
+    
+    try {
+        if (statusEl) statusEl.textContent = 'Connecting...';
+        if (btn) btn.disabled = true;
+        
+        const success = await StreamingService.subscribeFutures(['/ES', '/NQ', '/YM', '/RTY']);
+        
+        if (success) {
+            if (statusEl) {
+                statusEl.textContent = '🟢 Live';
+                statusEl.style.color = '#00ff88';
+            }
+            if (btn) {
+                btn.textContent = '✓ Connected';
+                btn.style.background = 'rgba(0,255,136,0.2)';
+                btn.style.color = '#00ff88';
+            }
+            console.log('[FUTURES] Subscribed to /ES, /NQ, /YM, /RTY');
+        } else {
+            if (statusEl) {
+                statusEl.textContent = '⚠️ Streamer offline';
+                statusEl.style.color = '#ffaa00';
+            }
+        }
+    } catch (e) {
+        console.error('[FUTURES] Subscribe failed:', e);
+        if (statusEl) {
+            statusEl.textContent = '❌ Error';
+            statusEl.style.color = '#ff5252';
+        }
+    }
+    
+    if (btn) btn.disabled = false;
+};
+
+/**
+ * Listen for futures quote updates
+ */
+StreamingService.on('futures-quote', (quote) => {
+    // StreamingService handles DOM updates automatically via updateFuturesPanel
+    // Log for debugging
+    if (state.debugMode) {
+        console.log('[FUTURES]', quote.symbol, `$${quote.last?.toFixed(2) || quote.mark?.toFixed(2) || '?'}`);
+    }
+});
+
 function initLiveIndicator() {
     // Update timestamp display every second
     liveIndicatorInterval = setInterval(updateLiveIndicator, 1000);
