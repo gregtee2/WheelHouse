@@ -460,11 +460,57 @@ window.refreshAccountFromSchwab = async function() {
             holdingsImported++;
         }
         
+        // DETECT POSITIONS CLOSED ON SCHWAB
+        // Find positions that exist locally but are no longer in Schwab
+        const { getPositionsKey, getHoldingsKey, getClosedKey } = await import('./state.js');
+        let closedPositions = JSON.parse(localStorage.getItem(getClosedKey()) || '[]');
+        let movedToClosed = 0;
+        const positionsToRemove = [];
+        
+        for (const localPos of existingPositions) {
+            // Skip if already marked closed
+            if (localPos.status === 'closed') continue;
+            // Skip if not from Schwab sync originally
+            if (localPos.source !== 'schwab_sync' && localPos.broker !== 'Schwab') continue;
+            
+            // Check if this position still exists in Schwab
+            const stillInSchwab = optionPositions.some(sp => 
+                sp.ticker === localPos.ticker &&
+                sp.strike === localPos.strike &&
+                sp.expiry === localPos.expiry
+            );
+            
+            if (!stillInSchwab) {
+                // Position no longer in Schwab - move to closed
+                console.log(`[Sync] Position closed on Schwab: ${localPos.ticker} $${localPos.strike} ${localPos.expiry}`);
+                
+                const closedPos = {
+                    ...localPos,
+                    status: 'closed',
+                    closeDate: new Date().toISOString().split('T')[0],
+                    closeReason: 'schwab_sync_detected',
+                    closePrice: localPos.lastOptionPrice || 0,
+                    realizedPnL: localPos.premium ? 
+                        (localPos.premium - (localPos.lastOptionPrice || 0)) * 100 * localPos.contracts : 0
+                };
+                
+                closedPositions.push(closedPos);
+                positionsToRemove.push(localPos.id);
+                movedToClosed++;
+            }
+        }
+        
+        // Remove closed positions from open list
+        if (positionsToRemove.length > 0) {
+            console.log(`[Sync] Removing ${movedToClosed} closed positions from open list`);
+            existingPositions = existingPositions.filter(p => !positionsToRemove.includes(p.id));
+            localStorage.setItem(getClosedKey(), JSON.stringify(closedPositions));
+        }
+        
         // Save to account-specific storage
         state.positions = existingPositions;
         state.holdings = existingHoldings;
         
-        const { getPositionsKey, getHoldingsKey } = await import('./state.js');
         localStorage.setItem(getPositionsKey(), JSON.stringify(existingPositions));
         localStorage.setItem(getHoldingsKey(), JSON.stringify(existingHoldings));
         
@@ -480,6 +526,7 @@ window.refreshAccountFromSchwab = async function() {
         const msg = [];
         if (imported > 0) msg.push(`${imported} new positions`);
         if (skipped > 0) msg.push(`${skipped} updated`);
+        if (movedToClosed > 0) msg.push(`${movedToClosed} closed`);
         if (holdingsImported > 0) msg.push(`${holdingsImported} holdings`);
         
         showNotification(`✅ Schwab Sync: ${msg.join(', ') || 'No changes'}`, 'success');

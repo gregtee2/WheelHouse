@@ -314,6 +314,11 @@ class StreamingServiceClass {
      * Update spot price for a ticker
      */
     updateSpotPrice(quote) {
+        // Guard: need a valid price
+        if (quote.last === undefined && quote.price === undefined) return;
+        const price = quote.last ?? quote.price;
+        if (typeof price !== 'number' || isNaN(price)) return;
+        
         // Update all rows for this ticker
         const rows = document.querySelectorAll(`tr[data-ticker="${quote.symbol}"]`);
         
@@ -321,7 +326,7 @@ class StreamingServiceClass {
             const spotCell = row.querySelector('[data-field="spot"]');
             if (spotCell) {
                 const oldValue = parseFloat(spotCell.textContent.replace(/[^0-9.-]/g, ''));
-                const newPrice = quote.last;
+                const newPrice = price;
                 
                 // Get position data from row to determine color
                 const strike = parseFloat(row.dataset.strike) || 0;

@@ -632,11 +632,18 @@ async function syncAccountFromSchwab() {
         let movedToClosed = 0;
         
         const positionsToRemove = [];
+        console.log(`[Schwab Sync] Checking ${existingPositions.length} local positions against ${optionPositions.length} Schwab positions`);
         for (const localPos of existingPositions) {
             // Skip if already marked closed
-            if (localPos.status === 'closed') continue;
+            if (localPos.status === 'closed') {
+                console.log(`[Schwab Sync] Skipping ${localPos.ticker} - already closed`);
+                continue;
+            }
             // Skip if not from Schwab sync originally
-            if (localPos.source !== 'schwab_sync' && localPos.broker !== 'Schwab') continue;
+            if (localPos.source !== 'schwab_sync' && localPos.broker !== 'Schwab') {
+                console.log(`[Schwab Sync] Skipping ${localPos.ticker} - not from Schwab (source: ${localPos.source}, broker: ${localPos.broker})`);
+                continue;
+            }
             
             // Check if this position still exists in Schwab
             const stillInSchwab = optionPositions.some(sp => 
@@ -644,6 +651,8 @@ async function syncAccountFromSchwab() {
                 sp.strike === localPos.strike &&
                 sp.expiry === localPos.expiry
             );
+            
+            console.log(`[Schwab Sync] ${localPos.ticker} $${localPos.strike} ${localPos.expiry} - stillInSchwab: ${stillInSchwab}`);
             
             if (!stillInSchwab) {
                 // Position no longer in Schwab - move to closed
@@ -667,11 +676,17 @@ async function syncAccountFromSchwab() {
         
         // Remove closed positions from open list
         if (positionsToRemove.length > 0) {
+            console.log(`[Schwab Sync] Removing ${positionsToRemove.length} positions:`, positionsToRemove);
+            console.log(`[Schwab Sync] Before filter: ${existingPositions.length} positions`);
+            const beforeIds = existingPositions.map(p => p.id);
             existingPositions = existingPositions.filter(p => !positionsToRemove.includes(p.id));
+            console.log(`[Schwab Sync] After filter: ${existingPositions.length} positions`);
+            console.log(`[Schwab Sync] Saving to closedKey:`, closedKey);
             localStorage.setItem(closedKey, JSON.stringify(closedPositions));
         }
         
         // Save to localStorage (using account-aware keys)
+        console.log(`[Schwab Sync] Saving ${existingPositions.length} positions to:`, positionsKey);
         localStorage.setItem(positionsKey, JSON.stringify(existingPositions));
         localStorage.setItem(holdingsKey, JSON.stringify(existingHoldings));
         
@@ -688,7 +703,9 @@ async function syncAccountFromSchwab() {
         
         // Refresh positions view if available
         if (window.loadPositions) {
+            console.log(`[Schwab Sync] Calling loadPositions() to refresh UI`);
             window.loadPositions();
+            console.log(`[Schwab Sync] After loadPositions, state.positions has ${(window.state?.positions || []).length} positions`);
         }
         
         // Show notification
