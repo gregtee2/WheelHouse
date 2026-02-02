@@ -702,55 +702,10 @@ export function drawPayoffChart() {
     // Determine which P&L to display and where to position the marker
     let displayPnL, displayY;
     
-    // When simulating, calculate projected option price
-    // Use RATIO-based approach to handle IV mismatch between model and market
-    // Also cap ratio and bound P&L to reasonable limits
-    if (isSimulating && !isSpread) {
-        const dte = state.currentPositionContext?.dte || state.dte || 30;
-        const iv = state.optVol || 0.3;
-        const r = 0.05;  // Risk-free rate
-        const T = Math.max(dte / 365.25, 0.001);  // Time in years
-        
-        // Calculate BS price at ACTUAL spot and SIMULATED spot
-        const bsAtActualSpot = bsPrice(spot, strike, T, r, iv, isPut);
-        const bsAtSimulatedSpot = bsPrice(displaySpot, strike, T, r, iv, isPut);
-        
-        // Get base option price from market (or BS if no live data)
-        let baseOptionPrice;
-        if (hasLivePricing) {
-            baseOptionPrice = currentOptionPrice;
-        } else {
-            baseOptionPrice = bsAtActualSpot;
-        }
-        
-        // Use RATIO to project new price, but CAP the ratio
-        // This prevents explosion when BS at actual spot is tiny
-        let projectedOptionPrice;
-        if (bsAtActualSpot > 0.01) {
-            const rawRatio = bsAtSimulatedSpot / bsAtActualSpot;
-            // Cap ratio: can't more than 3x for losses, 0.01x floor for gains
-            const cappedRatio = Math.max(0.01, Math.min(3.0, rawRatio));
-            projectedOptionPrice = baseOptionPrice * cappedRatio;
-        } else {
-            projectedOptionPrice = bsAtSimulatedSpot;
-        }
-        projectedOptionPrice = Math.max(0, projectedOptionPrice);
-        
-        // Calculate simulated P&L
-        let simulatedPnL;
-        if (isLong) {
-            simulatedPnL = (projectedOptionPrice - premium) * multiplier;
-        } else {
-            simulatedPnL = (premium - projectedOptionPrice) * multiplier;
-        }
-        
-        // BOUND the P&L to physical limits:
-        // - Can't be better than max profit
-        // - Can't be worse than expiration P&L at that price (no time value = worst case)
-        displayPnL = Math.max(expirationPnL, Math.min(maxProfit, simulatedPnL));
-        displayY = pnlToY(displayPnL);
-    } else if (isSimulating && isSpread) {
-        // For spreads, still use expiration P&L (more complex to model)
+    // When simulating, use EXPIRATION P&L at the simulated price
+    // This is the simplest and most accurate approach - shows the payoff curve value
+    // Label clearly indicates this is "at expiry" not "tomorrow"
+    if (isSimulating) {
         displayPnL = expirationPnL;
         displayY = expirationY;
     } else if (hasLivePricing) {
@@ -792,7 +747,7 @@ export function drawPayoffChart() {
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.textAlign = 'left';
     const markerLabel = isSimulating 
-        ? 'IF: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0)
+        ? 'EXPIRY: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0)
         : 'NOW: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
     // Place label above/below the dot based on P&L sign
     const labelY = displayPnL >= 0 ? displayY - 15 : displayY + 20;
