@@ -3470,6 +3470,7 @@ function renderPositionsTable(container, openPositions) {
             tickerGroups[ticker] = {
                 positions: [],
                 totalCredit: 0,
+                totalPnL: 0,
                 totalContracts: 0,
                 earliestDte: Infinity
             };
@@ -3479,6 +3480,18 @@ function renderPositionsTable(container, openPositions) {
         tickerGroups[ticker].totalCredit += isDebitPosition(pos.type) ? -credit : credit;
         tickerGroups[ticker].totalContracts += pos.contracts || 1;
         tickerGroups[ticker].earliestDte = Math.min(tickerGroups[ticker].earliestDte, pos.dte || Infinity);
+        
+        // Calculate unrealized P&L for group total
+        const currentOptionPrice = pos.lastOptionPrice || pos.markedPrice || null;
+        if (currentOptionPrice !== null && pos.premium > 0) {
+            if (isDebitPosition(pos.type)) {
+                // LONG: profit if price goes UP
+                tickerGroups[ticker].totalPnL += (currentOptionPrice - pos.premium) * 100 * (pos.contracts || 1);
+            } else {
+                // SHORT: profit if price goes DOWN
+                tickerGroups[ticker].totalPnL += (pos.premium - currentOptionPrice) * 100 * (pos.contracts || 1);
+            }
+        }
     });
     
     // Sort tickers by earliest DTE (most urgent first)
@@ -3495,7 +3508,7 @@ function renderPositionsTable(container, openPositions) {
         // Render ticker group header (only if multiple tickers)
         if (showTickerHeaders) {
             const isCollapsed = collapsedTickers[ticker] || false;
-            const creditColor = group.totalCredit >= 0 ? '#00ff88' : '#ff5252';
+            const pnlColor = group.totalPnL >= 0 ? '#00ff88' : '#ff5252';
             const dteColor = group.earliestDte <= 7 ? '#ff5252' : group.earliestDte <= 21 ? '#ffaa00' : '#00ff88';
             
             // Close previous tbody if exists, start new one for this ticker group
@@ -3526,8 +3539,8 @@ function renderPositionsTable(container, openPositions) {
                     <td></td>
                     <td></td>
                     <td></td>
-                    <td style="text-align:right; font-weight:bold; color:${creditColor};">
-                        ${group.totalCredit >= 0 ? '+' : ''}$${group.totalCredit.toFixed(0)}
+                    <td style="text-align:right; font-weight:bold; color:${pnlColor};">
+                        ${group.totalPnL >= 0 ? '+' : ''}$${Math.abs(group.totalPnL).toFixed(0)}
                     </td>
                     <td></td>
                     <td></td>
