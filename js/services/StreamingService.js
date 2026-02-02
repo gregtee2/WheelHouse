@@ -211,14 +211,52 @@ class StreamingServiceClass {
         // Update delta cell
         const deltaCell = row.querySelector('[data-field="delta"]');
         if (deltaCell && quote.delta !== undefined) {
-            deltaCell.textContent = quote.delta.toFixed(2);
-            deltaCell.style.color = Math.abs(quote.delta) > 0.4 ? '#ffaa00' : '#888';
+            // Get position info for proper calculation
+            const posId = row.dataset.positionId;
+            const pos = window.state?.positions?.find(p => String(p.id) === posId);
+            const contracts = pos?.contracts || 1;
+            
+            // Delta per share * 100 shares * contracts = total delta exposure
+            const isShort = pos?.type?.includes('short') || pos?.type === 'covered_call';
+            const sign = isShort ? -1 : 1;
+            const totalDelta = quote.delta * 100 * contracts * sign;
+            
+            const deltaTooltip = `If stock moves $1, your P&L changes by ~$${Math.abs(totalDelta).toFixed(0)}`;
+            deltaCell.innerHTML = `<span style="color:#ccc;font-size:10px;" title="${deltaTooltip}">${totalDelta >= 0 ? '+' : ''}${totalDelta.toFixed(0)}</span>`;
         }
         
-        // Update theta cell
+        // Update theta cell - show $/day rate
         const thetaCell = row.querySelector('[data-field="theta"]');
         if (thetaCell && quote.theta !== undefined) {
-            thetaCell.textContent = quote.theta.toFixed(2);
+            const posId = row.dataset.positionId;
+            const pos = window.state?.positions?.find(p => String(p.id) === posId);
+            const contracts = pos?.contracts || 1;
+            
+            // Theta per share * 100 shares * contracts = total $/day decay
+            const isShort = pos?.type?.includes('short') || pos?.type === 'covered_call';
+            const isLong = pos?.type?.includes('long') || pos?.type === 'LEAPS_Call';
+            const sign = isShort ? -1 : 1;
+            const totalTheta = quote.theta * 100 * contracts * sign;
+            
+            // Color: green for collecting (positive), amber for paying (negative/long)
+            let thetaColor;
+            if (isShort) {
+                thetaColor = totalTheta > 0 ? '#00ff88' : '#ff5252';
+            } else {
+                thetaColor = '#ffaa00';  // Amber for long positions (expected cost)
+            }
+            
+            // Format: show dollars with cents if under $1
+            const absTheta = Math.abs(totalTheta);
+            const thetaDisplay = absTheta < 1 ? `$${absTheta.toFixed(2)}` : `$${absTheta.toFixed(0)}`;
+            const thetaSign = totalTheta >= 0 ? '+' : '-';
+            
+            const thetaTooltip = isShort 
+                ? `You collect ${thetaDisplay}/day from time decay`
+                : `Time decay cost: ${thetaDisplay}/day`;
+            
+            // Add LIVE indicator
+            thetaCell.innerHTML = `<span style="color:${thetaColor};font-size:10px;" title="${thetaTooltip}">${thetaSign}${thetaDisplay}</span> <span style="color:#00d9ff;font-size:9px;font-weight:bold;">LIVE</span>`;
         }
     }
     
