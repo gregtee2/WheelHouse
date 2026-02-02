@@ -40,14 +40,16 @@ function initPayoffChartInteraction(canvas) {
         drawPayoffChart();
     }, { passive: false });
     
-    // Check if mouse is near the spot line
+    // Check if mouse is near the spot line (either actual or simulated)
     const isNearSpotLine = (clientX) => {
         const geo = payoffChartState.chartGeometry;
         if (!geo) return false;
         const rect = canvas.getBoundingClientRect();
         const mouseX = clientX - rect.left;
-        const spotX = geo.spotX;
-        return Math.abs(mouseX - spotX) < 12; // Within 12px of spot line
+        // Check both actual spot line AND simulated spot line (if simulating)
+        const nearActual = Math.abs(mouseX - geo.spotX) < 12;
+        const nearSimulated = geo.displaySpotX !== undefined && Math.abs(mouseX - geo.displaySpotX) < 12;
+        return nearActual || nearSimulated;
     };
     
     // Convert mouse X to price
@@ -413,6 +415,8 @@ export function drawPayoffChart() {
     
     // Add spotX to geometry now that priceToX is defined
     payoffChartState.chartGeometry.spotX = priceToX(spot);
+    // Also store displaySpotX for drag detection when simulating
+    payoffChartState.chartGeometry.displaySpotX = priceToX(displaySpot);
     
     // Draw grid
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
