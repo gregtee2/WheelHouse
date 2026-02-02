@@ -702,8 +702,28 @@ export function drawPayoffChart() {
     // Determine which P&L to display and where to position the marker
     let displayPnL, displayY;
     
-    // When simulating, always show expiration P&L at simulated price
-    if (isSimulating) {
+    // When simulating, calculate projected option price using Black-Scholes
+    // This shows P&L with time value remaining, not expiration value
+    if (isSimulating && !isSpread) {
+        // Use Black-Scholes to estimate option price at simulated spot
+        const dte = state.currentPositionContext?.dte || state.dte || 30;
+        const iv = state.optVol || 0.3;
+        const r = 0.05;  // Risk-free rate
+        const T = Math.max(dte / 365.25, 0.001);  // Time in years
+        
+        // Calculate projected option price at simulated spot
+        const projectedOptionPrice = bsPrice(displaySpot, strike, T, r, iv, isPut);
+        
+        if (isLong) {
+            // Long option: P&L = (projectedPrice - entryPremium) × 100 × contracts
+            displayPnL = (projectedOptionPrice - premium) * multiplier;
+        } else {
+            // Short option: P&L = (entryPremium - projectedPrice) × 100 × contracts
+            displayPnL = (premium - projectedOptionPrice) * multiplier;
+        }
+        displayY = pnlToY(displayPnL);
+    } else if (isSimulating && isSpread) {
+        // For spreads, still use expiration P&L (more complex to model)
         displayPnL = expirationPnL;
         displayY = expirationY;
     } else if (hasLivePricing) {
