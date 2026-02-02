@@ -702,10 +702,39 @@ export function drawPayoffChart() {
     // Determine which P&L to display and where to position the marker
     let displayPnL, displayY;
     
-    // When simulating, use EXPIRATION P&L at the simulated price
-    // This is the simplest and most accurate approach - shows the payoff curve value
-    // Label clearly indicates this is "at expiry" not "tomorrow"
-    if (isSimulating) {
+    // When simulating, project what the option would be worth TODAY at that spot price
+    // Use implied IV backed out from actual market price for accuracy
+    if (isSimulating && !isSpread && hasLivePricing) {
+        const dte = state.currentPositionContext?.dte || state.dte || 30;
+        const r = 0.05;
+        const T = Math.max(dte / 365.25, 0.001);
+        
+        // Back-calculate implied IV from current market price using bisection
+        // Find IV such that BS(spot, strike, T, r, IV) = currentOptionPrice
+        let ivLow = 0.01, ivHigh = 3.0;  // IV range: 1% to 300%
+        let impliedIV = 0.5;  // Starting guess
+        
+        for (let i = 0; i < 20; i++) {  // 20 iterations of bisection
+            impliedIV = (ivLow + ivHigh) / 2;
+            const bsCalc = bsPrice(spot, strike, T, r, impliedIV, isPut);
+            if (bsCalc < currentOptionPrice) {
+                ivLow = impliedIV;  // Need higher IV
+            } else {
+                ivHigh = impliedIV;  // Need lower IV
+            }
+        }
+        
+        // Now use this calibrated IV to calculate option price at simulated spot
+        const projectedOptionPrice = bsPrice(displaySpot, strike, T, r, impliedIV, isPut);
+        
+        if (isLong) {
+            displayPnL = (projectedOptionPrice - premium) * multiplier;
+        } else {
+            displayPnL = (premium - projectedOptionPrice) * multiplier;
+        }
+        displayY = pnlToY(displayPnL);
+    } else if (isSimulating) {
+        // Fallback for spreads or no live pricing: use expiration P&L
         displayPnL = expirationPnL;
         displayY = expirationY;
     } else if (hasLivePricing) {
@@ -747,7 +776,7 @@ export function drawPayoffChart() {
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.textAlign = 'left';
     const markerLabel = isSimulating 
-        ? 'EXPIRY: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0)
+        ? 'IF: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0)
         : 'NOW: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
     // Place label above/below the dot based on P&L sign
     const labelY = displayPnL >= 0 ? displayY - 15 : displayY + 20;
