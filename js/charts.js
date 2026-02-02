@@ -702,23 +702,40 @@ export function drawPayoffChart() {
     // Determine which P&L to display and where to position the marker
     let displayPnL, displayY;
     
-    // When simulating, calculate projected option price using Black-Scholes
-    // This shows P&L with time value remaining, not expiration value
+    // When simulating, calculate projected option price using delta-based adjustment
+    // This anchors to actual market price and estimates change based on spot move
     if (isSimulating && !isSpread) {
-        // Use Black-Scholes to estimate option price at simulated spot
         const dte = state.currentPositionContext?.dte || state.dte || 30;
         const iv = state.optVol || 0.3;
         const r = 0.05;  // Risk-free rate
         const T = Math.max(dte / 365.25, 0.001);  // Time in years
         
-        // Calculate projected option price at simulated spot
-        const projectedOptionPrice = bsPrice(displaySpot, strike, T, r, iv, isPut);
+        // Calculate delta at current spot using finite difference
+        const bump = 0.01;  // 1% bump
+        const priceUp = bsPrice(spot * (1 + bump), strike, T, r, iv, isPut);
+        const priceDown = bsPrice(spot * (1 - bump), strike, T, r, iv, isPut);
+        const delta = (priceUp - priceDown) / (2 * spot * bump);
+        
+        // Calculate spot price change
+        const spotChange = displaySpot - spot;
+        
+        // If we have live pricing, anchor to it and adjust with delta
+        // Otherwise, calculate current BS price and adjust from that
+        let baseOptionPrice;
+        if (hasLivePricing) {
+            baseOptionPrice = currentOptionPrice;
+        } else {
+            baseOptionPrice = bsPrice(spot, strike, T, r, iv, isPut);
+        }
+        
+        // Project new option price: base + delta × spotChange
+        // For large moves, also add gamma adjustment (second-order)
+        const gamma = (priceUp - 2 * bsPrice(spot, strike, T, r, iv, isPut) + priceDown) / Math.pow(spot * bump, 2);
+        const projectedOptionPrice = Math.max(0, baseOptionPrice + delta * spotChange + 0.5 * gamma * spotChange * spotChange);
         
         if (isLong) {
-            // Long option: P&L = (projectedPrice - entryPremium) × 100 × contracts
             displayPnL = (projectedOptionPrice - premium) * multiplier;
         } else {
-            // Short option: P&L = (entryPremium - projectedPrice) × 100 × contracts
             displayPnL = (premium - projectedOptionPrice) * multiplier;
         }
         displayY = pnlToY(displayPnL);
