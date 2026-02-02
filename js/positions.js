@@ -4940,6 +4940,10 @@ export function updatePortfolioSummary() {
             ${buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)}
         `;
         // No height lock release needed - CSS has fixed height
+        
+        // Update theta tile with actual values (if Greeks have been calculated)
+        // This must happen AFTER the HTML is set, since we just recreated the tile element
+        updateThetaSummaryCard();
     }
 }
 
