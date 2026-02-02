@@ -703,8 +703,8 @@ export function drawPayoffChart() {
     let displayPnL, displayY;
     
     // When simulating, calculate projected option price
-    // Use ratio-based approach: how much does BS price change from actual→simulated spot?
-    // Then apply that ratio to the actual market price
+    // Use RATIO-based approach to handle IV mismatch between model and market
+    // projectedPrice = marketPrice × (bsAtSimulated / bsAtActual)
     if (isSimulating && !isSpread) {
         const dte = state.currentPositionContext?.dte || state.dte || 30;
         const iv = state.optVol || 0.3;
@@ -715,11 +715,7 @@ export function drawPayoffChart() {
         const bsAtActualSpot = bsPrice(spot, strike, T, r, iv, isPut);
         const bsAtSimulatedSpot = bsPrice(displaySpot, strike, T, r, iv, isPut);
         
-        // Calculate the change ratio (how much the BS model thinks price changed)
-        // Use difference rather than ratio to avoid divide-by-zero issues
-        const bsChange = bsAtSimulatedSpot - bsAtActualSpot;
-        
-        // Apply this change to the actual market price
+        // Get base option price from market (or BS if no live data)
         let baseOptionPrice;
         if (hasLivePricing) {
             baseOptionPrice = currentOptionPrice;
@@ -727,8 +723,18 @@ export function drawPayoffChart() {
             baseOptionPrice = bsAtActualSpot;
         }
         
-        // Projected price = actual market price + BS-predicted change
-        const projectedOptionPrice = Math.max(0, baseOptionPrice + bsChange);
+        // Use RATIO to project new price (handles IV mismatch naturally)
+        // If BS thinks option drops by 90%, market price drops by 90%
+        let projectedOptionPrice;
+        if (bsAtActualSpot > 0.01) {
+            // Ratio-based: scale market price by BS ratio
+            const ratio = bsAtSimulatedSpot / bsAtActualSpot;
+            projectedOptionPrice = baseOptionPrice * ratio;
+        } else {
+            // BS at actual is nearly zero, use simulated BS directly
+            projectedOptionPrice = bsAtSimulatedSpot;
+        }
+        projectedOptionPrice = Math.max(0, projectedOptionPrice);
         
         if (isLong) {
             displayPnL = (projectedOptionPrice - premium) * multiplier;
