@@ -359,27 +359,60 @@ export function drawPayoffChart() {
     const maxProfitY = pnlToY(maxProfit);
     ctx.fillText('Max Profit: +$' + maxProfit.toFixed(0), W - M.right + 5, maxProfitY + 4);
     
-    // Current P&L marker
-    const currentPnL = calcPnL(spot);
-    const currentY = pnlToY(currentPnL);
+    // Current P&L marker (at expiration) - shown on the payoff curve
+    const expirationPnL = calcPnL(spot);
+    const expirationY = pnlToY(expirationPnL);
     
-    // Draw dot at current position
+    // Draw dot at current position on payoff curve
     ctx.beginPath();
-    ctx.arc(spotX, currentY, 6, 0, Math.PI * 2);
-    ctx.fillStyle = currentPnL >= 0 ? '#00ff88' : '#ff5252';
+    ctx.arc(spotX, expirationY, 6, 0, Math.PI * 2);
+    ctx.fillStyle = expirationPnL >= 0 ? '#00ff88' : '#ff5252';
     ctx.fill();
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 2;
     ctx.stroke();
     
+    // For LONG options (not short), calculate actual unrealized P&L using current option price
+    // This matters for options with lots of time value (like LEAPS)
+    // Try multiple sources for current option price:
+    // 1. Position's lastOptionPrice (from streaming/sync)
+    // 2. Position's markedPrice (manually set)
+    // 3. state.liveOptionData from CBOE fetch (if user clicked "Price Options")
+    let currentOptionPrice = state.currentPositionContext?.lastOptionPrice || 
+                             state.currentPositionContext?.markedPrice || null;
+    
+    // Fallback: Check state.liveOptionData (populated when user fetches CBOE prices)
+    if (!currentOptionPrice && state.liveOptionData) {
+        const optionData = isPut ? state.liveOptionData.putOption : state.liveOptionData.callOption;
+        if (optionData && optionData.bid !== undefined && optionData.ask !== undefined) {
+            currentOptionPrice = (optionData.bid + optionData.ask) / 2;
+        }
+    }
+    
+    const isLong = !isShort && !isBuyWrite;
+    const hasLivePricing = currentOptionPrice !== null && currentOptionPrice > 0;
+    
+    let displayPnL, displayLabel;
+    
+    if (isLong && hasLivePricing) {
+        // For long options with live pricing, show actual unrealized P&L
+        // P&L = (currentPrice - entryPremium) × 100 × contracts
+        const actualPnL = (currentOptionPrice - premium) * multiplier;
+        displayPnL = actualPnL;
+        displayLabel = 'NOW: ' + (actualPnL >= 0 ? '+' : '') + '$' + actualPnL.toFixed(0);
+    } else {
+        // For short options or when no live pricing, show expiration P&L
+        displayPnL = expirationPnL;
+        displayLabel = 'NOW: ' + (expirationPnL >= 0 ? '+' : '') + '$' + expirationPnL.toFixed(0);
+    }
+    
     // Current P&L label - position above the dot, not on the line
-    ctx.fillStyle = currentPnL >= 0 ? '#00ff88' : '#ff5252';
+    ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.textAlign = 'left';
-    const currentLabel = (currentPnL >= 0 ? '+' : '') + '$' + currentPnL.toFixed(0);
     // Place label above the line (negative Y offset)
-    const labelY = currentPnL >= 0 ? currentY - 15 : currentY + 20;
-    ctx.fillText('NOW: ' + currentLabel, spotX + 12, labelY);
+    const labelY = expirationPnL >= 0 ? expirationY - 15 : expirationY + 20;
+    ctx.fillText(displayLabel, spotX + 12, labelY);
     
     // Position type label (top left)
     ctx.fillStyle = '#aaa';
