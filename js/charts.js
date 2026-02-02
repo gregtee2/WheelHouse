@@ -359,19 +359,6 @@ export function drawPayoffChart() {
     const maxProfitY = pnlToY(maxProfit);
     ctx.fillText('Max Profit: +$' + maxProfit.toFixed(0), W - M.right + 5, maxProfitY + 4);
     
-    // Current P&L marker (at expiration) - shown on the payoff curve
-    const expirationPnL = calcPnL(spot);
-    const expirationY = pnlToY(expirationPnL);
-    
-    // Draw dot at current position on payoff curve
-    ctx.beginPath();
-    ctx.arc(spotX, expirationY, 6, 0, Math.PI * 2);
-    ctx.fillStyle = expirationPnL >= 0 ? '#00ff88' : '#ff5252';
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
     // For LONG options (not short), calculate actual unrealized P&L using current option price
     // This matters for options with lots of time value (like LEAPS)
     // Try multiple sources for current option price:
@@ -392,26 +379,40 @@ export function drawPayoffChart() {
     const isLong = !isShort && !isBuyWrite;
     const hasLivePricing = currentOptionPrice !== null && currentOptionPrice > 0;
     
-    let displayPnL, displayLabel;
+    // Calculate expiration P&L (what the option would be worth if it expired now at current spot)
+    const expirationPnL = calcPnL(spot);
+    const expirationY = pnlToY(expirationPnL);
+    
+    // Determine which P&L to display and where to position the marker
+    let displayPnL, displayY;
     
     if (isLong && hasLivePricing) {
         // For long options with live pricing, show actual unrealized P&L
         // P&L = (currentPrice - entryPremium) × 100 × contracts
-        const actualPnL = (currentOptionPrice - premium) * multiplier;
-        displayPnL = actualPnL;
-        displayLabel = 'NOW: ' + (actualPnL >= 0 ? '+' : '') + '$' + actualPnL.toFixed(0);
+        displayPnL = (currentOptionPrice - premium) * multiplier;
+        displayY = pnlToY(displayPnL);  // Position at ACTUAL P&L level
     } else {
         // For short options or when no live pricing, show expiration P&L
         displayPnL = expirationPnL;
-        displayLabel = 'NOW: ' + (expirationPnL >= 0 ? '+' : '') + '$' + expirationPnL.toFixed(0);
+        displayY = expirationY;
     }
     
-    // Current P&L label - position above the dot, not on the line
+    // Draw dot at the appropriate P&L position
+    ctx.beginPath();
+    ctx.arc(spotX, displayY, 6, 0, Math.PI * 2);
+    ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Current P&L label - position based on whether it's profit or loss
     ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.textAlign = 'left';
-    // Place label above the line (negative Y offset)
-    const labelY = expirationPnL >= 0 ? expirationY - 15 : expirationY + 20;
+    const displayLabel = 'NOW: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+    // Place label above/below the dot based on P&L sign
+    const labelY = displayPnL >= 0 ? displayY - 15 : displayY + 20;
     ctx.fillText(displayLabel, spotX + 12, labelY);
     
     // Position type label (top left)
