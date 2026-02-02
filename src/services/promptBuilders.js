@@ -1959,12 +1959,12 @@ function buildStrategyAdvisorPrompt(context) {
     
     // Calculate deltas (BULL PUT = POSITIVE delta, BEAR CALL = NEGATIVE delta)
     const atmPutDelta = atmPut?.delta ? parseFloat(atmPut.delta) : -0.45; // ATM put delta ~-0.45
-    const otmPutDelta = otmPut?.delta ? parseFloat(otmPut.delta) : -0.25; // OTM put delta ~-0.25
+    const otmPutDelta = otmPutToSell?.delta ? parseFloat(otmPutToSell.delta) : -0.25; // OTM put delta ~-0.25
     // Bull put spread net delta = |short put delta| - |long put delta| = POSITIVE
     const putSpreadDelta = Math.abs(atmPutDelta) - Math.abs(otmPutDelta); // ~+0.20 per contract
     
     const atmCallDelta = atmCall?.delta ? parseFloat(atmCall.delta) : 0.45;
-    const otmCallDelta = otmCall?.delta ? parseFloat(otmCall.delta) : 0.25;
+    const otmCallDelta = otmCallToSell?.delta ? parseFloat(otmCallToSell.delta) : 0.25;
     // Bear call spread net delta = -(short call delta - long call delta) = NEGATIVE  
     const callSpreadDelta = -(atmCallDelta - otmCallDelta); // ~-0.20 per contract
     
@@ -2002,7 +2002,7 @@ function buildStrategyAdvisorPrompt(context) {
     
     // 4. Liquidity check (approximate - we'd need OI data for real check)
     // Flag if using very low-priced options
-    if (atmPutMid < 0.50 || otmPutMid < 0.20) {
+    if (atmPutMid < 0.50 || otmPutBuyMid < 0.20) {
         propDeskWarnings.push(`💧 LIQUIDITY NOTE: Low premium options may have wide bid/ask spreads. Consider legging in.`);
     }
     
@@ -2012,9 +2012,9 @@ function buildStrategyAdvisorPrompt(context) {
     // DEBUG: Log what we're sending to AI
     console.log(`[STRATEGY-ADVISOR] Pre-calculated values for AI prompt:`);
     console.log(`  ATM Put: $${atmPut?.strike} bid=${atmPut?.bid} ask=${atmPut?.ask} → mid=$${atmPutMid.toFixed(2)}`);
-    console.log(`  OTM Put: $${otmPut?.strike} bid=${otmPut?.bid} ask=${otmPut?.ask} → mid=$${otmPutMid.toFixed(2)}`);
+    console.log(`  OTM Put to Sell: $${otmPutToSell?.strike} bid=${otmPutToSell?.bid} ask=${otmPutToSell?.ask} → mid=$${otmPutSellMid.toFixed(2)}`);
     console.log(`  Sell Put: $${sellPutStrike}, Buy Put: $${buyPutStrike}, Width: $${putSpreadWidth}`);
-    console.log(`  Put Spread Credit: $${putSpreadCredit.toFixed(2)} (sell $${atmPutMid.toFixed(2)} - buy $${otmPutMid.toFixed(2)})`);
+    console.log(`  Put Spread Credit: $${putSpreadCredit.toFixed(2)} (sell $${otmPutSellMid.toFixed(2)} - buy $${otmPutBuyMid.toFixed(2)})`);
     console.log(`  Sell Call: $${sellCallStrike}, Buy Call: $${buyCallStrike}, Width: $${callSpreadWidth}`);
     console.log(`  Call Spread Credit: $${callSpreadCredit.toFixed(2)}`);
     console.log(`  Put Spread Delta: +${(putSpreadDelta * 100).toFixed(0)} per contract (BULLISH)`);
@@ -2154,8 +2154,8 @@ ${propDeskWarnings.join('\n')}
 PRE-CALCULATED SPREAD VALUES (USE THESE EXACT NUMBERS!):
 ═══════════════════════════════════════════════════════════════════════════
 PUT CREDIT SPREAD (Bull Put):
-• Sell: $${sellPutStrike} put @ $${atmPutMid.toFixed(2)}
-• Buy: $${buyPutStrike} put @ $${otmPutMid.toFixed(2)}
+• Sell: $${sellPutStrike} put @ $${otmPutSellMid.toFixed(2)}
+• Buy: $${buyPutStrike} put @ $${otmPutBuyMid.toFixed(2)}
 • Net Credit: $${putSpreadCredit.toFixed(2)} per share ($${(putSpreadCredit * 100).toFixed(0)} per contract)
 • Spread Width: $${putSpreadWidth}
 • Max Loss: $${(putSpreadWidth - putSpreadCredit).toFixed(2)} per share
