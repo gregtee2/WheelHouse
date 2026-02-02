@@ -230,6 +230,13 @@ async function fetchAccountBalancesForAccount(acct) {
         const data = await res.json();
         const bal = data.securitiesAccount?.currentBalances || {};
         
+        console.log('[Balances] Raw from Schwab:', {
+            buyingPower: bal.buyingPower,
+            marginBalance: bal.marginBalance,
+            equity: bal.equity,
+            liquidationValue: bal.liquidationValue
+        });
+        
         updateBalanceDisplay(
             bal.buyingPower || 0,
             bal.equity || bal.liquidationValue || 0,
