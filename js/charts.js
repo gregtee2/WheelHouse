@@ -702,36 +702,33 @@ export function drawPayoffChart() {
     // Determine which P&L to display and where to position the marker
     let displayPnL, displayY;
     
-    // When simulating, calculate projected option price using delta-based adjustment
-    // This anchors to actual market price and estimates change based on spot move
+    // When simulating, calculate projected option price
+    // Use ratio-based approach: how much does BS price change from actual→simulated spot?
+    // Then apply that ratio to the actual market price
     if (isSimulating && !isSpread) {
         const dte = state.currentPositionContext?.dte || state.dte || 30;
         const iv = state.optVol || 0.3;
         const r = 0.05;  // Risk-free rate
         const T = Math.max(dte / 365.25, 0.001);  // Time in years
         
-        // Calculate delta at current spot using finite difference
-        const bump = 0.01;  // 1% bump
-        const priceUp = bsPrice(spot * (1 + bump), strike, T, r, iv, isPut);
-        const priceDown = bsPrice(spot * (1 - bump), strike, T, r, iv, isPut);
-        const delta = (priceUp - priceDown) / (2 * spot * bump);
+        // Calculate BS price at ACTUAL spot and SIMULATED spot
+        const bsAtActualSpot = bsPrice(spot, strike, T, r, iv, isPut);
+        const bsAtSimulatedSpot = bsPrice(displaySpot, strike, T, r, iv, isPut);
         
-        // Calculate spot price change
-        const spotChange = displaySpot - spot;
+        // Calculate the change ratio (how much the BS model thinks price changed)
+        // Use difference rather than ratio to avoid divide-by-zero issues
+        const bsChange = bsAtSimulatedSpot - bsAtActualSpot;
         
-        // If we have live pricing, anchor to it and adjust with delta
-        // Otherwise, calculate current BS price and adjust from that
+        // Apply this change to the actual market price
         let baseOptionPrice;
         if (hasLivePricing) {
             baseOptionPrice = currentOptionPrice;
         } else {
-            baseOptionPrice = bsPrice(spot, strike, T, r, iv, isPut);
+            baseOptionPrice = bsAtActualSpot;
         }
         
-        // Project new option price: base + delta × spotChange
-        // For large moves, also add gamma adjustment (second-order)
-        const gamma = (priceUp - 2 * bsPrice(spot, strike, T, r, iv, isPut) + priceDown) / Math.pow(spot * bump, 2);
-        const projectedOptionPrice = Math.max(0, baseOptionPrice + delta * spotChange + 0.5 * gamma * spotChange * spotChange);
+        // Projected price = actual market price + BS-predicted change
+        const projectedOptionPrice = Math.max(0, baseOptionPrice + bsChange);
         
         if (isLong) {
             displayPnL = (projectedOptionPrice - premium) * multiplier;
