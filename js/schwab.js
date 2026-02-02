@@ -194,19 +194,29 @@ const SchwabAPI = {
                 posType = isShort ? 'covered_call' : 'long_call';
             }
             
+            // Calculate current price from market value
+            // For SHORT positions, marketValue is NEGATIVE (you owe that value)
+            // We need the absolute value to get the per-share price
+            const contracts = Math.abs(pos.shortQuantity || pos.longQuantity || 0);
+            let currentPrice;
+            if (pos.currentDayProfitLoss !== undefined && contracts > 0) {
+                // Use Math.abs because marketValue is negative for shorts
+                currentPrice = Math.abs(pos.marketValue) / (contracts * 100);
+            } else {
+                currentPrice = pos.averagePrice || 0;
+            }
+            
             return {
                 source: 'schwab',
                 type: posType,
                 ticker: underlying,
                 strike: strike,
                 expiry: expiry,
-                contracts: Math.abs(pos.shortQuantity || pos.longQuantity || 0),
+                contracts: contracts,
                 isShort: isShort,
                 averagePrice: pos.averagePrice || 0,
                 marketValue: pos.marketValue || 0,
-                currentPrice: pos.currentDayProfitLoss ? 
-                    (pos.marketValue / (Math.abs(pos.shortQuantity || pos.longQuantity) * 100)) : 
-                    pos.averagePrice,
+                currentPrice: currentPrice,
                 dayPnL: pos.currentDayProfitLoss || 0,
                 totalPnL: pos.currentDayProfitLoss || 0, // Schwab doesn't give total P&L directly
                 symbol: inst.symbol,
@@ -214,14 +224,15 @@ const SchwabAPI = {
             };
         } else {
             // Stock position
+            const shares = pos.longQuantity || pos.shortQuantity || 0;
             return {
                 source: 'schwab',
                 type: 'stock',
                 ticker: inst.symbol,
-                shares: pos.longQuantity || pos.shortQuantity || 0,
+                shares: shares,
                 averagePrice: pos.averagePrice || 0,
                 marketValue: pos.marketValue || 0,
-                currentPrice: pos.marketValue / (pos.longQuantity || pos.shortQuantity || 1),
+                currentPrice: shares !== 0 ? Math.abs(pos.marketValue) / Math.abs(shares) : 0,
                 dayPnL: pos.currentDayProfitLoss || 0,
                 cusip: inst.cusip
             };
