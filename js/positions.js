@@ -4,7 +4,7 @@
 import { state, setPositionContext, clearPositionContext, getPositionsKey, getClosedKey, getHoldingsKey } from './state.js';
 import { formatCurrency, formatPercent, getDteUrgency, showNotification, showUndoNotification, randomNormal, isDebitPosition, calculatePositionCredit, calculateRealizedPnL, getChainNetCredit as utilsGetChainNetCredit, hasRollHistory as utilsHasRollHistory, createModal, modalHeader, calculateGreeks } from './utils.js';
 import { fetchPositionTickerPrice, fetchStockPrice, fetchStockPricesBatch } from './api.js';
-import { drawPayoffChart } from './charts.js';
+import { drawPayoffChart, resetPayoffChartZoom } from './charts.js';
 import { updateDteDisplay } from './ui.js';
 import PositionsService from './services/PositionsService.js';
 
@@ -3188,6 +3188,9 @@ export function closePosition(id, closePrice) {
 export function loadPositionToAnalyze(id) {
     const pos = state.positions.find(p => p.id === id);
     if (!pos) return;
+    
+    // Reset chart zoom when loading new position
+    resetPayoffChartZoom();
     
     // For covered calls, get cost basis from the linked holding
     let costBasis = pos.costBasis || null;

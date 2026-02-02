@@ -5,6 +5,72 @@ import { state } from './state.js';
 import { erf } from './utils.js';
 import { getPositionType, bsPrice } from './pricing.js';
 
+// Payoff chart zoom/pan state
+let payoffChartState = {
+    zoom: 1.0,        // 1.0 = auto-fit, >1 = zoomed in, <1 = zoomed out
+    panX: 0,          // Pan offset in price units
+    isDragging: false,
+    dragStartX: 0,
+    dragStartPanX: 0,
+    initialized: false
+};
+
+// Reset payoff chart zoom/pan (called when loading new position)
+export function resetPayoffChartZoom() {
+    payoffChartState.zoom = 1.0;
+    payoffChartState.panX = 0;
+}
+
+// Initialize payoff chart mouse handlers (call once)
+function initPayoffChartInteraction(canvas) {
+    if (payoffChartState.initialized) return;
+    payoffChartState.initialized = true;
+    
+    // Mouse wheel zoom
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1; // Zoom out/in
+        payoffChartState.zoom = Math.max(0.3, Math.min(5, payoffChartState.zoom * zoomFactor));
+        drawPayoffChart();
+    }, { passive: false });
+    
+    // Mouse drag pan
+    canvas.addEventListener('mousedown', (e) => {
+        payoffChartState.isDragging = true;
+        payoffChartState.dragStartX = e.clientX;
+        payoffChartState.dragStartPanX = payoffChartState.panX;
+        canvas.style.cursor = 'grabbing';
+    });
+    
+    canvas.addEventListener('mousemove', (e) => {
+        if (!payoffChartState.isDragging) return;
+        const dx = e.clientX - payoffChartState.dragStartX;
+        // Convert pixel movement to price units (rough estimate)
+        const pricePerPixel = (state.strike * 0.5) / canvas.getBoundingClientRect().width;
+        payoffChartState.panX = payoffChartState.dragStartPanX - dx * pricePerPixel / payoffChartState.zoom;
+        drawPayoffChart();
+    });
+    
+    canvas.addEventListener('mouseup', () => {
+        payoffChartState.isDragging = false;
+        canvas.style.cursor = 'grab';
+    });
+    
+    canvas.addEventListener('mouseleave', () => {
+        payoffChartState.isDragging = false;
+        canvas.style.cursor = 'grab';
+    });
+    
+    // Double-click to reset zoom
+    canvas.addEventListener('dblclick', () => {
+        payoffChartState.zoom = 1.0;
+        payoffChartState.panX = 0;
+        drawPayoffChart();
+    });
+    
+    canvas.style.cursor = 'grab';
+}
+
 /**
  * Main simulator canvas drawing
  */
@@ -131,10 +197,15 @@ export function drawHistogram() {
 
 /**
  * Payoff chart drawing - Enhanced with P&L, breakeven, annotations
+ * Supports mouse zoom (scroll) and pan (drag)
  */
 export function drawPayoffChart() {
     const canvas = document.getElementById('payoffCanvas');
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    
+    // Initialize mouse interaction handlers (once)
+    initPayoffChartInteraction(canvas);
     
     // High-DPI scaling
     const dpr = window.devicePixelRatio || 1;
@@ -146,7 +217,8 @@ export function drawPayoffChart() {
     ctx.scale(dpr, dpr);
     
     const W = cssW, H = cssH;
-    const M = { top: 40, right: 50, bottom: 50, left: 60 };
+    // Increased margins to prevent label clipping
+    const M = { top: 45, right: 100, bottom: 55, left: 65 };
     
     ctx.fillStyle = '#0a0a15';
     ctx.fillRect(0, 0, W, H);
@@ -187,8 +259,15 @@ export function drawPayoffChart() {
     const maxKey = Math.max(...keyPrices);
     const priceSpan = maxKey - minKey;
     const padding = Math.max(priceSpan * 0.20, strike * 0.15); // At least 15% of strike as padding
-    const minS = Math.max(0, minKey - padding);
-    const maxS = maxKey + padding;
+    
+    // Apply zoom and pan from mouse interaction
+    const baseMin = Math.max(0, minKey - padding);
+    const baseMax = maxKey + padding;
+    const baseRange = baseMax - baseMin;
+    const zoomedRange = baseRange / payoffChartState.zoom;
+    const center = (baseMin + baseMax) / 2 + payoffChartState.panX;
+    const minS = Math.max(0, center - zoomedRange / 2);
+    const maxS = center + zoomedRange / 2;
     
     // Calculate max loss for display (at edge of chart)
     let maxLossAtEdge;
@@ -441,6 +520,17 @@ export function drawPayoffChart() {
     ctx.fillText('Spot', M.left + 50, M.top + 15);
     ctx.fillStyle = '#ff9800';
     ctx.fillText('Breakeven', M.left + 85, M.top + 15);
+    
+    // Zoom/pan indicator (only show if not at default)
+    if (payoffChartState.zoom !== 1 || payoffChartState.panX !== 0) {
+        ctx.fillStyle = 'rgba(0,217,255,0.7)';
+        ctx.font = '9px -apple-system, sans-serif';
+        ctx.fillText(`Zoom: ${payoffChartState.zoom.toFixed(1)}x  |  Double-click to reset`, W - M.right - 130, H - 8);
+    } else {
+        ctx.fillStyle = 'rgba(136,136,136,0.5)';
+        ctx.font = '9px -apple-system, sans-serif';
+        ctx.fillText('Scroll to zoom • Drag to pan', W - M.right - 100, H - 8);
+    }
 }
 
 /**
