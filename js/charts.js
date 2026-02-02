@@ -232,6 +232,20 @@ export function drawPayoffChart() {
     const premium = state.currentPositionContext?.premium || 
                    (isPut ? state.optionResults?.putPrice : state.optionResults?.callPrice) || 1;
     
+    // Check if this is a spread position
+    const positionType = state.currentPositionContext?.type || '';
+    const isSpread = positionType.includes('_spread');
+    const isCredit = positionType.includes('credit');
+    const isDebit = positionType.includes('debit');
+    const isPutSpread = positionType.includes('put');
+    const isCallSpread = positionType.includes('call');
+    
+    // Get spread strikes
+    const buyStrike = state.currentPositionContext?.buyStrike || null;
+    const sellStrike = state.currentPositionContext?.sellStrike || null;
+    const spreadWidth = state.currentPositionContext?.spreadWidth || 
+                        (buyStrike && sellStrike ? Math.abs(sellStrike - buyStrike) : 0);
+    
     // For Buy/Write, we need the stock purchase price
     const stockPrice = state.currentPositionContext?.stockPrice || state.spot;
     
@@ -243,22 +257,66 @@ export function drawPayoffChart() {
     
     // For Buy/Write: Max profit = (Strike - Stock Price + Premium) × 100
     // For Short Put: Max profit = Premium × 100
-    let maxProfit, breakeven;
-    if (isBuyWrite) {
+    // For Spreads: Calculate based on spread type
+    let maxProfit, maxLoss, breakeven;
+    
+    if (isSpread && buyStrike && sellStrike) {
+        // SPREAD CALCULATIONS
+        if (isCredit) {
+            // Credit spreads: receive premium upfront
+            maxProfit = premium * multiplier;  // Keep the net credit
+            maxLoss = (spreadWidth - premium) * multiplier;  // Spread width minus premium
+            
+            if (isPutSpread) {
+                // Put Credit Spread (Bull Put): Sell high put, buy low put
+                // Max profit when stock > sellStrike
+                // Max loss when stock < buyStrike
+                breakeven = sellStrike - premium;
+            } else {
+                // Call Credit Spread (Bear Call): Sell low call, buy high call
+                // Max profit when stock < sellStrike
+                // Max loss when stock > buyStrike
+                breakeven = sellStrike + premium;
+            }
+        } else {
+            // Debit spreads: pay premium upfront
+            maxProfit = (spreadWidth - premium) * multiplier;  // Spread width minus cost
+            maxLoss = premium * multiplier;  // Lose the debit paid
+            
+            if (isPutSpread) {
+                // Put Debit Spread (Bear Put): Buy high put, sell low put
+                // Max profit when stock < sellStrike
+                // Max loss when stock > buyStrike
+                breakeven = buyStrike - premium;
+            } else {
+                // Call Debit Spread (Bull Call): Buy low call, sell high call
+                // Max profit when stock > sellStrike
+                // Max loss when stock < buyStrike
+                breakeven = buyStrike + premium;
+            }
+        }
+    } else if (isBuyWrite) {
         maxProfit = (strike - stockPrice + premium) * multiplier;
+        maxLoss = (stockPrice - premium) * multiplier;  // If stock goes to 0
         breakeven = stockPrice - premium; // Net cost basis
     } else {
         maxProfit = premium * multiplier;  // Short option max profit
         breakeven = isPut ? strike - premium : strike + premium;
+        maxLoss = isShort ? (isPut ? (strike - premium) * multiplier : 9999 * multiplier) : premium * multiplier;
     }
     
     // Calculate price range DYNAMICALLY to include all key points:
-    // - Strike, Spot, Breakeven, plus 15% padding on each side
-    const keyPrices = [strike, spot, breakeven].filter(p => p > 0);
+    // - Strike(s), Spot, Breakeven, plus 15% padding on each side
+    let keyPrices;
+    if (isSpread && buyStrike && sellStrike) {
+        keyPrices = [buyStrike, sellStrike, spot, breakeven].filter(p => p > 0);
+    } else {
+        keyPrices = [strike, spot, breakeven].filter(p => p > 0);
+    }
     const minKey = Math.min(...keyPrices);
     const maxKey = Math.max(...keyPrices);
     const priceSpan = maxKey - minKey;
-    const padding = Math.max(priceSpan * 0.20, strike * 0.15); // At least 15% of strike as padding
+    const padding = Math.max(priceSpan * 0.20, (strike || sellStrike) * 0.15); // At least 15% of strike as padding
     
     // Apply zoom and pan from mouse interaction
     const baseMin = Math.max(0, minKey - padding);
@@ -271,7 +329,10 @@ export function drawPayoffChart() {
     
     // Calculate max loss for display (at edge of chart)
     let maxLossAtEdge;
-    if (isBuyWrite) {
+    if (isSpread) {
+        // Spreads have defined max loss
+        maxLossAtEdge = maxLoss;
+    } else if (isBuyWrite) {
         // Buy/Write max loss: Stock goes to zero, you lose (stockPrice - premium) × shares
         maxLossAtEdge = (stockPrice - premium) * multiplier;
     } else if (isShort && isPut) {
@@ -309,6 +370,43 @@ export function drawPayoffChart() {
     // Calculate P&L for a given stock price at expiration
     // stockPriceAtExp = price at expiration
     const calcPnL = (stockPriceAtExp) => {
+        // SPREAD P&L CALCULATION
+        if (isSpread && buyStrike && sellStrike) {
+            if (isPutSpread) {
+                // Put spreads
+                const longPutValue = Math.max(buyStrike - stockPriceAtExp, 0);  // Long put intrinsic
+                const shortPutValue = Math.max(sellStrike - stockPriceAtExp, 0); // Short put intrinsic
+                
+                if (isCredit) {
+                    // Put Credit Spread: Short the higher strike, long the lower strike
+                    // P&L = Premium received - (short put intrinsic - long put intrinsic)
+                    const netIntrinsic = shortPutValue - longPutValue;
+                    return (premium - netIntrinsic) * multiplier;
+                } else {
+                    // Put Debit Spread: Long the higher strike, short the lower strike
+                    // P&L = (long put intrinsic - short put intrinsic) - Premium paid
+                    const netIntrinsic = longPutValue - shortPutValue;
+                    return (netIntrinsic - premium) * multiplier;
+                }
+            } else {
+                // Call spreads
+                const longCallValue = Math.max(stockPriceAtExp - buyStrike, 0);  // Long call intrinsic
+                const shortCallValue = Math.max(stockPriceAtExp - sellStrike, 0); // Short call intrinsic
+                
+                if (isCredit) {
+                    // Call Credit Spread: Short the lower strike, long the higher strike
+                    // P&L = Premium received - (short call intrinsic - long call intrinsic)
+                    const netIntrinsic = shortCallValue - longCallValue;
+                    return (premium - netIntrinsic) * multiplier;
+                } else {
+                    // Call Debit Spread: Long the lower strike, short the higher strike
+                    // P&L = (long call intrinsic - short call intrinsic) - Premium paid
+                    const netIntrinsic = longCallValue - shortCallValue;
+                    return (netIntrinsic - premium) * multiplier;
+                }
+            }
+        }
+        
         // Buy/Write (Covered Call): Long stock + Short call
         // P&L = (Stock P&L) + (Call premium) - (Call intrinsic if exercised)
         if (isBuyWrite) {
@@ -370,13 +468,30 @@ export function drawPayoffChart() {
         ctx.stroke();
     }
     
-    // Strike line
-    const strikeX = priceToX(strike);
-    ctx.strokeStyle = '#00d9ff';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.beginPath(); ctx.moveTo(strikeX, M.top); ctx.lineTo(strikeX, H - M.bottom); ctx.stroke();
-    ctx.setLineDash([]);
+    // Strike line(s)
+    if (isSpread && buyStrike && sellStrike) {
+        // Draw both strike lines for spreads
+        const buyX = priceToX(buyStrike);
+        const sellX = priceToX(sellStrike);
+        
+        // Buy strike (long leg) - purple
+        ctx.strokeStyle = '#b9f';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath(); ctx.moveTo(buyX, M.top); ctx.lineTo(buyX, H - M.bottom); ctx.stroke();
+        
+        // Sell strike (short leg) - cyan
+        ctx.strokeStyle = '#00d9ff';
+        ctx.beginPath(); ctx.moveTo(sellX, M.top); ctx.lineTo(sellX, H - M.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+    } else {
+        const strikeX = priceToX(strike);
+        ctx.strokeStyle = '#00d9ff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath(); ctx.moveTo(strikeX, M.top); ctx.lineTo(strikeX, H - M.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+    }
     
     // Spot price line
     const spotX = priceToX(spot);
@@ -405,10 +520,25 @@ export function drawPayoffChart() {
     ctx.font = '11px -apple-system, sans-serif';
     ctx.textAlign = 'center';
     
-    // Strike label
-    ctx.fillStyle = '#00d9ff';
-    ctx.font = 'bold 12px -apple-system, sans-serif';
-    ctx.fillText('K=$' + strike, strikeX, M.top - 8);
+    // Strike label(s)
+    if (isSpread && buyStrike && sellStrike) {
+        const buyX = priceToX(buyStrike);
+        const sellX = priceToX(sellStrike);
+        
+        // Buy strike label (long leg)
+        ctx.fillStyle = '#b9f';
+        ctx.font = 'bold 11px -apple-system, sans-serif';
+        ctx.fillText('Buy $' + buyStrike, buyX, M.top - 8);
+        
+        // Sell strike label (short leg)
+        ctx.fillStyle = '#00d9ff';
+        ctx.fillText('Sell $' + sellStrike, sellX, M.top - 8);
+    } else {
+        const strikeX = priceToX(strike);
+        ctx.fillStyle = '#00d9ff';
+        ctx.font = 'bold 12px -apple-system, sans-serif';
+        ctx.fillText('K=$' + strike, strikeX, M.top - 8);
+    }
     
     // Spot label
     ctx.fillStyle = '#ffaa00';
@@ -510,7 +640,10 @@ export function drawPayoffChart() {
     ctx.font = '11px -apple-system, sans-serif';
     ctx.textAlign = 'left';
     let posLabel;
-    if (isBuyWrite) {
+    if (isSpread) {
+        const spreadType = positionType.replace(/_/g, ' ').toUpperCase();
+        posLabel = spreadType + ' × ' + contracts;
+    } else if (isBuyWrite) {
         posLabel = 'COVERED CALL × ' + contracts;
     } else {
         posLabel = (isShort ? 'SHORT ' : 'LONG ') + (isPut ? 'PUT' : 'CALL') + ' × ' + contracts;
@@ -519,12 +652,32 @@ export function drawPayoffChart() {
     
     // Legend
     ctx.font = '10px -apple-system, sans-serif';
-    ctx.fillStyle = '#00d9ff';
-    ctx.fillText('Strike', M.left + 5, M.top + 15);
-    ctx.fillStyle = '#ffaa00';
-    ctx.fillText('Spot', M.left + 50, M.top + 15);
-    ctx.fillStyle = '#ff9800';
-    ctx.fillText('Breakeven', M.left + 85, M.top + 15);
+    if (isSpread) {
+        ctx.fillStyle = '#00d9ff';
+        ctx.fillText('Sell', M.left + 5, M.top + 15);
+        ctx.fillStyle = '#b9f';
+        ctx.fillText('Buy', M.left + 35, M.top + 15);
+        ctx.fillStyle = '#ffaa00';
+        ctx.fillText('Spot', M.left + 65, M.top + 15);
+        ctx.fillStyle = '#ff9800';
+        ctx.fillText('BE', M.left + 100, M.top + 15);
+    } else {
+        ctx.fillStyle = '#00d9ff';
+        ctx.fillText('Strike', M.left + 5, M.top + 15);
+        ctx.fillStyle = '#ffaa00';
+        ctx.fillText('Spot', M.left + 50, M.top + 15);
+        ctx.fillStyle = '#ff9800';
+        ctx.fillText('Breakeven', M.left + 85, M.top + 15);
+    }
+    
+    // Max Loss annotation for spreads
+    if (isSpread && maxLoss > 0) {
+        ctx.fillStyle = '#ff5252';
+        ctx.font = 'bold 12px -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        const maxLossY = pnlToY(-maxLoss);
+        ctx.fillText('Max Loss: -$' + maxLoss.toFixed(0), W - M.right + 5, maxLossY + 4);
+    }
     
     // Zoom/pan indicator (only show if not at default)
     if (payoffChartState.zoom !== 1 || payoffChartState.panX !== 0) {
