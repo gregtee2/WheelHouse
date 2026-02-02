@@ -869,11 +869,18 @@ window.subscribeFutures = async function() {
         
         if (success) {
             if (statusEl) {
-                statusEl.textContent = '🟢 Live';
-                statusEl.style.color = '#00ff88';
+                // Check if it's weekend (markets closed)
+                const now = new Date();
+                const day = now.getDay(); // 0 = Sunday, 6 = Saturday
+                const hour = now.getHours();
+                // Futures trade Sun 6pm - Fri 5pm ET. Simplified check:
+                const isWeekend = (day === 6) || (day === 0 && hour < 18);
+                
+                statusEl.textContent = isWeekend ? '📺 Waiting (markets closed)' : '🟢 Live';
+                statusEl.style.color = isWeekend ? '#ffaa00' : '#00ff88';
             }
             if (btn) {
-                btn.textContent = '✓ Connected';
+                btn.textContent = '✓ Subscribed';
                 btn.style.background = 'rgba(0,255,136,0.2)';
                 btn.style.color = '#00ff88';
             }
@@ -900,9 +907,28 @@ window.subscribeFutures = async function() {
  */
 StreamingService.on('futures-quote', (quote) => {
     // StreamingService handles DOM updates automatically via updateFuturesPanel
+    // Update status to show we're receiving data
+    const statusEl = document.getElementById('futuresStatus');
+    if (statusEl && statusEl.textContent.includes('Waiting')) {
+        statusEl.textContent = '🟢 Live';
+        statusEl.style.color = '#00ff88';
+    }
+    
     // Log for debugging
     if (state.debugMode) {
         console.log('[FUTURES]', quote.symbol, `$${quote.last?.toFixed(2) || quote.mark?.toFixed(2) || '?'}`);
+    }
+});
+
+// Auto-subscribe to futures when streaming service connects
+StreamingService.on('streamer-status', (status) => {
+    if (status.connected) {
+        // Auto-subscribe to futures if not already subscribed
+        setTimeout(() => {
+            if (StreamingService.futuresQuotes.size === 0) {
+                window.subscribeFutures();
+            }
+        }, 1000);
     }
 });
 
