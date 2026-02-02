@@ -602,7 +602,16 @@ export function drawPayoffChart() {
     let displayPnL, displayY;
     
     if (hasLivePricing) {
-        if (isLong) {
+        if (isSpread) {
+            // For SPREADS: Use isCredit to determine direction
+            // Credit spread: You received premium, pay currentPrice to close
+            // Debit spread: You paid premium, receive currentPrice to close
+            if (isCredit) {
+                displayPnL = (premium - currentOptionPrice) * multiplier;
+            } else {
+                displayPnL = (currentOptionPrice - premium) * multiplier;
+            }
+        } else if (isLong) {
             // For LONG options: P&L = (currentPrice - entryPremium) × 100 × contracts
             displayPnL = (currentOptionPrice - premium) * multiplier;
         } else {
