@@ -282,14 +282,42 @@ class StreamingServiceClass {
         for (const row of rows) {
             const spotCell = row.querySelector('[data-field="spot"]');
             if (spotCell) {
-                const oldValue = parseFloat(spotCell.textContent);
-                spotCell.textContent = `$${quote.last.toFixed(2)}`;
+                const oldValue = parseFloat(spotCell.textContent.replace(/[^0-9.-]/g, ''));
+                const newPrice = quote.last;
+                
+                // Get position data from row to determine color
+                const strike = parseFloat(row.dataset.strike) || 0;
+                const posType = row.dataset.posType || '';
+                
+                // Determine ITM/OTM color coding
+                let spotColor = '#ccc'; // Default gray
+                
+                if (strike > 0 && posType) {
+                    const isPut = posType.includes('put');
+                    const isLong = posType.startsWith('long_') || posType === 'long_call_leaps' || posType === 'skip_call';
+                    
+                    // ITM: Puts when spot < strike, Calls when spot > strike
+                    const isITM = isPut ? newPrice < strike : newPrice > strike;
+                    const distancePct = Math.abs((newPrice - strike) / strike * 100);
+                    const isATM = distancePct < 2;
+                    
+                    if (isATM) {
+                        spotColor = '#ffaa00'; // Orange for ATM
+                    } else if (isITM) {
+                        spotColor = isLong ? '#00ff88' : '#ff5252'; // Green if long, Red if short
+                    } else {
+                        // OTM
+                        spotColor = isLong ? '#888' : '#00ff88'; // Gray if long, Green if short
+                    }
+                }
+                
+                spotCell.innerHTML = `<span style="color:${spotColor};">$${newPrice.toFixed(2)}</span>`;
                 
                 // Flash animation
-                if (Math.abs(quote.last - oldValue) > 0.01) {
+                if (Math.abs(newPrice - oldValue) > 0.01) {
                     spotCell.classList.remove('flash-green', 'flash-red');
                     void spotCell.offsetWidth;
-                    spotCell.classList.add(quote.last > oldValue ? 'flash-green' : 'flash-red');
+                    spotCell.classList.add(newPrice > oldValue ? 'flash-green' : 'flash-red');
                 }
             }
         }

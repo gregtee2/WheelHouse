@@ -3738,8 +3738,11 @@ function renderPositionsTable(container, openPositions) {
         const occSymbolBuy = isSpread ? positionToOCC(pos.ticker, pos.expiry, pos.buyStrike, pos.type.includes('put') ? 'put' : 'call') : '';
         const occSymbolSell = isSpread ? positionToOCC(pos.ticker, pos.expiry, pos.sellStrike, pos.type.includes('put') ? 'put' : 'call') : '';
         
+        // For streaming color updates, store strike and position type as data attributes
+        const strikeForData = isSpread ? pos.sellStrike : pos.strike;
+        
         html += `
-            <tr class="position-row" data-ticker="${pos.ticker}" data-position-id="${pos.id}" ${occSymbol ? `data-occ-symbol="${occSymbol}"` : ''} ${occSymbolBuy ? `data-occ-symbol-buy="${occSymbolBuy}" data-occ-symbol-sell="${occSymbolSell}"` : ''} style="${collapsedStyle}border-bottom: 1px solid #333;${childRowBg}${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}${excludedStyle}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}${isChildRow ? ' | ↳ Covered by parent LEAPS' : ''}">
+            <tr class="position-row" data-ticker="${pos.ticker}" data-position-id="${pos.id}" data-strike="${strikeForData || ''}" data-pos-type="${pos.type || ''}" ${occSymbol ? `data-occ-symbol="${occSymbol}"` : ''} ${occSymbolBuy ? `data-occ-symbol-buy="${occSymbolBuy}" data-occ-symbol-sell="${occSymbolSell}"` : ''} style="${collapsedStyle}border-bottom: 1px solid #333;${childRowBg}${isSkip && pos.skipDte <= 60 ? ' background: rgba(255,140,0,0.15);' : ''}${excludedStyle}" title="${pos.delta ? 'Δ ' + pos.delta.toFixed(2) : ''}${pos.expiry ? ' | Expires: ' + pos.expiry : ''}${buyWriteInfo}${spreadInfo}${skipInfo}${skipDteWarning}${isChildRow ? ' | ↳ Covered by parent LEAPS' : ''}">
                 <td style="padding: 6px; text-align: center;">
                     <input type="checkbox" ${isExcluded ? '' : 'checked'} 
                            onclick="event.stopPropagation(); window.toggleWhatIfPosition(${pos.id})" 
