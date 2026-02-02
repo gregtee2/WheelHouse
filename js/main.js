@@ -3906,47 +3906,21 @@ window.showTickerChart = function(ticker) {
 /**
  * Build trade summary HTML for confirm modal
  * Shows position details and AI rationale in a clear format
+ * Uses IDs so it can be updated dynamically when contracts change
  */
 function buildTradeSummaryHtml(trade, isSpread, isPut, sellStrike, buyStrike, expiry, tradeTypeDisplay) {
-    // Format expiry date for display
-    const expiryDisplay = expiry ? new Date(expiry + 'T12:00:00').toLocaleDateString('en-US', { 
-        month: 'short', day: 'numeric', year: 'numeric' 
-    }) : 'TBD';
+    // Store trade info globally so updateTradeSummary can access it
+    window._confirmTradeInfo = {
+        trade,
+        isSpread,
+        isPut,
+        sellStrike,
+        buyStrike,
+        expiry,
+        tradeTypeDisplay
+    };
     
-    // Build position description
-    let positionDesc = '';
-    const contracts = trade.contracts || 1;
-    const ticker = trade.ticker || '???';
-    
-    if (isSpread) {
-        // e.g., "Sell 5x AFRM $61/$57 Put Credit Spread expiring Feb 27, 2026"
-        const spreadType = tradeTypeDisplay || 'Credit Spread';
-        positionDesc = `<strong>Sell ${contracts}x ${ticker} $${sellStrike}/$${buyStrike} ${spreadType}</strong> expiring ${expiryDisplay}`;
-    } else if (trade.type === 'short_put') {
-        positionDesc = `<strong>Sell ${contracts}x ${ticker} $${trade.strike} Put</strong> expiring ${expiryDisplay}`;
-    } else if (trade.type === 'covered_call') {
-        positionDesc = `<strong>Sell ${contracts}x ${ticker} $${trade.strike} Call</strong> expiring ${expiryDisplay}`;
-    } else if (trade.type === 'long_put' || trade.type === 'long_call') {
-        const optType = trade.type === 'long_put' ? 'Put' : 'Call';
-        positionDesc = `<strong>Buy ${contracts}x ${ticker} $${trade.strike} ${optType}</strong> expiring ${expiryDisplay}`;
-    } else if (trade.type === 'iron_condor') {
-        positionDesc = `<strong>Iron Condor ${contracts}x ${ticker} $${buyStrike}/$${sellStrike}</strong> expiring ${expiryDisplay}`;
-    } else if (trade.type === 'skip_call' || trade.type === 'pmcc') {
-        const stratName = trade.type === 'skip_call' ? 'SKIP™' : 'PMCC';
-        positionDesc = `<strong>${stratName} ${contracts}x ${ticker} $${trade.strike}/$${trade.upperStrike}</strong> expiring ${expiryDisplay}`;
-    } else {
-        // Fallback for any other type
-        positionDesc = `<strong>${contracts}x ${ticker} $${trade.strike || ''} ${tradeTypeDisplay}</strong> expiring ${expiryDisplay}`;
-    }
-    
-    // Add premium info if available
-    if (trade.premium) {
-        const totalCredit = trade.premium * 100 * contracts;
-        const creditType = trade.isDebit ? 'Debit' : 'Credit';
-        positionDesc += ` — <span style="color:${trade.isDebit ? '#ff5252' : '#00ff88'};">$${totalCredit.toLocaleString()} ${creditType}</span>`;
-    }
-    
-    // Extract AI rationale (one-sentence summary)
+    // Extract AI rationale (one-sentence summary) - this doesn't change
     let aiRationale = '';
     const thesis = trade.openingThesis;
     
@@ -3985,17 +3959,14 @@ function buildTradeSummaryHtml(trade, isSpread, isPut, sellStrike, buyStrike, ex
         }
     }
     
-    // Only show section if we have content
-    if (!positionDesc && !aiRationale) return '';
-    
     return `
         <div style="background:linear-gradient(135deg, rgba(0,255,136,0.1), rgba(0,217,255,0.05)); 
                     border:1px solid rgba(0,255,136,0.3); border-radius:8px; padding:12px; margin-bottom:16px;">
             <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">
                 📋 Trade Summary
             </div>
-            <div style="color:#fff; font-size:13px; line-height:1.5; margin-bottom:${aiRationale ? '10px' : '0'};">
-                ${positionDesc}
+            <div id="tradeSummaryPosition" style="color:#fff; font-size:13px; line-height:1.5; margin-bottom:${aiRationale ? '10px' : '0'};">
+                <!-- Populated by updateTradeSummary() -->
             </div>
             ${aiRationale ? `
             <div style="color:#aaa; font-size:12px; font-style:italic; border-top:1px solid rgba(255,255,255,0.1); 
@@ -4006,6 +3977,74 @@ function buildTradeSummaryHtml(trade, isSpread, isPut, sellStrike, buyStrike, ex
         </div>
     `;
 }
+
+/**
+ * Update the trade summary position description when contracts/strikes change
+ */
+window.updateTradeSummary = function() {
+    const posEl = document.getElementById('tradeSummaryPosition');
+    if (!posEl || !window._confirmTradeInfo) return;
+    
+    const { trade, isSpread, sellStrike, buyStrike, expiry, tradeTypeDisplay } = window._confirmTradeInfo;
+    
+    // Get current values from form
+    const contracts = parseInt(document.getElementById('confirmContracts')?.value) || 1;
+    const currentSellStrike = parseFloat(document.getElementById('confirmSellStrike')?.value) || 
+                              parseFloat(document.getElementById('confirmStrike')?.value) || sellStrike;
+    const currentBuyStrike = parseFloat(document.getElementById('confirmBuyStrike')?.value) || buyStrike;
+    const expiryVal = document.getElementById('confirmExpiry')?.value || expiry;
+    
+    // Format expiry date for display
+    const expiryDisplay = expiryVal ? new Date(expiryVal + 'T12:00:00').toLocaleDateString('en-US', { 
+        month: 'short', day: 'numeric', year: 'numeric' 
+    }) : 'TBD';
+    
+    const ticker = trade.ticker || '???';
+    
+    // Build position description
+    let positionDesc = '';
+    
+    if (isSpread) {
+        const spreadType = tradeTypeDisplay || 'Credit Spread';
+        positionDesc = `<strong>Sell ${contracts}x ${ticker} $${currentSellStrike}/$${currentBuyStrike} ${spreadType}</strong> expiring ${expiryDisplay}`;
+    } else if (trade.type === 'short_put') {
+        positionDesc = `<strong>Sell ${contracts}x ${ticker} $${currentSellStrike} Put</strong> expiring ${expiryDisplay}`;
+    } else if (trade.type === 'covered_call') {
+        positionDesc = `<strong>Sell ${contracts}x ${ticker} $${currentSellStrike} Call</strong> expiring ${expiryDisplay}`;
+    } else if (trade.type === 'long_put' || trade.type === 'long_call') {
+        const optType = trade.type === 'long_put' ? 'Put' : 'Call';
+        positionDesc = `<strong>Buy ${contracts}x ${ticker} $${currentSellStrike} ${optType}</strong> expiring ${expiryDisplay}`;
+    } else if (trade.type === 'iron_condor') {
+        positionDesc = `<strong>Iron Condor ${contracts}x ${ticker} $${currentBuyStrike}/$${currentSellStrike}</strong> expiring ${expiryDisplay}`;
+    } else if (trade.type === 'skip_call' || trade.type === 'pmcc') {
+        const stratName = trade.type === 'skip_call' ? 'SKIP™' : 'PMCC';
+        positionDesc = `<strong>${stratName} ${contracts}x ${ticker} $${currentSellStrike}/$${currentBuyStrike}</strong> expiring ${expiryDisplay}`;
+    } else {
+        positionDesc = `<strong>${contracts}x ${ticker} $${currentSellStrike || ''} ${tradeTypeDisplay}</strong> expiring ${expiryDisplay}`;
+    }
+    
+    // Calculate total credit/debit from actual premium inputs
+    let premium = 0;
+    const sellPremEl = document.getElementById('confirmSellPremium');
+    const buyPremEl = document.getElementById('confirmBuyPremium');
+    const singlePremEl = document.getElementById('confirmPremium');
+    
+    if (sellPremEl && buyPremEl) {
+        // Spread: net credit = sell - buy
+        premium = (parseFloat(sellPremEl.value) || 0) - (parseFloat(buyPremEl.value) || 0);
+    } else if (singlePremEl) {
+        premium = parseFloat(singlePremEl.value) || 0;
+    }
+    
+    if (premium) {
+        const totalCredit = Math.abs(premium) * 100 * contracts;
+        const isDebit = trade.isDebit || premium < 0;
+        const creditType = isDebit ? 'Debit' : 'Credit';
+        positionDesc += ` — <span style="color:${isDebit ? '#ff5252' : '#00ff88'};">$${totalCredit.toLocaleString()} ${creditType}</span>`;
+    }
+    
+    posEl.innerHTML = positionDesc;
+};
 
 /**
  * Confirm a staged trade - moves to real positions
@@ -4088,13 +4127,13 @@ window.confirmStagedTrade = function(id) {
                 <div>
                     <label style="color:#ff5252; font-size:12px;">Sell Premium (received)</label>
                     <input id="confirmSellPremium" type="number" step="0.01" placeholder="e.g., 5.50"
-                           oninput="window.updateNetCredit(); window.updateSpreadRisk();"
+                           oninput="window.updateNetCredit(); window.updateSpreadRisk(); window.updateTradeSummary();"
                            style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #ff5252; color:#fff; border-radius:4px;">
                 </div>
                 <div>
                     <label style="color:#00ff88; font-size:12px;">Buy Premium (paid)</label>
                     <input id="confirmBuyPremium" type="number" step="0.01" placeholder="e.g., 3.15"
-                           oninput="window.updateNetCredit(); window.updateSpreadRisk();"
+                           oninput="window.updateNetCredit(); window.updateSpreadRisk(); window.updateTradeSummary();"
                            style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #00ff88; color:#fff; border-radius:4px;">
                 </div>
             </div>
@@ -4239,12 +4278,13 @@ window.confirmStagedTrade = function(id) {
                     <div>
                         <label style="color:#888; font-size:12px;">Contracts</label>
                         <input id="confirmContracts" type="number" value="${trade.contracts || 1}" min="1"
-                               oninput="window.updateNetCredit(); window.updateSpreadRisk(); window.updateMarginDisplay();"
+                               oninput="window.updateNetCredit(); window.updateSpreadRisk(); window.updateMarginDisplay(); window.updateTradeSummary();"
                                style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
                     </div>
                     <div>
                         <label style="color:#888; font-size:12px;">Expiry Date</label>
                         <input id="confirmExpiry" type="date" value="${expiry}"
+                               oninput="window.updateTradeSummary();"
                                style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
                     </div>
                 </div>
@@ -4281,6 +4321,9 @@ window.confirmStagedTrade = function(id) {
         </div>
     `;
     document.body.appendChild(modal);
+    
+    // Initialize trade summary with current values
+    window.updateTradeSummary();
     
     // Fetch option prices to pre-populate
     if (isSpread && trade.ticker && expiry) {
@@ -4419,6 +4462,7 @@ window.updateSpreadRisk = function() {
  */
 window.onStrikeChange = async function() {
     window.updateSpreadRisk();
+    window.updateTradeSummary();
     
     const ticker = document.getElementById('confirmTicker')?.value;
     const sellStrike = document.getElementById('confirmSellStrike')?.value;
