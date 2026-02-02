@@ -163,12 +163,8 @@ export function drawPayoffChart() {
     // For Buy/Write, we need the stock purchase price
     const stockPrice = state.currentPositionContext?.stockPrice || state.spot;
     
-    // Calculate price range (center on strike, show ±30%)
     const strike = state.strike;
     const spot = state.spot;
-    const range = strike * 0.4;
-    const minS = Math.max(0, strike - range);
-    const maxS = strike + range;
     
     // Calculate P&L at key points
     const multiplier = contracts * 100;
@@ -183,6 +179,16 @@ export function drawPayoffChart() {
         maxProfit = premium * multiplier;  // Short option max profit
         breakeven = isPut ? strike - premium : strike + premium;
     }
+    
+    // Calculate price range DYNAMICALLY to include all key points:
+    // - Strike, Spot, Breakeven, plus 15% padding on each side
+    const keyPrices = [strike, spot, breakeven].filter(p => p > 0);
+    const minKey = Math.min(...keyPrices);
+    const maxKey = Math.max(...keyPrices);
+    const priceSpan = maxKey - minKey;
+    const padding = Math.max(priceSpan * 0.20, strike * 0.15); // At least 15% of strike as padding
+    const minS = Math.max(0, minKey - padding);
+    const maxS = maxKey + padding;
     
     // Calculate max loss for display (at edge of chart)
     let maxLossAtEdge;
