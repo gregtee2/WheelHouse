@@ -5,20 +5,26 @@ import { state } from './state.js';
 import { erf } from './utils.js';
 import { getPositionType, bsPrice } from './pricing.js';
 
-// Payoff chart zoom/pan state
+// Payoff chart interaction state
 let payoffChartState = {
-    zoom: 1.0,        // 1.0 = auto-fit, >1 = zoomed in, <1 = zoomed out
-    panX: 0,          // Pan offset in price units
+    zoom: 1.0,              // 1.0 = auto-fit, >1 = zoomed in
+    panX: 0,                // Pan offset in price units
     isDragging: false,
     dragStartX: 0,
     dragStartPanX: 0,
-    initialized: false
+    initialized: false,
+    // What-if price simulation (dragging the spot line)
+    simulatedSpot: null,    // null = use actual spot, number = simulated price
+    isDraggingSpot: false,  // Are we dragging the spot line?
+    // Chart geometry (set during drawing for hit testing)
+    chartGeometry: null
 };
 
 // Reset payoff chart zoom/pan (called when loading new position)
 export function resetPayoffChartZoom() {
     payoffChartState.zoom = 1.0;
     payoffChartState.panX = 0;
+    payoffChartState.simulatedSpot = null;
 }
 
 // Initialize payoff chart mouse handlers (call once)
@@ -29,42 +35,81 @@ function initPayoffChartInteraction(canvas) {
     // Mouse wheel zoom
     canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
-        const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1; // Zoom out/in
+        const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
         payoffChartState.zoom = Math.max(0.3, Math.min(5, payoffChartState.zoom * zoomFactor));
         drawPayoffChart();
     }, { passive: false });
     
-    // Mouse drag pan
+    // Check if mouse is near the spot line
+    const isNearSpotLine = (clientX) => {
+        const geo = payoffChartState.chartGeometry;
+        if (!geo) return false;
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = clientX - rect.left;
+        const spotX = geo.spotX;
+        return Math.abs(mouseX - spotX) < 12; // Within 12px of spot line
+    };
+    
+    // Convert mouse X to price
+    const mouseXToPrice = (clientX) => {
+        const geo = payoffChartState.chartGeometry;
+        if (!geo) return state.spot;
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = clientX - rect.left;
+        const price = geo.minS + (mouseX - geo.marginLeft) / (geo.chartWidth) * (geo.maxS - geo.minS);
+        return Math.max(0.01, price);
+    };
+    
     canvas.addEventListener('mousedown', (e) => {
-        payoffChartState.isDragging = true;
-        payoffChartState.dragStartX = e.clientX;
-        payoffChartState.dragStartPanX = payoffChartState.panX;
-        canvas.style.cursor = 'grabbing';
+        if (isNearSpotLine(e.clientX)) {
+            // Start dragging the spot line
+            payoffChartState.isDraggingSpot = true;
+            payoffChartState.simulatedSpot = mouseXToPrice(e.clientX);
+            canvas.style.cursor = 'ew-resize';
+            drawPayoffChart();
+        } else {
+            // Regular pan drag
+            payoffChartState.isDragging = true;
+            payoffChartState.dragStartX = e.clientX;
+            payoffChartState.dragStartPanX = payoffChartState.panX;
+            canvas.style.cursor = 'grabbing';
+        }
     });
     
     canvas.addEventListener('mousemove', (e) => {
-        if (!payoffChartState.isDragging) return;
-        const dx = e.clientX - payoffChartState.dragStartX;
-        // Convert pixel movement to price units (rough estimate)
-        const pricePerPixel = (state.strike * 0.5) / canvas.getBoundingClientRect().width;
-        payoffChartState.panX = payoffChartState.dragStartPanX - dx * pricePerPixel / payoffChartState.zoom;
-        drawPayoffChart();
+        if (payoffChartState.isDraggingSpot) {
+            // Dragging the spot line - update simulated price
+            payoffChartState.simulatedSpot = mouseXToPrice(e.clientX);
+            drawPayoffChart();
+        } else if (payoffChartState.isDragging) {
+            // Regular pan
+            const dx = e.clientX - payoffChartState.dragStartX;
+            const pricePerPixel = (state.strike * 0.5) / canvas.getBoundingClientRect().width;
+            payoffChartState.panX = payoffChartState.dragStartPanX - dx * pricePerPixel / payoffChartState.zoom;
+            drawPayoffChart();
+        } else {
+            // Hover - change cursor if near spot line
+            canvas.style.cursor = isNearSpotLine(e.clientX) ? 'ew-resize' : 'grab';
+        }
     });
     
     canvas.addEventListener('mouseup', () => {
         payoffChartState.isDragging = false;
+        payoffChartState.isDraggingSpot = false;
         canvas.style.cursor = 'grab';
     });
     
     canvas.addEventListener('mouseleave', () => {
         payoffChartState.isDragging = false;
+        payoffChartState.isDraggingSpot = false;
         canvas.style.cursor = 'grab';
     });
     
-    // Double-click to reset zoom
+    // Double-click to reset zoom AND simulated spot
     canvas.addEventListener('dblclick', () => {
         payoffChartState.zoom = 1.0;
         payoffChartState.panX = 0;
+        payoffChartState.simulatedSpot = null;
         drawPayoffChart();
     });
     
@@ -327,6 +372,19 @@ export function drawPayoffChart() {
     const minS = Math.max(0, center - zoomedRange / 2);
     const maxS = center + zoomedRange / 2;
     
+    // Store chart geometry for mouse interaction (draggable spot line)
+    payoffChartState.chartGeometry = {
+        minS, maxS,
+        marginLeft: M.left,
+        chartWidth: W - M.left - M.right,
+        chartTop: M.top,
+        chartBottom: H - M.bottom,
+        spot  // Actual spot price
+    };
+    
+    // Use simulated spot for display if user is dragging the spot line
+    const displaySpot = payoffChartState.simulatedSpot ?? spot;
+    
     // Calculate max loss for display (at edge of chart)
     let maxLossAtEdge;
     if (isSpread) {
@@ -352,6 +410,9 @@ export function drawPayoffChart() {
     const priceToX = (price) => M.left + (price - minS) / (maxS - minS) * (W - M.left - M.right);
     // Helper: P&L to Y
     const pnlToY = (pnl) => M.top + (pnlMax - pnl) / pnlRange * (H - M.top - M.bottom);
+    
+    // Add spotX to geometry now that priceToX is defined
+    payoffChartState.chartGeometry.spotX = priceToX(spot);
     
     // Draw grid
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
@@ -493,11 +554,29 @@ export function drawPayoffChart() {
         ctx.setLineDash([]);
     }
     
-    // Spot price line
-    const spotX = priceToX(spot);
-    ctx.strokeStyle = '#ffaa00';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(spotX, M.top); ctx.lineTo(spotX, H - M.bottom); ctx.stroke();
+    // Spot price line(s) - support draggable simulation
+    const isSimulating = payoffChartState.simulatedSpot !== null;
+    const actualSpotX = priceToX(spot);
+    const displaySpotX = priceToX(displaySpot);
+    
+    if (isSimulating) {
+        // Draw ACTUAL spot as faded line
+        ctx.strokeStyle = 'rgba(255, 170, 0, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(actualSpotX, M.top); ctx.lineTo(actualSpotX, H - M.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Draw SIMULATED spot as bright line
+        ctx.strokeStyle = '#00d9ff';  // Cyan for simulated
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(displaySpotX, M.top); ctx.lineTo(displaySpotX, H - M.bottom); ctx.stroke();
+    } else {
+        // Normal spot line - also show drag hint cursor area
+        ctx.strokeStyle = '#ffaa00';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(actualSpotX, M.top); ctx.lineTo(actualSpotX, H - M.bottom); ctx.stroke();
+    }
     
     // Breakeven line
     if (breakeven > minS && breakeven < maxS) {
@@ -540,11 +619,28 @@ export function drawPayoffChart() {
         ctx.fillText('K=$' + strike, strikeX, M.top - 8);
     }
     
-    // Spot label
-    ctx.fillStyle = '#ffaa00';
-    ctx.font = 'bold 11px -apple-system, sans-serif';
-    ctx.fillText('$' + spot.toFixed(0), spotX, H - M.bottom + 12);
-    ctx.fillText('SPOT', spotX, H - M.bottom + 24);
+    // Spot label(s)
+    if (isSimulating) {
+        // Actual spot label (faded)
+        ctx.fillStyle = 'rgba(255, 170, 0, 0.4)';
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.fillText('$' + spot.toFixed(0), actualSpotX, H - M.bottom + 12);
+        
+        // Simulated spot label (bright)
+        ctx.fillStyle = '#00d9ff';
+        ctx.font = 'bold 12px -apple-system, sans-serif';
+        ctx.fillText('IF $' + displaySpot.toFixed(2), displaySpotX, H - M.bottom + 12);
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.fillText('(drag to move)', displaySpotX, H - M.bottom + 24);
+    } else {
+        // Normal spot label
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = 'bold 11px -apple-system, sans-serif';
+        ctx.fillText('$' + spot.toFixed(0), actualSpotX, H - M.bottom + 12);
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.fillStyle = '#888';
+        ctx.fillText('← drag SPOT line', actualSpotX, H - M.bottom + 24);
+    }
     
     // Y-axis labels (P&L values)
     ctx.fillStyle = '#888';
@@ -595,13 +691,18 @@ export function drawPayoffChart() {
     const hasLivePricing = currentOptionPrice !== null && currentOptionPrice > 0;
     
     // Calculate expiration P&L (what the option would be worth if it expired now at current spot)
-    const expirationPnL = calcPnL(spot);
+    // When simulating, use displaySpot instead of actual spot
+    const expirationPnL = calcPnL(displaySpot);
     const expirationY = pnlToY(expirationPnL);
     
     // Determine which P&L to display and where to position the marker
     let displayPnL, displayY;
     
-    if (hasLivePricing) {
+    // When simulating, always show expiration P&L at simulated price
+    if (isSimulating) {
+        displayPnL = expirationPnL;
+        displayY = expirationY;
+    } else if (hasLivePricing) {
         if (isSpread) {
             // For SPREADS: Use isCredit to determine direction
             // Credit spread: You received premium, pay currentPrice to close
@@ -626,9 +727,9 @@ export function drawPayoffChart() {
         displayY = expirationY;
     }
     
-    // Draw dot at the appropriate P&L position
+    // Draw dot at the appropriate P&L position (on simulated or actual spot line)
     ctx.beginPath();
-    ctx.arc(spotX, displayY, 6, 0, Math.PI * 2);
+    ctx.arc(displaySpotX, displayY, 6, 0, Math.PI * 2);
     ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
     ctx.fill();
     ctx.strokeStyle = '#fff';
@@ -639,10 +740,66 @@ export function drawPayoffChart() {
     ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.textAlign = 'left';
-    const displayLabel = 'NOW: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+    const markerLabel = isSimulating 
+        ? 'IF: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0)
+        : 'NOW: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
     // Place label above/below the dot based on P&L sign
     const labelY = displayPnL >= 0 ? displayY - 15 : displayY + 20;
-    ctx.fillText(displayLabel, spotX + 12, labelY);
+    ctx.fillText(markerLabel, displaySpotX + 12, labelY);
+    
+    // WHAT-IF TARGET: Show projected P&L at target price
+    const whatIfPriceEl = document.getElementById('whatIfPrice');
+    const targetPrice = whatIfPriceEl ? parseFloat(whatIfPriceEl.value) : null;
+    
+    if (targetPrice && targetPrice > 0 && targetPrice !== spot) {
+        const targetX = priceToX(targetPrice);
+        const targetPnL = calcPnL(targetPrice);  // P&L at expiration at target price
+        const targetY = pnlToY(targetPnL);
+        
+        // Draw dotted line from NOW to TARGET
+        ctx.strokeStyle = 'rgba(0, 217, 255, 0.5)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(displaySpotX, displayY);
+        ctx.lineTo(targetX, targetY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Draw target vertical line
+        ctx.strokeStyle = 'rgba(0, 217, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(targetX, M.top);
+        ctx.lineTo(targetX, H - M.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Draw target dot
+        ctx.beginPath();
+        ctx.arc(targetX, targetY, 6, 0, Math.PI * 2);
+        ctx.fillStyle = targetPnL >= 0 ? '#00d9ff' : '#ff9800';
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Target label
+        ctx.fillStyle = targetPnL >= 0 ? '#00d9ff' : '#ff9800';
+        ctx.font = 'bold 12px -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        const targetLabel = 'IF $' + targetPrice.toFixed(0) + ': ' + (targetPnL >= 0 ? '+' : '') + '$' + targetPnL.toFixed(0);
+        const targetLabelY = targetPnL >= 0 ? targetY - 15 : targetY + 20;
+        ctx.fillText(targetLabel, targetX + 10, targetLabelY);
+        
+        // Show P&L change
+        const pnlChange = targetPnL - displayPnL;
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.fillStyle = pnlChange >= 0 ? '#00ff88' : '#ff5252';
+        const changeLabel = (pnlChange >= 0 ? '+' : '') + '$' + pnlChange.toFixed(0) + ' vs now';
+        ctx.fillText(changeLabel, targetX + 10, targetLabelY + 14);
+    }
     
     // Position type label (top left)
     ctx.fillStyle = '#aaa';
