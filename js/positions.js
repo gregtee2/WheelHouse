@@ -54,6 +54,80 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const ivCache = new Map();
 
 /**
+ * Sector lookup for tickers - returns short sector name and color
+ */
+const SECTOR_MAP = {
+    // Tech/Software
+    'AAPL': 'Tech', 'MSFT': 'Tech', 'GOOGL': 'Tech', 'GOOG': 'Tech', 'META': 'Tech',
+    'AMZN': 'Tech', 'TSLA': 'Tech', 'PLTR': 'Tech', 'CRM': 'Tech', 'ORCL': 'Tech',
+    'ADBE': 'Tech', 'NOW': 'Tech', 'SNOW': 'Tech', 'SHOP': 'Tech', 'UBER': 'Tech',
+    'DDOG': 'Tech', 'ZS': 'Tech', 'CRWD': 'Tech', 'NET': 'Tech', 'OKTA': 'Tech',
+    'AFRM': 'Fintech', 'SQ': 'Fintech', 'PYPL': 'Fintech', 'HOOD': 'Fintech', 'SOFI': 'Fintech',
+    // Semiconductors
+    'NVDA': 'Chips', 'AMD': 'Chips', 'INTC': 'Chips', 'AVGO': 'Chips', 'QCOM': 'Chips',
+    'MU': 'Chips', 'TSM': 'Chips', 'SMCI': 'Chips', 'MRVL': 'Chips', 'ARM': 'Chips',
+    'ON': 'Chips', 'ASML': 'Chips', 'LRCX': 'Chips', 'AMAT': 'Chips', 'KLAC': 'Chips',
+    // Crypto/Bitcoin
+    'MSTR': 'Crypto', 'COIN': 'Crypto', 'MARA': 'Crypto', 'RIOT': 'Crypto', 'IREN': 'Crypto',
+    'CIFR': 'Crypto', 'HUT': 'Crypto', 'CLSK': 'Crypto', 'BTBT': 'Crypto', 'BITF': 'Crypto',
+    'WULF': 'Crypto', 'CORZ': 'Crypto', 'IBIT': 'Crypto', 'GBTC': 'Crypto', 'BITO': 'Crypto',
+    // Financials
+    'JPM': 'Fin', 'BAC': 'Fin', 'GS': 'Fin', 'MS': 'Fin', 'WFC': 'Fin', 'C': 'Fin',
+    'AXP': 'Fin', 'V': 'Fin', 'MA': 'Fin', 'SCHW': 'Fin', 'BLK': 'Fin', 'CME': 'Fin',
+    // Healthcare/Biotech
+    'JNJ': 'Health', 'UNH': 'Health', 'PFE': 'Health', 'MRK': 'Health', 'ABBV': 'Health',
+    'LLY': 'Health', 'BMY': 'Health', 'TMO': 'Health', 'DHR': 'Health', 'GILD': 'Health',
+    'MRNA': 'Bio', 'BNTX': 'Bio', 'REGN': 'Bio', 'VRTX': 'Bio', 'BIIB': 'Bio',
+    // Energy
+    'XOM': 'Energy', 'CVX': 'Energy', 'COP': 'Energy', 'SLB': 'Energy', 'OXY': 'Energy',
+    'HAL': 'Energy', 'EOG': 'Energy', 'VLO': 'Energy', 'MPC': 'Energy', 'PSX': 'Energy',
+    // Consumer
+    'WMT': 'Retail', 'COST': 'Retail', 'TGT': 'Retail', 'HD': 'Retail', 'LOW': 'Retail',
+    'MCD': 'Food', 'SBUX': 'Food', 'CMG': 'Food', 'YUM': 'Food', 'DPZ': 'Food',
+    'NKE': 'Retail', 'DIS': 'Media', 'NFLX': 'Media', 'PARA': 'Media', 'WBD': 'Media',
+    // Industrial
+    'CAT': 'Indust', 'DE': 'Indust', 'BA': 'Aero', 'UPS': 'Indust', 'FDX': 'Indust',
+    'HON': 'Indust', 'GE': 'Indust', 'LMT': 'Defense', 'RTX': 'Defense', 'NOC': 'Defense',
+    // ETFs
+    'SPY': 'ETF', 'QQQ': 'ETF', 'IWM': 'ETF', 'DIA': 'ETF', 'VOO': 'ETF', 'VTI': 'ETF',
+    'XLK': 'ETF', 'XLF': 'ETF', 'XLE': 'ETF', 'XLV': 'ETF', 'ARKK': 'ETF', 'XBI': 'ETF',
+    'TQQQ': 'LevETF', 'SQQQ': 'LevETF', 'SOXL': 'LevETF', 'SOXS': 'LevETF',
+    'TSLL': 'LevETF', 'NVDL': 'LevETF', 'UVXY': 'LevETF', 'SVIX': 'LevETF',
+    // Real Estate
+    'O': 'REIT', 'AMT': 'REIT', 'PLD': 'REIT', 'EQIX': 'REIT', 'SPG': 'REIT',
+    // Other
+    'NBIS': 'AI', 'BBAI': 'AI', 'BKSY': 'Space', 'RKLB': 'Space', 'LUNR': 'Space'
+};
+
+const SECTOR_COLORS = {
+    'Tech': '#00d9ff',     // Cyan
+    'Fintech': '#00bcd4',  // Light cyan
+    'Chips': '#9c27b0',    // Purple
+    'Crypto': '#ff9800',   // Orange
+    'Fin': '#4caf50',      // Green
+    'Health': '#e91e63',   // Pink
+    'Bio': '#f06292',      // Light pink
+    'Energy': '#ff5722',   // Deep orange
+    'Retail': '#2196f3',   // Blue
+    'Food': '#8bc34a',     // Light green
+    'Media': '#ffc107',    // Amber
+    'Indust': '#607d8b',   // Blue gray
+    'Aero': '#78909c',     // Gray blue
+    'Defense': '#546e7a',  // Dark gray blue
+    'ETF': '#9e9e9e',      // Gray
+    'LevETF': '#795548',   // Brown
+    'REIT': '#00897b',     // Teal
+    'AI': '#7c4dff',       // Deep purple
+    'Space': '#3f51b5'     // Indigo
+};
+
+function getSectorInfo(ticker) {
+    const sector = SECTOR_MAP[ticker] || null;
+    const color = sector ? (SECTOR_COLORS[sector] || '#888') : '#555';
+    return { sector, color };
+}
+
+/**
  * Convert position to OCC option symbol for streaming
  * OCC format: 6-char ticker + YYMMDD + P/C + 8-digit strike (strike × 1000)
  * Example: "AAPL  260221P00200000" = AAPL Feb 21 2026 $200 Put
@@ -3390,6 +3464,7 @@ function renderPositionsTable(container, openPositions) {
                 <tr style="background: #1a1a2e; color: #888;">
                     <th style="padding: 6px; text-align: center; width: 28px;" title="What-If: Uncheck to exclude from leverage calculation">📊</th>
                     <th style="padding: 6px; text-align: left; width: 70px; overflow: hidden;">Ticker</th>
+                    <th style="padding: 6px; text-align: center; width: 50px;" title="Market sector">Sector</th>
                     <th style="padding: 6px; text-align: center; width: 45px;" title="ITM probability - click to analyze">Risk</th>
                     <th style="padding: 6px; text-align: left; width: 50px;">Broker</th>
                     <th style="padding: 6px; text-align: left; width: 65px;">Type</th>
@@ -3525,6 +3600,10 @@ function renderPositionsTable(container, openPositions) {
                         <span style="color:#888; font-weight:normal; font-size:11px; margin-left:8px;">(${group.positions.length} position${group.positions.length > 1 ? 's' : ''})</span>
                         <span id="ticker-risk-indicator-${ticker}" style="margin-left:8px; font-size:10px;"></span>
                     </td>
+                    <td style="text-align:center; font-size:9px;">${(() => {
+                        const sectorInfo = getSectorInfo(ticker);
+                        return sectorInfo.sector ? `<span style="color:${sectorInfo.color};">${sectorInfo.sector}</span>` : '';
+                    })()}</td>
                     <td></td>
                     <td></td>
                     <td></td>
@@ -3763,6 +3842,15 @@ function renderPositionsTable(container, openPositions) {
                            style="cursor: pointer; width: 16px; height: 16px; accent-color: #00d9ff;" />
                 </td>
                 <td style="padding: 6px; font-weight: bold; color: #00d9ff;">${childIndicator}${pos.ticker}${(pos.openingThesis && Object.keys(pos.openingThesis).length > 0) ? '<span style="margin-left:3px;font-size:9px;" title="Has thesis data for checkup">📋</span>' : ''}${isSkip && pos.skipDte <= 60 ? '<span style="margin-left:3px;font-size:9px;" title="' + (pos.skipDte < 45 ? 'PAST EXIT WINDOW!' : 'In 45-60 DTE exit window') + '">' + (pos.skipDte < 45 ? '🚨' : '⚠️') + '</span>' : ''}</td>
+                ${(() => {
+                    const sectorInfo = getSectorInfo(pos.ticker);
+                    if (sectorInfo.sector) {
+                        return `<td style="padding: 4px; text-align: center; font-size: 9px;">
+                            <span style="color:${sectorInfo.color}; background:${sectorInfo.color}22; padding:2px 4px; border-radius:3px; white-space:nowrap;">${sectorInfo.sector}</span>
+                        </td>`;
+                    }
+                    return '<td style="padding: 4px; text-align: center; font-size: 9px; color:#555;">—</td>';
+                })()}
                 <td style="padding: 4px; text-align: center;" id="risk-cell-${pos.id}">
                     ${initialStatusHtml}
                 </td>
