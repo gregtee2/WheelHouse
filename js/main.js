@@ -3904,6 +3904,110 @@ window.showTickerChart = function(ticker) {
 };
 
 /**
+ * Build trade summary HTML for confirm modal
+ * Shows position details and AI rationale in a clear format
+ */
+function buildTradeSummaryHtml(trade, isSpread, isPut, sellStrike, buyStrike, expiry, tradeTypeDisplay) {
+    // Format expiry date for display
+    const expiryDisplay = expiry ? new Date(expiry + 'T12:00:00').toLocaleDateString('en-US', { 
+        month: 'short', day: 'numeric', year: 'numeric' 
+    }) : 'TBD';
+    
+    // Build position description
+    let positionDesc = '';
+    const contracts = trade.contracts || 1;
+    const ticker = trade.ticker || '???';
+    
+    if (isSpread) {
+        // e.g., "Sell 5x AFRM $61/$57 Put Credit Spread expiring Feb 27, 2026"
+        const spreadType = tradeTypeDisplay || 'Credit Spread';
+        positionDesc = `<strong>Sell ${contracts}x ${ticker} $${sellStrike}/$${buyStrike} ${spreadType}</strong> expiring ${expiryDisplay}`;
+    } else if (trade.type === 'short_put') {
+        positionDesc = `<strong>Sell ${contracts}x ${ticker} $${trade.strike} Put</strong> expiring ${expiryDisplay}`;
+    } else if (trade.type === 'covered_call') {
+        positionDesc = `<strong>Sell ${contracts}x ${ticker} $${trade.strike} Call</strong> expiring ${expiryDisplay}`;
+    } else if (trade.type === 'long_put' || trade.type === 'long_call') {
+        const optType = trade.type === 'long_put' ? 'Put' : 'Call';
+        positionDesc = `<strong>Buy ${contracts}x ${ticker} $${trade.strike} ${optType}</strong> expiring ${expiryDisplay}`;
+    } else if (trade.type === 'iron_condor') {
+        positionDesc = `<strong>Iron Condor ${contracts}x ${ticker} $${buyStrike}/$${sellStrike}</strong> expiring ${expiryDisplay}`;
+    } else if (trade.type === 'skip_call' || trade.type === 'pmcc') {
+        const stratName = trade.type === 'skip_call' ? 'SKIP™' : 'PMCC';
+        positionDesc = `<strong>${stratName} ${contracts}x ${ticker} $${trade.strike}/$${trade.upperStrike}</strong> expiring ${expiryDisplay}`;
+    } else {
+        // Fallback for any other type
+        positionDesc = `<strong>${contracts}x ${ticker} $${trade.strike || ''} ${tradeTypeDisplay}</strong> expiring ${expiryDisplay}`;
+    }
+    
+    // Add premium info if available
+    if (trade.premium) {
+        const totalCredit = trade.premium * 100 * contracts;
+        const creditType = trade.isDebit ? 'Debit' : 'Credit';
+        positionDesc += ` — <span style="color:${trade.isDebit ? '#ff5252' : '#00ff88'};">$${totalCredit.toLocaleString()} ${creditType}</span>`;
+    }
+    
+    // Extract AI rationale (one-sentence summary)
+    let aiRationale = '';
+    const thesis = trade.openingThesis;
+    
+    if (thesis?.aiSummary) {
+        const summary = thesis.aiSummary;
+        
+        // Try different sources for a one-liner
+        if (summary.bottomLine) {
+            aiRationale = summary.bottomLine;
+        } else if (summary.moderate) {
+            // Extract first sentence from moderate perspective
+            aiRationale = summary.moderate.split(/[.!?]/)[0] + '.';
+        } else if (summary.whyThisStrategy) {
+            // Wall Street Mode: extract first sentence
+            aiRationale = summary.whyThisStrategy.split(/[.!?]/)[0] + '.';
+        } else if (summary.fullAnalysis) {
+            // Try to extract a meaningful sentence from full analysis
+            // Look for "WHY THIS STRATEGY" section or first substantive paragraph
+            const whyMatch = summary.fullAnalysis.match(/WHY\s+THIS\s+STRATEGY[:\s]*([^.!?]+[.!?])/i);
+            if (whyMatch) {
+                aiRationale = whyMatch[1].trim();
+            } else {
+                // Just grab first meaningful sentence that's not a header
+                const sentences = summary.fullAnalysis.split(/[.!?]/).filter(s => 
+                    s.trim().length > 30 && !s.includes('===') && !s.includes('---')
+                );
+                if (sentences[0]) {
+                    aiRationale = sentences[0].trim() + '.';
+                }
+            }
+        }
+        
+        // Truncate if too long
+        if (aiRationale.length > 200) {
+            aiRationale = aiRationale.substring(0, 197) + '...';
+        }
+    }
+    
+    // Only show section if we have content
+    if (!positionDesc && !aiRationale) return '';
+    
+    return `
+        <div style="background:linear-gradient(135deg, rgba(0,255,136,0.1), rgba(0,217,255,0.05)); 
+                    border:1px solid rgba(0,255,136,0.3); border-radius:8px; padding:12px; margin-bottom:16px;">
+            <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">
+                📋 Trade Summary
+            </div>
+            <div style="color:#fff; font-size:13px; line-height:1.5; margin-bottom:${aiRationale ? '10px' : '0'};">
+                ${positionDesc}
+            </div>
+            ${aiRationale ? `
+            <div style="color:#aaa; font-size:12px; font-style:italic; border-top:1px solid rgba(255,255,255,0.1); 
+                        padding-top:8px; margin-top:4px;">
+                <span style="color:#00d9ff;">🤖 AI:</span> ${aiRationale}
+            </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+/**
  * Confirm a staged trade - moves to real positions
  */
 window.confirmStagedTrade = function(id) {
@@ -4111,9 +4215,15 @@ window.confirmStagedTrade = function(id) {
         `;
     }
     
+    // Build trade summary section with position details and AI rationale
+    const tradeSummaryHtml = buildTradeSummaryHtml(trade, isSpread, isPut, sellStrike, buyStrike, expiry, tradeTypeDisplay);
+    
     modal.innerHTML = `
         <div style="background:#1a1a2e; border-radius:12px; width:450px; padding:24px; border:1px solid #00ff88;">
             <h2 style="color:#00ff88; margin:0 0 8px 0;">✅ Confirm Trade Executed</h2>
+            
+            ${tradeSummaryHtml}
+            
             <div style="color:#888; font-size:12px; margin-bottom:16px; padding:8px; background:rgba(0,0,0,0.3); border-radius:4px;">
                 ${isSpread ? `📊 <span style="color:#8b5cf6;">${tradeTypeDisplay}</span> - enter both legs` : tradeTypeDisplay}
             </div>

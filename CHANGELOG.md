@@ -3,6 +3,18 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.11] - 2026-01-31
+
+### Added
+- **📋 Trade Summary in Confirm Modal** - Enhanced trade confirmation UI
+  - Shows clear position description: "Sell 5x AFRM $61/$57 Put Credit Spread expiring Feb 27, 2026"
+  - Displays total credit/debit amount in green (credit) or red (debit)
+  - Includes one-sentence AI rationale from Strategy Advisor or Wheel Scanner
+  - Extracts synopsis from `bottomLine`, `whyThisStrategy`, or full analysis
+  - Gradient background with trade summary icon for visual clarity
+
+---
+
 ## [1.19.6] - 2026-01-31
 
 ### Added
