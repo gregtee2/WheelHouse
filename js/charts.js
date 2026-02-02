@@ -704,7 +704,7 @@ export function drawPayoffChart() {
     
     // When simulating, calculate projected option price
     // Use RATIO-based approach to handle IV mismatch between model and market
-    // projectedPrice = marketPrice × (bsAtSimulated / bsAtActual)
+    // Also cap ratio and bound P&L to reasonable limits
     if (isSimulating && !isSpread) {
         const dte = state.currentPositionContext?.dte || state.dte || 30;
         const iv = state.optVol || 0.3;
@@ -723,24 +723,31 @@ export function drawPayoffChart() {
             baseOptionPrice = bsAtActualSpot;
         }
         
-        // Use RATIO to project new price (handles IV mismatch naturally)
-        // If BS thinks option drops by 90%, market price drops by 90%
+        // Use RATIO to project new price, but CAP the ratio
+        // This prevents explosion when BS at actual spot is tiny
         let projectedOptionPrice;
         if (bsAtActualSpot > 0.01) {
-            // Ratio-based: scale market price by BS ratio
-            const ratio = bsAtSimulatedSpot / bsAtActualSpot;
-            projectedOptionPrice = baseOptionPrice * ratio;
+            const rawRatio = bsAtSimulatedSpot / bsAtActualSpot;
+            // Cap ratio: can't more than 3x for losses, 0.01x floor for gains
+            const cappedRatio = Math.max(0.01, Math.min(3.0, rawRatio));
+            projectedOptionPrice = baseOptionPrice * cappedRatio;
         } else {
-            // BS at actual is nearly zero, use simulated BS directly
             projectedOptionPrice = bsAtSimulatedSpot;
         }
         projectedOptionPrice = Math.max(0, projectedOptionPrice);
         
+        // Calculate simulated P&L
+        let simulatedPnL;
         if (isLong) {
-            displayPnL = (projectedOptionPrice - premium) * multiplier;
+            simulatedPnL = (projectedOptionPrice - premium) * multiplier;
         } else {
-            displayPnL = (premium - projectedOptionPrice) * multiplier;
+            simulatedPnL = (premium - projectedOptionPrice) * multiplier;
         }
+        
+        // BOUND the P&L to physical limits:
+        // - Can't be better than max profit
+        // - Can't be worse than expiration P&L at that price (no time value = worst case)
+        displayPnL = Math.max(expirationPnL, Math.min(maxProfit, simulatedPnL));
         displayY = pnlToY(displayPnL);
     } else if (isSimulating && isSpread) {
         // For spreads, still use expiration P&L (more complex to model)
