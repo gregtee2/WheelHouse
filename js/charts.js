@@ -471,13 +471,18 @@ export function drawPayoffChart() {
     // Determine which P&L to display and where to position the marker
     let displayPnL, displayY;
     
-    if (isLong && hasLivePricing) {
-        // For long options with live pricing, show actual unrealized P&L
-        // P&L = (currentPrice - entryPremium) × 100 × contracts
-        displayPnL = (currentOptionPrice - premium) * multiplier;
+    if (hasLivePricing) {
+        if (isLong) {
+            // For LONG options: P&L = (currentPrice - entryPremium) × 100 × contracts
+            displayPnL = (currentOptionPrice - premium) * multiplier;
+        } else {
+            // For SHORT options: P&L = (entryPremium - currentPrice) × 100 × contracts
+            // You sold for premium, now it costs currentPrice to buy back
+            displayPnL = (premium - currentOptionPrice) * multiplier;
+        }
         displayY = pnlToY(displayPnL);  // Position at ACTUAL P&L level
     } else {
-        // For short options or when no live pricing, show expiration P&L
+        // No live pricing available - show expiration P&L
         displayPnL = expirationPnL;
         displayY = expirationY;
     }
