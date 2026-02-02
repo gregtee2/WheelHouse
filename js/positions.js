@@ -3192,6 +3192,12 @@ export function loadPositionToAnalyze(id) {
     // Reset chart zoom when loading new position
     resetPayoffChartZoom();
     
+    // Check if this is a spread position
+    const isSpread = pos.type?.includes('_spread');
+    
+    // For spreads, use sellStrike as the primary strike for analysis
+    const effectiveStrike = isSpread ? (pos.sellStrike || pos.buyStrike) : pos.strike;
+    
     // For covered calls, get cost basis from the linked holding
     let costBasis = pos.costBasis || null;
     let holdingCostBasis = null;
@@ -3212,11 +3218,17 @@ export function loadPositionToAnalyze(id) {
         id: pos.id,
         ticker: pos.ticker,
         type: pos.type,
-        strike: pos.strike,
+        strike: effectiveStrike,
         premium: pos.premium,
         contracts: pos.contracts,
         expiry: pos.expiry,
         dte: pos.dte,
+        // Spread-specific fields
+        buyStrike: pos.buyStrike || null,
+        sellStrike: pos.sellStrike || null,
+        spreadWidth: pos.spreadWidth || null,
+        maxProfit: pos.maxProfit || null,
+        maxLoss: pos.maxLoss || null,
         // Live pricing fields for AI advisor
         lastOptionPrice: pos.lastOptionPrice || null,
         markedPrice: pos.markedPrice || null,
@@ -3231,10 +3243,10 @@ export function loadPositionToAnalyze(id) {
     // Store ticker for Monte Carlo tab
     state.currentTicker = pos.ticker;
     
-    // Update form fields
-    document.getElementById('strikeInput').value = pos.strike;
-    document.getElementById('strikeSlider').value = pos.strike;
-    state.strike = pos.strike;
+    // Update form fields (use effectiveStrike for spreads)
+    document.getElementById('strikeInput').value = effectiveStrike;
+    document.getElementById('strikeSlider').value = effectiveStrike;
+    state.strike = effectiveStrike;
     
     // Update DTE
     const today = new Date();
@@ -3257,14 +3269,14 @@ export function loadPositionToAnalyze(id) {
     // SHORT PUT: Lower barrier = Strike (assignment level), Upper = spot + 20%
     // SHORT CALL: Lower = spot - 20%, Upper barrier = Strike (assignment level)
     const isPut = pos.type.includes('put');
-    const estimatedSpot = pos.strike * 1.05; // Rough estimate until price fetches
+    const estimatedSpot = effectiveStrike * 1.05; // Rough estimate until price fetches
     
     if (isPut) {
-        state.lower = pos.strike;  // Strike is assignment level for puts
+        state.lower = effectiveStrike;  // Strike is assignment level for puts
         state.upper = Math.round(estimatedSpot * 1.20);
     } else {
         state.lower = Math.round(estimatedSpot * 0.80);
-        state.upper = pos.strike;  // Strike is assignment level for calls
+        state.upper = effectiveStrike;  // Strike is assignment level for calls
     }
     
     // Update barrier UI
@@ -3952,15 +3964,16 @@ function renderPositionsTable(container, openPositions) {
                     <button onclick="window.showSkipExplanation(${pos.id})" 
                             style="width: 28px; background: rgba(0,217,255,0.3); border: 1px solid rgba(0,217,255,0.5); color: #0df; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="SKIP™ Strategy Explanation">🎯</button>
-                    ` : isSpread ? `
-                    <button onclick="window.showSpreadExplanation(${pos.id})" 
-                            style="width: 28px; background: rgba(139,92,246,0.3); border: 1px solid rgba(139,92,246,0.5); color: #b9f; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
-                            title="AI Spread Explanation">🤖</button>
                     ` : `
                     <button onclick="window.loadPositionToAnalyze(${pos.id})" 
                             style="width: 28px; background: rgba(0,180,220,0.3); border: 1px solid rgba(0,180,220,0.5); color: #6dd; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
                             title="Analyze">📊</button>
                     `}
+                    ${isSpread ? `
+                    <button onclick="window.showSpreadExplanation(${pos.id})" 
+                            style="width: 28px; background: rgba(139,92,246,0.3); border: 1px solid rgba(139,92,246,0.5); color: #b9f; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
+                            title="AI Spread Explanation">🤖</button>
+                    ` : ``}
                     ${pos.openingThesis && Object.keys(pos.openingThesis).length > 0 ? `
                     <button onclick="window.runPositionCheckup(${pos.id})" 
                             style="width: 28px; background: rgba(0,255,136,0.3); border: 1px solid rgba(0,255,136,0.5); color: #0f8; padding: 2px 0; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;"
