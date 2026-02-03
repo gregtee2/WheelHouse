@@ -1879,17 +1879,31 @@ router.post('/portfolio-audit', async (req, res) => {
         // Build the main audit prompt
         const prompt = `You are a professional options portfolio manager providing a comprehensive audit.
 
-CRITICAL INSTRUCTIONS:
-1. Be DECISIVE. Give clear recommendations, not wishy-washy "on one hand... on the other hand" hedging.
-2. A position marked "✓WINNING" with <7 DTE and decent buffer should be LEFT ALONE to expire - do NOT recommend rolling winners near expiry.
-3. Only flag as PROBLEM if there's genuine risk: ITM, losing money, or buffer <5% on volatile stock.
-4. LEAPs, long calls, spreads are VALID strategies - don't penalize for not being "wheel" trades.
-5. Consider P/L status: a +50% winner with 3 DTE is a SUCCESS, not a "gamma risk" - let it expire!
+CRITICAL INSTRUCTIONS - READ CAREFULLY:
+1. Be DECISIVE. No wishy-washy "on one hand..." hedging.
+2. Winners near expiry (✓WINNING + <7 DTE + decent buffer) = LET EXPIRE. Do NOT recommend rolling.
+3. PROBLEM means GENUINE RISK, not just "underwater P/L". Evaluate:
+   - ITM or ATM? → Problem
+   - Tiny buffer (<5%)? → Problem  
+   - Underwater BUT still 8%+ OTM with 20+ DTE? → NOT a problem, just IV expansion. Hold for theta.
+4. A short put at -30% P/L but 9% OTM with 30 DTE is NOT "close immediately" - it's "monitor, theta will recover."
+5. LEAPs, long calls, spreads are VALID. Judge each strategy on its merits.
 
 READING THE DATA:
-- "Spot: $53.20 ($3.20 OTM, 6.4% buffer)" = stock is $3.20 ABOVE the put strike = SAFE
-- "P/L: +$77 (+25%) ✓WINNING" = position is profitable, on track
-- "OptPrice: $0.20" = option is nearly worthless = let it decay to $0
+- "Spot: $89 ($7 OTM, 8.5% buffer)" = stock is $7 ABOVE the put strike = SAFE, even if P/L is negative
+- "P/L: -$175 (-35%) underwater" = lost money SO FAR, but if buffer is good, theta can recover
+- "P/L: +$77 (+25%) ✓WINNING" = profitable, on track
+- "OptPrice: $0.20" = nearly worthless = let it decay to $0
+
+WHAT IS A REAL PROBLEM:
+- ITM or <3% buffer on volatile stock
+- Losing AND in danger (buffer shrinking, stock moving against you)
+- Massive loss with no path to recovery
+
+WHAT IS NOT A PROBLEM:
+- Underwater P/L but 8%+ OTM with 20+ DTE → theta will likely recover
+- Short DTE but winning and OTM → let it expire
+- LEAP down on paper but thesis intact → long-term play
 
 ## CURRENT POSITIONS (${positions.length} total)
 ${positionSummary || 'No open positions'}
@@ -1914,10 +1928,10 @@ Provide:
 One sentence justification.
 
 Then:
-1. 🚨 PROBLEM POSITIONS - Only genuine problems (ITM, losing, tiny buffer). Winners near expiry are NOT problems.
+1. 🚨 PROBLEM POSITIONS - Only GENUINE problems (ITM, tiny buffer, no recovery path). Underwater but safe OTM = NOT a problem.
 2. ⚠️ CONCENTRATION RISKS - Ticker/sector issues
 3. 📊 GREEKS ASSESSMENT - Delta/theta/vega analysis
-4. 💡 OPTIMIZATION IDEAS - Be specific and actionable. Don't tell someone to roll a winning 3-DTE position.
+4. 💡 OPTIMIZATION IDEAS - Be specific. Don't recommend closing safe OTM positions just because P/L is temporarily negative.
 5. ✅ WHAT'S WORKING - Praise good positioning`;
 
         const auditResponse = await AIService.callAI(prompt, selectedModel, 1200);
