@@ -16,8 +16,23 @@ let payoffChartState = {
     // What-if price simulation (dragging the spot line)
     simulatedSpot: null,    // null = use actual spot, number = simulated price
     isDraggingSpot: false,  // Are we dragging the spot line?
+    // T+X days forward projection (0 = today, 1 = tomorrow, etc.)
+    tPlusDays: 0,
     // Chart geometry (set during drawing for hit testing)
     chartGeometry: null
+};
+
+// Getter/setter for T+X days (called from HTML)
+window.getTplusDays = () => payoffChartState.tPlusDays;
+window.setTplusDays = (days) => {
+    // Cap at current DTE - 1 (can't go past expiration)
+    const maxDays = Math.max(0, (state.currentPositionContext?.dte || state.dte || 30) - 1);
+    payoffChartState.tPlusDays = Math.max(0, Math.min(days, maxDays));
+    // Update the display
+    const display = document.getElementById('tplusDisplay');
+    if (display) display.textContent = `T+${payoffChartState.tPlusDays}`;
+    // Redraw chart
+    if (typeof window.drawPayoffChart === 'function') window.drawPayoffChart();
 };
 
 // Reset payoff chart zoom/pan (called when loading new position)
@@ -25,6 +40,10 @@ export function resetPayoffChartZoom() {
     payoffChartState.zoom = 1.0;
     payoffChartState.panX = 0;
     payoffChartState.simulatedSpot = null;
+    payoffChartState.tPlusDays = 0;
+    // Reset display
+    const display = document.getElementById('tplusDisplay');
+    if (display) display.textContent = 'T+0';
 }
 
 // Initialize payoff chart mouse handlers (call once)
@@ -702,21 +721,27 @@ export function drawPayoffChart() {
     // Determine which P&L to display and where to position the marker
     let displayPnL, displayY;
     
-    // When simulating, project what the option would be worth TODAY at that spot price
+    // When simulating, project what the option would be worth at T+X days at that spot price
     // Use implied IV backed out from actual market price for accuracy
     if (isSimulating && !isSpread && hasLivePricing) {
-        const dte = state.currentPositionContext?.dte || state.dte || 30;
+        const baseDte = state.currentPositionContext?.dte || state.dte || 30;
+        const tPlusDays = payoffChartState.tPlusDays || 0;
+        const projectedDte = Math.max(baseDte - tPlusDays, 0.5);  // Don't go below 0.5 days
         const r = 0.05;
-        const T = Math.max(dte / 365.25, 0.001);
+        
+        // Time for current IV calculation (today's DTE)
+        const T_current = Math.max(baseDte / 365.25, 0.001);
+        // Time for projected price calculation (T+X days forward)
+        const T_projected = Math.max(projectedDte / 365.25, 0.001);
         
         // Back-calculate implied IV from current market price using bisection
-        // Find IV such that BS(spot, strike, T, r, IV) = currentOptionPrice
+        // Find IV such that BS(current_spot, strike, T_current, r, IV) = currentOptionPrice
         let ivLow = 0.01, ivHigh = 3.0;  // IV range: 1% to 300%
         let impliedIV = 0.5;  // Starting guess
         
         for (let i = 0; i < 20; i++) {  // 20 iterations of bisection
             impliedIV = (ivLow + ivHigh) / 2;
-            const bsCalc = bsPrice(spot, strike, T, r, impliedIV, isPut);
+            const bsCalc = bsPrice(spot, strike, T_current, r, impliedIV, isPut);
             if (bsCalc < currentOptionPrice) {
                 ivLow = impliedIV;  // Need higher IV
             } else {
@@ -724,8 +749,8 @@ export function drawPayoffChart() {
             }
         }
         
-        // Now use this calibrated IV to calculate option price at simulated spot
-        const projectedOptionPrice = bsPrice(displaySpot, strike, T, r, impliedIV, isPut);
+        // Now use this calibrated IV to calculate option price at simulated spot with projected time
+        const projectedOptionPrice = bsPrice(displaySpot, strike, T_projected, r, impliedIV, isPut);
         
         if (isLong) {
             displayPnL = (projectedOptionPrice - premium) * multiplier;
@@ -775,8 +800,11 @@ export function drawPayoffChart() {
     ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.textAlign = 'left';
+    // Show T+X label when simulating
+    const tPlusDays = payoffChartState.tPlusDays || 0;
+    const tPlusLabel = tPlusDays === 0 ? 'IF' : `T+${tPlusDays}`;
     const markerLabel = isSimulating 
-        ? 'IF: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0)
+        ? `${tPlusLabel}: ` + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0)
         : 'NOW: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
     // Place label above/below the dot based on P&L sign
     const labelY = displayPnL >= 0 ? displayY - 15 : displayY + 20;

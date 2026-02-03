@@ -641,7 +641,15 @@ Examples:
                 
                 <!-- CENTER: Charts -->
                 <div class="options-charts">
-                    <div id="positionInfo" style="font-size:11px; margin-bottom:4px;"></div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <div id="positionInfo" style="font-size:11px;"></div>
+                        <div id="tplusControl" style="display:flex; align-items:center; gap:4px; font-size:11px; color:#888;" title="Project P&L forward in time (T+0=today, T+1=tomorrow, etc.)">
+                            <span>📅</span>
+                            <button onclick="window.setTplusDays((window.getTplusDays?.() || 0) - 1)" style="background:#1a1a2e; border:1px solid #444; color:#fff; padding:1px 6px; cursor:pointer; border-radius:3px; font-size:10px;" title="Decrease days">▼</button>
+                            <span id="tplusDisplay" style="min-width:32px; text-align:center; color:#00d9ff; font-weight:bold;">T+0</span>
+                            <button onclick="window.setTplusDays((window.getTplusDays?.() || 0) + 1)" style="background:#1a1a2e; border:1px solid #444; color:#fff; padding:1px 6px; cursor:pointer; border-radius:3px; font-size:10px;" title="Increase days">▲</button>
+                        </div>
+                    </div>
                     <canvas id="payoffCanvas" style="width:100%; height:220px;"></canvas>
                     <div class="legend" style="font-size:10px; margin:4px 0;">
                         <div class="legend-item"><div class="legend-color" style="background:var(--accent-green)"></div>Call</div>
