@@ -736,31 +736,47 @@ export function drawPayoffChart() {
     // Use implied IV backed out from actual market price for accuracy
     if (needsProjection) {
         const baseDte = state.currentPositionContext?.dte || state.dte || 30;
-        const projectedDte = Math.max(baseDte - tPlusDays, 0.5);  // Don't go below 0.5 days
-        const r = 0.05;
+        const isAtExpiration = tPlusDays >= baseDte;  // T+DTE means we're at expiration
         
-        // Time for current IV calculation (today's DTE)
-        const T_current = Math.max(baseDte / 365.25, 0.001);
-        // Time for projected price calculation (T+X days forward)
-        const T_projected = Math.max(projectedDte / 365.25, 0.001);
+        let projectedOptionPrice;
         
-        // Back-calculate implied IV from current market price using bisection
-        // Find IV such that BS(current_spot, strike, T_current, r, IV) = currentOptionPrice
-        let ivLow = 0.01, ivHigh = 3.0;  // IV range: 1% to 300%
-        let impliedIV = 0.5;  // Starting guess
-        
-        for (let i = 0; i < 20; i++) {  // 20 iterations of bisection
-            impliedIV = (ivLow + ivHigh) / 2;
-            const bsCalc = bsPrice(spot, strike, T_current, r, impliedIV, isPut);
-            if (bsCalc < currentOptionPrice) {
-                ivLow = impliedIV;  // Need higher IV
+        if (isAtExpiration) {
+            // At expiration: use intrinsic value directly (no time value)
+            // Put intrinsic = max(strike - spot, 0)
+            // Call intrinsic = max(spot - strike, 0)
+            if (isPut) {
+                projectedOptionPrice = Math.max(strike - displaySpot, 0);
             } else {
-                ivHigh = impliedIV;  // Need lower IV
+                projectedOptionPrice = Math.max(displaySpot - strike, 0);
             }
+        } else {
+            // Before expiration: use Black-Scholes with calibrated IV
+            const projectedDte = baseDte - tPlusDays;
+            const r = 0.05;
+            
+            // Time for current IV calculation (today's DTE)
+            const T_current = Math.max(baseDte / 365.25, 0.001);
+            // Time for projected price calculation (T+X days forward)
+            const T_projected = Math.max(projectedDte / 365.25, 0.001);
+            
+            // Back-calculate implied IV from current market price using bisection
+            // Find IV such that BS(current_spot, strike, T_current, r, IV) = currentOptionPrice
+            let ivLow = 0.01, ivHigh = 3.0;  // IV range: 1% to 300%
+            let impliedIV = 0.5;  // Starting guess
+            
+            for (let i = 0; i < 20; i++) {  // 20 iterations of bisection
+                impliedIV = (ivLow + ivHigh) / 2;
+                const bsCalc = bsPrice(spot, strike, T_current, r, impliedIV, isPut);
+                if (bsCalc < currentOptionPrice) {
+                    ivLow = impliedIV;  // Need higher IV
+                } else {
+                    ivHigh = impliedIV;  // Need lower IV
+                }
+            }
+            
+            // Now use this calibrated IV to calculate option price at displaySpot with projected time
+            projectedOptionPrice = bsPrice(displaySpot, strike, T_projected, r, impliedIV, isPut);
         }
-        
-        // Now use this calibrated IV to calculate option price at displaySpot with projected time
-        let projectedOptionPrice = bsPrice(displaySpot, strike, T_projected, r, impliedIV, isPut);
         
         // Sanity bounds: option price can't be negative
         // For puts: max value is strike (if stock goes to 0)
