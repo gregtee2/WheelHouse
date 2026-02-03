@@ -1,9 +1,9 @@
 // WheelHouse - Chart Drawing Module
 // All canvas rendering functions
 
-import { state } from './state.js';
-import { erf } from './utils.js';
-import { getPositionType, bsPrice } from './pricing.js';
+import { state } from 'state';
+import { erf } from 'utils';
+import { getPositionType, bsPrice } from 'pricing';
 
 // Payoff chart interaction state
 let payoffChartState = {
@@ -854,6 +854,7 @@ export function drawPayoffChart() {
         ctx.textAlign = 'left';
         // Show T+X label when projecting forward in time or simulating spot
         const tPlusDaysLabel = payoffChartState.tPlusDays || 0;
+        
         let markerLabel;
         if (isSimulating && tPlusDaysLabel > 0) {
             // Both spot simulation AND time projection

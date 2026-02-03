@@ -1,12 +1,12 @@
 // WheelHouse - UI Module
 // Event handlers, sliders, date pickers, display updates
 
-import { state } from './state.js';
-import { download, formatCurrency, showNotification } from './utils.js';
-import { draw, drawPayoffChart, drawPriceHist, drawGreeksChart, drawPnLChart, drawProbabilityCone, drawHeatMap } from './charts.js';
-import { priceOptions, calcGreeks } from './pricing.js';
-import { calculateExpectedValue, calculateRoll, generateRecommendation } from './analysis.js';
-import { runSingle, runBatch } from './simulation.js';
+import { state } from 'state';
+import { download, formatCurrency, showNotification } from 'utils';
+import { draw, drawPayoffChart, drawPriceHist, drawGreeksChart, drawPnLChart, drawProbabilityCone, drawHeatMap } from 'charts';
+import { priceOptions, calcGreeks } from 'pricing';
+import { calculateExpectedValue, calculateRoll, generateRecommendation } from 'analysis';
+import { runSingle, runBatch } from 'simulation';
 
 /**
  * Setup all slider bindings

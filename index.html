@@ -6,6 +6,38 @@
     <title>WheelHouse - Options Strategy Analyzer</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏠</text></svg>">
     <link rel="stylesheet" href="css/styles.css">
+    
+    <!-- ============================================================
+         IMPORT MAP: ALL module versions defined in ONE place!
+         To bust cache after changes, just bump the version here.
+         ============================================================ -->
+    <script type="importmap">
+    {
+        "imports": {
+            "state": "./js/state.js",
+            "charts": "./js/charts.js?v=1.19.41",
+            "utils": "./js/utils.js?v=1.19.41",
+            "api": "./js/api.js?v=1.19.41",
+            "pricing": "./js/pricing.js?v=1.19.41",
+            "simulation": "./js/simulation.js?v=1.19.41",
+            "positions": "./js/positions.js?v=1.19.41",
+            "portfolio": "./js/portfolio.js?v=1.19.41",
+            "analysis": "./js/analysis.js?v=1.19.41",
+            "challenges": "./js/challenges.js?v=1.19.41",
+            "ui": "./js/ui.js?v=1.19.41",
+            "settings": "./js/settings.js?v=1.19.41",
+            "broker-import": "./js/broker-import.js?v=1.19.41",
+            "schwab": "./js/schwab.js?v=1.19.41",
+            "theme": "./js/theme.js?v=1.19.41",
+            "formatters": "./js/utils/formatters.js?v=1.19.41",
+            "AccountService": "./js/services/AccountService.js?v=1.19.41",
+            "PositionsService": "./js/services/PositionsService.js?v=1.19.41",
+            "StreamingService": "./js/services/StreamingService.js?v=1.19.41",
+            "TradeCardService": "./js/services/TradeCardService.js?v=1.19.41",
+            "WeeklySummaryService": "./js/services/WeeklySummaryService.js?v=1.19.41"
+        }
+    }
+    </script>
 </head>
 <body>
     <div class="container">
@@ -1845,15 +1877,15 @@ Examples:
     <script src="js/theme.js?v=1.17.73"></script>
     
     <!-- Schwab API Client -->
-    <script src="js/schwab.js?v=1.17.73"></script>
+    <script src="js/schwab.js?v=1.19.41"></script>
     
     <!-- Settings Management -->
-    <script src="js/settings.js?v=1.17.73"></script>
+    <script src="js/settings.js?v=1.19.41"></script>
     
     <!-- Services (before ES6 modules) -->
-    <script src="js/services/WeeklySummaryService.js?v=1.18.11"></script>
+    <script src="js/services/WeeklySummaryService.js?v=1.19.41"></script>
     
     <!-- ES6 Module Entry Point -->
-    <script type="module" src="js/main.js?v=1.18.1"></script>
+    <script type="module" src="js/main.js?v=1.19.41"></script>
 </body>
 </html>

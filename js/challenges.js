@@ -1,9 +1,9 @@
 // WheelHouse - Challenge System
 // Track trading challenges with goals, time limits, and linked positions
 
-import { state, getChallengesKey, getPositionsKey, getClosedKey } from './state.js';
-import { loadClosedPositions } from './portfolio.js';
-import { isDebitPosition, createModal, modalHeader } from './utils.js';
+import { state, getChallengesKey, getPositionsKey, getClosedKey } from 'state';
+import { loadClosedPositions } from 'portfolio';
+import { isDebitPosition, createModal, modalHeader } from 'utils';
 
 // ============ Theme Colors Helper ============
 // Gets CSS variable values for dynamic theming

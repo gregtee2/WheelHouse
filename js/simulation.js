@@ -1,9 +1,9 @@
 // WheelHouse - Brownian Motion Simulation Module
 
-import { state, resetSimulation } from './state.js';
-import { randomNormal } from './utils.js';
-import { draw, drawHistogram } from './charts.js';
-import { updateResults, updateDataTab } from './ui.js';
+import { state, resetSimulation } from 'state';
+import { randomNormal } from 'utils';
+import { draw, drawHistogram } from 'charts';
+import { updateResults, updateDataTab } from 'ui';
 
 /**
  * Simulate a single Brownian motion path

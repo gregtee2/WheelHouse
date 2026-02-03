@@ -1,8 +1,8 @@
 // WheelHouse - API Module
 // Yahoo Finance price fetching with CORS proxy fallbacks
 
-import { state } from './state.js';
-import { showNotification } from './utils.js';
+import { state } from 'state';
+import { showNotification } from 'utils';
 
 // Set to true for verbose price update logging
 const VERBOSE_PRICE_LOGS = false;
@@ -953,7 +953,7 @@ function startAutoRefresh() {
         }
         
         // Skip if streaming is connected - it handles updates
-        const StreamingService = (await import('./services/StreamingService.js')).default;
+        const StreamingService = (await import('StreamingService')).default;
         if (StreamingService.isConnected()) {
             lastRefreshTime = new Date();
             updateRefreshStatus();
@@ -965,7 +965,7 @@ function startAutoRefresh() {
         
         // Refresh Portfolio (only when streaming not connected)
         console.log('🔄 Auto-refreshing Portfolio (streaming not connected)...');
-        const { renderPortfolio } = await import('./portfolio.js');
+        const { renderPortfolio } = await import('portfolio');
         await renderPortfolio(true);
         
     }, 60000); // 60 seconds

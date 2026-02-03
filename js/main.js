@@ -1,22 +1,22 @@
 // WheelHouse - Main Entry Point
 // Initialization and tab management
 
-// NOTE: state.js must NOT have cache busting - all files must share the same module instance
-import { state, resetSimulation, setAccountMode, updatePaperModeIndicator, setPaperAccountBalance, getPaperAccountBalance, setSelectedAccount, getAccountDisplayName } from './state.js';
-import { draw, drawPayoffChart, drawHistogram, drawPnLChart, drawProbabilityCone, drawHeatMap, drawGreeksChart } from './charts.js?v=1.17.73';
-import { runSingle, runBatch, resetAll } from './simulation.js?v=1.17.73';
-import { priceOptions, calcGreeks } from './pricing.js?v=1.17.73';
-import { calculateRoll, generateRecommendation, suggestOptimalRoll } from './analysis.js?v=1.17.73';
-import { fetchTickerPrice, fetchHeatMapPrice, fetchPositionTickerPrice } from './api.js?v=1.17.73';
-import { loadPositions, addPosition, editPosition, cancelEdit, renderPositions, updatePortfolioSummary } from './positions.js?v=1.17.73';
-import { loadClosedPositions, renderPortfolio, renderHoldings, formatPortfolioContextForAI } from './portfolio.js?v=1.17.73';
-import { initChallenges, renderChallenges } from './challenges.js?v=1.17.73';
-import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from './ui.js?v=1.17.73';
-import { showNotification } from './utils.js?v=1.17.73';
-import AccountService from './services/AccountService.js?v=1.17.73';
-import TradeCardService from './services/TradeCardService.js?v=1.17.73';  // For staging trades to Ideas tab
-import StreamingService from './services/StreamingService.js?v=1.17.99';  // Real-time option quote streaming
-import PositionsService from './services/PositionsService.js';  // Single source of truth for positions CRUD
+// Using import map aliases - versions managed in index.html
+import { state, resetSimulation, setAccountMode, updatePaperModeIndicator, setPaperAccountBalance, getPaperAccountBalance, setSelectedAccount, getAccountDisplayName } from 'state';
+import { draw, drawPayoffChart, drawHistogram, drawPnLChart, drawProbabilityCone, drawHeatMap, drawGreeksChart } from 'charts';
+import { runSingle, runBatch, resetAll } from 'simulation';
+import { priceOptions, calcGreeks } from 'pricing';
+import { calculateRoll, generateRecommendation, suggestOptimalRoll } from 'analysis';
+import { fetchTickerPrice, fetchHeatMapPrice, fetchPositionTickerPrice } from 'api';
+import { loadPositions, addPosition, editPosition, cancelEdit, renderPositions, updatePortfolioSummary } from 'positions';
+import { loadClosedPositions, renderPortfolio, renderHoldings, formatPortfolioContextForAI } from 'portfolio';
+import { initChallenges, renderChallenges } from 'challenges';
+import { setupSliders, setupDatePicker, setupPositionDatePicker, setupRollDatePicker, updateDteDisplay, updateResults, updateDataTab, syncToSimulator } from 'ui';
+import { showNotification } from 'utils';
+import AccountService from 'AccountService';
+import TradeCardService from 'TradeCardService';
+import StreamingService from 'StreamingService';
+import PositionsService from 'PositionsService';
 
 /**
  * Switch between Real and Paper trading accounts
@@ -334,7 +334,7 @@ function autoLinkPMCCPositions() {
     
     if (linked > 0) {
         // Save the updated positions
-        import('./state.js').then(({ getPositionsKey }) => {
+        import('state').then(({ getPositionsKey }) => {
             localStorage.setItem(getPositionsKey(), JSON.stringify(positions));
         });
         console.log(`[PMCC] Auto-linked ${linked} covered call(s) to LEAPS`);
@@ -469,7 +469,7 @@ window.refreshAccountFromSchwab = async function() {
         
         // DETECT POSITIONS CLOSED ON SCHWAB
         // Find positions that exist locally but are no longer in Schwab
-        const { getPositionsKey, getHoldingsKey, getClosedKey } = await import('./state.js');
+        const { getPositionsKey, getHoldingsKey, getClosedKey } = await import('state');
         let closedPositions = JSON.parse(localStorage.getItem(getClosedKey()) || '[]');
         let movedToClosed = 0;
         const positionsToRemove = [];
@@ -3501,7 +3501,7 @@ window.runPortfolioFitAnalysis = async function() {
     
     try {
         // Get account balances from AccountService
-        const AccountService = (await import('./services/AccountService.js')).default;
+        const AccountService = (await import('AccountService')).default;
         const balances = AccountService.getBalances();
         
         // Get global AI model

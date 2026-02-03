@@ -1,12 +1,12 @@
 // WheelHouse - Analysis Module
 // Recommendations, EV calculations, Roll calculator
 
-import { state } from './state.js';
-import { getPositionType } from './pricing.js';
-import { randomNormal, showNotification } from './utils.js';
-import { formatPortfolioContextForAI } from './portfolio.js';
-import AccountService from './services/AccountService.js';
-import { fetchRealIV } from './api.js';
+import { state } from 'state';
+import { getPositionType } from 'pricing';
+import { randomNormal, showNotification } from 'utils';
+import { formatPortfolioContextForAI } from 'portfolio';
+import AccountService from 'AccountService';
+import { fetchRealIV } from 'api';
 
 /**
  * Get chain history and calculate total premium for a position

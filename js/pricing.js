@@ -1,10 +1,10 @@
 // WheelHouse - Options Pricing Module
 // Black-Scholes, Monte Carlo pricing, and Greeks
 
-import { state } from './state.js';
-import { randomNormal, erf } from './utils.js';
-import { drawPayoffChart, drawPriceHist, drawGreeksChart, drawPnLChart, drawProbabilityCone, drawHeatMap } from './charts.js';
-import { generateRecommendation, calculateExpectedValue } from './analysis.js';
+import { state } from 'state';
+import { randomNormal, erf } from 'utils';
+import { drawPayoffChart, drawPriceHist, drawGreeksChart, drawPnLChart, drawProbabilityCone, drawHeatMap } from 'charts';
+import { generateRecommendation, calculateExpectedValue } from 'analysis';
 
 /**
  * Black-Scholes option price calculation
