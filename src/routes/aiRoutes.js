@@ -1730,7 +1730,28 @@ router.post('/portfolio-audit', async (req, res) => {
         const greeks = data.greeks || {};
         const closedStats = data.closedStats || {};
         
-        // Build position summary
+        // =====================================================================
+        // FETCH LIVE SPOT PRICES for all unique tickers
+        // This is CRITICAL for accurate risk assessment!
+        // =====================================================================
+        const uniqueTickers = [...new Set(positions.map(p => p.ticker))];
+        const spotPrices = {};
+        
+        console.log('[AI] Fetching spot prices for:', uniqueTickers.join(', '));
+        
+        for (const ticker of uniqueTickers) {
+            try {
+                const quote = await MarketDataService.getQuote(ticker);
+                if (quote && quote.price) {
+                    spotPrices[ticker] = quote.price;
+                    console.log(`[AI] ${ticker}: $${quote.price.toFixed(2)}`);
+                }
+            } catch (e) {
+                console.log(`[AI] Failed to get spot for ${ticker}:`, e.message);
+            }
+        }
+        
+        // Build position summary WITH live spot prices
         const positionSummary = positions.map(p => {
             const riskPct = p.riskPercent || 0;
             const isLong = ['long_call', 'long_put', 'long_call_leaps', 'skip_call'].includes(p.type);
@@ -1754,11 +1775,13 @@ router.post('/portfolio-audit', async (req, res) => {
             // ========================================================
             // CRITICAL: Add spot price and distance from strike!
             // Without this, AI can't assess actual risk level.
+            // Use fetched spotPrices (live) or fall back to p.currentSpot
             // ========================================================
             let spotInfo = '';
-            if (p.currentSpot && p.strike) {
-                const spot = p.currentSpot;
-                const strike = p.strike;
+            const spot = spotPrices[p.ticker] || p.currentSpot;
+            const strike = isSpread ? p.sellStrike : p.strike;  // Use sell strike for spreads
+            
+            if (spot && strike) {
                 const isPut = p.type?.includes('put');
                 const isCall = p.type?.includes('call');
                 
