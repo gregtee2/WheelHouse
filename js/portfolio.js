@@ -6037,6 +6037,20 @@ window.runPortfolioAudit = async function() {
         // Build position data with risk and Greeks
         const positions = (state.positions || []).filter(p => p.status === 'open').map(p => {
             const isSpread = p.type?.includes('_spread');
+            const isDebit = ['long_call', 'long_put', 'long_call_leaps', 'skip_call', 'call_debit_spread', 'put_debit_spread'].includes(p.type);
+            
+            // Calculate unrealized P/L
+            let unrealizedPnL = null;
+            let unrealizedPnLPct = null;
+            if (p.lastOptionPrice !== undefined && p.premium > 0) {
+                const entryValue = p.premium * 100 * (p.contracts || 1);
+                const currentValue = p.lastOptionPrice * 100 * (p.contracts || 1);
+                unrealizedPnL = isDebit ? currentValue - entryValue : entryValue - currentValue;
+                unrealizedPnLPct = isDebit 
+                    ? ((p.lastOptionPrice - p.premium) / p.premium) * 100
+                    : ((p.premium - p.lastOptionPrice) / p.premium) * 100;
+            }
+            
             return {
                 ticker: p.ticker,
                 type: p.type,
@@ -6049,6 +6063,10 @@ window.runPortfolioAudit = async function() {
                 dte: p.dte,
                 contracts: p.contracts,
                 premium: p.premium,
+                // Current option price and P/L
+                lastOptionPrice: p.lastOptionPrice || null,
+                unrealizedPnL: unrealizedPnL,
+                unrealizedPnLPct: unrealizedPnLPct,
                 // For spreads, calculate max profit/loss
                 maxProfit: isSpread ? (p.type?.includes('credit') 
                     ? p.premium * 100 * (p.contracts || 1) 
@@ -6059,7 +6077,6 @@ window.runPortfolioAudit = async function() {
                 delta: p._delta || 0,
                 theta: p._theta || 0,
                 currentSpot: p.currentSpot || null,
-                lastOptionPrice: p.lastOptionPrice || null,
                 riskPercent: parseFloat(document.getElementById(`risk-cell-${p.id}`)?.textContent?.match(/\\d+/)?.[0] || 0)
             };
         });

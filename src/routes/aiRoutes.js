@@ -1804,7 +1804,24 @@ router.post('/portfolio-audit', async (req, res) => {
                 spotInfo = ` | Spot: $${spot.toFixed(2)} ($${distance.toFixed(2)} ${moneyness}, ${distancePct}% buffer)`;
             }
             
-            return `${p.ticker}: ${p.type} ${strikeDisplay} (${p.dte}d DTE) ${typeNote}${spreadInfo}${spotInfo} - ${riskPct.toFixed(0)}% ITM`;
+            // Add P/L info if available
+            let pnlInfo = '';
+            if (p.unrealizedPnL !== null && p.unrealizedPnL !== undefined) {
+                const pnlSign = p.unrealizedPnL >= 0 ? '+' : '';
+                const pnlPctSign = p.unrealizedPnLPct >= 0 ? '+' : '';
+                const status = p.unrealizedPnLPct >= 50 ? '✓WINNING' : 
+                               p.unrealizedPnLPct >= 0 ? 'profitable' : 
+                               p.unrealizedPnLPct >= -25 ? 'underwater' : '⚠LOSING';
+                pnlInfo = ` | P/L: ${pnlSign}$${p.unrealizedPnL.toFixed(0)} (${pnlPctSign}${p.unrealizedPnLPct.toFixed(0)}%) ${status}`;
+            }
+            
+            // Add current option price if available
+            let optPriceInfo = '';
+            if (p.lastOptionPrice !== null && p.lastOptionPrice !== undefined) {
+                optPriceInfo = ` | OptPrice: $${p.lastOptionPrice.toFixed(2)}`;
+            }
+            
+            return `${p.ticker}: ${p.type} ${strikeDisplay} (${p.dte}d DTE) ${typeNote}${spreadInfo}${spotInfo}${pnlInfo}${optPriceInfo} - ${riskPct.toFixed(0)}% ITM`;
         }).join('\n');
         
         // Concentration analysis - by ticker
@@ -1862,7 +1879,17 @@ router.post('/portfolio-audit', async (req, res) => {
         // Build the main audit prompt
         const prompt = `You are a professional options portfolio manager providing a comprehensive audit.
 
-IMPORTANT: This portfolio may contain MULTIPLE STRATEGIES beyond just the wheel. LEAPs, long calls, spreads, and other directional trades are VALID profit-generating strategies. Do NOT penalize positions simply for not fitting the "wheel" pattern. Judge each position on its own merits: risk/reward, position sizing, and strategic intent.
+CRITICAL INSTRUCTIONS:
+1. Be DECISIVE. Give clear recommendations, not wishy-washy "on one hand... on the other hand" hedging.
+2. A position marked "✓WINNING" with <7 DTE and decent buffer should be LEFT ALONE to expire - do NOT recommend rolling winners near expiry.
+3. Only flag as PROBLEM if there's genuine risk: ITM, losing money, or buffer <5% on volatile stock.
+4. LEAPs, long calls, spreads are VALID strategies - don't penalize for not being "wheel" trades.
+5. Consider P/L status: a +50% winner with 3 DTE is a SUCCESS, not a "gamma risk" - let it expire!
+
+READING THE DATA:
+- "Spot: $53.20 ($3.20 OTM, 6.4% buffer)" = stock is $3.20 ABOVE the put strike = SAFE
+- "P/L: +$77 (+25%) ✓WINNING" = position is profitable, on track
+- "OptPrice: $0.20" = option is nearly worthless = let it decay to $0
 
 ## CURRENT POSITIONS (${positions.length} total)
 ${positionSummary || 'No open positions'}
@@ -1884,9 +1911,14 @@ ${concentrations.join('\n') || 'None'}
 
 Provide:
 ## 📊 PORTFOLIO GRADE: [A/B/C/D/F]
-Grade based on overall risk management, diversification, and profit potential - not adherence to any single strategy.
+One sentence justification.
 
-Then: 1. 🚨 PROBLEM POSITIONS (actual problems, not just "different strategy"), 2. ⚠️ CONCENTRATION RISKS, 3. 📊 GREEKS ASSESSMENT, 4. 💡 OPTIMIZATION IDEAS, 5. ✅ WHAT'S WORKING`;
+Then:
+1. 🚨 PROBLEM POSITIONS - Only genuine problems (ITM, losing, tiny buffer). Winners near expiry are NOT problems.
+2. ⚠️ CONCENTRATION RISKS - Ticker/sector issues
+3. 📊 GREEKS ASSESSMENT - Delta/theta/vega analysis
+4. 💡 OPTIMIZATION IDEAS - Be specific and actionable. Don't tell someone to roll a winning 3-DTE position.
+5. ✅ WHAT'S WORKING - Praise good positioning`;
 
         const auditResponse = await AIService.callAI(prompt, selectedModel, 1200);
         
