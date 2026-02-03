@@ -25,8 +25,14 @@ let payoffChartState = {
 // Getter/setter for T+X days (called from HTML)
 window.getTplusDays = () => payoffChartState.tPlusDays;
 window.setTplusDays = (days) => {
-    // Cap at current DTE (can go up to and including expiration day)
-    const maxDays = Math.max(0, state.currentPositionContext?.dte || state.dte || 30);
+    // Calculate CURRENT DTE from expiry date (not stored DTE which may be stale)
+    let maxDays = state.currentPositionContext?.dte || state.dte || 30;
+    if (state.currentPositionContext?.expiry) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const expiry = new Date(state.currentPositionContext.expiry + 'T00:00:00');
+        maxDays = Math.max(0, Math.round((expiry - today) / (1000 * 60 * 60 * 24)));
+    }
     payoffChartState.tPlusDays = Math.max(0, Math.min(days, maxDays));
     // Update the display
     const display = document.getElementById('tplusDisplay');
@@ -735,7 +741,14 @@ export function drawPayoffChart() {
     // When simulating spot OR projecting time, calculate projected option price
     // Use implied IV backed out from actual market price for accuracy
     if (needsProjection) {
-        const baseDte = state.currentPositionContext?.dte || state.dte || 30;
+        // Calculate CURRENT DTE from expiry date (not stored DTE which may be stale)
+        let baseDte = state.currentPositionContext?.dte || state.dte || 30;
+        if (state.currentPositionContext?.expiry) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const expiry = new Date(state.currentPositionContext.expiry + 'T00:00:00');
+            baseDte = Math.max(0, Math.round((expiry - today) / (1000 * 60 * 60 * 24)));
+        }
         const isAtExpiration = tPlusDays >= baseDte;  // T+DTE means we're at expiration
         
         let projectedOptionPrice;
