@@ -721,11 +721,14 @@ export function drawPayoffChart() {
     // Determine which P&L to display and where to position the marker
     let displayPnL, displayY;
     
-    // When simulating, project what the option would be worth at T+X days at that spot price
+    // Check if we need time projection (T+X > 0 or simulating spot)
+    const tPlusDays = payoffChartState.tPlusDays || 0;
+    const needsProjection = (isSimulating || tPlusDays > 0) && !isSpread && hasLivePricing;
+    
+    // When simulating spot OR projecting time, calculate projected option price
     // Use implied IV backed out from actual market price for accuracy
-    if (isSimulating && !isSpread && hasLivePricing) {
+    if (needsProjection) {
         const baseDte = state.currentPositionContext?.dte || state.dte || 30;
-        const tPlusDays = payoffChartState.tPlusDays || 0;
         const projectedDte = Math.max(baseDte - tPlusDays, 0.5);  // Don't go below 0.5 days
         const r = 0.05;
         
@@ -749,7 +752,7 @@ export function drawPayoffChart() {
             }
         }
         
-        // Now use this calibrated IV to calculate option price at simulated spot with projected time
+        // Now use this calibrated IV to calculate option price at displaySpot with projected time
         const projectedOptionPrice = bsPrice(displaySpot, strike, T_projected, r, impliedIV, isPut);
         
         if (isLong) {
@@ -800,12 +803,22 @@ export function drawPayoffChart() {
     ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.textAlign = 'left';
-    // Show T+X label when simulating
-    const tPlusDays = payoffChartState.tPlusDays || 0;
-    const tPlusLabel = tPlusDays === 0 ? 'IF' : `T+${tPlusDays}`;
-    const markerLabel = isSimulating 
-        ? `${tPlusLabel}: ` + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0)
-        : 'NOW: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+    // Show T+X label when projecting forward in time or simulating spot
+    const tPlusDaysLabel = payoffChartState.tPlusDays || 0;
+    let markerLabel;
+    if (isSimulating && tPlusDaysLabel > 0) {
+        // Both spot simulation AND time projection
+        markerLabel = `T+${tPlusDaysLabel}: ` + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+    } else if (isSimulating) {
+        // Just spot simulation (T+0)
+        markerLabel = 'IF: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+    } else if (tPlusDaysLabel > 0) {
+        // Just time projection at current spot
+        markerLabel = `T+${tPlusDaysLabel}: ` + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+    } else {
+        // No simulation, no time projection - current live P&L
+        markerLabel = 'NOW: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+    }
     // Place label above/below the dot based on P&L sign
     const labelY = displayPnL >= 0 ? displayY - 15 : displayY + 20;
     ctx.fillText(markerLabel, displaySpotX + 12, labelY);
