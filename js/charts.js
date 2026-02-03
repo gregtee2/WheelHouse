@@ -736,7 +736,10 @@ export function drawPayoffChart() {
     // spotMoved is true if user has dragged the spot line away from current price
     const spotMoved = payoffChartState.simulatedSpot !== null && 
                       Math.abs(payoffChartState.simulatedSpot - spot) > 0.10;
-    const needsProjection = (spotMoved || tPlusDays > 0) && !isSpread && hasLivePricing;
+    
+    // For spreads, we need live pricing OR we can estimate with typical IV
+    // Spreads can project without live pricing since we use estimated IV
+    const needsProjection = (spotMoved || tPlusDays > 0);
     
     // When simulating spot OR projecting time, calculate projected option price
     // Use implied IV backed out from actual market price for accuracy
@@ -751,63 +754,129 @@ export function drawPayoffChart() {
         }
         const isAtExpiration = tPlusDays >= baseDte;  // T+DTE means we're at expiration
         
-        let projectedOptionPrice;
-        
-        if (isAtExpiration) {
-            // At expiration: use intrinsic value directly (no time value)
-            // Put intrinsic = max(strike - spot, 0)
-            // Call intrinsic = max(spot - strike, 0)
-            if (isPut) {
-                projectedOptionPrice = Math.max(strike - displaySpot, 0);
-            } else {
-                projectedOptionPrice = Math.max(displaySpot - strike, 0);
-            }
-        } else {
-            // Before expiration: use Black-Scholes with calibrated IV
-            const projectedDte = baseDte - tPlusDays;
+        // ========== SPREAD PROJECTION ==========
+        if (isSpread && buyStrike && sellStrike) {
+            // Project BOTH legs of the spread forward in time
             const r = 0.05;
-            
-            // Time for current IV calculation (today's DTE)
-            const T_current = Math.max(baseDte / 365.25, 0.001);
-            // Time for projected price calculation (T+X days forward)
+            const projectedDte = Math.max(0, baseDte - tPlusDays);
             const T_projected = Math.max(projectedDte / 365.25, 0.001);
             
-            // Back-calculate implied IV from current market price using bisection
-            // Find IV such that BS(current_spot, strike, T_current, r, IV) = currentOptionPrice
-            let ivLow = 0.01, ivHigh = 3.0;  // IV range: 1% to 300%
-            let impliedIV = 0.5;  // Starting guess
+            // Use stored IV or estimate from position context
+            // Typical IV range: 20-80% for most stocks
+            const estimatedIV = state.currentPositionContext?.iv || 
+                                state.optVol || 
+                                0.35;  // 35% default IV
             
-            for (let i = 0; i < 20; i++) {  // 20 iterations of bisection
-                impliedIV = (ivLow + ivHigh) / 2;
-                const bsCalc = bsPrice(spot, strike, T_current, r, impliedIV, isPut);
-                if (bsCalc < currentOptionPrice) {
-                    ivLow = impliedIV;  // Need higher IV
+            let longLegValue, shortLegValue;
+            
+            if (isAtExpiration) {
+                // At expiration: use intrinsic values
+                if (isPutSpread) {
+                    // Put spread: intrinsic = max(strike - spot, 0)
+                    longLegValue = Math.max(buyStrike - displaySpot, 0);
+                    shortLegValue = Math.max(sellStrike - displaySpot, 0);
                 } else {
-                    ivHigh = impliedIV;  // Need lower IV
+                    // Call spread: intrinsic = max(spot - strike, 0)
+                    longLegValue = Math.max(displaySpot - buyStrike, 0);
+                    shortLegValue = Math.max(displaySpot - sellStrike, 0);
+                }
+            } else {
+                // Before expiration: use Black-Scholes for each leg
+                if (isPutSpread) {
+                    longLegValue = bsPrice(displaySpot, buyStrike, T_projected, r, estimatedIV, true);
+                    shortLegValue = bsPrice(displaySpot, sellStrike, T_projected, r, estimatedIV, true);
+                } else {
+                    longLegValue = bsPrice(displaySpot, buyStrike, T_projected, r, estimatedIV, false);
+                    shortLegValue = bsPrice(displaySpot, sellStrike, T_projected, r, estimatedIV, false);
                 }
             }
             
-            // Now use this calibrated IV to calculate option price at displaySpot with projected time
-            projectedOptionPrice = bsPrice(displaySpot, strike, T_projected, r, impliedIV, isPut);
-        }
-        
-        // Sanity bounds: option price can't be negative
-        // For puts: max value is strike (if stock goes to 0)
-        // For calls: theoretically unlimited, but cap at something reasonable
-        if (isPut) {
-            projectedOptionPrice = Math.max(0, Math.min(projectedOptionPrice, strike));
+            // Sanity bounds
+            longLegValue = Math.max(0, longLegValue);
+            shortLegValue = Math.max(0, shortLegValue);
+            
+            // Net spread value = long leg - short leg
+            const netSpreadValue = longLegValue - shortLegValue;
+            
+            // P&L depends on credit vs debit
+            if (isCredit) {
+                // Credit spread: You received 'premium', now spread is worth 'netSpreadValue'
+                // P&L = premium - abs(netSpreadValue) (you want spread to collapse to 0)
+                displayPnL = (premium - Math.abs(netSpreadValue)) * multiplier;
+            } else {
+                // Debit spread: You paid 'premium', now spread is worth 'netSpreadValue'
+                // P&L = abs(netSpreadValue) - premium (you want spread to expand)
+                displayPnL = (Math.abs(netSpreadValue) - premium) * multiplier;
+            }
+            
+            // Guard against NaN
+            if (isNaN(displayPnL)) displayPnL = expirationPnL;
+            displayY = pnlToY(displayPnL);
+            
+        // ========== SINGLE OPTION PROJECTION ==========
+        } else if (hasLivePricing) {
+            let projectedOptionPrice;
+            
+            if (isAtExpiration) {
+                // At expiration: use intrinsic value directly (no time value)
+                // Put intrinsic = max(strike - spot, 0)
+                // Call intrinsic = max(spot - strike, 0)
+                if (isPut) {
+                    projectedOptionPrice = Math.max(strike - displaySpot, 0);
+                } else {
+                    projectedOptionPrice = Math.max(displaySpot - strike, 0);
+                }
+            } else {
+                // Before expiration: use Black-Scholes with calibrated IV
+                const projectedDte = baseDte - tPlusDays;
+                const r = 0.05;
+                
+                // Time for current IV calculation (today's DTE)
+                const T_current = Math.max(baseDte / 365.25, 0.001);
+                // Time for projected price calculation (T+X days forward)
+                const T_projected = Math.max(projectedDte / 365.25, 0.001);
+                
+                // Back-calculate implied IV from current market price using bisection
+                // Find IV such that BS(current_spot, strike, T_current, r, IV) = currentOptionPrice
+                let ivLow = 0.01, ivHigh = 3.0;  // IV range: 1% to 300%
+                let impliedIV = 0.5;  // Starting guess
+                
+                for (let i = 0; i < 20; i++) {  // 20 iterations of bisection
+                    impliedIV = (ivLow + ivHigh) / 2;
+                    const bsCalc = bsPrice(spot, strike, T_current, r, impliedIV, isPut);
+                    if (bsCalc < currentOptionPrice) {
+                        ivLow = impliedIV;  // Need higher IV
+                    } else {
+                        ivHigh = impliedIV;  // Need lower IV
+                    }
+                }
+                
+                // Now use this calibrated IV to calculate option price at displaySpot with projected time
+                projectedOptionPrice = bsPrice(displaySpot, strike, T_projected, r, impliedIV, isPut);
+            }
+            
+            // Sanity bounds: option price can't be negative
+            // For puts: max value is strike (if stock goes to 0)
+            // For calls: theoretically unlimited, but cap at something reasonable
+            if (isPut) {
+                projectedOptionPrice = Math.max(0, Math.min(projectedOptionPrice, strike));
+            } else {
+                projectedOptionPrice = Math.max(0, projectedOptionPrice);
+            }
+            
+            if (isLong) {
+                displayPnL = (projectedOptionPrice - premium) * multiplier;
+            } else {
+                displayPnL = (premium - projectedOptionPrice) * multiplier;
+            }
+            // Guard against NaN
+            if (isNaN(displayPnL)) displayPnL = expirationPnL;
+            displayY = pnlToY(displayPnL);
         } else {
-            projectedOptionPrice = Math.max(0, projectedOptionPrice);
+            // No live pricing for single options - fall through to expiration P&L
+            displayPnL = expirationPnL;
+            displayY = expirationY;
         }
-        
-        if (isLong) {
-            displayPnL = (projectedOptionPrice - premium) * multiplier;
-        } else {
-            displayPnL = (premium - projectedOptionPrice) * multiplier;
-        }
-        // Guard against NaN
-        if (isNaN(displayPnL)) displayPnL = expirationPnL;
-        displayY = pnlToY(displayPnL);
     } else if (hasLivePricing) {
         // Use live pricing when not projecting (T+0 at current spot)
         if (isSpread) {
