@@ -25,8 +25,8 @@ let payoffChartState = {
 // Getter/setter for T+X days (called from HTML)
 window.getTplusDays = () => payoffChartState.tPlusDays;
 window.setTplusDays = (days) => {
-    // Cap at current DTE - 1 (can't go past expiration)
-    const maxDays = Math.max(0, (state.currentPositionContext?.dte || state.dte || 30) - 1);
+    // Cap at current DTE (can go up to and including expiration day)
+    const maxDays = Math.max(0, state.currentPositionContext?.dte || state.dte || 30);
     payoffChartState.tPlusDays = Math.max(0, Math.min(days, maxDays));
     // Update the display
     const display = document.getElementById('tplusDisplay');
@@ -776,6 +776,8 @@ export function drawPayoffChart() {
         } else {
             displayPnL = (premium - projectedOptionPrice) * multiplier;
         }
+        // Guard against NaN
+        if (isNaN(displayPnL)) displayPnL = expirationPnL;
         displayY = pnlToY(displayPnL);
     } else if (hasLivePricing) {
         // Use live pricing when not projecting (T+0 at current spot)
@@ -804,37 +806,43 @@ export function drawPayoffChart() {
     }
     
     // Draw dot at the appropriate P&L position (on simulated or actual spot line)
-    ctx.beginPath();
-    ctx.arc(displaySpotX, displayY, 6, 0, Math.PI * 2);
-    ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    // Only draw if we have valid values
+    if (!isNaN(displayPnL) && isFinite(displayY)) {
+        ctx.beginPath();
+        ctx.arc(displaySpotX, displayY, 6, 0, Math.PI * 2);
+        ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
     
     // Current P&L label - position based on whether it's profit or loss
-    ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
-    ctx.font = 'bold 13px -apple-system, sans-serif';
-    ctx.textAlign = 'left';
-    // Show T+X label when projecting forward in time or simulating spot
-    const tPlusDaysLabel = payoffChartState.tPlusDays || 0;
-    let markerLabel;
-    if (isSimulating && tPlusDaysLabel > 0) {
-        // Both spot simulation AND time projection
-        markerLabel = `T+${tPlusDaysLabel}: ` + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
-    } else if (isSimulating) {
-        // Just spot simulation (T+0)
-        markerLabel = 'IF: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
-    } else if (tPlusDaysLabel > 0) {
-        // Just time projection at current spot
-        markerLabel = `T+${tPlusDaysLabel}: ` + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
-    } else {
-        // No simulation, no time projection - current live P&L
-        markerLabel = 'NOW: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+    // Guard against NaN displayPnL (skip drawing if invalid)
+    if (!isNaN(displayPnL) && isFinite(displayY)) {
+        ctx.fillStyle = displayPnL >= 0 ? '#00ff88' : '#ff5252';
+        ctx.font = 'bold 13px -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        // Show T+X label when projecting forward in time or simulating spot
+        const tPlusDaysLabel = payoffChartState.tPlusDays || 0;
+        let markerLabel;
+        if (isSimulating && tPlusDaysLabel > 0) {
+            // Both spot simulation AND time projection
+            markerLabel = `T+${tPlusDaysLabel}: ` + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+        } else if (isSimulating) {
+            // Just spot simulation (T+0)
+            markerLabel = 'IF: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+        } else if (tPlusDaysLabel > 0) {
+            // Just time projection at current spot
+            markerLabel = `T+${tPlusDaysLabel}: ` + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+        } else {
+            // No simulation, no time projection - current live P&L
+            markerLabel = 'NOW: ' + (displayPnL >= 0 ? '+' : '') + '$' + displayPnL.toFixed(0);
+        }
+        // Place label above/below the dot based on P&L sign
+        const labelY = displayPnL >= 0 ? displayY - 15 : displayY + 20;
+        ctx.fillText(markerLabel, displaySpotX + 12, labelY);
     }
-    // Place label above/below the dot based on P&L sign
-    const labelY = displayPnL >= 0 ? displayY - 15 : displayY + 20;
-    ctx.fillText(markerLabel, displaySpotX + 12, labelY);
     
     // WHAT-IF TARGET: Show projected P&L at target price
     const whatIfPriceEl = document.getElementById('whatIfPrice');
