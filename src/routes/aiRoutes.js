@@ -1877,7 +1877,12 @@ router.post('/portfolio-audit', async (req, res) => {
             .join('\n');
         
         // Build the main audit prompt - LEAN VERSION: Trust the AI to think
-        const prompt = `Analyze this options portfolio. I run a wheel strategy (selling puts, covered calls) focused on premium collection over time.
+        const prompt = `Analyze this options portfolio. I run a wheel strategy (selling puts, covered calls).
+
+HOW I WIN: For short puts/calls, I just need the stock to be $0.01 past the strike at expiry. That's it.
+- Short put at $82 strike, stock at $89 = I'm WINNING (stock is above strike)
+- Short call at $50 strike, stock at $45 = I'm WINNING (stock is below strike)
+- Mark-to-market P/L can be negative due to IV changes, but if I'm OTM with buffer, I'm on track to win.
 
 ## MY POSITIONS (${positions.length} total)
 ${positionSummary || 'No open positions'}
@@ -1896,25 +1901,28 @@ Win Rate: ${closedStats.winRate?.toFixed(1) || '?'}% | Profit Factor: ${closedSt
 
 ---
 
-Look at each position's data - spot price, strike, buffer, DTE, P/L - and tell me what you actually think.
+For any position you think might be problematic, run a quick Monte Carlo in your head:
+- Given current spot, strike, DTE, and typical volatility for this stock
+- What's the probability it expires OTM (I win) vs ITM (I lose)?
+- If >65% chance of winning, it's probably fine to hold.
 
 Provide:
 ## 📊 PORTFOLIO GRADE: [A/B/C/D/F]
 Why?
 
 ## 🚨 PROBLEM POSITIONS
-Any positions that are actually in trouble? Why?
+Any positions actually in trouble? For each, estimate win probability and explain your concern.
 
 ## ⚠️ RISKS
 Concentration, Greeks, or structural issues?
 
 ## 💡 RECOMMENDATIONS  
-What would YOU do with this portfolio?
+What would YOU do? Be specific.
 
 ## ✅ WHAT'S WORKING
 What's positioned well?
 
-Be direct. I want your honest analysis, not hedged opinions.`;
+Be direct. I want your honest analysis.`;
 
         const auditResponse = await AIService.callAI(prompt, selectedModel, 1200);
         
