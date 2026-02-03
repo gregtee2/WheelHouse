@@ -84,10 +84,12 @@ function initPayoffChartInteraction(canvas) {
     canvas.addEventListener('mousedown', (e) => {
         if (isNearSpotLine(e.clientX)) {
             // Start dragging the spot line
+            // Set to EXACT current spot first to avoid discontinuity, then update on move
             payoffChartState.isDraggingSpot = true;
-            payoffChartState.simulatedSpot = mouseXToPrice(e.clientX);
+            const currentSpot = state.currentPositionContext?.spot || state.spot || 100;
+            payoffChartState.simulatedSpot = currentSpot;
             canvas.style.cursor = 'ew-resize';
-            drawPayoffChart();
+            // Don't redraw yet - wait for first mousemove to avoid flicker
         } else {
             // Regular pan drag
             payoffChartState.isDragging = true;
@@ -723,7 +725,11 @@ export function drawPayoffChart() {
     
     // Check if we need time projection (T+X > 0 or simulating spot)
     const tPlusDays = payoffChartState.tPlusDays || 0;
-    const needsProjection = (isSimulating || tPlusDays > 0) && !isSpread && hasLivePricing;
+    
+    // Only use BS projection if spot has actually moved OR time projection is active
+    // If displaySpot is very close to actual spot and T+0, use live pricing for continuity
+    const spotMoved = Math.abs(displaySpot - spot) > 0.10;  // More than $0.10 movement
+    const needsProjection = (spotMoved || tPlusDays > 0) && !isSpread && hasLivePricing;
     
     // When simulating spot OR projecting time, calculate projected option price
     // Use implied IV backed out from actual market price for accuracy
