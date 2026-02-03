@@ -475,11 +475,51 @@ function generateSummary(positions, accountValue, closedThisWeek = [], holdings 
 }
 
 /**
+ * Detect PMCC (Poor Man's Covered Call) structures
+ * A PMCC is when the same ticker has both a long LEAP call (180+ DTE) and a short call
+ * Returns array of ticker symbols that have PMCC structures
+ */
+function detectPMCCStructures(positions) {
+    if (!positions || !Array.isArray(positions)) return [];
+    
+    const pmccTickers = [];
+    const byTicker = {};
+    
+    // Group positions by ticker
+    for (const pos of positions) {
+        if (!pos.ticker) continue;
+        if (!byTicker[pos.ticker]) byTicker[pos.ticker] = [];
+        byTicker[pos.ticker].push(pos);
+    }
+    
+    // Check each ticker for PMCC pattern
+    for (const [ticker, tickerPositions] of Object.entries(byTicker)) {
+        const hasLongLeapCall = tickerPositions.some(p => 
+            (p.type === 'long_call' || p.type?.includes('long') && p.type?.includes('call')) &&
+            (p.dte >= 180 || p.dte >= 365)  // LEAP = 6+ months out
+        );
+        const hasShortCall = tickerPositions.some(p => 
+            p.type === 'covered_call' || p.type === 'short_call' ||
+            (p.type?.includes('short') && p.type?.includes('call'))
+        );
+        
+        if (hasLongLeapCall && hasShortCall) {
+            pmccTickers.push(ticker);
+        }
+    }
+    
+    return pmccTickers;
+}
+
+/**
  * Build AI prompt for weekly analysis
  */
 function buildWeeklyAnalysisPrompt(summary, history) {
     const prevWeek = history.length > 0 ? history[history.length - 1] : null;
     const weekChange = prevWeek ? summary.accountValue - prevWeek.accountValue : null;
+    
+    // Detect PMCC structures (long LEAP call + short call on same ticker)
+    const pmccTickers = detectPMCCStructures(summary.positions);
     
     let prompt = `You are a trading coach reviewing a trader's weekly performance. Be direct and actionable.
 
@@ -493,7 +533,11 @@ ${weekChange !== null ? `**Week's Change**: ${weekChange >= 0 ? '+' : ''}$${week
 **Realized P&L** (closed this week): ${summary.realizedPnL >= 0 ? '+' : ''}$${summary.realizedPnL?.toLocaleString()}
 
 **Positions**: ${summary.totalOpenPositions} open (${summary.positionsInProfit} profitable, ${summary.positionsAtLoss} losing)
-
+${pmccTickers.length > 0 ? `
+⚠️ PMCC DETECTED: ${pmccTickers.join(', ')} have Poor Man's Covered Call structures (long LEAP + short call).
+When the LEAP is winning and the short call shows a "loss", this is EXPECTED and GOOD - the combined position is profitable.
+Do NOT flag the short call as a problem if the LEAP on the same ticker is winning more.
+` : ''}
 ## Open Positions (sorted by P&L - these are UNREALIZED)
 `;
 
@@ -992,6 +1036,9 @@ Format: **TICKER $STRIKE**: VERDICT - Reason`;
 function buildPortfolioAuditPrompt(summary) {
     const positions = summary.positions || [];
     
+    // Detect PMCC structures
+    const pmccTickers = detectPMCCStructures(positions);
+    
     // Calculate sector/ticker concentration
     const tickerCounts = {};
     const tickerExposure = {};
@@ -1011,7 +1058,13 @@ function buildPortfolioAuditPrompt(summary) {
     }
     
     let prompt = `You are analyzing a trader's portfolio for structural risks. Be specific and actionable.
-
+${pmccTickers.length > 0 ? `
+⚠️ IMPORTANT - PMCC STRUCTURES DETECTED: ${pmccTickers.join(', ')}
+These tickers have Poor Man's Covered Call (PMCC) structures = long LEAP call + short call.
+The short call "losing" is EXPECTED when the LEAP is winning - this is how PMCCs work!
+Do NOT flag the short call as over-concentrated or problematic if the LEAP is offsetting it.
+Treat PMCC legs as a SINGLE combined position when evaluating concentration.
+` : ''}
 ## Portfolio Structure
 
 **Account Value**: $${summary.accountValue?.toLocaleString() || 'Unknown'}

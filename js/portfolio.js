@@ -7,6 +7,7 @@ import { fetchStockPrice, fetchStockPricesBatch, fetchOptionsChain, findOption }
 import { saveHoldingsToStorage, renderPositions } from './positions.js';
 import AccountService from './services/AccountService.js';
 import StreamingService from './services/StreamingService.js';
+import { formatPnLPercent, formatPnLDollar, getPnLColor } from './utils/formatters.js';
 
 // Dynamic storage key based on account mode
 function getClosedStorageKey() { return getClosedKey(); }
@@ -687,10 +688,8 @@ function updatePositionPriceCells(pos) {
         const currentValue = pos.lastOptionPrice * 100 * (pos.contracts || 1);
         const unrealizedPnL = isDebit ? currentValue - entryValue : entryValue - currentValue;
         
-        const color = unrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
-        const sign = unrealizedPnL >= 0 ? '+' : '';
-        plOpenCell.textContent = `${sign}$${Math.abs(unrealizedPnL).toFixed(0)}`;
-        plOpenCell.style.color = color;
+        plOpenCell.textContent = formatPnLDollar(unrealizedPnL);
+        plOpenCell.style.color = getPnLColor(unrealizedPnL, 0);
     }
     
     // Update P/L % cell
@@ -701,16 +700,19 @@ function updatePositionPriceCells(pos) {
             ? ((pos.lastOptionPrice - pos.premium) / pos.premium) * 100
             : ((pos.premium - pos.lastOptionPrice) / pos.premium) * 100;
         
-        const color = pctChange >= 0 ? '#00ff88' : '#ff5252';
-        const sign = pctChange >= 0 ? '+' : '';
-        plPctCell.textContent = `${sign}${pctChange.toFixed(0)}%`;
-        plPctCell.style.color = color;
+        plPctCell.textContent = formatPnLPercent(pctChange);
+        plPctCell.style.color = getPnLColor(pctChange);
     }
     
     // Update P/L Day cell if we have day change data
     const plDayCell = row.querySelector('[data-col="pl-day"]');
     if (plDayCell && pos.dayChange !== undefined) {
-        const dayPnL = pos.dayChange * 100 * (pos.contracts || 1);
+        // For SHORT positions: option price going DOWN = profit, so NEGATE the change
+        // For LONG positions: option price going UP = profit, so keep the change as-is
+        const isLong = isDebitPosition(pos.type);
+        const dayPnL = isLong 
+            ? (pos.dayChange * 100 * (pos.contracts || 1))
+            : (-pos.dayChange * 100 * (pos.contracts || 1));
         const color = dayPnL >= 0 ? '#00ff88' : '#ff5252';
         const sign = dayPnL >= 0 ? '+' : '';
         plDayCell.textContent = `${sign}$${Math.abs(dayPnL).toFixed(0)}`;
@@ -868,6 +870,10 @@ async function refreshAllPositionPrices() {
                             pos.priceUpdatedAt = new Date().toISOString();
                             pos.dayChange = dayChange;
                             updated++;
+                            // Debug: always log CIFR to diagnose P/L Day issue
+                            if (ticker === 'CIFR') {
+                                console.log(`[DEBUG CIFR] $${strike} ${isPut ? 'put' : 'call'}: price=$${price.toFixed(2)}, netChange=${dayChange >= 0 ? '+' : ''}$${dayChange.toFixed(2)}/share, calculated P/L Day = ${pos.type?.includes('long') || pos.type?.includes('debit') ? '' : '-'}${dayChange}*100*${pos.contracts} = $${(pos.type?.includes('long') || pos.type?.includes('debit') ? dayChange : -dayChange) * 100 * pos.contracts}`);
+                            }
                             if (VERBOSE_PRICE_LOGS) console.log(`[REFRESH] ${ticker} $${strike} ${isPut ? 'put' : 'call'}: $${oldPrice?.toFixed(2) || '?'} → $${price.toFixed(2)} (day: ${dayChange >= 0 ? '+' : ''}$${dayChange.toFixed(2)})`);
                         }
                     } else {

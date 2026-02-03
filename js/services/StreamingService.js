@@ -17,6 +17,8 @@
  *   });
  */
 
+import { formatPnLPercent, formatPnLDollar, getPnLColor, getPnLStyle } from '../utils/formatters.js';
+
 class StreamingServiceClass {
     constructor() {
         this.socket = null;
@@ -191,12 +193,17 @@ class StreamingServiceClass {
         
         const positionId = row.dataset.positionId;
         
+        // Compute mid price from bid/ask, or use mark, or fall back to last
+        const midPrice = (quote.bid !== undefined && quote.ask !== undefined)
+            ? (quote.bid + quote.ask) / 2
+            : (quote.mark ?? quote.last);
+        
         // Update position state (if state object is available)
         if (positionId && window.state?.positions) {
             const pos = window.state.positions.find(p => String(p.id) === positionId);
-            if (pos && quote.mid !== undefined) {
+            if (pos && midPrice !== undefined) {
                 const oldPrice = pos.lastOptionPrice;
-                pos.lastOptionPrice = quote.mid;
+                pos.lastOptionPrice = midPrice;
                 pos.priceUpdatedAt = Date.now();
                 
                 // Update delta/theta if provided
@@ -204,7 +211,7 @@ class StreamingServiceClass {
                 if (quote.theta !== undefined) pos.theta = quote.theta;
                 
                 // Update P/L cells (calculated from lastOptionPrice)
-                this._updatePLCells(row, pos, oldPrice, quote.mid);
+                this._updatePLCells(row, pos, oldPrice, midPrice);
             }
         }
         
@@ -288,10 +295,10 @@ class StreamingServiceClass {
         // P/L % is at thetaIndex + 1
         const pctCell = cells[thetaIndex + 1];
         if (pctCell) {
-            const pctColor = unrealizedPnLPct >= 50 ? '#00d9ff' : (unrealizedPnLPct >= 0 ? '#00ff88' : '#ff5252');
+            const pctColor = getPnLColor(unrealizedPnLPct);
+            const pctStyle = getPnLStyle(unrealizedPnLPct);
             const checkmark = unrealizedPnLPct >= 50 ? '✓' : '';
-            const sign = unrealizedPnLPct >= 0 ? '+' : '';
-            pctCell.innerHTML = `<span style="color:${pctColor};font-weight:bold;${unrealizedPnLPct >= 50 ? 'text-shadow:0 0 4px #00d9ff;' : ''}">${checkmark}${sign}${unrealizedPnLPct.toFixed(0)}%</span>`;
+            pctCell.innerHTML = `<span style="color:${pctColor};font-weight:bold;${pctStyle}">${checkmark}${formatPnLPercent(unrealizedPnLPct)}</span>`;
             
             // Flash on change
             if (Math.abs(newPrice - oldPrice) > 0.001) {
@@ -304,9 +311,8 @@ class StreamingServiceClass {
         // P/L Open is at thetaIndex + 3
         const openCell = cells[thetaIndex + 3];
         if (openCell) {
-            const pnlColor = unrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
-            const sign = unrealizedPnL >= 0 ? '+' : '';
-            openCell.innerHTML = `<span style="color:${pnlColor}">${sign}$${unrealizedPnL.toFixed(0)}</span>`;
+            const pnlColor = getPnLColor(unrealizedPnL, 0);
+            openCell.innerHTML = `<span style="color:${pnlColor}">${formatPnLDollar(unrealizedPnL)}</span>`;
         }
     }
     

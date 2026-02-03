@@ -7,6 +7,7 @@ import { fetchPositionTickerPrice, fetchStockPrice, fetchStockPricesBatch } from
 import { drawPayoffChart, resetPayoffChartZoom } from './charts.js';
 import { updateDteDisplay } from './ui.js';
 import PositionsService from './services/PositionsService.js';
+import { formatPnLPercent, formatPnLDollar, formatPrice, getPnLColor, getPnLStyle } from './utils/formatters.js';
 
 // Dynamic storage keys based on account mode (real vs paper)
 function getStorageKey() { return getPositionsKey(); }
@@ -3884,13 +3885,13 @@ function renderPositionsTable(container, openPositions) {
                 <td id="theta-${pos.id}" data-field="theta" style="padding: 6px; text-align: right; color: #888; font-size: 10px;">⏳</td>
                 ${(() => {
                     // P/L % column - just the percentage
-                    const pctColor = unrealizedPnLPct >= 50 ? '#00d9ff' : (unrealizedPnLPct >= 0 ? '#00ff88' : '#ff5252');
-                    const pctStyle = unrealizedPnLPct >= 50 ? 'text-shadow:0 0 4px #00d9ff;' : '';
+                    const pctColor = getPnLColor(unrealizedPnLPct);
+                    const pctStyle = getPnLStyle(unrealizedPnLPct);
                     if (currentOptionPrice === null) {
                         return `<td data-col="pl-pct" style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">⏳</span></td>`;
                     }
                     return `<td data-col="pl-pct" style="padding: 6px; text-align: right; font-size: 11px;" title="Entry: $${pos.premium.toFixed(2)} → Current: $${currentOptionPrice.toFixed(2)}">
-                        <span style="color:${pctColor};font-weight:bold;${pctStyle}">${unrealizedPnLPct >= 50 ? '✓' : ''}${unrealizedPnLPct >= 0 ? '+' : ''}${unrealizedPnLPct.toFixed(0)}%</span>
+                        <span style="color:${pctColor};font-weight:bold;${pctStyle}">${unrealizedPnLPct >= 50 ? '✓' : ''}${formatPnLPercent(unrealizedPnLPct)}</span>
                     </td>`;
                 })()}
                 ${(() => {
@@ -3932,12 +3933,12 @@ function renderPositionsTable(container, openPositions) {
                               `📈 Long $${longStrike} leg: You BOUGHT this (cost/protection)&#10;&#10;` +
                               `The short leg (closer to money) decays FASTER than the long leg.&#10;` +
                               `Net profit = Short decay - Long decay&#10;&#10;` +
-                              `Current Net P&L: ${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)}`
+                              `Current Net P&L: ${formatPnLDollar(unrealizedPnL)}`
                             : `DEBIT SPREAD P&L Breakdown:&#10;&#10;` +
                               `📈 Long $${longStrike} leg: You BOUGHT this (your profit source)&#10;` +
                               `📉 Short $${shortStrike} leg: You SOLD this (offset cost)&#10;&#10;` +
                               `You profit when the spread WIDENS (stock moves in your favor).&#10;&#10;` +
-                              `Current Net P&L: ${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)}`;
+                              `Current Net P&L: ${formatPnLDollar(unrealizedPnL)}`;
                     }
                     
                     const tooltip = isSpread 
@@ -3945,7 +3946,7 @@ function renderPositionsTable(container, openPositions) {
                         : (pos.priceUpdatedAt ? 'Updated: ' + new Date(pos.priceUpdatedAt).toLocaleTimeString() : '');
                     
                     return `<td style="padding: 6px; text-align: right; font-size: 11px; ${isSpread ? 'cursor:help;' : ''}" title="${tooltip}">
-                        <span style="color:${pnlColor}">${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(0)}</span>
+                        <span style="color:${pnlColor}">${formatPnLDollar(unrealizedPnL)}</span>
                         ${isSpread ? '<span style="margin-left:2px;font-size:9px;opacity:0.6;">ⓘ</span>' : ''}
                     </td>`;
                 })()}

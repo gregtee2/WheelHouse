@@ -727,8 +727,9 @@ export function drawPayoffChart() {
     const tPlusDays = payoffChartState.tPlusDays || 0;
     
     // Only use BS projection if spot has actually moved OR time projection is active
-    // If displaySpot is very close to actual spot and T+0, use live pricing for continuity
-    const spotMoved = Math.abs(displaySpot - spot) > 0.10;  // More than $0.10 movement
+    // spotMoved is true if user has dragged the spot line away from current price
+    const spotMoved = payoffChartState.simulatedSpot !== null && 
+                      Math.abs(payoffChartState.simulatedSpot - spot) > 0.10;
     const needsProjection = (spotMoved || tPlusDays > 0) && !isSpread && hasLivePricing;
     
     // When simulating spot OR projecting time, calculate projected option price
@@ -776,11 +777,8 @@ export function drawPayoffChart() {
             displayPnL = (premium - projectedOptionPrice) * multiplier;
         }
         displayY = pnlToY(displayPnL);
-    } else if (isSimulating) {
-        // Fallback for spreads or no live pricing: use expiration P&L
-        displayPnL = expirationPnL;
-        displayY = expirationY;
     } else if (hasLivePricing) {
+        // Use live pricing when not projecting (T+0 at current spot)
         if (isSpread) {
             // For SPREADS: Use isCredit to determine direction
             // Credit spread: You received premium, pay currentPrice to close

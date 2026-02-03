@@ -293,6 +293,13 @@ h1 {
 /* Layout Grid - Default 2-column */
 .main-grid { display: grid; grid-template-columns: 1fr 380px; gap: 8px; }
 
+/* Positions Tab - Shift content left within the centered container */
+#positions .main-grid {
+    position: relative;
+    left: -200px;
+    max-width: calc(100% + 200px);
+}
+
 /* Options Tab - 3-column no-scroll layout */
 .options-layout {
     display: grid;

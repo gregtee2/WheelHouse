@@ -11,11 +11,14 @@ const WebSocket = require('ws');
 const STREAMER_HOST = process.env.STREAMER_HOST || 'localhost';
 const STREAMER_PORT = process.env.STREAMER_PORT || 8889;
 const RECONNECT_INTERVAL = 5000; // 5 seconds
+const HEALTH_CHECK_INTERVAL = 15000; // 15 seconds - check connection health
+const MAX_SILENCE_BEFORE_RECONNECT = 60000; // 60 seconds - force reconnect if no messages
 
 // State
 let streamerSocket = null;
 let isConnecting = false;
 let reconnectTimer = null;
+let healthCheckTimer = null;
 let io = null; // Socket.IO server reference
 
 // Stats
@@ -25,7 +28,9 @@ const stats = {
     messagesReceived: 0,
     quotesReceived: 0,
     subscribedSymbols: [],
-    reconnectAttempts: 0
+    reconnectAttempts: 0,
+    lastDisconnectReason: null,
+    totalDisconnects: 0
 };
 
 /**
@@ -71,13 +76,15 @@ function connectToStreamer() {
             }
         });
         
-        streamerSocket.on('close', () => {
+        streamerSocket.on('close', (code, reason) => {
             isConnecting = false;
             stats.connected = false;
-            console.log('[STREAMER] Disconnected from Python streamer');
+            stats.lastDisconnectReason = `close_code_${code}`;
+            const reasonStr = reason ? reason.toString() : 'unknown';
+            console.log(`[STREAMER] Disconnected from Python streamer (code: ${code}, reason: ${reasonStr})`);
             
             if (io) {
-                io.emit('streamer-status', { connected: false });
+                io.emit('streamer-status', { connected: false, disconnectReason: stats.lastDisconnectReason });
             }
             
             // Schedule reconnect
@@ -107,12 +114,40 @@ function scheduleReconnect() {
     if (reconnectTimer) return;
     
     stats.reconnectAttempts++;
+    stats.totalDisconnects++;
     const delay = Math.min(RECONNECT_INTERVAL * stats.reconnectAttempts, 60000);
+    
+    console.log(`[STREAMER] Scheduling reconnect in ${delay/1000}s (attempt ${stats.reconnectAttempts}, total disconnects: ${stats.totalDisconnects})`);
     
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         connectToStreamer();
     }, delay);
+}
+
+/**
+ * Check connection health - force reconnect if silent too long
+ */
+function checkConnectionHealth() {
+    if (!stats.connected) return;
+    
+    const now = Date.now();
+    const lastMsg = stats.lastMessage ? new Date(stats.lastMessage).getTime() : 0;
+    const silenceMs = now - lastMsg;
+    
+    if (silenceMs > MAX_SILENCE_BEFORE_RECONNECT) {
+        console.log(`[STREAMER] ⚠️ No messages for ${Math.round(silenceMs/1000)}s - forcing reconnect`);
+        stats.lastDisconnectReason = 'silence_timeout';
+        
+        // Force close and reconnect
+        if (streamerSocket) {
+            try {
+                streamerSocket.close();
+            } catch (e) {}
+        }
+        stats.connected = false;
+        scheduleReconnect();
+    }
 }
 
 /**
@@ -399,12 +434,17 @@ function init(deps) {
     // Start connection to Python streamer
     connectToStreamer();
     
-    // Periodic ping to keep connection alive
+    // Periodic ping to keep connection alive (every 30s)
     setInterval(() => {
         if (stats.connected) {
             sendToStreamer({ command: 'ping' });
         }
     }, 30000);
+    
+    // Health check - force reconnect if no messages for too long (every 15s)
+    setInterval(() => {
+        checkConnectionHealth();
+    }, HEALTH_CHECK_INTERVAL);
     
     console.log('[STREAMER] Streaming routes initialized');
 }
