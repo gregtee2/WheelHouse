@@ -753,7 +753,16 @@ export function drawPayoffChart() {
         }
         
         // Now use this calibrated IV to calculate option price at displaySpot with projected time
-        const projectedOptionPrice = bsPrice(displaySpot, strike, T_projected, r, impliedIV, isPut);
+        let projectedOptionPrice = bsPrice(displaySpot, strike, T_projected, r, impliedIV, isPut);
+        
+        // Sanity bounds: option price can't be negative
+        // For puts: max value is strike (if stock goes to 0)
+        // For calls: theoretically unlimited, but cap at something reasonable
+        if (isPut) {
+            projectedOptionPrice = Math.max(0, Math.min(projectedOptionPrice, strike));
+        } else {
+            projectedOptionPrice = Math.max(0, projectedOptionPrice);
+        }
         
         if (isLong) {
             displayPnL = (projectedOptionPrice - premium) * multiplier;
