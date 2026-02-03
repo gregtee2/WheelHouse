@@ -1751,7 +1751,37 @@ router.post('/portfolio-audit', async (req, res) => {
                 spreadInfo = ` MaxProfit: $${p.maxProfit}, MaxLoss: $${p.maxLoss}`;
             }
             
-            return `${p.ticker}: ${p.type} ${strikeDisplay} (${p.dte}d DTE) ${typeNote}${spreadInfo} - ${riskPct.toFixed(0)}% ITM`;
+            // ========================================================
+            // CRITICAL: Add spot price and distance from strike!
+            // Without this, AI can't assess actual risk level.
+            // ========================================================
+            let spotInfo = '';
+            if (p.currentSpot && p.strike) {
+                const spot = p.currentSpot;
+                const strike = p.strike;
+                const isPut = p.type?.includes('put');
+                const isCall = p.type?.includes('call');
+                
+                // Calculate distance from strike
+                const distance = Math.abs(spot - strike);
+                const distancePct = ((distance / strike) * 100).toFixed(1);
+                
+                // Determine if OTM or ITM
+                let moneyness;
+                if (isPut) {
+                    // Put is OTM when spot > strike, ITM when spot < strike
+                    moneyness = spot > strike ? 'OTM' : (spot < strike ? 'ITM' : 'ATM');
+                } else if (isCall) {
+                    // Call is OTM when spot < strike, ITM when spot > strike
+                    moneyness = spot < strike ? 'OTM' : (spot > strike ? 'ITM' : 'ATM');
+                } else {
+                    moneyness = '';
+                }
+                
+                spotInfo = ` | Spot: $${spot.toFixed(2)} ($${distance.toFixed(2)} ${moneyness}, ${distancePct}% buffer)`;
+            }
+            
+            return `${p.ticker}: ${p.type} ${strikeDisplay} (${p.dte}d DTE) ${typeNote}${spreadInfo}${spotInfo} - ${riskPct.toFixed(0)}% ITM`;
         }).join('\n');
         
         // Concentration analysis - by ticker
