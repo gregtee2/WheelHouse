@@ -4733,8 +4733,18 @@ export function updatePortfolioSummary() {
     const totalOpen = openPositions.length;
     const totalContracts = openPositions.reduce((sum, p) => sum + p.contracts, 0);
     
-    // Net Premium: must account for buybacks from roll chains
-    // For each open position, calculate the CHAIN net premium (premiums - buybacks)
+    // Premium Collected: sum of credits on open positions only (what you keep if they expire worthless)
+    // Does NOT include debit positions (LEAPS, long calls) - those are costs, not income
+    const premiumCollected = openPositions.reduce((sum, p) => {
+        if (isDebitPosition(p.type)) {
+            return sum; // Skip debit positions - they're costs, not premium collected
+        }
+        const premium = (p.premium || 0) * 100 * (p.contracts || 1);
+        return sum + premium;
+    }, 0);
+    
+    // Net Premium (legacy): accounts for buybacks from roll chains
+    // Kept for ROC calculation which uses net premium
     const netPremium = openPositions.reduce((sum, p) => {
         // Get all positions in this chain (including closed rolled positions)
         const chainId = p.chainId || p.id;
@@ -4835,12 +4845,6 @@ export function updatePortfolioSummary() {
         }
     }, 0);
     
-    // Total P/L = Unrealized P/L only (NOT Net Premium + Unrealized)
-    // Why? For credit positions, unrealized P/L already represents "premium received minus cost to close"
-    // Adding Net Premium would double-count the premium.
-    // Net Premium is shown separately for cash flow visibility.
-    const totalPnL = unrealizedPnL;
-    
     // Calculate ROC (Return on Capital) = Net Premium / Capital at Risk
     const roc = capitalAtRisk > 0 ? (netPremium / capitalAtRisk) * 100 : 0;
     
@@ -4918,24 +4922,18 @@ export function updatePortfolioSummary() {
                     <div id="thetaSummaryTile" style="color: #888; font-size: 24px; font-weight: bold;">—</div>
                 </div>
             </div>
-            <div class="summary-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; 
+            <div class="summary-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; 
                         background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;">
                 <div class="summary-item" style="text-align: center;">
-                    <div style="color: #888; font-size: 11px;" title="Cash collected minus cash paid (includes roll buybacks)">NET PREMIUM</div>
-                    <div style="color: ${netPremium >= 0 ? '#00ff88' : '#ff5252'}; font-size: 22px; font-weight: bold;">
-                        ${netPremium >= 0 ? '+' : ''}${formatCurrency(netPremium)}
+                    <div style="color: #888; font-size: 11px;" title="Total premium received on credit positions (what you keep if all expire worthless)">PREMIUM COLLECTED</div>
+                    <div style="color: ${premiumCollected >= 0 ? '#00ff88' : '#ff5252'}; font-size: 22px; font-weight: bold;">
+                        ${premiumCollected >= 0 ? '+' : ''}${formatCurrency(premiumCollected)}
                     </div>
                 </div>
                 <div class="summary-item" style="text-align: center; border-left: 1px solid #333; padding-left: 12px;">
-                    <div style="color: #888; font-size: 11px;" title="Current value vs entry price">UNREALIZED P/L</div>
+                    <div style="color: #888; font-size: 11px;" title="Net P/L if you closed all positions right now (sum of P/L Open column)">IF CLOSED NOW</div>
                     <div style="color: ${unrealizedPnL >= 0 ? '#00ff88' : '#ff5252'}; font-size: 22px; font-weight: bold;">
                         ${unrealizedPnL >= 0 ? '+' : ''}${formatCurrency(unrealizedPnL)}
-                    </div>
-                </div>
-                <div class="summary-item" style="text-align: center; border-left: 1px solid #333; padding-left: 12px;">
-                    <div style="color: #888; font-size: 11px;" title="Profit if closed now (premium kept minus cost to close)">TOTAL P/L</div>
-                    <div style="color: ${totalPnL >= 0 ? '#00ff88' : '#ff5252'}; font-size: 22px; font-weight: bold;">
-                        ${totalPnL >= 0 ? '+' : ''}${formatCurrency(totalPnL)}
                     </div>
                 </div>
                 <div class="summary-item" style="text-align: center; border-left: 1px solid #333; padding-left: 12px;">

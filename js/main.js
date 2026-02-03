@@ -975,15 +975,35 @@ StreamingService.on('futures-quote', (quote) => {
     }
 });
 
-// Auto-subscribe to futures when streaming service connects
+// Update status indicator when streamer connects/disconnects
 StreamingService.on('streamer-status', (status) => {
+    const statusEl = document.getElementById('futuresStatus');
+    
     if (status.connected) {
+        // Update status to show connected
+        if (statusEl) {
+            // Check if it's weekend (markets closed)
+            const now = new Date();
+            const day = now.getDay(); // 0 = Sunday, 6 = Saturday
+            const hour = now.getHours();
+            const isWeekend = (day === 6) || (day === 0 && hour < 18);
+            
+            statusEl.textContent = isWeekend ? '📺 Waiting (markets closed)' : '🟢 Connected';
+            statusEl.style.color = isWeekend ? '#ffaa00' : '#00ff88';
+        }
+        
         // Auto-subscribe to futures if not already subscribed
         setTimeout(() => {
             if (StreamingService.futuresQuotes.size === 0) {
                 window.subscribeFutures();
             }
         }, 1000);
+    } else {
+        // Update status to show disconnected
+        if (statusEl) {
+            statusEl.textContent = 'Disconnected';
+            statusEl.style.color = '#666';
+        }
     }
 });
 

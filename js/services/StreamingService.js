@@ -68,6 +68,9 @@ class StreamingServiceClass {
             this.connected = true;
             console.log('[STREAMING] Connected to server');
             this._emit('connected');
+            
+            // Request current streamer status immediately
+            this.socket.emit('get-streamer-status');
         });
         
         this.socket.on('disconnect', () => {

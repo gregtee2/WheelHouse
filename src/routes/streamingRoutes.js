@@ -415,6 +415,14 @@ function init(deps) {
                 subscribedSymbols: stats.subscribedSymbols
             });
             
+            // Handle explicit status request
+            socket.on('get-streamer-status', () => {
+                socket.emit('streamer-status', {
+                    connected: stats.connected,
+                    subscribedSymbols: stats.subscribedSymbols
+                });
+            });
+            
             // Handle subscription requests from browser
             socket.on('subscribe-positions', (positions) => {
                 console.log(`[STREAMER] Browser requested subscription for ${positions?.length || 0} positions`);
