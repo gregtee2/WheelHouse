@@ -732,6 +732,7 @@ function snapToFriday(dateStr) {
 window.snapToFriday = snapToFriday;
 window.getThirdFriday = getThirdFriday;
 window.formatExpiryShort = formatExpiryShort;
+window.drawPayoffChart = drawPayoffChart;  // For T+X controls and inline handlers
 
 /**
  * Restart the server
