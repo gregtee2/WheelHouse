@@ -2685,12 +2685,6 @@ window.deepDive = async function(ticker) {
             }
             
             const roc = (p.mid / actualStrike) * 100;
-                const expYear = expMonth < new Date().getMonth() ? new Date().getFullYear() + 1 : new Date().getFullYear();
-                const expDate = new Date(expYear, expMonth, expDay);
-                dte = Math.max(1, Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24)));
-            }
-            const roc = (p.mid / actualStrike) * 100;
-            annualizedRoc = (roc * (365 / dte)).toFixed(1);
             
             // Probability of profit from delta
             let probProfit = '';
