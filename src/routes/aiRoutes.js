@@ -728,15 +728,27 @@ router.post('/deep-dive', async (req, res) => {
         let { ticker, strike, expiry, currentPrice, model, positionType, targetDelta } = data;
         const selectedModel = model || 'qwen2.5:32b';
         
+        // Validate expiry format - if malformed, set to null to trigger chain lookup
+        const isValidExpiry = expiry && (
+            /^\d{4}-\d{2}-\d{2}$/.test(expiry) ||  // ISO: 2026-02-28
+            /^[A-Z][a-z]{2}\s+\d{1,2}/.test(expiry)  // Short: Feb 28
+        );
+        if (expiry && !isValidExpiry) {
+            console.log(`[DEEP-DIVE] Invalid expiry "${expiry}", will fetch from chain`);
+            expiry = null;
+        }
+        
         // Determine option type
         const callTypes = ['long_call', 'long_call_leaps', 'covered_call', 'leap', 'leaps', 'call', 'call_debit_spread', 'call_credit_spread', 'skip_call'];
         const typeLower = (positionType || '').toLowerCase().replace(/\s+/g, '_');
         const optionType = callTypes.some(s => typeLower.includes(s)) ? 'CALL' : 'PUT';
         
-        // If no strike provided, fetch real options chain and find ~0.20 delta option
+        // If no strike or no valid expiry, fetch real options chain
         let selectedOption = null;
-        if (!strike) {
-            console.log(`[DEEP-DIVE] Fetching real options chain for ${ticker}...`);
+        const needsChainLookup = !strike || !expiry;
+        
+        if (needsChainLookup) {
+            console.log(`[DEEP-DIVE] Fetching real options chain for ${ticker}... (strike=${strike}, expiry=${expiry})`);
             const chain = await MarketDataService.getOptionsChain(ticker, { strikeCount: 40, range: 'ALL' });
             
             console.log(`[DEEP-DIVE] Chain result: ${chain ? `${chain.puts?.length || 0} puts, ${chain.expirations?.length || 0} expirations, source=${chain.source}` : 'null'}`);
@@ -766,27 +778,47 @@ router.post('/deep-dive', async (req, res) => {
                 
                 console.log(`[DEEP-DIVE] Selected expiry: ${bestExpiry} (${bestExpiryDTE} DTE)`);
                 
-                // Filter puts at target expiry with valid delta
-                const putsAtExpiry = chain.puts.filter(p => 
-                    p.expiration === bestExpiry && 
-                    p.delta !== undefined && 
-                    p.delta !== null &&
-                    Math.abs(p.delta) > 0.05 && Math.abs(p.delta) < 0.50
-                );
-                
-                // Find closest to target delta (puts have negative delta, so compare absolute)
-                if (putsAtExpiry.length > 0) {
-                    putsAtExpiry.sort((a, b) => 
-                        Math.abs(Math.abs(a.delta) - desiredDelta) - Math.abs(Math.abs(b.delta) - desiredDelta)
+                // If strike was provided, find that specific option
+                // Otherwise, find the option closest to target delta
+                if (strike && bestExpiry) {
+                    // We have a strike, just need the expiry and premium data
+                    const optAtStrike = chain.puts.find(p => 
+                        p.expiration === bestExpiry && 
+                        p.strike === parseFloat(strike)
                     );
-                    selectedOption = putsAtExpiry[0];
-                    strike = selectedOption.strike;
-                    expiry = bestExpiry;
-                    currentPrice = chain.spotPrice || (await MarketDataService.getQuote(ticker))?.price;
-                    
-                    console.log(`[DEEP-DIVE] ✅ Found ${ticker} $${strike}P @ ${expiry} (${bestExpiryDTE} DTE, delta=${selectedOption.delta}, bid=$${selectedOption.bid}, ask=$${selectedOption.ask})`);
+                    if (optAtStrike) {
+                        selectedOption = optAtStrike;
+                        expiry = bestExpiry;
+                        currentPrice = chain.spotPrice || currentPrice;
+                        console.log(`[DEEP-DIVE] ✅ Found ${ticker} $${strike}P @ ${expiry} (bid=$${optAtStrike.bid}, ask=$${optAtStrike.ask})`);
+                    } else {
+                        // Couldn't find exact strike, use the best expiry anyway
+                        expiry = bestExpiry;
+                        console.log(`[DEEP-DIVE] ⚠️ No exact match for $${strike} at ${bestExpiry}, will try CBOE`);
+                    }
                 } else {
-                    console.log(`[DEEP-DIVE] ⚠️ No puts with valid delta found at ${bestExpiry}`);
+                    // Filter puts at target expiry with valid delta
+                    const putsAtExpiry = chain.puts.filter(p => 
+                        p.expiration === bestExpiry && 
+                        p.delta !== undefined && 
+                        p.delta !== null &&
+                        Math.abs(p.delta) > 0.05 && Math.abs(p.delta) < 0.50
+                    );
+                    
+                    // Find closest to target delta (puts have negative delta, so compare absolute)
+                    if (putsAtExpiry.length > 0) {
+                        putsAtExpiry.sort((a, b) => 
+                            Math.abs(Math.abs(a.delta) - desiredDelta) - Math.abs(Math.abs(b.delta) - desiredDelta)
+                        );
+                        selectedOption = putsAtExpiry[0];
+                        strike = selectedOption.strike;
+                        expiry = bestExpiry;
+                        currentPrice = chain.spotPrice || (await MarketDataService.getQuote(ticker))?.price;
+                        
+                        console.log(`[DEEP-DIVE] ✅ Found ${ticker} $${strike}P @ ${expiry} (${bestExpiryDTE} DTE, delta=${selectedOption.delta}, bid=$${selectedOption.bid}, ask=$${selectedOption.ask})`);
+                    } else {
+                        console.log(`[DEEP-DIVE] ⚠️ No puts with valid delta found at ${bestExpiry}`);
+                    }
                 }
             }
             

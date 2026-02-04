@@ -2524,9 +2524,18 @@ window.deepDive = async function(ticker) {
     const expiryMatch = ideaText.match(new RegExp(`${ticker}[^]*?put,?\\s*([A-Z][a-z]+\\s+\\d+)`, 'i'));
     
     const strike = strikeMatch ? strikeMatch[1] : Math.floor(parseFloat(candidate.price) * 0.9);
+    
     // Snap expiry to valid Friday (options never expire on weekends)
+    // If we can't parse expiry, use 3rd Friday of next month
     const rawExpiry = expiryMatch ? expiryMatch[1] : null;
-    const expiry = snapToFriday(rawExpiry);
+    let expiry = snapToFriday(rawExpiry);
+    
+    // Validate expiry is in proper format (Mon DD or Mon DD, YYYY)
+    // If it looks wrong, fall back to third Friday
+    if (!/^[A-Z][a-z]{2}\s+\d{1,2}/.test(expiry)) {
+        console.log(`[Deep Dive] Invalid expiry "${expiry}", using third Friday fallback`);
+        expiry = formatExpiryShort(getThirdFriday(1));
+    }
     
     const selectedModel = window.getSelectedAIModel?.('ideaModelSelect') || 'qwen2.5:32b';
     
