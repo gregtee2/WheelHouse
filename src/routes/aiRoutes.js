@@ -31,6 +31,7 @@ let DataService;         // fetchDeepDiveData, fetchOptionPremium, fetchTickerIV
 let DiscoveryService;    // fetchWheelCandidatePrices
 let promptBuilders;      // All prompt builder functions
 let MarketDataService;   // Centralized market data
+let TechnicalService;    // Trendlines, Fibonacci analysis
 let formatExpiryForCBOE; // Date helper
 let detectGPU;           // GPU detection
 let fetchJsonHttp;       // HTTP fetch helper
@@ -45,6 +46,7 @@ function init(deps) {
     DiscoveryService = deps.DiscoveryService;
     promptBuilders = deps.promptBuilders;
     MarketDataService = deps.MarketDataService;
+    TechnicalService = deps.TechnicalService;
     formatExpiryForCBOE = deps.formatExpiryForCBOE;
     detectGPU = deps.detectGPU;
     fetchJsonHttp = deps.fetchJsonHttp;
@@ -791,8 +793,20 @@ router.post('/deep-dive', async (req, res) => {
         
         console.log(`[AI] Deep dive on ${ticker} $${strike} ${optionType.toLowerCase()}, expiry ${expiry}`);
         
-        // Fetch extended data
-        const tickerData = await DataService.fetchDeepDiveData(ticker);
+        // Fetch extended data + technical analysis (parallel)
+        const [tickerData, technicalAnalysis] = await Promise.all([
+            DataService.fetchDeepDiveData(ticker),
+            TechnicalService ? TechnicalService.analyzeAll(ticker).catch(e => {
+                console.log(`[DEEP-DIVE] ⚠️ Technical analysis failed: ${e.message}`);
+                return null;
+            }) : Promise.resolve(null)
+        ]);
+        
+        // Attach technical data to tickerData for prompt builder
+        if (technicalAnalysis) {
+            tickerData.technicalAnalysis = technicalAnalysis;
+            console.log(`[DEEP-DIVE] 📊 Technical: ${technicalAnalysis.summary}`);
+        }
         
         // Use already-fetched option data if we have it, otherwise fetch premium
         let premium = null;

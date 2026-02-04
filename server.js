@@ -47,6 +47,7 @@ const AIService = require('./src/services/AIService');
 const WisdomService = require('./src/services/WisdomService');
 const promptBuilders = require('./src/services/promptBuilders');
 const DataService = require('./src/services/DataService');
+const TechnicalService = require('./src/services/TechnicalService');
 
 // Destructure AI functions for backward compatibility (used throughout server.js)
 const { callAI, callGrok, callOllama, callMoE } = AIService;
@@ -150,6 +151,7 @@ aiRoutes.init({
     DiscoveryService,
     promptBuilders,
     MarketDataService,
+    TechnicalService,
     formatExpiryForCBOE,
     detectGPU,
     fetchJsonHttp,

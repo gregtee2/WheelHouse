@@ -219,26 +219,68 @@ LIVE PREMIUM (CBOE): Bid $${p.bid.toFixed(2)} / Ask $${p.ask.toFixed(2)}${probPr
 ROC: ${roc}% for ${dte} days (${annualizedRoc}% annualized)`;
     }
     
+    // Format technical analysis data if available (Fibonacci + trendlines)
+    let technicalSection = '';
+    if (t.technicalAnalysis) {
+        const ta = t.technicalAnalysis;
+        const parts = [];
+        
+        // Fibonacci support levels
+        if (ta.fibonacci?.fibLevels) {
+            const fibLevels = ta.fibonacci.fibLevels
+                .filter(f => f.price < priceNum)  // Only show levels BELOW current price (support)
+                .sort((a, b) => b.price - a.price)  // Highest to lowest
+                .slice(0, 3)  // Top 3 support levels
+                .map(f => `${f.level} @ $${f.price.toFixed(2)}`);
+            if (fibLevels.length > 0) {
+                parts.push(`📐 Fibonacci Support: ${fibLevels.join(' | ')}`);
+            }
+        }
+        
+        // Trendline projection
+        if (ta.trendlines?.longestValidTrendline) {
+            const tl = ta.trendlines.longestValidTrendline;
+            parts.push(`📈 Trendline Support (45-day): $${tl.projections['45d']?.toFixed(2) || 'N/A'} (${tl.timeframe} timeframe)`);
+        }
+        
+        // Confluence zone (where Fib and trendline agree)
+        if (ta.confluence) {
+            parts.push(`🎯 CONFLUENCE ZONE: $${ta.confluence.price.toFixed(2)} (Fib + Trendline align - HIGH confidence support)`);
+        }
+        
+        // Suggested strike from technical analysis
+        if (ta.suggestedStrike) {
+            parts.push(`💡 Technical Strike Suggestion: $${ta.suggestedStrike} (below key support)`);
+        }
+        
+        if (parts.length > 0) {
+            technicalSection = `
+📊 TECHNICAL ANALYSIS (Algorithmic):
+${parts.join('\n')}`;
+        }
+    }
+    
     // Concise prompt - straight to the point, no rambling
     return `QUICK WHEEL ANALYSIS for ${ticker}
 
 STOCK: ${ticker} @ $${currentPrice || t.price}
 EXAMPLE TRADE: Sell $${strike} put (${otmPercent}% OTM), expiry ${expiry}
 52-Week: $${t.yearLow} - $${t.yearHigh}
-Support Levels: $${t.recentSupport.join(', $')}
+Support Levels (20-day lows): $${t.recentSupport.join(', $')}
 ${t.sma20 ? `20-Day SMA: $${t.sma20} (${t.aboveSMA20 ? 'above' : 'BELOW'})` : ''}
 ${t.earnings ? `⚠️ Earnings: ${t.earnings}` : 'No upcoming earnings'}
-${premiumSection}
+${premiumSection}${technicalSection}
 
 Give me a CONCISE analysis. NO rambling, NO "let me think about this", NO chain-of-thought. Just the facts:
 
 📊 **THE SETUP** (2-3 sentences max)
 Quick take on ${ticker} right now - trend, recent price action, any catalysts.
 
-🎯 **STRIKE OPTIONS** (be specific with numbers)
-- SAFE: $XX strike (XX% OTM) - for cautious traders
-- BALANCED: $XX strike (XX% OTM) - good risk/reward
-- AGGRESSIVE: $XX strike (XX% OTM) - more premium, more risk
+🎯 **STRIKE SELECTION** (USE THE TECHNICAL SUPPORT LEVELS ABOVE)
+Choose strikes based on the Fibonacci and trendline support levels provided.
+- SAFE: Strike below the major support zone - lowest risk
+- BALANCED: Strike near the 61.8% Fib level - good risk/reward  
+- AGGRESSIVE: Strike closer to current price - more premium, more risk
 
 ⏰ **TIMING**
 Is now a good entry? Any reason to wait (earnings, technicals, etc.)?
