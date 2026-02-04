@@ -1492,16 +1492,13 @@ function buildIdeaPrompt(data, realPrices = [], xTrendingTickers = []) {
         }).join('\n');
     }
     
-    return `You are a WHEEL STRATEGY advisor. Analyze the data below and pick 10 SHORT PUT trades.
-PRIORITIZE variety - pick from DIFFERENT sectors. Spread across all available sectors.
-If you see "Active Today" or "Trending" stocks, INCLUDE at least 2-3 of them - these are today's movers!
-${xTrendingTickers.length > 0 ? `\n🔥 X/TWITTER PRIORITY: ${xTrendingTickers.join(', ')} - These are trending on FinTwit right now! Include at least 2-3 if they meet criteria!` : ''}
+    return `You are a WHEEL STRATEGY advisor. Analyze the data below and pick trades.
 
-═══ CRITICAL RULES ═══
-⚠️ NEVER pick stocks above 70% of range - they are EXTENDED and risky for puts!
-⚠️ PREFER stocks 0-50% of range - these are near SUPPORT = safer put entries
-⚠️ Negative month change is GOOD - pullbacks = better premium capture
+═══ MANDATORY RANGE FILTER ═══
+🚫 PUTS: ONLY stocks 0-65% of range. Stocks 66%+ are BANNED for puts - no exceptions!
+✅ BUY/WRITE: Stocks 50-100% of range are GOOD candidates (you want momentum for covered calls)
 
+${xTrendingTickers.length > 0 ? `🔥 X/TWITTER TRENDING: ${xTrendingTickers.join(', ')} - Consider if range position fits!\n` : ''}
 ═══ ACCOUNT ═══
 Buying Power: $${buyingPower?.toLocaleString() || '25,000'}
 Target ROC: ${targetAnnualROC || 25}%/year
@@ -1509,45 +1506,31 @@ Today: ${today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', yea
 Expiries: ${expiryStr}
 ${currentTickers.length > 0 ? `Already have positions in: ${currentTickers.join(', ')}` : ''}
 ${sectorsToAvoid ? `Avoid sectors: ${sectorsToAvoid}` : ''}
-${portfolioContext ? `
-═══ PORTFOLIO CONTEXT (from recent audit) ═══
-${portfolioContext}
-⚠️ PRIORITIZE trades that BALANCE the portfolio - reduce concentration, balance delta!` : ''}
+${portfolioContext ? `\n═══ PORTFOLIO CONTEXT ═══\n${portfolioContext}` : ''}
 
 ═══ CANDIDATE DATA (real-time) ═══
 ${priceData}
 
-═══ WHEEL STRATEGY CRITERIA ═══
-✅ IDEAL candidates (PICK THESE):
-- Range 0-40%: NEAR LOWS = excellent put entry
-- Negative month change: pullback = juicy premium
-- NO earnings before expiry
-- Strike ~10% below current
+═══ YOUR OUTPUT ═══
 
-⚠️ OKAY candidates (use judgment):
-- Range 40-65%: mid-range = acceptable if other factors align
-- Small positive month gain (<5%): not ideal but workable
+**SECTION 1: SHORT PUTS (5-7 ideas)**
+ONLY from stocks 0-65% of range. Lower = better.
+Format:
+1. [TICKER] @ $XX.XX (XX% of range) - Sell $XX put, ${expiryDates[0]?.date || 'Feb 20'}
+   Why: [1 sentence - range position, support, pullback = good entry]
+   Risk: [1 sentence - earnings, sector, technical]
+   Capital: $X,XXX
 
-❌ DO NOT PICK (skip these entirely):
-- Range 70%+: EXTENDED, high risk of assignment
-- Range 100%: AT MONTHLY HIGH - worst possible put entry
-- Large positive month gain (>10%): chasing momentum
+**SECTION 2: BUY/WRITE (2-3 ideas)**
+For stocks 50%+ of range - momentum plays where you WANT the stock.
+Buy 100 shares + sell ATM/OTM call = reduced cost basis.
+Format:
+1. [TICKER] @ $XX.XX (XX% of range) - Buy stock + Sell $XX call, ${expiryDates[0]?.date || 'Feb 20'}
+   Why: [Bullish thesis - momentum, trend, sector strength]
+   Call premium: ~$X.XX → Cost basis: $XX.XX
+   Max profit if called: $X,XXX
 
-═══ EXPIRY DATES (use EXACTLY these - they are Fridays) ═══
-Near-term: ${expiryDates[0]?.date || 'Feb 20'} (${expiryDates[0]?.dte || 30} DTE)
-Mid-term: ${expiryDates[1]?.date || 'Mar 20'} (${expiryDates[1]?.dte || 60} DTE)
-
-═══ FORMAT (exactly like this) ═══
-1. [TICKER] @ $XX.XX - Sell $XX put, ${expiryDates[0]?.date || 'Feb 20'}
-   Entry: [Why NOW is good timing - use the data: range position, month change, support level]
-   Risk: [Specific risk - earnings date, sector issue, or technical concern]
-   Capital: $X,XXX (COPY from data above - it's strike × 100)
-
-2. ... (continue through 10)
-
-Give me 10 different ideas from DIFFERENT sectors. USE THE DATA. Copy the Capital value from the candidate data.
-SKIP any stock above 70% of range - those are extended and risky!
-USE ONLY the expiry dates listed above - they are valid Friday expirations.`;
+PRIORITIZE variety across sectors. Use the real data above.`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
