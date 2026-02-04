@@ -3736,7 +3736,12 @@ window.stageTradeWithThesis = function() {
             rangeLow: thesis.rangeLow,
             rangePosition: thesis.rangePosition,  // 0% = at 3mo low, 100% = at 3mo high
             premium: thesis.premium,
-            aiSummary: extractThesisSummary(thesis.aiAnalysis)
+            iv: thesis.premium?.iv || thesis.tickerData?.iv || null,
+            selectionRationale: thesis.selectionRationale || null,  // Why this expiry was chosen
+            aiSummary: extractThesisSummary(thesis.aiAnalysis),
+            // Store full technical analysis for reference
+            technicalAnalysis: thesis.tickerData?.technicalAnalysis || null,
+            fibonacci: thesis.tickerData?.technicalAnalysis?.fibonacci || null
         }
     };
     
@@ -6902,6 +6907,12 @@ window.runPositionCheckup = async function(positionId) {
                     <div style="margin-top:8px;font-size:11px;color:#666;">
                         IV at entry: ${pos.openingThesis.iv}% | Range: ${pos.openingThesis.rangePosition}% | 
                         Price: $${pos.openingThesis.priceAtAnalysis}
+                    </div>
+                ` : ''}
+                ${pos.openingThesis.selectionRationale?.summary ? `
+                    <div style="margin-top:8px;background:rgba(0,217,255,0.1);padding:8px;border-radius:4px;border-left:3px solid #00d9ff;font-size:11px;">
+                        <span style="color:#00d9ff;">🧠 Why this expiry:</span>
+                        <span style="color:#aaa;">${pos.openingThesis.selectionRationale.summary}</span>
                     </div>
                 ` : ''}
                 ${pos.openingThesis.aiSummary?.fullAnalysis ? `
