@@ -164,5 +164,30 @@ router.get('/yahoo/:ticker', async (req, res) => {
     }
 });
 
+// =============================================================================
+// TECHNICAL ANALYSIS - Trendline support detection
+// =============================================================================
+
+const TechnicalService = require('../services/TechnicalService');
+
+router.get('/technical/:ticker', async (req, res) => {
+    const ticker = req.params.ticker?.toUpperCase();
+    console.log(`[TECHNICAL] Analyzing trendlines for ${ticker}...`);
+    
+    try {
+        const analysis = await TechnicalService.analyzeTrendlines(ticker);
+        res.json(analysis);
+        
+        if (analysis.longestValidTrendline) {
+            console.log(`[TECHNICAL] ✅ ${ticker}: ${analysis.summary}`);
+        } else {
+            console.log(`[TECHNICAL] ⚠️ ${ticker}: No valid trendlines`);
+        }
+    } catch (e) {
+        console.log(`[TECHNICAL] ❌ Error: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 module.exports = router;
 module.exports.init = init;
