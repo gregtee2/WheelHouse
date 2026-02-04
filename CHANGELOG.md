@@ -3,7 +3,13 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
-## [1.19.62] - 2026-02-03
+## [1.19.63] - 2026-02-03
+
+### Fixed
+- **ROC Calculation Bug** - Fixed annualized ROC calculation in smart expiry selection
+  - Was dividing premium by collateral×100 (wrong units), now uses per-share basis
+  - Before: Showed ~0.5% annualized (incorrect)
+  - After: Shows ~50% annualized (correct for 2.29% ROC over 16 DTE)
 
 ### Changed
 - **🧠 Smart Expiry Selection** - Deep Dive now picks the BEST expiry, not just closest to 30 DTE
@@ -11,13 +17,14 @@ All notable changes to WheelHouse will be documented in this file.
   - Calculates annualized ROC for each (maximizes capital efficiency)
   - Picks the one with the **best annualized ROC** - less capital tied up for longer
   - 15% penalty applied to DTE < 21 (gamma risk) to balance risk/reward
-  - Shows "🧠 Why this expiry?" rationale in Deep Dive modal
-  - Example: 21 DTE with 84% annualized ROC beats 45 DTE with 40% annualized ROC
+  - Shows "🧠 Why this expiry?" cyan info box with alternatives comparison
+  - Example: "Selected 16 DTE for best capital efficiency: 50% ann. ROC (vs 23d: 40%, 30d: 40%)"
 
 ### Technical
 - Backend evaluates ~5-8 expiration candidates per Deep Dive
-- Selection rationale returned in API response for UI display
-- Console logs show all candidates: DTE, strike, delta, premium, ROC, annualized ROC
+- Selection rationale includes: DTE, annualizedROC, roc, delta, premium, candidatesEvaluated
+- Both `xDeepDive()` (X Sentiment) and `deepDive()` (Scanner) now use smart selection
+- Frontend formats annualizedROC with `.toFixed(0)` for clean display
 
 ---
 

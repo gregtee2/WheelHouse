@@ -5,11 +5,42 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-Proprietary-red)
-![Version](https://img.shields.io/badge/version-1.19.4-blue)
+![Version](https://img.shields.io/badge/version-1.19.63-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
+
+## 🆕 What's New in v1.19.63
+
+### 🧠 Smart Expiry Selection
+Deep Dive no longer just picks "closest to 30 DTE" - it now **evaluates all expirations** and picks the one with the **best annualized ROC**:
+
+| Feature | Before | After |
+|---------|--------|-------|
+| Expiry Logic | Closest to 30 DTE | Best annualized ROC in 14-60 DTE range |
+| ROC Display | Not shown | "50% ann. (vs 23d: 40%, 30d: 40%)" |
+| Explanation | None | "🧠 Why this expiry?" info box |
+| Capital Efficiency | Ignored | Optimized - less capital tied up |
+
+**How it works:**
+1. Evaluates all expirations from 14-60 DTE
+2. Finds ~25-30 delta puts at each expiration
+3. Calculates annualized ROC: `(premium / strike) × (365 / dte)`
+4. Applies 15% penalty to DTE < 21 (gamma risk)
+5. Picks the winner and explains why
+
+**Example output:**
+> "🧠 Why this expiry? Selected 16 DTE for best capital efficiency: 50% annualized ROC (vs 23d: 40%, 30d: 40%, 37d: 37%)"
+
+### 🔔 Price Alert System (v1.19.61)
+Get notified when stocks hit your Fibonacci support levels:
+- One-click alerts from Deep Dive technical analysis
+- **Proximity zones** - Alerts trigger when within 3% of target
+- Browser notifications + audio beep
+- Persists across sessions
+
+---
 
 ## 🆕 What's New in v1.19.4
 
