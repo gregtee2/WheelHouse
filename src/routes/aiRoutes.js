@@ -728,6 +728,9 @@ router.post('/deep-dive', async (req, res) => {
         let { ticker, strike, expiry, currentPrice, model, positionType, targetDelta } = data;
         const selectedModel = model || 'qwen2.5:32b';
         
+        // Selection rationale for UI display
+        let selectionRationale = null;
+        
         // Validate expiry format - if malformed, set to null to trigger chain lookup
         const isValidExpiry = expiry && (
             /^\d{4}-\d{2}-\d{2}$/.test(expiry) ||  // ISO: 2026-02-28
@@ -755,70 +758,112 @@ router.post('/deep-dive', async (req, res) => {
             
             if (chain && chain.puts && chain.puts.length > 0) {
                 const today = new Date();
-                const targetDTE = 30;
                 const desiredDelta = targetDelta || 0.20;  // Default to 0.20 delta (conservative)
+                const spotPrice = chain.spotPrice || currentPrice;
                 
-                // Find best expiry (closest to 30 DTE, minimum 21 DTE)
-                let bestExpiry = null;
-                let bestExpiryDTE = null;
+                // SMART EXPIRY SELECTION: Evaluate multiple expirations and pick best annualized ROC
+                // This maximizes return while minimizing capital tie-up time
+                console.log(`[DEEP-DIVE] Evaluating expirations for best annualized ROC (target delta: ${desiredDelta})...`);
+                
+                // Find all valid expirations (21-60 DTE range is the sweet spot for wheel strategy)
+                const candidateExpiries = [];
                 for (const exp of (chain.expirations || [])) {
                     const expDate = new Date(exp);
                     const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
-                    if (dte >= 21) {
-                        if (!bestExpiry || Math.abs(dte - targetDTE) < Math.abs(bestExpiryDTE - targetDTE)) {
-                            bestExpiry = exp;
-                            bestExpiryDTE = dte;
-                        }
+                    if (dte >= 14 && dte <= 60) {  // 14-60 DTE range
+                        candidateExpiries.push({ expiry: exp, dte });
                     }
                 }
-                if (!bestExpiry && chain.expirations?.length > 0) {
-                    bestExpiry = chain.expirations[0];
-                    bestExpiryDTE = Math.ceil((new Date(bestExpiry) - today) / (1000 * 60 * 60 * 24));
-                }
                 
-                console.log(`[DEEP-DIVE] Selected expiry: ${bestExpiry} (${bestExpiryDTE} DTE)`);
-                
-                // If strike was provided, find that specific option
-                // Otherwise, find the option closest to target delta
-                if (strike && bestExpiry) {
-                    // We have a strike, just need the expiry and premium data
-                    const optAtStrike = chain.puts.find(p => 
-                        p.expiration === bestExpiry && 
-                        p.strike === parseFloat(strike)
-                    );
-                    if (optAtStrike) {
-                        selectedOption = optAtStrike;
-                        expiry = bestExpiry;
-                        currentPrice = chain.spotPrice || currentPrice;
-                        console.log(`[DEEP-DIVE] ✅ Found ${ticker} $${strike}P @ ${expiry} (bid=$${optAtStrike.bid}, ask=$${optAtStrike.ask})`);
-                    } else {
-                        // Couldn't find exact strike, use the best expiry anyway
-                        expiry = bestExpiry;
-                        console.log(`[DEEP-DIVE] ⚠️ No exact match for $${strike} at ${bestExpiry}, will try CBOE`);
-                    }
-                } else {
-                    // Filter puts at target expiry with valid delta
+                // For each expiry, find the best ~delta put and calculate annualized ROC
+                const candidates = [];
+                for (const { expiry: candidateExp, dte } of candidateExpiries) {
                     const putsAtExpiry = chain.puts.filter(p => 
-                        p.expiration === bestExpiry && 
+                        p.expiration === candidateExp && 
                         p.delta !== undefined && 
                         p.delta !== null &&
-                        Math.abs(p.delta) > 0.05 && Math.abs(p.delta) < 0.50
+                        Math.abs(p.delta) >= 0.10 && Math.abs(p.delta) <= 0.35  // 10-35 delta range
                     );
                     
-                    // Find closest to target delta (puts have negative delta, so compare absolute)
-                    if (putsAtExpiry.length > 0) {
-                        putsAtExpiry.sort((a, b) => 
-                            Math.abs(Math.abs(a.delta) - desiredDelta) - Math.abs(Math.abs(b.delta) - desiredDelta)
-                        );
-                        selectedOption = putsAtExpiry[0];
-                        strike = selectedOption.strike;
-                        expiry = bestExpiry;
-                        currentPrice = chain.spotPrice || (await MarketDataService.getQuote(ticker))?.price;
-                        
-                        console.log(`[DEEP-DIVE] ✅ Found ${ticker} $${strike}P @ ${expiry} (${bestExpiryDTE} DTE, delta=${selectedOption.delta}, bid=$${selectedOption.bid}, ask=$${selectedOption.ask})`);
-                    } else {
-                        console.log(`[DEEP-DIVE] ⚠️ No puts with valid delta found at ${bestExpiry}`);
+                    if (putsAtExpiry.length === 0) continue;
+                    
+                    // Find closest to target delta
+                    putsAtExpiry.sort((a, b) => 
+                        Math.abs(Math.abs(a.delta) - desiredDelta) - Math.abs(Math.abs(b.delta) - desiredDelta)
+                    );
+                    const bestPut = putsAtExpiry[0];
+                    
+                    // Calculate ROC and annualized ROC
+                    const premium = bestPut.bid || ((bestPut.bid + bestPut.ask) / 2) || 0;
+                    const collateral = bestPut.strike * 100;  // Cash-secured put collateral
+                    const roc = premium > 0 && collateral > 0 ? (premium / collateral) * 100 : 0;
+                    const annualizedROC = roc * (365 / dte);
+                    
+                    candidates.push({
+                        expiry: candidateExp,
+                        dte,
+                        option: bestPut,
+                        strike: bestPut.strike,
+                        delta: bestPut.delta,
+                        premium,
+                        roc,
+                        annualizedROC
+                    });
+                    
+                    console.log(`[DEEP-DIVE]   ${candidateExp} (${dte}d): $${bestPut.strike}P, Δ${(Math.abs(bestPut.delta)*100).toFixed(0)}%, $${premium.toFixed(2)} → ROC ${roc.toFixed(2)}% → Ann. ${annualizedROC.toFixed(0)}%`);
+                }
+                
+                // Pick the candidate with the best annualized ROC
+                // But add a small penalty for very short DTE (under 21) due to gamma risk
+                if (candidates.length > 0) {
+                    candidates.sort((a, b) => {
+                        // Apply 15% penalty for DTE under 21 (higher gamma risk)
+                        const aScore = a.annualizedROC * (a.dte < 21 ? 0.85 : 1.0);
+                        const bScore = b.annualizedROC * (b.dte < 21 ? 0.85 : 1.0);
+                        return bScore - aScore;  // Descending
+                    });
+                    
+                    const winner = candidates[0];
+                    selectedOption = winner.option;
+                    strike = winner.strike;
+                    expiry = winner.expiry;
+                    currentPrice = spotPrice;
+                    
+                    // Build selection rationale for UI
+                    const otherOptions = candidates.slice(1, 4).map(c => 
+                        `${c.dte}d: ${c.annualizedROC.toFixed(0)}%`
+                    ).join(', ');
+                    
+                    selectionRationale = {
+                        reason: 'best_annualized_roc',
+                        dte: winner.dte,
+                        annualizedROC: winner.annualizedROC,
+                        roc: winner.roc,
+                        delta: Math.abs(winner.delta) * 100,
+                        premium: winner.premium,
+                        candidatesEvaluated: candidates.length,
+                        summary: `Selected ${winner.dte} DTE for best capital efficiency: ${winner.annualizedROC.toFixed(0)}% annualized ROC` + 
+                                 (otherOptions ? ` (vs ${otherOptions})` : '')
+                    };
+                    
+                    console.log(`[DEEP-DIVE] 🏆 WINNER: ${expiry} (${winner.dte} DTE) - $${strike}P @ $${winner.premium.toFixed(2)} → ${winner.annualizedROC.toFixed(0)}% annualized ROC`);
+                } else {
+                    // Fallback: just pick closest to 30 DTE
+                    console.log(`[DEEP-DIVE] ⚠️ No valid candidates, falling back to closest to 30 DTE`);
+                    selectionRationale = { reason: 'fallback', summary: 'Used closest expiry to 30 DTE (no valid candidates found)' };
+                    let bestExpiry = null;
+                    let bestExpiryDTE = null;
+                    for (const exp of (chain.expirations || [])) {
+                        const expDate = new Date(exp);
+                        const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+                        if (dte >= 14) {
+                            if (!bestExpiry || Math.abs(dte - 30) < Math.abs(bestExpiryDTE - 30)) {
+                                bestExpiry = exp;
+                                bestExpiryDTE = dte;
+                            }
+                        }
                     }
+                    expiry = bestExpiry || chain.expirations?.[0];
                 }
             }
             
@@ -883,7 +928,9 @@ router.post('/deep-dive', async (req, res) => {
             // Return the actual strike/expiry used (important when auto-selected)
             strike: parseFloat(strike),
             expiry,
-            currentPrice
+            currentPrice,
+            // Include selection rationale for UI to show WHY this expiry was chosen
+            selectionRationale
         });
         console.log('[AI] ✅ Deep dive complete');
     } catch (e) {

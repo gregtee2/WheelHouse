@@ -3,6 +3,24 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.62] - 2026-02-03
+
+### Changed
+- **🧠 Smart Expiry Selection** - Deep Dive now picks the BEST expiry, not just closest to 30 DTE
+  - Evaluates all expirations from 14-60 DTE
+  - Calculates annualized ROC for each (maximizes capital efficiency)
+  - Picks the one with the **best annualized ROC** - less capital tied up for longer
+  - 15% penalty applied to DTE < 21 (gamma risk) to balance risk/reward
+  - Shows "🧠 Why this expiry?" rationale in Deep Dive modal
+  - Example: 21 DTE with 84% annualized ROC beats 45 DTE with 40% annualized ROC
+
+### Technical
+- Backend evaluates ~5-8 expiration candidates per Deep Dive
+- Selection rationale returned in API response for UI display
+- Console logs show all candidates: DTE, strike, delta, premium, ROC, annualized ROC
+
+---
+
 ## [1.19.61] - 2026-02-02
 
 ### Added

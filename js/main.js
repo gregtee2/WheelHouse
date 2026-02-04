@@ -2294,6 +2294,7 @@ window.xDeepDive = async function(ticker) {
         let expiry = result.expiry;
         const price = result.currentPrice;
         const premium = result.premium;
+        const selectionRationale = result.selectionRationale;
         
         // Format expiry for display (ISO date -> "Feb 28, 2026")
         const formatExpiry = (exp) => {
@@ -2322,8 +2323,15 @@ window.xDeepDive = async function(ticker) {
             `<div style="background:rgba(139,92,246,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
                 <strong style="color:#7a8a94;">Current Premium:</strong> $${premium.mid?.toFixed(2) || premium.bid?.toFixed(2) || '?'} per share
                 <span style="color:#666; margin-left:10px;">(bid $${premium.bid?.toFixed(2)} / ask $${premium.ask?.toFixed(2)})</span>
-                ${premium.delta ? `<span style="margin-left:15px; color:#00d9ff;">Δ ${(premium.delta * 100).toFixed(0)}%</span>` : ''}
+                ${premium.delta ? `<span style="margin-left:15px; color:#00d9ff;">Δ ${(Math.abs(premium.delta) * 100).toFixed(0)}%</span>` : ''}
                 ${premium.iv ? `<span style="margin-left:15px; color:#ffaa00;">IV ${premium.iv}%</span>` : ''}
+            </div>` : '';
+        
+        // Show selection rationale (why this DTE was chosen)
+        const rationaleInfo = selectionRationale?.summary ? 
+            `<div style="background:rgba(0,217,255,0.1); padding:10px 12px; border-radius:6px; margin-bottom:16px; border-left:3px solid #00d9ff;">
+                <span style="color:#00d9ff; font-size:12px;">🧠 <strong>Why this expiry?</strong></span>
+                <span style="color:#aaa; font-size:12px; margin-left:8px;">${selectionRationale.summary}</span>
             </div>` : '';
         
         document.getElementById('xDeepDiveContent').innerHTML = `
@@ -2332,6 +2340,7 @@ window.xDeepDive = async function(ticker) {
                 <span style="margin-left:20px;">Analyzing: <span style="color:#00ff88;">Sell $${strike} Put</span> expiring ${expiryDisplay}</span>
                 <span style="color:#666; font-size:10px; margin-left:10px;">(real chain data)</span>
             </div>
+            ${rationaleInfo}
             ${premiumInfo}
             <div style="white-space:pre-wrap;">${formatted}</div>
             <div style="margin-top:20px; padding-top:16px; border-top:1px solid #333; display:flex; gap:10px;">
