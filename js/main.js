@@ -555,10 +555,50 @@ window.refreshAccountFromSchwab = async function() {
  */
 window.setPaperBalance = function() {
     const currentBalance = getPaperAccountBalance();
-    const input = prompt('Enter paper trading starting balance ($):', currentBalance.toString());
-    if (input === null) return;
     
-    const newBalance = parseFloat(input.replace(/[,$]/g, ''));
+    // Create modal (Electron doesn't support prompt())
+    const modal = document.createElement('div');
+    modal.id = 'paperBalanceModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:10000;';
+    modal.innerHTML = `
+        <div style="background:#1a1a2e;border:1px solid #8b5cf6;border-radius:12px;padding:24px;width:350px;text-align:center;">
+            <h3 style="margin:0 0 16px;color:#b9f;">💵 Paper Trading Balance</h3>
+            <p style="color:#888;font-size:13px;margin-bottom:16px;">Set your starting balance for paper trading simulation.</p>
+            <input type="text" id="paperBalanceInput" value="${currentBalance.toLocaleString()}" 
+                   style="width:100%;padding:12px;font-size:18px;text-align:center;background:#0d0d1a;border:1px solid #444;border-radius:6px;color:#fff;margin-bottom:16px;"
+                   onkeydown="if(event.key==='Enter')document.getElementById('confirmPaperBalance').click()">
+            <div style="display:flex;gap:12px;justify-content:center;">
+                <button onclick="document.getElementById('paperBalanceModal').remove()" 
+                        style="padding:10px 24px;background:#333;color:#888;border:none;border-radius:6px;cursor:pointer;">
+                    Cancel
+                </button>
+                <button id="confirmPaperBalance" onclick="window.confirmPaperBalance()" 
+                        style="padding:10px 24px;background:#8b5cf6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">
+                    Set Balance
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Focus and select input
+    setTimeout(() => {
+        const input = document.getElementById('paperBalanceInput');
+        if (input) {
+            input.focus();
+            input.select();
+        }
+    }, 100);
+};
+
+/**
+ * Confirm paper balance from modal
+ */
+window.confirmPaperBalance = function() {
+    const input = document.getElementById('paperBalanceInput');
+    if (!input) return;
+    
+    const newBalance = parseFloat(input.value.replace(/[,$]/g, ''));
     if (isNaN(newBalance) || newBalance <= 0) {
         showNotification('Invalid amount. Please enter a positive number.', 'error');
         return;
@@ -573,6 +613,9 @@ window.setPaperBalance = function() {
         if (balBP) balBP.textContent = `$${newBalance.toLocaleString()}`;
         if (balValue) balValue.textContent = `$${newBalance.toLocaleString()}`;
     }
+    
+    // Close modal
+    document.getElementById('paperBalanceModal')?.remove();
     
     showNotification(`📝 Paper account balance set to $${newBalance.toLocaleString()}`, 'success');
 };
