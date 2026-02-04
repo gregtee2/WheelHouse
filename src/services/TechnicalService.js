@@ -272,6 +272,229 @@ class TechnicalService {
                 : 'No valid support trendlines found - all timeframes breached'
         };
     }
+    
+    /**
+     * Find significant swing high/low for Fibonacci calculation
+     * Looks for the major move that defines current price action
+     * @param {Array} ohlc - OHLC data
+     * @returns {{swingLow, swingHigh, lowDate, highDate}}
+     */
+    static findMajorSwing(ohlc) {
+        if (!ohlc || ohlc.length < 60) return null;
+        
+        // Find the absolute low and high in the dataset
+        let lowestIdx = 0, highestIdx = 0;
+        let lowestPrice = Infinity, highestPrice = 0;
+        
+        for (let i = 0; i < ohlc.length; i++) {
+            if (ohlc[i].low < lowestPrice) {
+                lowestPrice = ohlc[i].low;
+                lowestIdx = i;
+            }
+            if (ohlc[i].high > highestPrice) {
+                highestPrice = ohlc[i].high;
+                highestIdx = i;
+            }
+        }
+        
+        // Determine if this is an uptrend (low before high) or downtrend (high before low)
+        const isUptrend = lowestIdx < highestIdx;
+        
+        return {
+            swingLow: lowestPrice,
+            swingHigh: highestPrice,
+            lowDate: ohlc[lowestIdx].date,
+            highDate: ohlc[highestIdx].date,
+            isUptrend,
+            lowIdx: lowestIdx,
+            highIdx: highestIdx
+        };
+    }
+    
+    /**
+     * Calculate Fibonacci retracement levels
+     * @param {number} low - Swing low price
+     * @param {number} high - Swing high price
+     * @returns {Array<{level, ratio, price}>}
+     */
+    static calculateFibLevels(low, high) {
+        const range = high - low;
+        
+        // Standard Fib ratios (for retracement from high back toward low)
+        const ratios = [
+            { level: '0%', ratio: 0, desc: 'High (Peak)' },
+            { level: '23.6%', ratio: 0.236, desc: 'Shallow pullback' },
+            { level: '38.2%', ratio: 0.382, desc: 'Moderate pullback' },
+            { level: '50%', ratio: 0.5, desc: 'Half retracement' },
+            { level: '61.8%', ratio: 0.618, desc: 'Golden ratio (key support)' },
+            { level: '78.6%', ratio: 0.786, desc: 'Deep retracement' },
+            { level: '100%', ratio: 1.0, desc: 'Low (Origin)' }
+        ];
+        
+        return ratios.map(r => ({
+            level: r.level,
+            ratio: r.ratio,
+            price: Math.round((high - range * r.ratio) * 100) / 100,
+            desc: r.desc
+        }));
+    }
+    
+    /**
+     * Find which Fib level current price is near
+     * @param {number} currentPrice 
+     * @param {Array} fibLevels 
+     * @returns {{nearestLevel, distancePercent, nextSupport, nextResistance}}
+     */
+    static findNearestFibLevel(currentPrice, fibLevels) {
+        let nearest = null;
+        let minDistance = Infinity;
+        let nextSupport = null;
+        let nextResistance = null;
+        
+        for (let i = 0; i < fibLevels.length; i++) {
+            const fib = fibLevels[i];
+            const distance = Math.abs(currentPrice - fib.price);
+            const distancePercent = Math.abs((currentPrice - fib.price) / fib.price * 100);
+            
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearest = { ...fib, distancePercent: Math.round(distancePercent * 10) / 10 };
+            }
+            
+            // Find next support (Fib level below current price)
+            if (fib.price < currentPrice && (!nextSupport || fib.price > nextSupport.price)) {
+                nextSupport = fib;
+            }
+            
+            // Find next resistance (Fib level above current price)
+            if (fib.price > currentPrice && (!nextResistance || fib.price < nextResistance.price)) {
+                nextResistance = fib;
+            }
+        }
+        
+        return { nearest, nextSupport, nextResistance };
+    }
+    
+    /**
+     * Full Fibonacci analysis for a ticker
+     * @param {string} ticker 
+     * @returns {Object} Fib analysis with levels and current position
+     */
+    static async analyzeFibonacci(ticker) {
+        console.log(`[TECHNICAL] Calculating Fibonacci levels for ${ticker}...`);
+        
+        // Fetch 2 years of data to find major swing
+        const ohlc = await this.fetchOHLC(ticker, 2);
+        if (!ohlc || ohlc.length < 60) {
+            return { error: 'Insufficient price data' };
+        }
+        
+        const currentPrice = ohlc[ohlc.length - 1].close;
+        
+        // Find the major swing high/low
+        const swing = this.findMajorSwing(ohlc);
+        if (!swing) {
+            return { error: 'Could not identify major swing' };
+        }
+        
+        // Calculate Fib levels
+        const fibLevels = this.calculateFibLevels(swing.swingLow, swing.swingHigh);
+        
+        // Find where current price sits
+        const position = this.findNearestFibLevel(currentPrice, fibLevels);
+        
+        // Suggest strike at or below next support level
+        let suggestedStrike = null;
+        if (position.nextSupport) {
+            const supportPrice = position.nextSupport.price;
+            if (supportPrice >= 50) {
+                suggestedStrike = Math.floor(supportPrice / 5) * 5;
+            } else {
+                suggestedStrike = Math.floor(supportPrice / 2.5) * 2.5;
+            }
+        }
+        
+        return {
+            ticker,
+            currentPrice: Math.round(currentPrice * 100) / 100,
+            analysisDate: new Date().toISOString().split('T')[0],
+            swing: {
+                low: Math.round(swing.swingLow * 100) / 100,
+                high: Math.round(swing.swingHigh * 100) / 100,
+                lowDate: swing.lowDate.toISOString().split('T')[0],
+                highDate: swing.highDate.toISOString().split('T')[0],
+                isUptrend: swing.isUptrend,
+                movePercent: Math.round((swing.swingHigh - swing.swingLow) / swing.swingLow * 100)
+            },
+            fibLevels,
+            position: {
+                nearest: position.nearest,
+                nextSupport: position.nextSupport,
+                nextResistance: position.nextResistance
+            },
+            suggestedStrike,
+            summary: position.nextSupport 
+                ? `Currently near ${position.nearest?.level} ($${position.nearest?.price}). Next Fib support: ${position.nextSupport.level} at $${position.nextSupport.price}. Suggested strike: $${suggestedStrike}`
+                : `At or below all Fib levels - no clear support`
+        };
+    }
+    
+    /**
+     * Combined technical analysis - trendlines + Fibonacci
+     * @param {string} ticker 
+     * @returns {Object} Full technical analysis
+     */
+    static async analyzeAll(ticker) {
+        console.log(`[TECHNICAL] Running full analysis for ${ticker}...`);
+        
+        const [trendlines, fibonacci] = await Promise.all([
+            this.analyzeTrendlines(ticker),
+            this.analyzeFibonacci(ticker)
+        ]);
+        
+        // Combine suggestions - prefer confluence (where trendline and Fib agree)
+        let confluenceSupport = null;
+        if (trendlines.longestValidTrendline && fibonacci.position?.nextSupport) {
+            const trendSupport = trendlines.longestValidTrendline.projections['45d'];
+            const fibSupport = fibonacci.position.nextSupport.price;
+            
+            // If they're within 10% of each other, we have confluence
+            const diff = Math.abs(trendSupport - fibSupport) / fibSupport * 100;
+            if (diff < 10) {
+                confluenceSupport = {
+                    price: Math.round((trendSupport + fibSupport) / 2 * 100) / 100,
+                    trendlineSupport: trendSupport,
+                    fibSupport: fibSupport,
+                    confidence: 'HIGH - Trendline and Fib align'
+                };
+            }
+        }
+        
+        // Best suggested strike
+        let bestStrike = null;
+        if (confluenceSupport) {
+            // Use confluence point
+            const support = confluenceSupport.price;
+            bestStrike = support >= 50 ? Math.floor(support / 5) * 5 : Math.floor(support / 2.5) * 2.5;
+        } else if (trendlines.suggestedStrike) {
+            bestStrike = trendlines.suggestedStrike;
+        } else if (fibonacci.suggestedStrike) {
+            bestStrike = fibonacci.suggestedStrike;
+        }
+        
+        return {
+            ticker,
+            currentPrice: fibonacci.currentPrice || trendlines.currentPrice,
+            analysisDate: new Date().toISOString().split('T')[0],
+            trendlines,
+            fibonacci,
+            confluence: confluenceSupport,
+            suggestedStrike: bestStrike,
+            summary: confluenceSupport 
+                ? `🎯 CONFLUENCE: Trendline ($${confluenceSupport.trendlineSupport}) and Fib ${fibonacci.position?.nextSupport?.level} ($${confluenceSupport.fibSupport}) align near $${confluenceSupport.price}. Strong support zone. Strike: $${bestStrike}`
+                : `Trendline: ${trendlines.summary}. Fib: ${fibonacci.summary}`
+        };
+    }
 }
 
 module.exports = TechnicalService;

@@ -170,6 +170,7 @@ router.get('/yahoo/:ticker', async (req, res) => {
 
 const TechnicalService = require('../services/TechnicalService');
 
+// Trendline analysis only
 router.get('/technical/:ticker', async (req, res) => {
     const ticker = req.params.ticker?.toUpperCase();
     console.log(`[TECHNICAL] Analyzing trendlines for ${ticker}...`);
@@ -185,6 +186,36 @@ router.get('/technical/:ticker', async (req, res) => {
         }
     } catch (e) {
         console.log(`[TECHNICAL] ❌ Error: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Fibonacci retracement only
+router.get('/fibonacci/:ticker', async (req, res) => {
+    const ticker = req.params.ticker?.toUpperCase();
+    console.log(`[TECHNICAL] Calculating Fibonacci for ${ticker}...`);
+    
+    try {
+        const analysis = await TechnicalService.analyzeFibonacci(ticker);
+        res.json(analysis);
+        console.log(`[TECHNICAL] ✅ ${ticker} Fib: ${analysis.summary}`);
+    } catch (e) {
+        console.log(`[TECHNICAL] ❌ Fib error: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Combined analysis (trendlines + Fibonacci + confluence detection)
+router.get('/support/:ticker', async (req, res) => {
+    const ticker = req.params.ticker?.toUpperCase();
+    console.log(`[TECHNICAL] Full support analysis for ${ticker}...`);
+    
+    try {
+        const analysis = await TechnicalService.analyzeAll(ticker);
+        res.json(analysis);
+        console.log(`[TECHNICAL] ✅ ${ticker}: ${analysis.summary}`);
+    } catch (e) {
+        console.log(`[TECHNICAL] ❌ Support analysis error: ${e.message}`);
         res.status(500).json({ error: e.message });
     }
 });
