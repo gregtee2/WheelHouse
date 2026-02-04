@@ -2410,7 +2410,7 @@ window.getTradeIdeas = async function() {
     const buyingPower = parseFloat(document.getElementById('ideaBuyingPower')?.value) || 25000;
     const targetROC = parseFloat(document.getElementById('ideaTargetROC')?.value) || 25;
     const sectorsToAvoid = document.getElementById('ideaSectorsAvoid')?.value || '';
-    const selectedModel = document.getElementById('ideaModelSelect')?.value || 'deepseek-r1:32b';
+    const selectedModel = window.getSelectedAIModel?.('ideaModelSelect') || 'qwen2.5:32b';
     
     // Check if X trending tickers should be included
     const useXTickers = document.getElementById('useXTickers')?.checked;
@@ -2513,7 +2513,7 @@ window.deepDive = async function(ticker) {
     const rawExpiry = expiryMatch ? expiryMatch[1] : null;
     const expiry = snapToFriday(rawExpiry);
     
-    const selectedModel = document.getElementById('ideaModelSelect')?.value || 'deepseek-r1:32b';
+    const selectedModel = window.getSelectedAIModel?.('ideaModelSelect') || 'qwen2.5:32b';
     
     // Show modal with loading state
     const modal = document.createElement('div');
@@ -8934,7 +8934,7 @@ window.getTradeIdeas2 = async function() {
     const buyingPower = parseFloat(document.getElementById('ideaBuyingPower2')?.value) || 25000;
     const targetROC = parseFloat(document.getElementById('ideaTargetROC2')?.value) || 25;
     const sectorsToAvoid = document.getElementById('ideaSectorsAvoid2')?.value || '';
-    const selectedModel = document.getElementById('ideaModelSelect2')?.value || 'deepseek-r1:32b';
+    const selectedModel = window.getSelectedAIModel?.('ideaModelSelect2') || 'qwen2.5:32b';
     
     // Check if X trending tickers should be included
     const useXTickers = document.getElementById('useXTickers2')?.checked;
@@ -9060,7 +9060,7 @@ window.getTradeIdeasDifferent = async function() {
     const buyingPower = parseFloat(document.getElementById('ideaBuyingPower2')?.value) || 25000;
     const targetROC = parseFloat(document.getElementById('ideaTargetROC2')?.value) || 25;
     const sectorsToAvoid = document.getElementById('ideaSectorsAvoid2')?.value || '';
-    const selectedModel = document.getElementById('ideaModelSelect2')?.value || 'deepseek-r1:32b';
+    const selectedModel = window.getSelectedAIModel?.('ideaModelSelect2') || 'qwen2.5:32b';
     
     // Gather current positions for context
     const currentPositions = (window.state?.positions || []).map(p => ({
