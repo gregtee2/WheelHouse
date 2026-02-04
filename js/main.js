@@ -2226,9 +2226,12 @@ window.getXSentiment = async function() {
 window.xDeepDive = async function(ticker) {
     // Use global model selector - prefer non-reasoning models for cleaner output
     // deepseek-r1 models show chain-of-thought which is verbose
-    const selectedModel = window.getSelectedAIModel?.('ideaModelSelect2') || 
+    const selectedModel = window.getSelectedAIModel?.('globalAiModelSelect') || 
+                          window.getSelectedAIModel?.('ideaModelSelect2') || 
                           window.getSelectedAIModel?.('ideaModelSelect') || 
                           'qwen2.5:32b';  // Default to non-reasoning model
+    
+    console.log(`[xDeepDive] Using model: ${selectedModel}`);
     
     // Show loading modal
     const modal = document.createElement('div');
@@ -2537,7 +2540,12 @@ window.deepDive = async function(ticker) {
         expiry = formatExpiryShort(getThirdFriday(1));
     }
     
-    const selectedModel = window.getSelectedAIModel?.('ideaModelSelect') || 'qwen2.5:32b';
+    const selectedModel = window.getSelectedAIModel?.('globalAiModelSelect') || 
+                          window.getSelectedAIModel?.('ideaModelSelect2') || 
+                          window.getSelectedAIModel?.('ideaModelSelect') || 
+                          'qwen2.5:32b';
+    
+    console.log(`[Deep Dive] Using model: ${selectedModel}`);
     
     // Show modal with loading state
     const modal = document.createElement('div');
