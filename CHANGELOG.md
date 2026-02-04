@@ -3,6 +3,26 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.61] - 2026-02-02
+
+### Added
+- **🔔 Price Alert System** - Get notified when stocks hit your Fib support levels
+  - Add alerts directly from Deep Dive technical analysis for each Fib level
+  - **Proximity zones** - Alerts trigger when price is within X% of target (default 3%)
+  - Prevents missing trades that "almost" hit the exact price
+  - Alerts panel in Ideas tab shows all active/triggered alerts
+  - Browser notifications + audio beep (Web Audio API fallback)
+  - Reset triggered alerts with one click to re-arm them
+  - Persists across sessions via localStorage
+  - AlertService.js: `add()`, `remove()`, `checkPrice()`, `getZone()`
+
+### Technical
+- StreamingService equity-quote events now trigger `window.checkPriceAlerts()`
+- AlertService maintains triggered state to prevent duplicate notifications
+- Proximity zone calculation: `targetPrice ± (targetPrice * proximityPercent / 100)`
+
+---
+
 ## [1.19.11] - 2026-01-31
 
 ### Added

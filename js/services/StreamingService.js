@@ -104,6 +104,11 @@ class StreamingServiceClass {
             
             // Queue DOM update for spot price
             this.queueDOMUpdate('equity', data);
+            
+            // Check price alerts for this ticker
+            if (window.checkPriceAlerts && data.symbol && data.last) {
+                window.checkPriceAlerts(data.symbol, data.last);
+            }
         });
         
         // Futures quote updates (e.g., /ES, /NQ, /YM, /RTY)

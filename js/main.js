@@ -17,6 +17,7 @@ import AccountService from 'AccountService';
 import TradeCardService from 'TradeCardService';
 import StreamingService from 'StreamingService';
 import PositionsService from 'PositionsService';
+import AlertService from 'AlertService';
 
 /**
  * Switch between Real and Paper trading accounts
@@ -815,6 +816,16 @@ export function init() {
     // Render pending trades if any
     if (typeof window.renderPendingTrades === 'function') {
         window.renderPendingTrades();
+    }
+    
+    // Initialize price alerts panel
+    if (typeof window.renderAlertsPanel === 'function') {
+        window.renderAlertsPanel();
+    }
+    
+    // Request notification permission for price alerts
+    if (typeof window.requestAlertPermission === 'function') {
+        window.requestAlertPermission();
     }
     
     // Check for updates (after a short delay to not block init)
@@ -2689,6 +2700,41 @@ window.deepDive = async function(ticker) {
             rangePosition  // 0% = at low, 100% = at high
         };
         
+        // Build alert buttons for Fibonacci levels
+        let alertSectionHtml = '';
+        const ta = result.tickerData?.technicalAnalysis;
+        if (ta?.fibonacci?.fibLevels) {
+            const fibLevels = ta.fibonacci.fibLevels
+                .filter(f => f.price < price)  // Only support levels below current price
+                .sort((a, b) => b.price - a.price)  // Highest to lowest
+                .slice(0, 4);  // Top 4 support levels
+            
+            if (fibLevels.length > 0) {
+                const alertButtons = fibLevels.map(fib => {
+                    const suggestedStrike = Math.floor(fib.price / 5) * 5;  // Round down to nearest $5
+                    return `
+                        <button onclick="window.addPriceAlert('${ticker}', ${fib.price.toFixed(2)}, '${fib.level}', ${suggestedStrike})"
+                                style="background:#1a1a2e; border:1px solid #ffaa00; color:#ffaa00; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:12px; display:flex; align-items:center; gap:6px;">
+                            <span>🔔</span>
+                            <span>$${fib.price.toFixed(2)} <span style="opacity:0.7">(${fib.level})</span></span>
+                        </button>`;
+                }).join('');
+                
+                alertSectionHtml = `
+                    <div style="background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.3); border-radius:8px; padding:12px; margin-top:16px;">
+                        <div style="color:#ffaa00; font-weight:bold; margin-bottom:8px; font-size:13px;">
+                            🎯 Set Price Alert (notify when ${ticker} approaches support)
+                        </div>
+                        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                            ${alertButtons}
+                        </div>
+                        <div style="color:#888; font-size:11px; margin-top:8px;">
+                            Alerts trigger when price is within 3% of target
+                        </div>
+                    </div>`;
+            }
+        }
+        
         // Add Stage Trade button
         const stageButtonHtml = `
             <div style="margin-top:20px; padding-top:16px; border-top:1px solid #333; display:flex; gap:12px; justify-content:center;">
@@ -2702,7 +2748,7 @@ window.deepDive = async function(ticker) {
                 </button>
             </div>`;
         
-        document.getElementById('deepDiveContent').innerHTML = premiumHtml + formatted + stageButtonHtml;
+        document.getElementById('deepDiveContent').innerHTML = premiumHtml + formatted + alertSectionHtml + stageButtonHtml;
         
     } catch (e) {
         document.getElementById('deepDiveContent').innerHTML = `
@@ -3356,6 +3402,250 @@ window.attachThesisToPositionById = function(positionId) {
     // Clear textarea
     const textarea = document.getElementById('pasteTradeInput');
     if (textarea) textarea.value = '';
+};
+
+// =============================================================================
+// PRICE ALERT SYSTEM
+// =============================================================================
+
+/**
+ * Add a price alert from Deep Dive modal
+ */
+window.addPriceAlert = function(ticker, targetPrice, levelName, suggestedStrike) {
+    const AlertService = window.AlertService;
+    if (!AlertService) {
+        showNotification('Alert service not available', 'error');
+        return;
+    }
+    
+    const alert = AlertService.add({
+        ticker,
+        targetPrice,
+        levelName,
+        suggestedStrike,
+        proximityPercent: 3,  // Default 3% zone
+        direction: 'below',
+        note: `Auto-created from Deep Dive analysis`
+    });
+    
+    const zone = AlertService.constructor.getZone(targetPrice, 3);
+    showNotification(`🔔 Alert set: ${ticker} @ $${targetPrice} (zone: $${zone.lower}-$${zone.upper})`, 'success', 3000);
+    
+    // Refresh alerts panel if visible
+    if (typeof window.renderAlertsPanel === 'function') {
+        window.renderAlertsPanel();
+    }
+};
+
+/**
+ * Remove a price alert
+ */
+window.removePriceAlert = function(id) {
+    const AlertService = window.AlertService;
+    if (AlertService?.remove(id)) {
+        showNotification('Alert removed', 'info', 2000);
+        window.renderAlertsPanel?.();
+    }
+};
+
+/**
+ * Reset a triggered alert (re-enable it)
+ */
+window.resetPriceAlert = function(id) {
+    const AlertService = window.AlertService;
+    if (AlertService?.reset(id)) {
+        showNotification('Alert re-enabled', 'success', 2000);
+        window.renderAlertsPanel?.();
+    }
+};
+
+/**
+ * Render the alerts panel in the Ideas tab
+ */
+window.renderAlertsPanel = function() {
+    const container = document.getElementById('alertsPanelContent');
+    if (!container) return;
+    
+    const AlertService = window.AlertService;
+    if (!AlertService) {
+        container.innerHTML = '<div style="color:#888; padding:12px;">Alert service loading...</div>';
+        return;
+    }
+    
+    const alerts = AlertService.getAll();
+    
+    if (alerts.length === 0) {
+        container.innerHTML = `
+            <div style="color:#888; padding:16px; text-align:center;">
+                <div style="font-size:24px; margin-bottom:8px;">🔔</div>
+                <div>No price alerts set</div>
+                <div style="font-size:12px; margin-top:4px;">Run a Deep Dive to add support level alerts</div>
+            </div>`;
+        return;
+    }
+    
+    // Group by active vs triggered
+    const active = alerts.filter(a => !a.triggered && a.enabled);
+    const triggered = alerts.filter(a => a.triggered);
+    const disabled = alerts.filter(a => !a.triggered && !a.enabled);
+    
+    let html = '';
+    
+    // Active alerts
+    if (active.length > 0) {
+        html += `<div style="color:#00ff88; font-size:12px; font-weight:bold; margin-bottom:8px;">ACTIVE (${active.length})</div>`;
+        html += active.map(a => renderAlertRow(a, 'active')).join('');
+    }
+    
+    // Triggered alerts
+    if (triggered.length > 0) {
+        html += `<div style="color:#ffaa00; font-size:12px; font-weight:bold; margin-top:12px; margin-bottom:8px;">TRIGGERED (${triggered.length})</div>`;
+        html += triggered.map(a => renderAlertRow(a, 'triggered')).join('');
+    }
+    
+    // Disabled alerts
+    if (disabled.length > 0) {
+        html += `<div style="color:#888; font-size:12px; font-weight:bold; margin-top:12px; margin-bottom:8px;">PAUSED (${disabled.length})</div>`;
+        html += disabled.map(a => renderAlertRow(a, 'disabled')).join('');
+    }
+    
+    container.innerHTML = html;
+};
+
+/**
+ * Render a single alert row
+ */
+function renderAlertRow(alert, status) {
+    const zone = window.AlertService?.constructor?.getZone(alert.targetPrice, alert.proximityPercent) || {};
+    const statusColors = {
+        active: { bg: 'rgba(0,255,136,0.1)', border: 'rgba(0,255,136,0.3)', icon: '🔔' },
+        triggered: { bg: 'rgba(255,170,0,0.1)', border: 'rgba(255,170,0,0.3)', icon: '✅' },
+        disabled: { bg: 'rgba(136,136,136,0.1)', border: 'rgba(136,136,136,0.3)', icon: '⏸️' }
+    };
+    const style = statusColors[status];
+    
+    let actionButtons = '';
+    if (status === 'active') {
+        actionButtons = `
+            <button onclick="window.removePriceAlert(${alert.id})" title="Delete" style="background:none; border:none; color:#ff5252; cursor:pointer; font-size:14px;">✕</button>`;
+    } else if (status === 'triggered') {
+        actionButtons = `
+            <button onclick="window.resetPriceAlert(${alert.id})" title="Re-enable" style="background:none; border:none; color:#00d9ff; cursor:pointer; font-size:12px;">↺</button>
+            <button onclick="window.removePriceAlert(${alert.id})" title="Delete" style="background:none; border:none; color:#ff5252; cursor:pointer; font-size:14px;">✕</button>`;
+    } else {
+        actionButtons = `
+            <button onclick="window.AlertService?.toggle(${alert.id}); window.renderAlertsPanel();" title="Enable" style="background:none; border:none; color:#00ff88; cursor:pointer; font-size:12px;">▶</button>
+            <button onclick="window.removePriceAlert(${alert.id})" title="Delete" style="background:none; border:none; color:#ff5252; cursor:pointer; font-size:14px;">✕</button>`;
+    }
+    
+    // Show triggered info
+    let triggeredInfo = '';
+    if (alert.triggered && alert.triggeredPrice) {
+        const diff = ((alert.triggeredPrice - alert.targetPrice) / alert.targetPrice * 100).toFixed(1);
+        triggeredInfo = `<div style="font-size:10px; color:#ffaa00;">Triggered @ $${alert.triggeredPrice.toFixed(2)} (${diff > 0 ? '+' : ''}${diff}%)</div>`;
+    }
+    
+    return `
+        <div style="background:${style.bg}; border:1px solid ${style.border}; border-radius:6px; padding:10px; margin-bottom:6px; display:flex; align-items:center; justify-content:space-between;">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:16px;">${style.icon}</span>
+                <div>
+                    <div style="font-weight:bold; color:#fff;">${alert.ticker} <span style="color:#888; font-weight:normal;">@ $${alert.targetPrice.toFixed(2)}</span></div>
+                    <div style="font-size:11px; color:#888;">${alert.levelName || ''} • Zone: $${zone.lower}-$${zone.upper}</div>
+                    ${alert.suggestedStrike ? `<div style="font-size:11px; color:#00d9ff;">Strike: $${alert.suggestedStrike}</div>` : ''}
+                    ${triggeredInfo}
+                </div>
+            </div>
+            <div style="display:flex; gap:4px;">
+                ${actionButtons}
+            </div>
+        </div>`;
+}
+
+/**
+ * Check streaming prices against alerts
+ * Called from StreamingService when prices update
+ */
+window.checkPriceAlerts = function(ticker, price) {
+    const AlertService = window.AlertService;
+    if (!AlertService) return;
+    
+    const result = AlertService.checkPrice(ticker, price);
+    if (result) {
+        // Alert triggered! Show notification
+        const { alert, currentPrice, distancePercent } = result;
+        
+        // Browser notification
+        showNotification(
+            `🔔 ${alert.ticker} hit $${currentPrice.toFixed(2)} (target: $${alert.targetPrice.toFixed(2)}, ${alert.levelName})`,
+            'success',
+            10000  // Show for 10 seconds
+        );
+        
+        // Play sound - try file first, fall back to Web Audio beep
+        try {
+            const audio = new Audio('/sounds/alert.mp3');
+            audio.volume = 0.5;
+            audio.play().catch(() => {
+                // Fallback: generate a beep using Web Audio API
+                playAlertBeep();
+            });
+        } catch (e) {
+            playAlertBeep();
+        }
+        
+        // Browser notification (if permitted)
+        if (Notification?.permission === 'granted') {
+            new Notification(`🔔 ${alert.ticker} Alert!`, {
+                body: `Price: $${currentPrice.toFixed(2)} (target: $${alert.targetPrice.toFixed(2)})`,
+                icon: '/favicon.ico'
+            });
+        }
+        
+        // Refresh panel
+        window.renderAlertsPanel?.();
+    }
+};
+
+/**
+ * Play a simple beep sound using Web Audio API
+ */
+function playAlertBeep() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.value = 880;  // A5 note
+        gainNode.gain.value = 0.3;
+        
+        oscillator.start();
+        
+        // Fade out over 200ms
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+        
+        // Stop after 200ms
+        setTimeout(() => oscillator.stop(), 200);
+    } catch (e) {
+        console.log('[ALERT] Could not play sound:', e);
+    }
+}
+
+/**
+ * Request browser notification permission
+ */
+window.requestAlertPermission = function() {
+    if (Notification && Notification.permission === 'default') {
+        Notification.requestPermission().then(permission => {
+            if (permission === 'granted') {
+                showNotification('✅ Browser notifications enabled', 'success');
+            }
+        });
+    }
 };
 
 /**
