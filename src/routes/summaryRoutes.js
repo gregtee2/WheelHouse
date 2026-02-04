@@ -986,46 +986,38 @@ function buildPositionCheckupsPrompt(atRiskPositions, summary) {
         return null; // No at-risk positions to check
     }
     
-    let prompt = `You are a wheel strategy trading coach. Review these flagged positions and give brief recommendations.
+    let prompt = `Review these flagged positions. I run a wheel strategy.
 
-## CRITICAL: DTE Context for Wheel Trading
-- **45+ DTE**: Too early to panic. Theta barely started. Stock has time to recover. Unless deeply ITM, recommend HOLD.
-- **21-45 DTE**: Watch zone. Only recommend action if position is significantly underwater (>100% loss).
-- **7-21 DTE**: Decision window. Time to roll if ITM or take profits if >50%.
-- **<7 DTE**: Expiration week. Need decision NOW - roll, close, or let expire/assign.
+HOW I WIN: For short puts/calls, stock just needs to be $0.01 past the strike at expiry.
+- Short put at $50, stock at $55 = I'm WINNING (OTM, will expire worthless)
+- Negative P/L can just be IV expansion - if OTM with buffer, I'm on track.
 
-## Portfolio Context
-- Account Value: $${summary.accountValue?.toLocaleString() || 'Unknown'}
-- Leverage: ${summary.leverageRatio}%
-- Total Positions: ${summary.totalOpenPositions}
+For each position, estimate win probability based on spot, strike, DTE, and typical volatility.
+If >65% win probability, it's probably fine to hold.
 
-## Positions Flagged for Review
+## Portfolio: $${summary.accountValue?.toLocaleString() || '?'} | ${summary.leverageRatio}% leverage | ${summary.totalOpenPositions} positions
 
+## Flagged Positions
 `;
     
     for (const pos of atRiskPositions) {
         const urgencyIcon = pos.urgency === 'URGENT' ? '🔴' : pos.urgency === 'ACTION' ? '🟠' : '🟡';
         prompt += `### ${urgencyIcon} ${pos.ticker} ${pos.type?.replace('_', ' ')} $${pos.strike} x${pos.contracts || 1}
+- Spot: $${pos.currentSpot?.toFixed(2) || '?'} | Strike: $${pos.strike} | Buffer: ${pos.bufferPct?.toFixed(1) || '?'}%
 - P&L: ${pos.unrealizedPnL >= 0 ? '+' : ''}$${pos.unrealizedPnL} (${pos.pnlPercent}%)
-- DTE: ${pos.dte || 'unknown'} days
-- Status: ${pos.urgency} - ${pos.riskReasons.join('; ')}
-- Entry: $${pos.entryPremium?.toFixed(2) || '?'} → Current: $${pos.currentPrice?.toFixed(2) || '?'}
+- DTE: ${pos.dte || '?'} days
+- Why flagged: ${pos.riskReasons.join('; ')}
 
 `;
     }
     
     prompt += `
-## Your Task
-For each position, provide:
-1. **Verdict**: HOLD / ROLL / CLOSE
-2. **Reason**: One sentence explaining why, RESPECTING the DTE context above
+For each position:
+1. Estimate win probability (quick mental Monte Carlo)
+2. Verdict: **HOLD** / **ROLL** / **CLOSE**
+3. One sentence why
 
-IMPORTANT: 
-- Don't recommend closing a 45+ DTE position just because it's down - that's premature
-- "WATCH" status positions (high DTE) should usually get HOLD unless there's a specific catalyst
-- Only recommend immediate action for URGENT positions (<7 DTE)
-
-Format: **TICKER $STRIKE**: VERDICT - Reason`;
+Format: **TICKER $STRIKE** (~XX% win): VERDICT - Reason`;
 
     return prompt;
 }

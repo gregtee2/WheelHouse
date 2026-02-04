@@ -551,115 +551,33 @@ ${isCreditSpread || isDebitSpread ? `   (Stock ${isPut ? 'falls below' : 'rises 
 📉 Stock finishes BELOW short strike ($${strike}): ${mc.probabilities?.belowShortStrike || 'N/A'}
 
 🚨 USE THESE PROBABILITIES to inform your recommendation!
-- If max profit probability > 70%, likely HOLD
-- If max loss probability > 40%, consider CLOSE or ROLL
-- If profitable probability < 50%, position is at risk
 ` : ''}
-═══ YOUR CHECKUP ASSESSMENT ═══
+═══ YOUR CHECKUP ═══
 
-**1. THESIS STATUS**
-${isShortPosition && isPut ? 
-    (currentPrice > strike ? 
-        `Stock at $${currentPrice} is ABOVE $${strike} strike → Thesis is VALID. Assess if it will stay above strike through expiry.` : 
-        `Stock at $${currentPrice} is BELOW $${strike} strike → Thesis is BROKEN. Assignment risk is high.`)
-: isShortPosition && !isPut ? 
-    (currentPrice < strike ? 
-        `Stock at $${currentPrice} is BELOW $${strike} strike → Thesis is VALID. Assess if it will stay below strike through expiry.` : 
-        `Stock at $${currentPrice} is ABOVE $${strike} strike → Thesis is BROKEN. Assignment risk is high.`)
-: `Has the original reason for entry been validated, invalidated, or is it still playing out?`}
+HOW I WIN: For short options, stock just needs to be $0.01 past strike at expiry. OTM = winning.
+${isLongPosition ? 'For LONG options, I need directional move in my favor. Theta works against me.' : ''}
 
-**2. RISK ASSESSMENT**
-${isShortPosition && isPut ? `
-🎯 SHORT PUT RISK CHECK: 
-- Stock MUST STAY ABOVE $${strike} for put to expire worthless!
-- Current: $${currentPrice} | Strike: $${strike} | Buffer: $${(currentPrice - strike).toFixed(2)} ${currentPrice > strike ? '✅ (safe zone)' : '❌ (IN THE MONEY - assignment risk!)'}
-- Entry price was: $${o.priceAtAnalysis || 'unknown'} → Stock moved ${currentPrice > (o.priceAtAnalysis || currentPrice) ? '⬆️ UP (good for short put)' : '⬇️ DOWN (bad for short put)'}
-- Key question: Are support levels holding? If stock breaks below $${strike}, you WILL be assigned.`
-: isShortPosition && isCall ? `
-🎯 SHORT CALL RISK CHECK:
-- Stock MUST STAY BELOW $${strike} for call to expire worthless!
-- Current: $${currentPrice} | Strike: $${strike} | Buffer: $${(strike - currentPrice).toFixed(2)} ${currentPrice < strike ? '✅ (safe zone)' : '❌ (IN THE MONEY - assignment risk!)'}
-- Key question: Will the stock stay below $${strike}?`
-: `
-- Distance from strike: Is the stock now closer or further from $${strike}?`}
-- Support levels: Have they held or broken?
-- Probability of assignment: ${isShortPosition ? 'Higher, lower, or same as at entry?' : 'N/A for long positions'}
+Look at all the data above - entry thesis, current price, Monte Carlo probabilities, IV changes.
 
-**3. TIME DECAY / THETA**
-With ${dte} days remaining:
-${isLongPosition ? `⚠️ IMPORTANT: This is a LONG (debit) position - theta works AGAINST you!
-- Negative theta is EXPECTED and NOT a problem - it's the cost of holding the position.
-- You profit from DELTA (directional move), not theta decay.
-- ${dte >= 365 ? '📅 LEAPS: Daily theta is tiny! Focus on thesis, not time decay.' : dte >= 180 ? '⏳ Long-dated: Theta decay is slow. Direction matters more.' : 'Theta accelerates under 45 DTE - time is working against you.'}` : dte >= 365 ? `- 📅 LEAPS EVALUATION: Daily theta is MINIMAL for long-dated options!
-- Focus on: Has the THESIS played out? Stock direction matters more than time decay.
-- VEGA matters: Has IV changed significantly since entry?` : dte >= 180 ? `- ⏳ LONG-DATED: Theta decay is slow. Focus on directional thesis and IV changes.` : `- Is theta working for you? (Short options COLLECT theta)
-- How much of the original premium has decayed?`}
+Tell me:
+1. **THESIS STATUS**: Is my original reason for entering still valid?
+2. **WIN PROBABILITY**: Based on the Monte Carlo (if provided) or your estimate
+3. **VERDICT**: 🟢 HOLD | 🔄 ROLL | 💰 CLOSE | ⚠️ WATCH
+4. **ACTION**: If not HOLD, what specific trade? (Use SUGGESTED_TRADE block if recommending action)
 
-**4. ACTION RECOMMENDATION**
-${!isLongPosition && isCall && currentPrice > strike ? `
-⚠️ YOUR COVERED CALL IS ITM - Consider ALL options, not just rolling!
+Be direct. If I'm winning (OTM with good buffer), say so. If I'm in trouble, tell me why.
 
-ALTERNATIVES TO ROLLING:
-• 🎯 LET IT GET CALLED - Take your profit and redeploy capital
-• 📈 BUY A LONG CALL - Buy a call above current price to capture more upside
-• 📊 BUY A CALL DEBIT SPREAD - Defined risk way to participate in further rally
-• 💰 SELL PUTS BELOW - Add bullish exposure if you'd buy more on a pullback
-• 🔄 ROLL UP & OUT - Traditional approach, but may be fighting the trend
-
-Pick ONE:
-- ✅ HOLD - Let position get called away (take the win!)
-- 📈 ADD UPSIDE - Buy a long call or call spread to capture more gains
-- 💰 ADD EXPOSURE - Sell puts below to add bullish delta
-- 🔄 ROLL - Roll up/out (explain why this beats taking assignment)
-- ⚠️ CLOSE EARLY - Buy back call to keep shares (expensive but keeps upside)` : `Pick ONE:
-${dte >= 365 ? `- ✅ HOLD - LEAPS are meant to be held; thesis still valid
-- 🔄 ROLL UP/DOWN - Adjust strike if stock moved significantly (not for time!)
-- 💰 CLOSE - Take profit if thesis achieved or invalidated
-- 📈 ADD - Consider adding on pullback if thesis strengthening` : `- ✅ HOLD - Thesis intact, let it ride
-- 🔄 ROLL - Consider rolling (specify why - expiry, strike, or both)
-- 💰 CLOSE - Take profit/loss now (specify when)
-- ⚠️ WATCH - Position needs monitoring (specify triggers)`}`}
-
-**5. CHECKUP VERDICT**
-Rate the position health:
-- 🟢 HEALTHY - On track, no action needed
-- 🟡 STABLE - Minor concerns but manageable
-- 🔴 AT RISK - Original thesis weakening, action may be needed
-
-Give a 2-3 sentence summary of how the position has evolved since entry.
-
-**6. SUGGESTED TRADE**
-If you recommend ROLL, CLOSE, ADD, or WATCH with a specific action trigger, provide trade details.
-If recommending HOLD with no changes, output: "No trade action required - HOLD position."
-Otherwise, format EXACTLY like this (we will parse it):
-
+**SUGGESTED TRADE FORMAT** (only if recommending action):
 ===SUGGESTED_TRADE===
 ACTION: ROLL|CLOSE|ADD_CALL|ADD_PUT|NONE
 CLOSE_STRIKE: ${strike}
 CLOSE_EXPIRY: ${expiry}
 CLOSE_TYPE: ${isCall ? 'CALL' : 'PUT'}
-NEW_STRIKE: [new strike price, or "N/A" if just closing]
-NEW_EXPIRY: [new expiry YYYY-MM-DD, or "N/A" if just closing]
+NEW_STRIKE: [new strike or N/A]
+NEW_EXPIRY: [YYYY-MM-DD or N/A]
 NEW_TYPE: CALL|PUT|N/A
-ESTIMATED_DEBIT: [estimated cost to execute, e.g. "$1.50" or "N/A"]
-ESTIMATED_CREDIT: [estimated credit received, e.g. "$3.50" or "N/A"]
-NET_COST: [net debit/credit, e.g. "-$1.50 debit" or "+$2.00 credit"]
-RATIONALE: [One sentence explaining why this specific trade]
-===END_TRADE===
-
-Example for rolling a $87 call up to $110:
-===SUGGESTED_TRADE===
-ACTION: ROLL
-CLOSE_STRIKE: 87
-CLOSE_EXPIRY: 2026-03-06
-CLOSE_TYPE: CALL
-NEW_STRIKE: 110
-NEW_EXPIRY: 2026-05-15
-NEW_TYPE: CALL
-ESTIMATED_DEBIT: $20.00
-ESTIMATED_CREDIT: $4.00
-NET_COST: -$16.00 debit
-RATIONALE: Roll up to capture additional upside while collecting new premium
+NET_COST: [e.g. "+$2.00 credit" or "-$1.50 debit"]
+RATIONALE: [One sentence why]
 ===END_TRADE===`;
 }
 
@@ -987,63 +905,29 @@ ${alternativeStrikes.map((alt, i) =>
 ` : ''}
 ═══ YOUR ANALYSIS ═══
 
-**START WITH THE GRADE** (This MUST be the first thing you output!)
-## TRADE GRADE: [A/B/C/D/F] - [One sentence verdict]
+HOW I WIN: For short options, stock just needs to be $0.01 past strike at expiry. OTM = winning.
 
-Example: "## TRADE GRADE: C - Decent setup but poor risk/reward ratio limits upside"
-Example: "## TRADE GRADE: A - Strong entry at support with excellent premium capture"
-Example: "## TRADE GRADE: F - Avoid - strike too close, expiry too short, terrible R/R"
+**TRADE GRADE: [A/B/C/D/F]** - One sentence verdict. Be decisive.
 
-Be DECISIVE. Don't hedge with "it depends" - commit to a grade.
+**WIN PROBABILITY**: ~XX% (estimate based on spot, strike, IV, DTE)
 
----
-${patternContext ? `
-**0. PATTERN CHECK** (IMPORTANT - Look at YOUR HISTORICAL TRADING PATTERNS above!)
-- Does this trade match a WINNING pattern from your history? Mention it!
-- Does this trade resemble a LOSING pattern? WARN about it!
-- If no history exists for this ticker/strategy, say so.
-` : ''}
-**1. TRADE SETUP REVIEW** (Keep brief - 2-3 sentences max)
-- Strike selection vs support/resistance
-- Premium worth the risk?
-${dte <= 7 ? '- ⚠️ ONLY ' + dte + ' DAYS - enough time?' : ''}
-${dte >= 365 ? '- 📅 LEAPS - evaluate as stock proxy with defined risk' : ''}
+**KEY NUMBERS**:
+- Max Risk: $X,XXX | Max Profit: $XXX | R/R: X.X%
 
-**2. CATALYST CHECK** (CRITICAL for short-dated or high-IV trades!)
-${liveIV && liveIV > 50 ? `- IV is ${liveIV.toFixed(0)}% - WHY is it elevated? Check for earnings, FDA, court dates, etc.` : '- IV seems normal - still verify no surprise catalysts'}
-${dteNum <= 45 ? `- With ${dteNum} DTE, any catalyst WILL impact this trade` : '- Longer timeframe gives buffer for events'}
-- ALWAYS state next earnings date if within 30 days of expiry (even if AFTER expiry - tail risk!)
-- Explicitly state: "I verified earnings date is [DATE]" or "No earnings found in next 30 days"
+**RED FLAGS** (if any):
+${liveIV && liveIV > 50 ? `- High IV (${liveIV.toFixed(0)}%) - why? Earnings? Event?` : ''}
+${dteNum <= 7 ? `- Only ${dteNum} DTE - very short timeline` : ''}
+- Verify next earnings date
 
-**3. KEY NUMBERS**
-- Max Risk: $X,XXX
-- Max Profit: $XXX  
-- R/R Ratio: X.X%
-- Win Probability: ~XX%
+**VERDICT SPECTRUM** (one sentence each):
+🟢 AGGRESSIVE: [Bull case]
+🟡 MODERATE: [Balanced take]
+🔴 CONSERVATIVE: [Bear case]
 
-**4. RED FLAGS** (List only if they exist, otherwise skip)
+${alternativeStrikes.length > 0 ? `**BETTER ALTERNATIVE** (if grade C or worse):
+Use the REAL strikes/premiums from the alternatives section above.` : ''}
 
-**5. VERDICT SPECTRUM** (One sentence each - no rambling!)
-
-🟢 **AGGRESSIVE**: [One sentence bull case]
-🟡 **MODERATE**: [One sentence balanced take]  
-🔴 **CONSERVATIVE**: [One sentence bear case]
-
-**6. BETTER ALTERNATIVES** (REQUIRED if you gave grade C or worse!)
-If grade is C, D, or F, look at the REAL ALTERNATIVE STRIKES section above and recommend one.
-Use the EXACT numbers from the data - do NOT make up premiums!
-
-📈 **RECOMMENDED ALTERNATIVE:**
-| Strike | Expiry | REAL Premium | Cushion |
-|--------|--------|--------------|---------|
-| $XX    | from data | $X.XX (bid/ask from data) | XX% OTM |
-**Why better:** [One sentence explaining improved R/R]
-
-If no alternatives are shown above, or the original trade is grade A/B, simply state:
-"Original setup is sound - no changes recommended."
-
----
-**BOTTOM LINE**: One decisive sentence - "Take it" or "Pass" and why.`;
+**BOTTOM LINE**: Take it or pass? One sentence.`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1526,70 +1410,24 @@ Your previous reasoning:
 
 ⚠️ COMPARE: Has anything changed significantly? If your thesis is still valid, confirm it. If conditions changed, explain what's different.
 ` : ''}═══ DECISION GUIDANCE ═══
-${dte >= 365 ? `📅 LEAPS EVALUATION CRITERIA:
-• LEAPS are long-term bets on direction, NOT theta plays
-• Don't roll for time - you have plenty. Only roll for strike adjustment if stock moved significantly
-• Key question: Is the original THESIS still valid?
-• If selling covered calls against LEAPS: Focus on reducing cost basis over time
-• Assignment on LEAPS is RARE - only worry if deeply ITM near expiration` : dte >= 180 ? `⏳ LONG-DATED OPTION CRITERIA:
-• Extended timeframe means IV changes matter more than daily theta
-• Only roll if thesis changed or to capture significant strike adjustment
-• Don't panic on short-term moves - you have time for recovery` : `FIRST: Decide if you should roll at all!
-• If the position is OTM, low risk (<35%), and approaching expiration → "HOLD - let theta work" is often best
-• If the Expert Analysis says "on track for max profit" → you probably DON'T need to roll
-• Only roll if: (a) position is ITM/troubled, (b) risk is high (>50%), or (c) you want to extend for more premium`}
+HOW I WIN: For short options, stock just needs to be $0.01 past strike at expiry. OTM = winning.
+${isLong ? 'For LONG options, I need directional move. Theta works against me, but that\'s expected.' : ''}
 
-IF you do need to roll, compare options CAREFULLY:
-• Credit roll (you get paid) that reduces risk = ALWAYS better than debit roll (you pay) with same risk
-• Getting paid AND reducing risk = obvious winner
-• Debit rolls only make sense if you're desperate to cut risk and no credit option exists
+If the position is OTM with a good buffer and win probability >65%, HOLD is usually best.
+Only roll if there's a real problem (ITM, tiny buffer, thesis broken).
 
-═══ YOUR TASK ═══
-${(scorecardStrategies && scorecardStrategies.length > 0) ? `🚨 MANDATORY: Evaluate EACH strategy before recommending.
+${(scorecardStrategies && scorecardStrategies.length > 0) ? `═══ STRATEGY OPTIONS ═══
+Evaluate these strategies for my situation:
+${scorecardStrategies.map((s, i) => `${i + 1}. ${s.name} ${s.detail}${s.reason ? ' - ' + s.reason : ''}`).join('\n')}
 
-These strategies were selected because they're relevant to YOUR specific situation.
+Pick the BEST strategy and explain why. Be specific with strikes/expiries.` : hasRollOptions ? `═══ ROLL OPTIONS ═══
+Look at the risk reduction and credit roll options above.
+First ask: Do I need to roll at all? If OTM and winning, probably not.
+If I do need action, pick the best option and explain why.` : `Recommend: HOLD, CLOSE, or specific action - with one sentence why.`}
 
-**STRATEGY SCORECARD** (Rate each 1-10, where 10 = best choice)
+Be direct. Give me a specific recommendation.${isLargeModel ? `
 
-| Strategy | Score | Reasoning |
-|----------|-------|-----------|
-${scorecardStrategies.map((s, i) => `| ${i + 1}. ${s.name} ${s.detail} | ?/10 | [Your reasoning] |`).join('\n')}
-
-After completing the scorecard, provide:
-
-**WINNER:** [Highest scoring strategy] 
-**Trade Details:** [Specific action - strike, expiry, premium if applicable]
-**Why This Beats Alternatives:** [Why winner is better than 2nd place]
-**Key Risk:** [Main downside to watch]
-
-IMPORTANT NOTES:
-• If you recommend SKIP™, include BOTH legs (LEAPS strike/expiry + SKIP call strike/expiry)
-• If you recommend a SPREAD, specify both strikes and expiry
-• If you recommend COLLAR, specify put strike to buy and call strike to sell
-• Be specific with trade execution details` : hasRollOptions ? `First, decide: Should you roll, or just HOLD and let this expire?
-
-If HOLD is best, respond:
-1. HOLD - Let position expire worthless for max profit
-2. [Why] - Position is OTM with X% win probability, theta is working in your favor
-3. [Watch] - What price level would change this advice
-
-If rolling IS needed, respond:
-1. [Your pick] - "Roll to $XXX [date like Feb 20] - $XXX ${isLong ? 'debit' : 'credit'}"
-2. [Why this one] - 1-2 sentences comparing to alternatives
-3. [Key risk] - Main risk with this trade` 
-: `No roll options available. Respond in this format:
-
-1. [Action] - ${isLong ? 'Hold for rally, take profits, or cut losses' : 'Hold, close, or wait'}
-
-2. [Why] - 1-2 sentences explaining your reasoning
-
-3. [Risk] - One key thing to watch`}
-
-Be specific. Use the actual numbers provided. No headers or bullet points - just the numbered items.${isLargeModel ? `
-
-Since you're a larger model, provide additional insight:
-5. [Greeks] - Brief comment on theta/delta implications
-6. [Market context] - Any broader market factors to consider (if relevant)` : ''}`;
+Since you're a larger model, add brief Greek/market context if relevant.` : ''}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
