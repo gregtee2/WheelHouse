@@ -5,11 +5,46 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-Proprietary-red)
-![Version](https://img.shields.io/badge/version-1.19.63-blue)
+![Version](https://img.shields.io/badge/version-1.19.71-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
 
 ---
 
+## 🆕 What's New in v1.19.71
+
+### 📊 Market Internals Strip (ToS-Style)
+Real-time market breadth indicators for gauging "market mood":
+
+| Indicator | Description | Bullish | Bearish |
+|-----------|-------------|---------|--------|
+| **TICK** | NYSE upticks minus downticks | > +500 | < -500 |
+| **A/D** | Advancing minus declining stocks | Positive | Negative |
+| **VOL Δ** | Up volume minus down volume | Positive | Negative |
+| **TRIN** | Arms Index (breadth vs volume) | < 0.8 | > 1.2 |
+| **VIX** | CBOE Volatility Index (fear gauge) | < 15 | > 25 |
+
+- **Color-coded values**: Green = bullish, Red = bearish, Yellow = neutral
+- **Market Mood summary**: Aggregates all indicators into 🟢 Strong Bull → 🔴 Strong Bear
+- **Auto-refresh**: Updates every 30 seconds during market hours
+- **Data source**: Calculated from Schwab internals ($TICK, $ADVN, $DECL, $UVOL, $DVOL, $TRIN, $VIX)
+
+### 📈 Expandable Spread Legs (v1.19.69)
+See both legs of your spreads for "legging out" strategies:
+
+- **Click ▶ to expand**: Shows SELL leg, BUY leg, and summary row
+- **Live CBOE pricing**: Each leg shows current bid/ask mid-price
+- **Value column**: Total $ cost to close each leg
+- **P&L per leg**: Estimated profit/loss on each leg
+- **Net to Close**: Combined cost to close entire spread
+- **Close Leg button**: Convert spread to standalone position when legging out
+
+**Leg Out Strategy:**
+1. Expand spread to see both legs
+2. If long leg is profitable, click "Close Leg" to bank profit
+3. Wait for stock to recover
+4. Buy back short leg at better price
+
+---
 
 ## 🆕 What's New in v1.19.63
 

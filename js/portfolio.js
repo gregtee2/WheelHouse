@@ -163,10 +163,13 @@ export async function fetchAccountBalances() {
         const selectedAcct = state.selectedAccount;
         
         // Handle Paper Trading mode - don't fetch real balances
-        if (selectedAcct && selectedAcct.hashValue === 'paper') {
+        // Check BOTH selectedAccount.hashValue === 'paper' AND state.accountMode === 'paper'
+        // because setSelectedAccount(null) is called when switching to paper mode
+        if (state.accountMode === 'paper' || (selectedAcct && selectedAcct.hashValue === 'paper')) {
             console.log('[BALANCES] Paper Trading mode - skipping Schwab fetch');
-            // Paper trading balances are managed by showPaperModeUI() in main.js
-            // Just return without overwriting
+            // Still update Capital at Risk display (works with local positions)
+            updateCapitalAtRiskDisplay();
+            // Paper trading balances are managed by updatePaperAccountBalances() in main.js
             return;
         }
         

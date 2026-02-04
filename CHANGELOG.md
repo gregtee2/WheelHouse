@@ -3,6 +3,66 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.19.68] - 2026-02-04
+
+### Fixed
+- **Paper Balance Race Condition** - Fixed leverage gauge showing stale real account data on refresh
+  - Root cause: `loadPositions()` calls `renderPositions()` which needs AccountService populated
+  - But paper balance calculation ran AFTER positions loaded
+  - Fix: Pre-populate AccountService with paper balance BEFORE `loadPositions()`
+  - Then recalculate with actual capital-at-risk AFTER positions are loaded
+  - Re-render positions table to update leverage gauge with correct data
+
+---
+
+## [1.19.67] - 2026-02-04
+
+### Fixed
+- **Paper Balance Not Persisting on Refresh** - Paper margin calculations now run on app startup
+  - Moved `updatePaperAccountBalances()` call to AFTER `loadPositions()` in init()
+  - Ensures positions are loaded before calculating capital-at-risk
+  - No more red "Danger Zone" on refresh - stays green if you have sufficient paper balance
+
+---
+
+## [1.19.66] - 2026-02-04
+
+### Fixed
+- **Paper Trading Margin Math** - Paper mode now uses realistic margin calculations
+  - Account Value = Your set paper balance (equity)
+  - Buying Power = (Account Value × 2) − Capital at Risk (proper Reg-T margin)
+  - Margin Used = Capital at Risk − Account Value (when using margin)
+  - Fixes "317% leverage" showing when it should be based on paper balance
+  - AccountService now gets updated with paper balances (fixes leverage gauge sync)
+  - Capital at Risk display now updates in paper mode
+
+### Technical
+- Added `calculatePaperBalances(accountValue)` function with full margin math
+- Added `updatePaperAccountBalances(accountValue)` to update DOM + AccountService
+- `handleAccountChange('paper')` now calls `updatePaperAccountBalances()` instead of hardcoding
+- `confirmPaperBalance()` uses new function for proper recalculation
+
+---
+
+## [1.19.65] - 2026-02-03
+
+### Fixed
+- **Paper Trading Balance Bug** - Fixed paper balance being overwritten by real account data
+  - `fetchAccountBalances()` in portfolio.js now checks `state.accountMode === 'paper'`
+  - Previously only checked `selectedAccount.hashValue === 'paper'` but `setSelectedAccount(null)` is called for paper mode
+  - Paper balance now persists correctly and isn't replaced by Schwab data
+  - Also replaced Electron-incompatible `prompt()` with custom modal for Set Balance
+
+### Added
+- **Opening Thesis Enhancement** - Deep Dive thesis now saved with more data when staging trades
+  - `selectionRationale` - Why the AI picked this specific expiry (ROC comparison)
+  - `technicalAnalysis` - Full technical analysis text from Deep Dive
+  - `fibonacci` - Fib support/resistance levels
+  - `iv` - Implied volatility at time of analysis
+- **Position Checkup Rationale** - Shows "Why this expiry?" in checkup analysis when available
+
+---
+
 ## [1.19.63] - 2026-02-03
 
 ### Fixed

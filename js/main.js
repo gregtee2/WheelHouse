@@ -19,6 +19,102 @@ import StreamingService from 'StreamingService';
 import PositionsService from 'PositionsService';
 import AlertService from 'AlertService';
 
+// =============================================================================
+// PAPER TRADING BALANCE CALCULATIONS
+// =============================================================================
+
+/**
+ * Calculate realistic paper trading balances with proper margin math
+ * Uses the same logic as real margin accounts:
+ * - Account Value = Your equity (what you set as balance)
+ * - Capital at Risk = Sum of max loss on all positions
+ * - Margin Used = Capital at Risk - Account Value (if negative, means using margin)
+ * - Buying Power = Account Value * 2 - Capital at Risk (for margin accounts)
+ * 
+ * @param {number} accountValue - The paper account balance (equity)
+ * @returns {Object} { accountValue, buyingPower, capitalAtRisk, marginUsed, cashAvailable }
+ */
+function calculatePaperBalances(accountValue) {
+    // Calculate capital at risk from current positions
+    const positions = state.positions || [];
+    const openPositions = positions.filter(p => p.status === 'open');
+    
+    let capitalAtRisk = 0;
+    for (const p of openPositions) {
+        const isSpread = p.type?.includes('_spread');
+        const isDebit = p.type?.includes('debit') || p.type?.includes('long_call') || p.type?.includes('long_put');
+        
+        if (isSpread) {
+            if (p.maxLoss) {
+                capitalAtRisk += p.maxLoss;
+            } else {
+                const width = p.spreadWidth || Math.abs((p.sellStrike || 0) - (p.buyStrike || 0));
+                const premium = p.premium || 0;
+                const maxLoss = isDebit 
+                    ? premium * 100 * p.contracts
+                    : (width - premium) * 100 * p.contracts;
+                capitalAtRisk += maxLoss;
+            }
+        } else if (isDebit) {
+            capitalAtRisk += ((p.premium || 0) * 100 * p.contracts);
+        } else if (p.type === 'short_put' || p.type === 'buy_write') {
+            capitalAtRisk += ((p.strike || 0) * 100 * p.contracts);
+        }
+    }
+    
+    // Margin used = how much capital at risk exceeds account value
+    const marginUsed = Math.max(0, capitalAtRisk - accountValue);
+    
+    // Buying power for margin account = 2x equity minus capital already at risk
+    // But cap at 2x account value (can't have more BP than margin allows)
+    const maxBuyingPower = accountValue * 2;
+    const buyingPower = Math.max(0, maxBuyingPower - capitalAtRisk);
+    
+    // Cash available = account value minus what's tied up (simplified)
+    const cashAvailable = Math.max(0, accountValue - (capitalAtRisk / 2));
+    
+    return {
+        accountValue,
+        buyingPower,
+        capitalAtRisk,
+        marginUsed,
+        cashAvailable,
+        dayTradeBP: buyingPower * 2  // Day trade BP is typically 4x equity, or 2x buying power
+    };
+}
+
+/**
+ * Update balance display AND AccountService cache for paper trading
+ * @param {number} accountValue - The paper account balance
+ */
+function updatePaperAccountBalances(accountValue) {
+    const balances = calculatePaperBalances(accountValue);
+    
+    // Update DOM display
+    updateBalanceDisplay(
+        balances.buyingPower,
+        balances.accountValue,
+        balances.cashAvailable,
+        balances.marginUsed,
+        balances.dayTradeBP,
+        'Paper',
+        'PAPER'
+    );
+    
+    // Update AccountService cache so leverage gauge gets correct values
+    AccountService.updateCache({
+        buyingPower: balances.buyingPower,
+        accountValue: balances.accountValue,
+        cashAvailable: balances.cashAvailable,
+        marginUsed: balances.marginUsed,
+        dayTradeBP: balances.dayTradeBP,
+        accountType: 'PAPER',
+        accountNumber: 'PAPER'
+    });
+    
+    console.log('[Paper] Updated balances:', balances);
+}
+
 /**
  * Switch between Real and Paper trading accounts
  * LEGACY: Kept for backwards compatibility, now redirects to handleAccountChange
@@ -43,6 +139,8 @@ window.switchAccountMode = function(mode) {
 async function initAccountDropdown() {
     const select = document.getElementById('accountModeSelect');
     if (!select) return;
+    
+    console.log('[Account] initAccountDropdown starting, state.accountMode =', state.accountMode);
     
     select.innerHTML = '<option value="loading" disabled selected>Loading...</option>';
     
@@ -112,9 +210,18 @@ async function initAccountDropdown() {
         }
         
         // Restore saved selection
+        console.log('[Account] Restoring selection, state.accountMode =', state.accountMode, 'state.selectedAccount =', state.selectedAccount);
         if (state.accountMode === 'paper') {
+            console.log('[Account] Detected paper mode, setting dropdown and updating balances');
             select.value = 'paper';
             showPaperModeUI(true);
+            // Update paper balances with proper margin math
+            // Delay slightly to ensure positions are loaded
+            setTimeout(() => {
+                const accountValue = getPaperAccountBalance();
+                updatePaperAccountBalances(accountValue);
+                console.log('[Account] Paper mode restored, balances updated');
+            }, 100);
         } else if (state.selectedAccount?.accountNumber) {
             select.value = state.selectedAccount.accountNumber;
             showPaperModeUI(false);
@@ -162,11 +269,11 @@ window.handleAccountChange = async function(value, autoSync = true) {
         renderHoldings();
         initChallenges();
         
-        // Show paper balance
-        const bp = getPaperAccountBalance();
-        updateBalanceDisplay(bp, bp, 0, 0, 0, 'Paper', 'PAPER');
+        // Show paper balance with proper margin calculations
+        const accountValue = getPaperAccountBalance();
+        updatePaperAccountBalances(accountValue);
         
-        showNotification(`📝 Switched to Paper Trading - $${bp.toLocaleString()} balance`, 'info');
+        showNotification(`📝 Switched to Paper Trading - $${accountValue.toLocaleString()} balance`, 'info');
         
     } else {
         // Switch to a real Schwab account
@@ -606,18 +713,15 @@ window.confirmPaperBalance = function() {
     
     setPaperAccountBalance(newBalance);
     
-    // Update display if in paper mode
+    // Update display with proper margin calculations if in paper mode
     if (state.accountMode === 'paper') {
-        const balBP = document.getElementById('balBuyingPower');
-        const balValue = document.getElementById('balAccountValue');
-        if (balBP) balBP.textContent = `$${newBalance.toLocaleString()}`;
-        if (balValue) balValue.textContent = `$${newBalance.toLocaleString()}`;
+        updatePaperAccountBalances(newBalance);
     }
     
     // Close modal
     document.getElementById('paperBalanceModal')?.remove();
     
-    showNotification(`📝 Paper account balance set to $${newBalance.toLocaleString()}`, 'success');
+    showNotification(`📝 Paper account set to $${newBalance.toLocaleString()} - balances updated with positions`, 'success');
 };
 
 // =============================================================================
@@ -686,13 +790,8 @@ function initAccountMode() {
     // Show paper mode indicator if in paper mode
     updatePaperModeIndicator();
     
-    // If in paper mode, set paper balance display
-    if (state.accountMode === 'paper') {
-        const bp = getPaperAccountBalance();
-        setTimeout(() => {
-            updateBalanceDisplay(bp, bp, 0, 0, 0, 'Paper', 'PAPER');
-        }, 500);
-    }
+    // Note: Paper balance calculation moved to init() AFTER loadPositions()
+    // to ensure positions are available for capital-at-risk calculation
 }
 
 /**
@@ -842,10 +941,38 @@ export function init() {
     drawPayoffChart();
     updateDteDisplay();
     
+    // PRE-populate AccountService with paper balance BEFORE loadPositions
+    // This ensures leverage gauge has something when renderPositions() runs
+    // Will be recalculated with actual positions afterwards
+    if (state.accountMode === 'paper') {
+        const accountValue = getPaperAccountBalance();
+        AccountService.updateCache({
+            buyingPower: accountValue * 2,  // Initial estimate
+            accountValue: accountValue,
+            cashAvailable: accountValue,
+            marginUsed: 0,
+            dayTradeBP: accountValue * 4,
+            accountType: 'PAPER',
+            accountNumber: 'PAPER'
+        });
+        console.log('[Paper] Pre-populated AccountService before loading positions');
+    }
+    
     // Load saved positions
     loadPositions();
     loadClosedPositions();
     initChallenges();
+    
+    // If in paper mode, recalculate with actual positions now loaded
+    if (state.accountMode === 'paper') {
+        const accountValue = getPaperAccountBalance();
+        updatePaperAccountBalances(accountValue);
+        console.log('[Paper] Recalculated paper balances with loaded positions');
+        // Re-render positions to update leverage gauge with correct data
+        if (typeof renderPositions === 'function') {
+            renderPositions();
+        }
+    }
     
     // Initialize real-time streaming for option quotes
     initStreamingService();
@@ -1060,6 +1187,264 @@ StreamingService.on('streamer-status', (status) => {
         }
     }
 });
+
+// =============================================================================
+// MARKET INTERNALS - Breadth, TICK, TRIN, VIX
+// =============================================================================
+
+/**
+ * Fetch and display market internals from Schwab
+ * Symbols: $TICK, $ADD, $VOLD, $TRIN, $VIX
+ */
+window.refreshMarketInternals = async function() {
+    const statusEl = document.getElementById('internalsStatus');
+    if (statusEl) statusEl.textContent = 'Fetching...';
+    
+    try {
+        // Schwab symbols for market internals
+        // $ADD/$VOLD don't work - need to fetch components and calculate
+        // $ADVN = advancing, $DECL = declining (A/D = ADVN - DECL)
+        // $UVOL = up volume, $DVOL = down volume (VOL Δ = UVOL - DVOL)
+        const symbols = '$TICK,$ADVN,$DECL,$UVOL,$DVOL,$TRIN,$VIX';
+        
+        const res = await fetch(`/api/schwab/quotes?symbols=${encodeURIComponent(symbols)}&fields=quote`);
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
+        
+        const data = await res.json();
+        
+        // Update TICK
+        updateInternalTile('$TICK', data['$TICK'], { 
+            extreme: 1000, 
+            format: 'int',
+            colorLogic: (v) => v > 500 ? '#00ff88' : v < -500 ? '#ff5252' : '#fff'
+        });
+        
+        // Calculate A/D from ADVN - DECL
+        const advn = data['$ADVN']?.quote?.lastPrice ?? 0;
+        const decl = data['$DECL']?.quote?.lastPrice ?? 0;
+        const adValue = advn - decl;
+        updateInternalTile('$ADD', { quote: { lastPrice: adValue } }, { 
+            format: 'int',
+            colorLogic: (v) => v > 500 ? '#00ff88' : v < -500 ? '#ff5252' : '#fff'
+        });
+        
+        // Calculate VOL Δ from UVOL - DVOL (in billions of shares)
+        const uvol = data['$UVOL']?.quote?.lastPrice ?? 0;
+        const dvol = data['$DVOL']?.quote?.lastPrice ?? 0;
+        const volDelta = uvol - dvol;
+        updateInternalTile('$VOLD', { quote: { lastPrice: volDelta } }, { 
+            format: 'billions',
+            colorLogic: (v) => v > 0 ? '#00ff88' : v < 0 ? '#ff5252' : '#fff'
+        });
+        
+        // TRIN
+        updateInternalTile('$TRIN', data['$TRIN'], { 
+            format: 'decimal',
+            colorLogic: (v) => v < 0.8 ? '#00ff88' : v > 1.2 ? '#ff5252' : '#ffaa00'
+        });
+        
+        // VIX (use $VIX not $VIX.X)
+        updateInternalTile('$VIX', data['$VIX'], { 
+            format: 'decimal',
+            colorLogic: (v) => v < 15 ? '#00ff88' : v > 25 ? '#ff5252' : '#ffaa00'
+        });
+        
+        // Calculate overall market mood (pass computed values)
+        calculateMarketMood({
+            '$TICK': data['$TICK'],
+            '$ADD': { quote: { lastPrice: adValue } },
+            '$VOLD': { quote: { lastPrice: volDelta } },
+            '$TRIN': data['$TRIN'],
+            '$VIX': data['$VIX']
+        });
+        
+        if (statusEl) {
+            const now = new Date();
+            statusEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            statusEl.style.color = '#555';
+        }
+        
+    } catch (e) {
+        console.error('[INTERNALS] Fetch failed:', e);
+        if (statusEl) {
+            statusEl.textContent = '❌ Error';
+            statusEl.style.color = '#ff5252';
+        }
+    }
+};
+
+/**
+ * Update a single internal indicator tile
+ */
+function updateInternalTile(symbol, data, options = {}) {
+    const tile = document.querySelector(`[data-internal="${symbol}"]`);
+    if (!tile) return;
+    
+    const valueEl = tile.querySelector('.internal-value');
+    if (!valueEl) return;
+    
+    // Get value from quote data
+    let value = data?.quote?.lastPrice ?? data?.lastPrice ?? data?.quote?.mark ?? null;
+    
+    if (value === null || value === undefined) {
+        valueEl.textContent = '--';
+        valueEl.style.color = '#666';
+        return;
+    }
+    
+    // Format based on type
+    let displayValue;
+    switch (options.format) {
+        case 'int':
+            displayValue = Math.round(value).toLocaleString();
+            if (value > 0) displayValue = '+' + displayValue;
+            break;
+        case 'millions':
+            // Convert to millions
+            const inMillions = value / 1000000;
+            displayValue = (inMillions >= 0 ? '+' : '') + inMillions.toFixed(0) + 'M';
+            break;
+        case 'billions':
+            // Convert to billions (for volume delta which is in shares)
+            const inBillions = value / 1000000000;
+            displayValue = (inBillions >= 0 ? '+' : '') + inBillions.toFixed(1) + 'B';
+            break;
+        case 'decimal':
+            displayValue = value.toFixed(2);
+            break;
+        default:
+            displayValue = value.toString();
+    }
+    
+    valueEl.textContent = displayValue;
+    
+    // Apply color logic
+    if (options.colorLogic) {
+        valueEl.style.color = options.colorLogic(value);
+    }
+    
+    // Add extreme indicator for TICK
+    if (symbol === '$TICK' && options.extreme) {
+        if (Math.abs(value) >= options.extreme) {
+            valueEl.style.fontWeight = 'bold';
+            valueEl.style.textShadow = value > 0 ? '0 0 5px #00ff88' : '0 0 5px #ff5252';
+        } else {
+            valueEl.style.fontWeight = 'normal';
+            valueEl.style.textShadow = 'none';
+        }
+    }
+}
+
+/**
+ * Calculate overall market mood based on internals
+ */
+function calculateMarketMood(data) {
+    const moodIndicator = document.getElementById('moodIndicator');
+    const moodText = document.getElementById('moodText');
+    if (!moodIndicator || !moodText) return;
+    
+    let bullScore = 0;
+    let bearScore = 0;
+    
+    // TICK scoring
+    const tick = data['$TICK']?.quote?.lastPrice ?? data['$TICK']?.lastPrice;
+    if (tick !== undefined) {
+        if (tick > 500) bullScore += 2;
+        else if (tick > 0) bullScore += 1;
+        else if (tick < -500) bearScore += 2;
+        else if (tick < 0) bearScore += 1;
+    }
+    
+    // A/D scoring
+    const add = data['$ADD']?.quote?.lastPrice ?? data['$ADD']?.lastPrice;
+    if (add !== undefined) {
+        if (add > 1000) bullScore += 2;
+        else if (add > 0) bullScore += 1;
+        else if (add < -1000) bearScore += 2;
+        else if (add < 0) bearScore += 1;
+    }
+    
+    // VOLD scoring
+    const vold = data['$VOLD']?.quote?.lastPrice ?? data['$VOLD']?.lastPrice;
+    if (vold !== undefined) {
+        if (vold > 0) bullScore += 1;
+        else bearScore += 1;
+    }
+    
+    // TRIN scoring (inverted - low TRIN = bullish)
+    const trin = data['$TRIN']?.quote?.lastPrice ?? data['$TRIN']?.lastPrice;
+    if (trin !== undefined) {
+        if (trin < 0.8) bullScore += 2;
+        else if (trin < 1.0) bullScore += 1;
+        else if (trin > 1.2) bearScore += 2;
+        else bearScore += 1;
+    }
+    
+    // VIX scoring (inverted - low VIX = bullish)
+    const vixData = data['$VIX.X'] || data['$VIX'];
+    const vix = vixData?.quote?.lastPrice ?? vixData?.lastPrice;
+    if (vix !== undefined) {
+        if (vix < 15) bullScore += 1;
+        else if (vix > 25) bearScore += 2;
+        else if (vix > 20) bearScore += 1;
+    }
+    
+    // Determine mood
+    const netScore = bullScore - bearScore;
+    
+    if (netScore >= 5) {
+        moodIndicator.textContent = '🟢';
+        moodText.textContent = 'Strong Bull';
+        moodText.style.color = '#00ff88';
+    } else if (netScore >= 2) {
+        moodIndicator.textContent = '🟡';
+        moodText.textContent = 'Bullish';
+        moodText.style.color = '#aaff88';
+    } else if (netScore <= -5) {
+        moodIndicator.textContent = '🔴';
+        moodText.textContent = 'Strong Bear';
+        moodText.style.color = '#ff5252';
+    } else if (netScore <= -2) {
+        moodIndicator.textContent = '🟠';
+        moodText.textContent = 'Bearish';
+        moodText.style.color = '#ffaa00';
+    } else {
+        moodIndicator.textContent = '⚪';
+        moodText.textContent = 'Neutral';
+        moodText.style.color = '#888';
+    }
+}
+
+// Auto-refresh internals every 30 seconds during market hours
+let internalsInterval = null;
+
+function startInternalsRefresh() {
+    // Initial fetch
+    window.refreshMarketInternals();
+    
+    // Set up interval (every 30 seconds)
+    if (internalsInterval) clearInterval(internalsInterval);
+    internalsInterval = setInterval(() => {
+        // Only refresh during market hours (9:30 AM - 4:00 PM ET, weekdays)
+        const now = new Date();
+        const day = now.getDay();
+        const hour = now.getHours();
+        const minute = now.getMinutes();
+        const timeInMinutes = hour * 60 + minute;
+        
+        // Market hours: 9:30 AM (570 min) to 4:00 PM (960 min), Mon-Fri
+        const isMarketHours = day >= 1 && day <= 5 && timeInMinutes >= 570 && timeInMinutes <= 960;
+        
+        if (isMarketHours) {
+            window.refreshMarketInternals();
+        }
+    }, 30000);
+}
+
+// Start internals refresh when page loads (after a short delay for auth)
+setTimeout(startInternalsRefresh, 3000);
 
 function initLiveIndicator() {
     // Update timestamp display every second

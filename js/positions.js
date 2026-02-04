@@ -54,6 +54,178 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // Cache for IV data (refreshed every 5 minutes)
 const ivCache = new Map();
 
+// Track which spread positions are expanded to show both legs
+const expandedSpreads = new Set();
+
+/**
+ * Toggle expansion of spread legs view
+ * @param {number|string} posId - Position ID
+ */
+window.toggleSpreadExpansion = function(posId) {
+    const id = Number(posId);
+    if (expandedSpreads.has(id)) {
+        expandedSpreads.delete(id);
+    } else {
+        expandedSpreads.add(id);
+        // Fetch live leg prices when expanding
+        fetchSpreadLegPrices(id);
+    }
+    // Re-render the positions table to show/hide leg rows
+    renderPositions();
+};
+
+/**
+ * Fetch live prices for spread legs from CBOE
+ * @param {number} posId - Position ID
+ */
+async function fetchSpreadLegPrices(posId) {
+    const pos = state.positions.find(p => p.id === posId);
+    if (!pos || !pos.type.includes('_spread')) return;
+    
+    const isPutSpread = pos.type.includes('put');
+    const isCreditSpread = pos.type.includes('credit');
+    const optionType = isPutSpread ? 'P' : 'C';
+    
+    try {
+        // Fetch option chain from CBOE
+        const res = await fetch(`/api/cboe/${pos.ticker}`);
+        if (!res.ok) return;
+        
+        const data = await res.json();
+        const options = data?.data?.options;
+        
+        if (!options || !Array.isArray(options)) return;
+        
+        // Parse expiry to YYMMDD format for matching
+        const expiryParts = pos.expiry.split('-'); // 2026-02-21
+        const expiryCode = expiryParts[0].slice(2) + expiryParts[1] + expiryParts[2]; // 260221
+        
+        // Find matching options by parsing the OCC symbol format: AAPL260117C00250000
+        let shortLegPrice = null;
+        let longLegPrice = null;
+        
+        for (const opt of options) {
+            const symbol = opt.option;
+            const match = symbol.match(/([A-Z]+)(\d{6})([CP])(\d{8})/);
+            if (!match) continue;
+            
+            const [, , dateStr, type, strikeStr] = match;
+            const strike = parseInt(strikeStr) / 1000;
+            
+            // Must match our expiry and option type (put/call)
+            if (dateStr !== expiryCode || type !== optionType) continue;
+            
+            const mid = ((opt.bid || 0) + (opt.ask || 0)) / 2;
+            
+            if (strike === pos.sellStrike) {
+                shortLegPrice = mid;
+            }
+            if (strike === pos.buyStrike) {
+                longLegPrice = mid;
+            }
+            
+            // Stop early if we found both
+            if (shortLegPrice !== null && longLegPrice !== null) break;
+        }
+        
+        const contracts = pos.contracts;
+        const netPremiumReceived = pos.premium * 100 * contracts; // Total premium at entry
+        
+        // Update the UI with leg prices
+        const shortPriceEl = document.getElementById(`leg-short-price-${posId}`);
+        const longPriceEl = document.getElementById(`leg-long-price-${posId}`);
+        const shortValueEl = document.getElementById(`leg-short-value-${posId}`);
+        const longValueEl = document.getElementById(`leg-long-value-${posId}`);
+        const shortPnlEl = document.getElementById(`leg-short-pnl-${posId}`);
+        const longPnlEl = document.getElementById(`leg-long-pnl-${posId}`);
+        const netCloseEl = document.getElementById(`leg-net-close-${posId}`);
+        const spreadPnlEl = document.getElementById(`leg-spread-pnl-${posId}`);
+        
+        // Short leg: cost to buy back
+        if (shortPriceEl && shortLegPrice !== null) {
+            shortPriceEl.textContent = shortLegPrice > 0 ? `$${shortLegPrice.toFixed(2)}` : '—';
+            shortPriceEl.style.color = '#ff5252';
+            
+            const shortValue = shortLegPrice * 100 * contracts;
+            if (shortValueEl) {
+                shortValueEl.textContent = `-$${shortValue.toFixed(0)}`;
+                shortValueEl.style.color = '#ff5252';
+                shortValueEl.title = `Cost to buy back: $${shortValue.toFixed(0)}`;
+            }
+        }
+        
+        // Long leg: value if sold
+        if (longPriceEl && longLegPrice !== null) {
+            longPriceEl.textContent = longLegPrice > 0 ? `$${longLegPrice.toFixed(2)}` : '—';
+            longPriceEl.style.color = '#00ff88';
+            
+            const longValue = longLegPrice * 100 * contracts;
+            if (longValueEl) {
+                longValueEl.textContent = `+$${longValue.toFixed(0)}`;
+                longValueEl.style.color = '#00ff88';
+                longValueEl.title = `Value if sold: $${longValue.toFixed(0)}`;
+            }
+        }
+        
+        // Calculate net to close and spread P&L
+        if (shortLegPrice !== null && longLegPrice !== null) {
+            const shortValue = shortLegPrice * 100 * contracts; // Cost to buy back short
+            const longValue = longLegPrice * 100 * contracts;   // Get back from selling long
+            
+            // Net to close = buy back short (pay) - sell long (receive)
+            const netToClose = shortValue - longValue;
+            
+            // For CREDIT spread: P&L = premium received - net to close
+            // For DEBIT spread: P&L = net to close - premium paid  
+            const spreadPnL = isCreditSpread 
+                ? netPremiumReceived - netToClose
+                : netToClose - netPremiumReceived;
+            
+            if (netCloseEl) {
+                const netCloseSign = netToClose >= 0 ? '-' : '+';
+                netCloseEl.textContent = `${netCloseSign}$${Math.abs(netToClose).toFixed(0)}`;
+                netCloseEl.style.color = netToClose >= 0 ? '#ff5252' : '#00ff88';
+                netCloseEl.title = netToClose >= 0 
+                    ? `Net debit to close: $${netToClose.toFixed(0)}`
+                    : `Net credit to close: $${Math.abs(netToClose).toFixed(0)}`;
+            }
+            
+            if (spreadPnlEl) {
+                const pnlColor = spreadPnL >= 0 ? '#00ff88' : '#ff5252';
+                const pnlSign = spreadPnL >= 0 ? '+' : '';
+                spreadPnlEl.textContent = `${pnlSign}$${spreadPnL.toFixed(0)}`;
+                spreadPnlEl.style.color = pnlColor;
+                spreadPnlEl.title = `Total spread P&L: ${pnlSign}$${spreadPnL.toFixed(0)}`;
+            }
+            
+            // Estimate individual leg P&L (rough estimate - assumes 50/50 split of net premium)
+            // This is just for display - not accurate without knowing actual leg entry prices
+            if (shortPnlEl && isCreditSpread) {
+                // For credit spread, short leg typically got ~70% of premium
+                const estShortEntry = pos.premium * 0.7;
+                const shortPnL = (estShortEntry - shortLegPrice) * 100 * contracts;
+                const shortPnlColor = shortPnL >= 0 ? '#00ff88' : '#ff5252';
+                shortPnlEl.textContent = shortPnL >= 0 ? `+$${shortPnL.toFixed(0)}` : `-$${Math.abs(shortPnL).toFixed(0)}`;
+                shortPnlEl.style.color = shortPnlColor;
+                shortPnlEl.title = `Est. leg P&L (assumes ~70% of premium)`;
+            }
+            
+            if (longPnlEl && isCreditSpread) {
+                // For credit spread, long leg typically cost ~30% of premium we received (net)
+                // Actually: long leg debit ≈ short leg credit - net premium
+                const estLongEntry = pos.premium * 0.3; // Rough estimate
+                const longPnL = (longLegPrice - estLongEntry) * 100 * contracts;
+                const longPnlColor = longPnL >= 0 ? '#00ff88' : '#ff5252';
+                longPnlEl.textContent = longPnL >= 0 ? `+$${longPnL.toFixed(0)}` : `-$${Math.abs(longPnL).toFixed(0)}`;
+                longPnlEl.style.color = longPnlColor;
+                longPnlEl.title = `Est. leg P&L (assumes ~30% of premium)`;
+            }
+        }
+    } catch (e) {
+        console.warn(`[Spread Legs] Failed to fetch leg prices for ${pos.ticker}:`, e.message);
+    }
+}
+
 /**
  * Sector lookup for tickers - returns short sector name and color
  */
@@ -3799,8 +3971,10 @@ function renderPositionsTable(container, openPositions) {
                          pos.type.includes('put') ? colors.red : colors.green;
         
         // Strike display - different for spreads and SKIP
+        const isExpanded = expandedSpreads.has(pos.id);
+        const expandArrow = isSpread ? `<span onclick="event.stopPropagation(); window.toggleSpreadExpansion(${pos.id})" style="cursor:pointer;margin-right:4px;color:#8b5cf6;font-size:12px;" title="Click to ${isExpanded ? 'collapse' : 'expand'} spread legs">${isExpanded ? '▼' : '▶'}</span>` : '';
         const strikeDisplay = isSpread 
-            ? `$${pos.buyStrike}/$${pos.sellStrike}`
+            ? `${expandArrow}$${pos.buyStrike}/$${pos.sellStrike}`
             : isSkip 
             ? `L:$${pos.leapsStrike} S:$${pos.skipStrike}`  // LEAPS/SKIP strikes
             : `$${pos.strike?.toFixed(2) || '—'}`;
@@ -4016,6 +4190,103 @@ function renderPositionsTable(container, openPositions) {
                 </td>
             </tr>
         `;
+        
+        // Add expanded spread leg rows if this is a spread and is expanded
+        if (isSpread && expandedSpreads.has(pos.id)) {
+            const isCreditSpread = pos.type.includes('credit');
+            const isPutSpread = pos.type.includes('put');
+            const optionType = isPutSpread ? 'PUT' : 'CALL';
+            
+            // Determine which leg is SHORT (sold) and which is LONG (bought)
+            // Credit spreads: SELL the closer-to-money strike, BUY the further
+            // Debit spreads: BUY the closer-to-money strike, SELL the further
+            let shortStrike, longStrike;
+            if (isCreditSpread) {
+                shortStrike = pos.sellStrike; // We SOLD this
+                longStrike = pos.buyStrike;   // We BOUGHT this
+            } else {
+                shortStrike = pos.sellStrike; // We SOLD this
+                longStrike = pos.buyStrike;   // We BOUGHT this
+            }
+            
+            // Calculate credit/debit per leg based on position
+            // Note: We don't have individual leg prices stored, so show what we can
+            const netPremium = pos.premium;
+            const legNote = isCreditSpread 
+                ? 'Received net credit of $' + netPremium.toFixed(2)
+                : 'Paid net debit of $' + netPremium.toFixed(2);
+            
+            // Short leg row (SELL)
+            // For credit spread short leg: You SOLD this, want it to decay. Profit = what you sold at - what it costs to buy back
+            html += `
+            <tr class="spread-leg-row" data-parent-id="${pos.id}" style="background: rgba(139,92,246,0.08); border-left: 4px solid #8b5cf6;">
+                <td></td>
+                <td style="padding: 4px 6px; font-size: 10px; color: #888;">
+                    <span style="color:#8b5cf6;">└─</span> 
+                    <span style="color:#ff5252; font-weight:bold;">SELL</span>
+                </td>
+                <td colspan="2"></td>
+                <td style="padding: 4px 6px; font-size: 10px; color: #aaa;">Short ${optionType}</td>
+                <td style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;">—</td>
+                <td style="padding: 4px 6px; text-align: right; font-size: 11px; color: #ff5252;">$${shortStrike}</td>
+                <td colspan="2"></td>
+                <td id="leg-short-price-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;">⏳</td>
+                <td style="padding: 4px 6px; text-align: center; font-size: 10px; color: #888;">${pos.contracts}</td>
+                <td colspan="2"></td>
+                <td id="leg-short-value-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Cost to buy back this leg">⏳</td>
+                <td id="leg-short-pnl-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Leg P&L estimate">⏳</td>
+                <td></td>
+                <td style="padding: 4px 6px; text-align: left; font-size: 10px;">
+                    <button onclick="window.closeLeg(${pos.id}, 'short', ${shortStrike})" 
+                            style="padding: 2px 8px; background: rgba(255,82,82,0.3); border: 1px solid rgba(255,82,82,0.5); color: #f55; border-radius: 3px; cursor: pointer; font-size: 10px;"
+                            title="Close this leg only (buy back the short)">Close Leg</button>
+                </td>
+            </tr>
+            `;
+            
+            // Long leg row (BUY)
+            // For credit spread long leg: You BOUGHT this as protection, it decays against you
+            html += `
+            <tr class="spread-leg-row" data-parent-id="${pos.id}" style="background: rgba(139,92,246,0.08); border-left: 4px solid #8b5cf6;">
+                <td></td>
+                <td style="padding: 4px 6px; font-size: 10px; color: #888;">
+                    <span style="color:#8b5cf6;">└─</span> 
+                    <span style="color:#00ff88; font-weight:bold;">BUY</span>
+                </td>
+                <td colspan="2"></td>
+                <td style="padding: 4px 6px; font-size: 10px; color: #aaa;">Long ${optionType}</td>
+                <td style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;">—</td>
+                <td style="padding: 4px 6px; text-align: right; font-size: 11px; color: #00ff88;">$${longStrike}</td>
+                <td colspan="2"></td>
+                <td id="leg-long-price-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;">⏳</td>
+                <td style="padding: 4px 6px; text-align: center; font-size: 10px; color: #888;">${pos.contracts}</td>
+                <td colspan="2"></td>
+                <td id="leg-long-value-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Value if you sold this leg">⏳</td>
+                <td id="leg-long-pnl-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Leg P&L estimate">⏳</td>
+                <td></td>
+                <td style="padding: 4px 6px; text-align: left; font-size: 10px;">
+                    <button onclick="window.closeLeg(${pos.id}, 'long', ${longStrike})" 
+                            style="padding: 2px 8px; background: rgba(0,255,136,0.3); border: 1px solid rgba(0,255,136,0.5); color: #0f8; border-radius: 3px; cursor: pointer; font-size: 10px;"
+                            title="Close this leg only (sell to close the long)">Close Leg</button>
+                </td>
+            </tr>
+            `;
+            
+            // Net premium info row with close spread summary
+            html += `
+            <tr class="spread-leg-row" data-parent-id="${pos.id}" style="background: rgba(139,92,246,0.05); border-left: 4px solid #8b5cf6;">
+                <td></td>
+                <td colspan="5" style="padding: 4px 6px; font-size: 10px; color: #8b5cf6; font-style: italic;">
+                    <span style="color:#8b5cf6;">└─</span> ${legNote} × ${pos.contracts} contracts = $${(netPremium * 100 * pos.contracts).toFixed(0)} ${isCreditSpread ? 'received' : 'paid'}
+                </td>
+                <td colspan="6"></td>
+                <td id="leg-net-close-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Net cost to close entire spread">⏳</td>
+                <td id="leg-spread-pnl-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; font-weight: bold; color: #888;" title="Total spread P&L">⏳</td>
+                <td colspan="2"></td>
+            </tr>
+            `;
+        }
+        
         }); // End group.positions.forEach
     } // End for (const [ticker, group] of sortedTickers)
     
@@ -5398,6 +5669,132 @@ window.assignPosition = assignPosition;
 window.renderPositions = renderPositions;
 window.updatePortfolioSummary = updatePortfolioSummary;
 window.undoLastAction = undoLastAction;
+
+/**
+ * Close a single leg of a spread position ("legging out")
+ * This converts the remaining leg into a standalone position
+ * 
+ * @param {number} positionId - The spread position ID
+ * @param {string} legType - 'short' or 'long'
+ * @param {number} legStrike - Strike of the leg being closed
+ */
+window.closeLeg = async function(positionId, legType, legStrike) {
+    const pos = state.positions.find(p => p.id === Number(positionId));
+    if (!pos) {
+        showNotification('Position not found', 'error');
+        return;
+    }
+    
+    // Confirm with user
+    const isCreditSpread = pos.type.includes('credit');
+    const isPutSpread = pos.type.includes('put');
+    const optionType = isPutSpread ? 'PUT' : 'CALL';
+    
+    const action = legType === 'short' ? 'buy back' : 'sell';
+    const remainingLegType = legType === 'short' ? 'LONG' : 'SHORT';
+    const remainingStrike = legType === 'short' ? pos.buyStrike : pos.sellStrike;
+    
+    const confirmed = confirm(
+        `🦵 Leg Out of Spread\n\n` +
+        `Position: ${pos.ticker} ${pos.type.replace(/_/g, ' ')}\n` +
+        `Action: ${action.toUpperCase()} the $${legStrike} ${optionType}\n\n` +
+        `⚠️ WARNING: This will:\n` +
+        `1. Close the ${legType.toUpperCase()} leg @ $${legStrike}\n` +
+        `2. Leave you with a naked ${remainingLegType} ${optionType} @ $${remainingStrike}\n\n` +
+        `The remaining position may have different margin requirements!\n\n` +
+        `Continue?`
+    );
+    
+    if (!confirmed) return;
+    
+    // Get current price for the leg being closed (would need CBOE call in production)
+    // For now, prompt user for close price
+    const closePrice = prompt(
+        `Enter the close price for the $${legStrike} ${optionType}:\n\n` +
+        `(What did you ${action} it for?)`,
+        '0.00'
+    );
+    
+    if (closePrice === null) return;
+    
+    const closePriceNum = parseFloat(closePrice);
+    if (isNaN(closePriceNum) || closePriceNum < 0) {
+        showNotification('Invalid close price', 'error');
+        return;
+    }
+    
+    // Calculate P&L for the closed leg
+    // For credit spreads: short leg was sold at credit, long leg was bought at debit
+    // We don't have individual leg prices stored, so we'll estimate
+    const legPnL = legType === 'short' 
+        ? (pos.premium - closePriceNum) * 100 * pos.contracts  // Sold at premium, bought back at closePrice
+        : (closePriceNum - 0) * 100 * pos.contracts;  // Bought at cost (unknown), sold at closePrice
+    
+    // Create a new standalone position for the remaining leg
+    const remainingType = legType === 'short' 
+        ? (isPutSpread ? 'long_put' : 'long_call')  // We're left with what we bought
+        : (isPutSpread ? 'short_put' : 'short_call');  // We're left with what we sold
+    
+    // Archive the original spread as closed
+    const closedSpread = {
+        ...pos,
+        status: 'closed',
+        closeDate: new Date().toISOString().split('T')[0],
+        closeReason: 'legged_out',
+        closePrice: closePriceNum,
+        closedLeg: legType,
+        closedLegStrike: legStrike,
+        realizedPnL: legPnL, // Just the closed leg P&L
+        legOutNote: `Legged out: closed ${legType} $${legStrike} leg, converted remaining to standalone ${remainingType}`
+    };
+    
+    // Create new position for remaining leg
+    const remainingPos = {
+        id: Date.now(),
+        ticker: pos.ticker,
+        type: remainingType,
+        strike: remainingStrike,
+        premium: 0, // Unknown cost basis for the individual leg
+        contracts: pos.contracts,
+        expiry: pos.expiry,
+        openDate: new Date().toISOString().split('T')[0],
+        broker: pos.broker,
+        leggedFrom: pos.id,
+        leggedNote: `Remaining leg from ${pos.type.replace(/_/g, ' ')} @ $${pos.buyStrike}/$${pos.sellStrike}`
+    };
+    
+    // Update state
+    const posIndex = state.positions.findIndex(p => p.id === pos.id);
+    if (posIndex !== -1) {
+        state.positions.splice(posIndex, 1);
+    }
+    
+    // Add to closed
+    state.closedPositions.push(closedSpread);
+    
+    // Add remaining leg as new position
+    state.positions.push(remainingPos);
+    
+    // Recalculate DTE
+    const expiryDate = new Date(remainingPos.expiry + 'T16:00:00');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    remainingPos.dte = Math.max(0, Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)));
+    
+    // Save and refresh
+    savePositions();
+    renderPositions();
+    updatePortfolioSummary();
+    
+    // Collapse the expanded state since position changed
+    expandedSpreads.delete(pos.id);
+    
+    showNotification(
+        `✂️ Legged out: Closed ${legType} $${legStrike} leg. ` +
+        `Remaining: ${remainingType.replace(/_/g, ' ')} @ $${remainingStrike}`,
+        'success'
+    );
+};
 
 // Debug function to check thesis data
 window.debugThesis = function() {
