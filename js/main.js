@@ -4330,6 +4330,7 @@ window.confirmStagedTrade = function(id) {
                         <label style="color:#888; font-size:12px;">Expiry Date</label>
                         <input id="confirmExpiry" type="date" value="${expiry}"
                                oninput="window.updateTradeSummary();"
+                               onchange="window.onExpiryChange();"
                                style="width:100%; padding:8px; background:#0d0d1a; border:1px solid #333; color:#fff; border-radius:4px;">
                     </div>
                 </div>
@@ -4637,6 +4638,101 @@ window.updateMarginDisplay = function() {
         } else {
             marginStatusEl.innerHTML = `<span style="color:#ff5252;">⚠️ Insufficient margin</span> - Need $${(totalMargin - buyingPower).toLocaleString()} more`;
         }
+    }
+};
+
+/**
+ * Handle expiry date change - refresh strikes for the new date
+ */
+window.onExpiryChange = async function() {
+    const newExpiry = document.getElementById('confirmExpiry')?.value;
+    const isSpread = document.getElementById('confirmIsSpread')?.value === '1';
+    const tradeInfo = window._confirmTradeInfo;
+    
+    if (!newExpiry || !tradeInfo?.trade?.ticker) return;
+    
+    const ticker = tradeInfo.trade.ticker;
+    const isPut = tradeInfo.isPut;
+    const currentStrike = parseFloat(document.getElementById('confirmStrike')?.value) || tradeInfo.trade.strike;
+    
+    console.log(`[UI] Expiry changed to ${newExpiry}, refreshing strikes for ${ticker}...`);
+    
+    // Show loading state
+    const statusEl = document.getElementById('strikeLoadingStatus');
+    const spinnerEl = document.getElementById('premiumLoadingSpinner');
+    if (statusEl) {
+        statusEl.textContent = '⏳ Loading strikes for new date...';
+        statusEl.style.color = '#888';
+        statusEl.style.display = 'block';
+    }
+    if (spinnerEl) spinnerEl.textContent = '⏳';
+    
+    try {
+        // Fetch fresh option chain
+        const chain = await window.fetchOptionsChain(ticker);
+        if (!chain) throw new Error('No chain data');
+        
+        const options = isPut ? chain.puts : chain.calls;
+        const spotPrice = chain.spotPrice || chain.underlyingPrice || 100;
+        
+        // Update spot price
+        const spotInput = document.getElementById('confirmSpotPrice');
+        if (spotInput) spotInput.value = spotPrice;
+        
+        // Repopulate strikes for new expiry
+        if (options?.length) {
+            window.populateSingleStrikeDropdown(options, newExpiry, currentStrike);
+            
+            // Update premium for the (possibly new) selected strike
+            const selectedStrike = parseFloat(document.getElementById('confirmStrike')?.value) || currentStrike;
+            const option = options.find(opt => 
+                Math.abs(opt.strike - selectedStrike) < 0.01 && opt.expiration === newExpiry
+            );
+            
+            if (option) {
+                const premium = (option.bid + option.ask) / 2;
+                const iv = option.impliedVolatility || 0;
+                const delta = option.delta ? Math.abs(parseFloat(option.delta)) : 0;
+                
+                const premiumInput = document.getElementById('confirmPremium');
+                if (premiumInput) premiumInput.value = premium.toFixed(2);
+                
+                // Update IV display
+                const ivDisplay = document.getElementById('ivDisplay');
+                if (ivDisplay && iv > 0) {
+                    const ivPct = (iv * 100).toFixed(0);
+                    ivDisplay.style.color = iv < 0.30 ? '#00d9ff' : iv > 0.50 ? '#ffaa00' : '#fff';
+                    ivDisplay.textContent = `${ivPct}%`;
+                }
+                
+                // Update Win Prob
+                const winProbDisplay = document.getElementById('winProbDisplay');
+                if (winProbDisplay && delta > 0) {
+                    const winProb = Math.round((1 - delta) * 100);
+                    winProbDisplay.textContent = `${winProb}%`;
+                    winProbDisplay.style.color = winProb >= 70 ? '#00ff88' : winProb >= 50 ? '#ffaa00' : '#ff5252';
+                }
+            }
+            
+            if (spinnerEl) spinnerEl.textContent = '✓';
+        } else {
+            if (statusEl) {
+                statusEl.textContent = '⚠️ No strikes for this expiry';
+                statusEl.style.color = '#ffaa00';
+            }
+        }
+        
+        // Recalculate displays
+        window.updateSingleLegDisplay?.();
+        window.updateMarginDisplay?.();
+        
+    } catch (err) {
+        console.warn('[UI] Error refreshing strikes:', err.message);
+        if (statusEl) {
+            statusEl.textContent = '⚠️ Could not load strikes';
+            statusEl.style.color = '#ffaa00';
+        }
+        if (spinnerEl) spinnerEl.textContent = '⚠️';
     }
 };
 
