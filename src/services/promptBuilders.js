@@ -260,6 +260,33 @@ ${parts.join('\n')}`;
         }
     }
     
+    // Calculate distance from key support (for timing advice)
+    let distanceFromSupport = null;
+    let supportLevel = null;
+    if (t.technicalAnalysis?.confluence?.price) {
+        supportLevel = t.technicalAnalysis.confluence.price;
+        distanceFromSupport = ((priceNum - supportLevel) / priceNum * 100).toFixed(1);
+    } else if (t.technicalAnalysis?.fibonacci?.fibLevels) {
+        // Use 61.8% Fib as key support
+        const fib618 = t.technicalAnalysis.fibonacci.fibLevels.find(f => f.level === '61.8%');
+        if (fib618 && fib618.price < priceNum) {
+            supportLevel = fib618.price;
+            distanceFromSupport = ((priceNum - supportLevel) / priceNum * 100).toFixed(1);
+        }
+    }
+    
+    // Build timing context for the AI
+    let timingContext = '';
+    if (distanceFromSupport && parseFloat(distanceFromSupport) > 15) {
+        timingContext = `
+⏱️ TIMING CONTEXT: Stock is ${distanceFromSupport}% ABOVE key support ($${supportLevel?.toFixed(2)}). 
+This means you're "paying" for time decay while waiting for price to approach support.
+Consider: Is it better to WAIT for a pullback closer to support before selling puts?`;
+    } else if (distanceFromSupport && parseFloat(distanceFromSupport) < 5) {
+        timingContext = `
+⏱️ TIMING CONTEXT: Stock is only ${distanceFromSupport}% above support ($${supportLevel?.toFixed(2)}) - GOOD entry zone for puts!`;
+    }
+    
     // Concise prompt - straight to the point, no rambling
     return `QUICK WHEEL ANALYSIS for ${ticker}
 
@@ -269,7 +296,7 @@ EXAMPLE TRADE: Sell $${strike} put (${otmPercent}% OTM), expiry ${expiry}
 Support Levels (20-day lows): $${t.recentSupport.join(', $')}
 ${t.sma20 ? `20-Day SMA: $${t.sma20} (${t.aboveSMA20 ? 'above' : 'BELOW'})` : ''}
 ${t.earnings ? `⚠️ Earnings: ${t.earnings}` : 'No upcoming earnings'}
-${premiumSection}${technicalSection}
+${premiumSection}${technicalSection}${timingContext}
 
 Give me a CONCISE analysis. NO rambling, NO "let me think about this", NO chain-of-thought. Just the facts:
 
@@ -282,8 +309,10 @@ Choose strikes based on the Fibonacci and trendline support levels provided.
 - BALANCED: Strike near the 61.8% Fib level - good risk/reward  
 - AGGRESSIVE: Strike closer to current price - more premium, more risk
 
-⏰ **TIMING**
-Is now a good entry? Any reason to wait (earnings, technicals, etc.)?
+⏰ **TIMING** (IMPORTANT - Consider distance from support!)
+${distanceFromSupport && parseFloat(distanceFromSupport) > 15 
+    ? `Stock is ${distanceFromSupport}% above key support. Should you WAIT for a pullback, or enter now?`
+    : 'Is now a good entry? Any reason to wait (earnings, technicals, etc.)?'}
 
 ${t.premium ? `💰 **THIS SPECIFIC TRADE ($${strike} put)**
 Is this strike/expiry good? Quick yes/no with one reason.` : ''}

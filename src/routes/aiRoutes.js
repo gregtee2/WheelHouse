@@ -739,6 +739,8 @@ router.post('/deep-dive', async (req, res) => {
             console.log(`[DEEP-DIVE] Fetching real options chain for ${ticker}...`);
             const chain = await MarketDataService.getOptionsChain(ticker, { strikeCount: 40, range: 'ALL' });
             
+            console.log(`[DEEP-DIVE] Chain result: ${chain ? `${chain.puts?.length || 0} puts, ${chain.expirations?.length || 0} expirations, source=${chain.source}` : 'null'}`);
+            
             if (chain && chain.puts && chain.puts.length > 0) {
                 const today = new Date();
                 const targetDTE = 30;
@@ -761,6 +763,8 @@ router.post('/deep-dive', async (req, res) => {
                     bestExpiry = chain.expirations[0];
                     bestExpiryDTE = Math.ceil((new Date(bestExpiry) - today) / (1000 * 60 * 60 * 24));
                 }
+                
+                console.log(`[DEEP-DIVE] Selected expiry: ${bestExpiry} (${bestExpiryDTE} DTE)`);
                 
                 // Filter puts at target expiry with valid delta
                 const putsAtExpiry = chain.puts.filter(p => 

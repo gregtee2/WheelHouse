@@ -2277,9 +2277,24 @@ window.xDeepDive = async function(ticker) {
         
         // Get the REAL strike/expiry/price from the backend (from real options chain)
         const strike = result.strike;
-        const expiry = result.expiry;
+        let expiry = result.expiry;
         const price = result.currentPrice;
         const premium = result.premium;
+        
+        // Format expiry for display (ISO date -> "Feb 28, 2026")
+        const formatExpiry = (exp) => {
+            if (!exp) return 'N/A';
+            // If already formatted like "Feb 28", return as-is
+            if (/^[A-Z][a-z]{2}\s\d+/.test(exp)) return exp;
+            // ISO format: 2026-02-28
+            const match = exp.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (match) {
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                return `${months[parseInt(match[2]) - 1]} ${parseInt(match[3])}, ${match[1]}`;
+            }
+            return exp;
+        };
+        const expiryDisplay = formatExpiry(expiry);
         
         // Format the analysis
         let formatted = result.analysis
@@ -2300,7 +2315,7 @@ window.xDeepDive = async function(ticker) {
         document.getElementById('xDeepDiveContent').innerHTML = `
             <div style="background:rgba(29,161,242,0.1); padding:12px; border-radius:8px; margin-bottom:16px;">
                 <strong style="color:#1da1f2;">${ticker}</strong> @ $${price?.toFixed(2) || '?'}
-                <span style="margin-left:20px;">Analyzing: <span style="color:#00ff88;">Sell $${strike} Put</span> expiring ${expiry}</span>
+                <span style="margin-left:20px;">Analyzing: <span style="color:#00ff88;">Sell $${strike} Put</span> expiring ${expiryDisplay}</span>
                 <span style="color:#666; font-size:10px; margin-left:10px;">(real chain data)</span>
             </div>
             ${premiumInfo}
