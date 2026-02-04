@@ -89,6 +89,10 @@ async function callGrok(prompt, model = 'grok-3', maxTokens = 400) {
             body: JSON.stringify({
                 model: model,
                 messages: [
+                    { 
+                        role: 'system', 
+                        content: 'You are a concise options trading analyst. RULES: 1) NEVER show your thinking process. 2) NEVER say "let me think" or "I\'m trying to analyze". 3) Output ONLY the final structured analysis. 4) Use the exact section headers requested. 5) Keep each section to 2-3 sentences max. 6) Always end with a clear VERDICT: ✅ ENTER, ⚠️ WAIT, or ❌ AVOID.'
+                    },
                     { role: 'user', content: prompt }
                 ],
                 max_tokens: maxTokens,

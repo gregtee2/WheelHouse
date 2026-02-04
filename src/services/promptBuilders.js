@@ -298,7 +298,7 @@ ${t.sma20 ? `20-Day SMA: $${t.sma20} (${t.aboveSMA20 ? 'above' : 'BELOW'})` : ''
 ${t.earnings ? `⚠️ Earnings: ${t.earnings}` : 'No upcoming earnings'}
 ${premiumSection}${technicalSection}${timingContext}
 
-Give me a CONCISE analysis. NO rambling, NO "let me think about this", NO chain-of-thought. Just the facts:
+INSTRUCTIONS: Output ONLY the structured analysis below. Do NOT show your thinking. Do NOT say "let me analyze" or "I'm confused". Start directly with "THE SETUP".
 
 📊 **THE SETUP** (2-3 sentences max)
 Quick take on ${ticker} right now - trend, recent price action, any catalysts.
