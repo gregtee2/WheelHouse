@@ -795,8 +795,8 @@ router.post('/deep-dive', async (req, res) => {
                     
                     // Calculate ROC and annualized ROC
                     const premium = bestPut.bid || ((bestPut.bid + bestPut.ask) / 2) || 0;
-                    const collateral = bestPut.strike * 100;  // Cash-secured put collateral
-                    const roc = premium > 0 && collateral > 0 ? (premium / collateral) * 100 : 0;
+                    // ROC = premium / strike (per-share basis, same units)
+                    const roc = premium > 0 && bestPut.strike > 0 ? (premium / bestPut.strike) * 100 : 0;
                     const annualizedROC = roc * (365 / dte);
                     
                     candidates.push({

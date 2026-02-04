@@ -2710,7 +2710,7 @@ window.deepDive = async function(ticker) {
                     </div>
                     <div style="margin-top:10px; padding-top:8px; border-top:1px solid #335577; display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; font-size:12px;">
                         <div>Premium: <span style="color:#00ff88;">$${(p.mid * 100).toFixed(0)}</span>/contract</div>
-                        <div>ROC: <span style="color:#00ff88;">${roc.toFixed(2)}%</span> (${annualizedRoc}% ann.)</div>
+                        <div>ROC: <span style="color:#00ff88;">${roc.toFixed(2)}%</span> (${typeof annualizedRoc === 'number' ? annualizedRoc.toFixed(0) : annualizedRoc}% ann.)</div>
                         <div>DTE: ${dte} days</div>
                         <div>Cost Basis: <span style="color:#ffaa00;">$${(actualStrike - p.mid).toFixed(2)}</span>/sh</div>
                     </div>
