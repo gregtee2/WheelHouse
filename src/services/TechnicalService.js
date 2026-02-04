@@ -275,39 +275,72 @@ class TechnicalService {
     
     /**
      * Find significant swing high/low for Fibonacci calculation
-     * Looks for the major move that defines current price action
+     * IMPROVED: Finds the relevant swing that defines CURRENT price action
+     * Strategy: Find the peak first, then find the swing low that PRECEDED the run-up
      * @param {Array} ohlc - OHLC data
      * @returns {{swingLow, swingHigh, lowDate, highDate}}
      */
     static findMajorSwing(ohlc) {
         if (!ohlc || ohlc.length < 60) return null;
         
-        // Find the absolute low and high in the dataset
-        let lowestIdx = 0, highestIdx = 0;
-        let lowestPrice = Infinity, highestPrice = 0;
+        // Step 1: Find the absolute high (the peak of the move)
+        let highestIdx = 0;
+        let highestPrice = 0;
         
         for (let i = 0; i < ohlc.length; i++) {
-            if (ohlc[i].low < lowestPrice) {
-                lowestPrice = ohlc[i].low;
-                lowestIdx = i;
-            }
             if (ohlc[i].high > highestPrice) {
                 highestPrice = ohlc[i].high;
                 highestIdx = i;
             }
         }
         
-        // Determine if this is an uptrend (low before high) or downtrend (high before low)
-        const isUptrend = lowestIdx < highestIdx;
+        // Step 2: Look BACKWARDS from the peak to find the swing low that started the run
+        // This is the lowest point BEFORE the high, within a reasonable lookback
+        // We want the low that "launched" the move, not ancient history
+        
+        // Look back up to 18 months before the high, or to the start of data
+        const maxLookback = Math.min(highestIdx, 378); // ~18 months of trading days
+        const searchStartIdx = Math.max(0, highestIdx - maxLookback);
+        
+        let lowestIdx = searchStartIdx;
+        let lowestPrice = ohlc[searchStartIdx].low;
+        
+        for (let i = searchStartIdx; i < highestIdx; i++) {
+            if (ohlc[i].low < lowestPrice) {
+                lowestPrice = ohlc[i].low;
+                lowestIdx = i;
+            }
+        }
+        
+        // Step 3: Refine - make sure we're not picking a low that's TOO close to the high
+        // The swing should represent a meaningful move (at least 30% gain from low to high)
+        const movePercent = (highestPrice - lowestPrice) / lowestPrice * 100;
+        
+        if (movePercent < 20) {
+            // Move is too small - extend lookback to find a better swing
+            console.log(`[TECHNICAL] Initial swing move only ${movePercent.toFixed(1)}%, extending lookback...`);
+            lowestIdx = 0;
+            lowestPrice = ohlc[0].low;
+            for (let i = 0; i < highestIdx; i++) {
+                if (ohlc[i].low < lowestPrice) {
+                    lowestPrice = ohlc[i].low;
+                    lowestIdx = i;
+                }
+            }
+        }
+        
+        const finalMovePercent = (highestPrice - lowestPrice) / lowestPrice * 100;
+        console.log(`[TECHNICAL] Found swing: Low $${lowestPrice.toFixed(2)} (${ohlc[lowestIdx].date.toISOString().split('T')[0]}) → High $${highestPrice.toFixed(2)} (${ohlc[highestIdx].date.toISOString().split('T')[0]}), +${finalMovePercent.toFixed(0)}%`);
         
         return {
             swingLow: lowestPrice,
             swingHigh: highestPrice,
             lowDate: ohlc[lowestIdx].date,
             highDate: ohlc[highestIdx].date,
-            isUptrend,
+            isUptrend: lowestIdx < highestIdx,
             lowIdx: lowestIdx,
-            highIdx: highestIdx
+            highIdx: highestIdx,
+            movePercent: Math.round(finalMovePercent)
         };
     }
     
