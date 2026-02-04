@@ -2579,12 +2579,13 @@ window.deepDive = async function(ticker) {
                 <h2 style="margin:0; color:#7a8a94;">🔍 Deep Dive: ${ticker}</h2>
                 <button onclick="this.closest('#deepDiveModal').remove()" style="background:none; border:none; color:#888; font-size:24px; cursor:pointer;">✕</button>
             </div>
-            <div style="color:#888; margin-bottom:16px;">
-                Analyzing: Sell $${strike} put, ${expiry} | Current: $${candidate.price}
+            <div class="deepdive-header-info" style="color:#888; margin-bottom:16px;">
+                Analyzing ${ticker}... (backend selecting optimal strike/expiry)
             </div>
+            <div id="deepDiveRationale"></div>
             <div id="deepDiveContent" style="color:#ddd; font-size:13px; line-height:1.7;">
                 <div style="text-align:center; padding:40px; color:#888;">
-                    ⏳ Running comprehensive analysis... (30-60 seconds)
+                    ⏳ Running comprehensive analysis with smart expiry selection...
                 </div>
             </div>
         </div>
@@ -2592,15 +2593,16 @@ window.deepDive = async function(ticker) {
     document.body.appendChild(modal);
     
     try {
+        // Let backend do smart expiry selection - don't send expiry
         const response = await fetch('/api/ai/deep-dive', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 ticker,
-                strike,
-                expiry,
+                // Don't send strike or expiry - let backend find optimal based on ROC
                 currentPrice: candidate.price,
-                model: selectedModel
+                model: selectedModel,
+                targetDelta: 0.20  // Conservative delta target
             })
         });
         
@@ -2610,6 +2612,39 @@ window.deepDive = async function(ticker) {
         }
         
         const result = await response.json();
+        
+        // Use backend-selected strike and expiry (from smart ROC analysis)
+        const actualStrike = result.strike || strike;
+        const actualExpiry = result.expiry || expiry;
+        const selectionRationale = result.selectionRationale;
+        
+        // Format expiry for display
+        const formatExp = (exp) => {
+            if (!exp) return 'N/A';
+            if (/^[A-Z][a-z]{2}\s\d+/.test(exp)) return exp;
+            const match = exp.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (match) {
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                return `${months[parseInt(match[2]) - 1]} ${parseInt(match[3])}`;
+            }
+            return exp;
+        };
+        
+        // Update modal header with actual backend-selected values
+        const headerEl = modal.querySelector('.deepdive-header-info');
+        if (headerEl) {
+            headerEl.innerHTML = `Analyzing: <span style="color:#00ff88;">Sell $${actualStrike} put</span>, ${formatExp(actualExpiry)} | Current: $${candidate.price}`;
+        }
+        
+        // Show selection rationale (why this expiry was chosen)
+        const rationaleEl = document.getElementById('deepDiveRationale');
+        if (rationaleEl && selectionRationale?.summary) {
+            rationaleEl.innerHTML = `
+                <div style="background:rgba(0,217,255,0.1); padding:10px 12px; border-radius:6px; margin-bottom:16px; border-left:3px solid #00d9ff;">
+                    <span style="color:#00d9ff; font-size:12px;">🧠 <strong>Why this expiry?</strong></span>
+                    <span style="color:#aaa; font-size:12px; margin-left:8px;">${selectionRationale.summary}</span>
+                </div>`;
+        }
         
         // Format the analysis
         let formatted = result.analysis
@@ -2631,20 +2666,25 @@ window.deepDive = async function(ticker) {
             const p = result.premium;
             const source = p.source === 'schwab' ? '🔴 Schwab (real-time)' : '🔵 CBOE (15-min delay)';
             
-            // Note if strike was adjusted
-            const actualStrike = p.actualStrike || parseFloat(strike);
-            const strikeAdjusted = p.actualStrike && Math.abs(p.actualStrike - parseFloat(strike)) > 0.01;
-            const strikeNote = strikeAdjusted 
-                ? `<div style="color:#ffaa00; grid-column: span 3; font-size:11px;">⚠️ Using actual strike $${p.actualStrike} (requested $${strike})</div>` 
-                : '';
+            // Use backend-selected actual strike
+            const strikeNote = '';  // Backend already picked optimal strike
             
-            // Calculate annualized ROC using actual strike
-            const expiryMatch = expiry.match(/(\w+)\s+(\d+)/);
-            let dte = 30, annualizedRoc = 0;
-            if (expiryMatch) {
-                const monthMap = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
-                const expMonth = monthMap[expiryMatch[1]];
-                const expDay = parseInt(expiryMatch[2]);
+            // Calculate DTE from backend-selected expiry
+            let dte = selectionRationale?.dte || 30;
+            let annualizedRoc = selectionRationale?.annualizedROC || 0;
+            
+            // Fallback calculation if not in rationale
+            if (!annualizedRoc && actualExpiry) {
+                const expiryMatch = actualExpiry.match(/(\d{4})-(\d{2})-(\d{2})/);
+                if (expiryMatch) {
+                    const expDate = new Date(expiryMatch[1], parseInt(expiryMatch[2]) - 1, expiryMatch[3]);
+                    dte = Math.max(1, Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24)));
+                }
+                const roc = (p.mid / actualStrike) * 100;
+                annualizedRoc = (roc * (365 / dte)).toFixed(1);
+            }
+            
+            const roc = (p.mid / actualStrike) * 100;
                 const expYear = expMonth < new Date().getMonth() ? new Date().getFullYear() + 1 : new Date().getFullYear();
                 const expDate = new Date(expYear, expMonth, expDay);
                 dte = Math.max(1, Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24)));
@@ -2683,7 +2723,7 @@ window.deepDive = async function(ticker) {
                 </div>`;
         }
         
-        // Store thesis data for staging
+        // Store thesis data for staging (using backend-selected values)
         const price = parseFloat(candidate.price);
         const rangeHigh = result.tickerData?.threeMonthHigh;
         const rangeLow = result.tickerData?.threeMonthLow;
@@ -2692,13 +2732,14 @@ window.deepDive = async function(ticker) {
         
         window._currentThesis = {
             ticker,
-            strike: parseFloat(strike),
-            expiry,
+            strike: parseFloat(actualStrike),
+            expiry: actualExpiry,
             analyzedAt: new Date().toISOString(),
             priceAtAnalysis: price,
             premium: result.premium || null,
             tickerData: result.tickerData || {},
             aiAnalysis: result.analysis,
+            selectionRationale: selectionRationale || null,
             // Extract key thesis points
             support: result.tickerData?.recentSupport || [],
             sma20: result.tickerData?.sma20,
