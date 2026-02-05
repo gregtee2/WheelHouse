@@ -5410,7 +5410,6 @@ function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)
     if (window.AccountService) {
         accountValue = window.AccountService.getAccountValue() || 0;
         buyingPower = window.AccountService.getBuyingPower() || 0;
-        console.log('[LEVERAGE] From AccountService:', { accountValue, buyingPower });
     }
     
     // Fallback: try to parse from DOM (Portfolio tab elements)
@@ -5418,7 +5417,6 @@ function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)
         const valEl = document.getElementById('balAccountValue');
         if (valEl && valEl.textContent && valEl.textContent !== '—') {
             accountValue = parseFloat(valEl.textContent.replace(/[$,]/g, '')) || 0;
-            console.log('[LEVERAGE] From DOM balAccountValue:', accountValue, 'raw:', valEl.textContent);
         }
     }
     if (!buyingPower) {
