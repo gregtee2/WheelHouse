@@ -654,17 +654,24 @@ class StreamingServiceClass {
                 let price = quote.lastPrice;
                 let priceSource = 'regular';
                 
-                // Use extended hours price if available
-                if (quote.postMarketLastPrice && quote.postMarketLastPrice > 0) {
-                    price = quote.postMarketLastPrice;
+                // Detect extended hours from Schwab's response:
+                // - securityStatus: "Closed" means market is closed
+                // - postMarketChange != 0 means there was after-hours trading
+                // - preMarketChange != 0 means there was pre-market trading
+                const isClosed = quote.securityStatus === 'Closed' || quote.securityStatus === 'Normal';
+                const hasPostMarketActivity = quote.postMarketChange && quote.postMarketChange !== 0;
+                const hasPreMarketActivity = quote.preMarketChange && quote.preMarketChange !== 0;
+                
+                // If market is closed and there's extended hours activity, the lastPrice IS the extended hours price
+                if (isClosed && hasPostMarketActivity) {
                     priceSource = 'postMarket';
-                } else if (quote.preMarketLastPrice && quote.preMarketLastPrice > 0) {
-                    price = quote.preMarketLastPrice;
+                } else if (hasPreMarketActivity) {
                     priceSource = 'preMarket';
                 }
                 
                 if (price && typeof price === 'number' && !isNaN(price)) {
-                    console.log(`[STREAMING] ${ticker}: $${price.toFixed(2)} (${priceSource})`);
+                    const label = priceSource === 'postMarket' ? ' (AH)' : priceSource === 'preMarket' ? ' (PM)' : '';
+                    console.log(`[STREAMING] ${ticker}: $${price.toFixed(2)}${label} [securityStatus=${quote.securityStatus}, postMarketChange=${quote.postMarketChange || 0}]`);
                     
                     // Create a quote object similar to streaming format
                     const extendedQuote = {
