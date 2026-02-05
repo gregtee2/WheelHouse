@@ -8555,16 +8555,18 @@ window.runStrategyAdvisor = async function() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${sr.allCandidates.map((c, i) => `
+                                    ${sr.allCandidates.map((c, i) => {
+                                        const score = c.score ?? c.annualizedROC;  // Fallback if backend hasn't calculated score
+                                        return `
                                         <tr style="${i === 0 ? 'background:rgba(34,197,94,0.15); color:#22c55e;' : ''}">
                                             <td style="padding:4px 8px;">${c.expiry}${i === 0 ? ' ✓' : ''}</td>
                                             <td style="padding:4px 8px; text-align:right;">${c.dte}d${c.gammaPenalized ? ' ⚠️' : ''}</td>
                                             <td style="padding:4px 8px; text-align:right;">$${c.premium.toFixed(2)}</td>
                                             <td style="padding:4px 8px; text-align:right;">${c.roc.toFixed(2)}%</td>
                                             <td style="padding:4px 8px; text-align:right;">${c.annualizedROC.toFixed(0)}%${c.gammaPenalized ? '*' : ''}</td>
-                                            <td style="padding:4px 8px; text-align:right; font-weight:${i === 0 ? 'bold' : 'normal'}; color:${i === 0 ? '#22c55e' : (c.gammaPenalized ? '#f59e0b' : '#aaa')};">${c.score.toFixed(0)}%</td>
+                                            <td style="padding:4px 8px; text-align:right; font-weight:${i === 0 ? 'bold' : 'normal'}; color:${i === 0 ? '#22c55e' : (c.gammaPenalized ? '#f59e0b' : '#aaa')};">${score.toFixed(0)}%</td>
                                         </tr>
-                                    `).join('')}
+                                    `}).join('')}
                                 </tbody>
                                 ${sr.allCandidates.some(c => c.gammaPenalized) ? '<tfoot><tr><td colspan="6" style="padding:4px 8px; font-size:10px; color:#888;">⚠️ *Under 21 DTE = 15% gamma penalty applied to score</td></tr></tfoot>' : ''}
                             </table>
