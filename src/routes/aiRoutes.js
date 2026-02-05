@@ -349,8 +349,11 @@ router.post('/strategy-advisor', async (req, res) => {
         // - "Sell SOFI Mar 14 $19 Put" (Grok with ticker+date)
         // - "$19/$18 Put Credit Spread" (spreads with "Credit" word)
         // - "Sell $19/$18 Put Spread" (basic spread)
+        // - "Sell SOFI 2026-03-06 18/17 Put Credit Spread" (Grok v2 - date before strike, no $)
         const putStrikePatterns = [
             /\$(\d+(?:\.\d+)?)\s*\/\s*\$\d+\s*Put\s*(?:Credit\s*)?Spread/i,  // Spread: $19/$18 Put Credit Spread
+            /(?:Sell|Buy)\s+\w+\s+\d{4}-\d{2}-\d{2}\s+(\d+(?:\.\d+)?)\/\d+\s*Put/i,  // Grok v2: Sell SOFI 2026-03-06 18/17 Put
+            /(\d+(?:\.\d+)?)\s*\/\s*\d+\s*Put\s*(?:Credit\s*)?Spread/i,      // Spread without $: 18/17 Put Credit Spread
             /Sell[^$]*\$(\d+(?:\.\d+)?)\s*(?:\/\$\d+)?\s*Put/i,              // Sell ... $19 Put (with optional /spread)
             /(?:SELL|Sell)[:\s]*\$?(\d+(?:\.\d+)?)\s*(?:PUT|Put)/i,          // SELL: $19 PUT
             /\$(\d+(?:\.\d+)?)\s*(?:PUT|Put)\s*(?:@|at)/i                    // $19 Put @
