@@ -39,6 +39,11 @@ class StreamingServiceClass {
         // Debounced gauge update (don't update every tick, just every 2 seconds)
         this.gaugeUpdateScheduled = false;
         this.gaugeUpdateDelay = 2000; // 2 seconds
+        
+        // Extended hours polling (Schwab streaming only provides regular session prices)
+        this.extendedHoursPollingInterval = null;
+        this.extendedHoursPollingDelay = 30000; // 30 seconds
+        this.trackedTickers = new Set(); // Tickers we're tracking for extended hours
     }
     
     /**
@@ -132,8 +137,20 @@ class StreamingServiceClass {
     subscribePositions(positions) {
         if (!this.socket || !positions || positions.length === 0) return;
         
+        // Track tickers for extended hours polling
+        const tickers = new Set();
+        for (const pos of positions) {
+            if (pos.ticker) {
+                tickers.add(pos.ticker.toUpperCase());
+            }
+        }
+        this.trackTickers([...tickers]);
+        
+        // Start extended hours polling if we're in extended hours
+        this.startExtendedHoursPolling();
+        
         this.socket.emit('subscribe-positions', positions);
-        console.log(`[STREAMING] Subscribing to ${positions.length} positions`);
+        console.log(`[STREAMING] Subscribing to ${positions.length} positions, tracking ${tickers.size} tickers for extended hours`);
     }
     
     /**
@@ -333,6 +350,10 @@ class StreamingServiceClass {
         const price = quote.last ?? quote.price;
         if (typeof price !== 'number' || isNaN(price)) return;
         
+        // Check if this is an extended hours price
+        const isExtendedHours = quote.isExtendedHours || quote.priceSource === 'postMarket' || quote.priceSource === 'preMarket';
+        const priceLabel = isExtendedHours ? (quote.priceSource === 'preMarket' ? ' (PM)' : ' (AH)') : '';
+        
         // Update all rows for this ticker
         const rows = document.querySelectorAll(`tr[data-ticker="${quote.symbol}"]`);
         
@@ -368,7 +389,9 @@ class StreamingServiceClass {
                     }
                 }
                 
-                spotCell.innerHTML = `<span style="color:${spotColor};">$${newPrice.toFixed(2)}</span>`;
+                // Show extended hours indicator
+                const extendedLabel = isExtendedHours ? `<span style="color:#888;font-size:9px;">${priceLabel}</span>` : '';
+                spotCell.innerHTML = `<span style="color:${spotColor};">$${newPrice.toFixed(2)}</span>${extendedLabel}`;
                 
                 // Flash animation
                 if (Math.abs(newPrice - oldValue) > 0.01) {
@@ -382,7 +405,7 @@ class StreamingServiceClass {
         // Also update any spot price displays outside the table
         const spotDisplays = document.querySelectorAll(`[data-ticker-spot="${quote.symbol}"]`);
         for (const el of spotDisplays) {
-            el.textContent = `$${quote.last.toFixed(2)}`;
+            el.textContent = `$${price.toFixed(2)}${priceLabel}`;
         }
     }
     
@@ -522,6 +545,155 @@ class StreamingServiceClass {
     }
     
     /**
+     * Check if we're in extended hours (pre-market or after-hours)
+     * Pre-market: 4:00 AM - 9:30 AM ET
+     * After-hours: 4:00 PM - 8:00 PM ET
+     */
+    isExtendedHours() {
+        const now = new Date();
+        // Convert to Eastern Time
+        const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        const day = et.getDay();
+        const hour = et.getHours();
+        const minute = et.getMinutes();
+        const timeInMinutes = hour * 60 + minute;
+        
+        // Only Mon-Fri have extended hours
+        if (day < 1 || day > 5) return false;
+        
+        // Pre-market: 4:00 AM (240) to 9:30 AM (570)
+        // After-hours: 4:00 PM (960) to 8:00 PM (1200)
+        const isPreMarket = timeInMinutes >= 240 && timeInMinutes < 570;
+        const isAfterHours = timeInMinutes >= 960 && timeInMinutes < 1200;
+        
+        return isPreMarket || isAfterHours;
+    }
+    
+    /**
+     * Check if we're in regular market hours
+     */
+    isMarketOpen() {
+        const now = new Date();
+        const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        const day = et.getDay();
+        const hour = et.getHours();
+        const minute = et.getMinutes();
+        const timeInMinutes = hour * 60 + minute;
+        
+        // Market hours: 9:30 AM (570) to 4:00 PM (960), Mon-Fri
+        return day >= 1 && day <= 5 && timeInMinutes >= 570 && timeInMinutes < 960;
+    }
+    
+    /**
+     * Start extended hours polling if needed
+     * Schwab streaming only provides regular session prices - during extended hours,
+     * we need to poll the REST API periodically for updated prices.
+     */
+    startExtendedHoursPolling() {
+        // Clear any existing interval
+        if (this.extendedHoursPollingInterval) {
+            clearInterval(this.extendedHoursPollingInterval);
+            this.extendedHoursPollingInterval = null;
+        }
+        
+        // Check every minute whether we need extended hours polling
+        const checkAndPoll = async () => {
+            if (this.isExtendedHours() && this.trackedTickers.size > 0) {
+                console.log('[STREAMING] Extended hours - polling REST API for prices');
+                await this.pollExtendedHoursPrices();
+            }
+        };
+        
+        // Start immediately if in extended hours
+        checkAndPoll();
+        
+        // Then poll every 30 seconds during extended hours
+        this.extendedHoursPollingInterval = setInterval(checkAndPoll, this.extendedHoursPollingDelay);
+        console.log('[STREAMING] Extended hours polling started (30 sec interval)');
+    }
+    
+    /**
+     * Stop extended hours polling
+     */
+    stopExtendedHoursPolling() {
+        if (this.extendedHoursPollingInterval) {
+            clearInterval(this.extendedHoursPollingInterval);
+            this.extendedHoursPollingInterval = null;
+            console.log('[STREAMING] Extended hours polling stopped');
+        }
+    }
+    
+    /**
+     * Poll REST API for extended hours prices
+     */
+    async pollExtendedHoursPrices() {
+        const tickers = [...this.trackedTickers];
+        if (tickers.length === 0) return;
+        
+        for (const ticker of tickers) {
+            try {
+                const res = await fetch(`/api/schwab/quote/${ticker}`);
+                const data = await res.json();
+                
+                if (data.error) continue;
+                
+                // Extract extended hours price if available
+                const quote = data.quote || data;
+                let price = quote.lastPrice;
+                let priceSource = 'regular';
+                
+                // Use extended hours price if available
+                if (quote.postMarketLastPrice && quote.postMarketLastPrice > 0) {
+                    price = quote.postMarketLastPrice;
+                    priceSource = 'postMarket';
+                } else if (quote.preMarketLastPrice && quote.preMarketLastPrice > 0) {
+                    price = quote.preMarketLastPrice;
+                    priceSource = 'preMarket';
+                }
+                
+                if (price && typeof price === 'number' && !isNaN(price)) {
+                    // Create a quote object similar to streaming format
+                    const extendedQuote = {
+                        symbol: ticker,
+                        last: price,
+                        priceSource: priceSource,
+                        isExtendedHours: priceSource !== 'regular'
+                    };
+                    
+                    // Update cache
+                    this.equityQuotes.set(ticker, extendedQuote);
+                    
+                    // Queue DOM update
+                    this.queueDOMUpdate('equity', extendedQuote);
+                    
+                    // Emit event
+                    this._emit('equity-quote', extendedQuote);
+                }
+            } catch (e) {
+                console.warn(`[STREAMING] Failed to poll extended hours for ${ticker}:`, e.message);
+            }
+        }
+    }
+    
+    /**
+     * Track a ticker for extended hours polling
+     */
+    trackTicker(ticker) {
+        if (ticker && typeof ticker === 'string') {
+            this.trackedTickers.add(ticker.toUpperCase());
+        }
+    }
+    
+    /**
+     * Track multiple tickers
+     */
+    trackTickers(tickers) {
+        if (Array.isArray(tickers)) {
+            tickers.forEach(t => this.trackTicker(t));
+        }
+    }
+    
+    /**
      * Get connection status
      */
     getStatus() {
@@ -531,7 +703,10 @@ class StreamingServiceClass {
             subscribedSymbols: this.subscribedSymbols.length,
             cachedOptions: this.optionQuotes.size,
             cachedEquities: this.equityQuotes.size,
-            cachedFutures: this.futuresQuotes.size
+            cachedFutures: this.futuresQuotes.size,
+            isExtendedHours: this.isExtendedHours(),
+            isMarketOpen: this.isMarketOpen(),
+            trackedTickers: this.trackedTickers.size
         };
     }
     
