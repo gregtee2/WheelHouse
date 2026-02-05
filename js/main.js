@@ -8537,7 +8537,7 @@ window.runStrategyAdvisor = async function() {
             contentHtml += `
                 <div style="background:rgba(34,197,94,0.1); border:1px solid #22c55e; border-radius:8px; padding:12px; margin-bottom:16px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                        <div style="color:#22c55e; font-weight:bold;">📊 Capital Efficiency Analysis</div>
+                        <div style="color:#22c55e; font-weight:bold;">📊 Capital Efficiency: $${sr.strike} Put</div>
                         <div style="color:#00ff88; font-size:14px; font-weight:bold;">${sr.annualizedROC.toFixed(0)}% Ann. ROC</div>
                     </div>
                     <div style="color:#aaa; font-size:12px; margin-bottom:8px;">${sr.summary}</div>

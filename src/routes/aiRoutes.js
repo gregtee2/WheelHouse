@@ -344,12 +344,27 @@ router.post('/strategy-advisor', async (req, res) => {
         let bestExpiry = null;
         
         // Parse AI's recommended strike from response
-        // Patterns: "SELL: $XX PUT", "Sell $XX Put", "$XX/$YY Put Spread"
-        const putStrikeMatch = aiResponse.match(/(?:SELL|Sell)[:\s]*\$?(\d+(?:\.\d+)?)\s*(?:PUT|Put)/i) ||
-                               aiResponse.match(/\$(\d+(?:\.\d+)?)\s*(?:PUT|Put)\s*(?:@|at)/i) ||
-                               aiResponse.match(/\$(\d+(?:\.\d+)?)\s*\/\s*\$\d+\s*Put\s*Spread/i);
+        // Handle various formats:
+        // - "SELL: $19 PUT" (basic)
+        // - "Sell SOFI Mar 14 $19 Put" (Grok with ticker+date)
+        // - "$19/$18 Put Credit Spread" (spreads with "Credit" word)
+        // - "Sell $19/$18 Put Spread" (basic spread)
+        const putStrikePatterns = [
+            /\$(\d+(?:\.\d+)?)\s*\/\s*\$\d+\s*Put\s*(?:Credit\s*)?Spread/i,  // Spread: $19/$18 Put Credit Spread
+            /Sell[^$]*\$(\d+(?:\.\d+)?)\s*(?:\/\$\d+)?\s*Put/i,              // Sell ... $19 Put (with optional /spread)
+            /(?:SELL|Sell)[:\s]*\$?(\d+(?:\.\d+)?)\s*(?:PUT|Put)/i,          // SELL: $19 PUT
+            /\$(\d+(?:\.\d+)?)\s*(?:PUT|Put)\s*(?:@|at)/i                    // $19 Put @
+        ];
         
-        const extractedStrike = putStrikeMatch ? parseFloat(putStrikeMatch[1]) : null;
+        let extractedStrike = null;
+        for (const pattern of putStrikePatterns) {
+            const match = aiResponse.match(pattern);
+            if (match) {
+                extractedStrike = parseFloat(match[1]);
+                console.log(`[STRATEGY-ADVISOR] 🎯 Extracted strike $${extractedStrike} using pattern: ${pattern.source.slice(0, 40)}...`);
+                break;
+            }
+        }
         
         if (extractedStrike && chain && chain.puts && chain.puts.length > 0) {
             console.log(`[STRATEGY-ADVISOR] 📊 Capital efficiency analysis for $${extractedStrike} strike...`);
@@ -363,21 +378,22 @@ router.post('/strategy-advisor', async (req, res) => {
                 const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
                 
                 if (dte >= 14 && dte <= 60) {
-                    // Find the put at this strike and expiry
+                    // Find the put at this strike and expiry (0.51 tolerance for half-dollar strikes)
                     const putAtStrike = chain.puts.find(p => 
                         p.expiration === exp && 
-                        Math.abs(p.strike - extractedStrike) < 0.01
+                        Math.abs(p.strike - extractedStrike) < 0.51
                     );
                     
                     if (putAtStrike && putAtStrike.bid > 0) {
                         const premium = putAtStrike.bid;
-                        const roc = (premium / extractedStrike) * 100;
+                        const actualStrike = putAtStrike.strike;  // Use actual strike from chain
+                        const roc = (premium / actualStrike) * 100;
                         const annualizedROC = roc * (365 / dte);
                         
                         candidates.push({
                             expiry: exp,
                             dte,
-                            strike: extractedStrike,
+                            strike: actualStrike,
                             premium,
                             delta: putAtStrike.delta,
                             iv: putAtStrike.iv,
@@ -385,7 +401,7 @@ router.post('/strategy-advisor', async (req, res) => {
                             annualizedROC
                         });
                         
-                        console.log(`[STRATEGY-ADVISOR]   ${exp} (${dte}d): $${premium.toFixed(2)} → ROC ${roc.toFixed(2)}% → Ann. ${annualizedROC.toFixed(0)}%`);
+                        console.log(`[STRATEGY-ADVISOR]   ${exp} (${dte}d): $${actualStrike} @ $${premium.toFixed(2)} → ROC ${roc.toFixed(2)}% → Ann. ${annualizedROC.toFixed(0)}%`);
                     }
                 }
             }
@@ -409,7 +425,7 @@ router.post('/strategy-advisor', async (req, res) => {
                 
                 selectionRationale = {
                     reason: 'best_annualized_roc',
-                    strike: extractedStrike,
+                    strike: winner.strike,  // Use actual matched strike
                     dte: winner.dte,
                     annualizedROC: winner.annualizedROC,
                     roc: winner.roc,
@@ -418,11 +434,11 @@ router.post('/strategy-advisor', async (req, res) => {
                     iv: winner.iv,
                     candidatesEvaluated: candidates.length,
                     allCandidates: candidates.slice(0, 5),  // Top 5 for UI comparison table
-                    summary: `Optimal: ${winner.dte} DTE for ${winner.annualizedROC.toFixed(0)}% annualized ROC` + 
+                    summary: `Optimal: $${winner.strike} @ ${winner.dte} DTE for ${winner.annualizedROC.toFixed(0)}% annualized ROC` + 
                              (otherOptions ? ` (vs ${otherOptions})` : '')
                 };
                 
-                console.log(`[STRATEGY-ADVISOR] 🏆 BEST EXPIRY: ${bestExpiry} (${winner.dte} DTE) → ${winner.annualizedROC.toFixed(0)}% annualized ROC`);
+                console.log(`[STRATEGY-ADVISOR] 🏆 BEST: $${winner.strike} @ ${bestExpiry} (${winner.dte} DTE) → ${winner.annualizedROC.toFixed(0)}% annualized ROC`);
             } else {
                 console.log(`[STRATEGY-ADVISOR] ⚠️ No valid expirations found for $${extractedStrike} strike`);
             }
