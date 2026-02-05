@@ -1058,21 +1058,21 @@ function showOAuthModal(authUrl, instructions) {
             <div style="background: #0d0d1a; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
                 <h4 style="color: #0df; margin-top: 0;">Instructions:</h4>
                 <ol style="color: #ccc; line-height: 1.8; padding-left: 20px;">
-                    <li>Click the "Open Schwab Login" button below</li>
+                    <li>Click the button below - it opens in your <strong style="color:#00ff88">system browser</strong> (Chrome/Edge/Firefox)</li>
                     <li>Log in with your Schwab.com credentials</li>
                     <li>Authorize WheelHouse to access your account</li>
                     <li>You'll be redirected to a page that fails to load - <strong style="color:#ffaa00">that's OK!</strong></li>
                     <li>Copy the <strong>entire URL</strong> from your browser's address bar</li>
-                    <li>Paste it in the field below and click "Complete"</li>
+                    <li>Come back here, paste the URL below, and click "Complete"</li>
                 </ol>
             </div>
             
             <div style="text-align: center; margin-bottom: 20px;">
-                <a href="${authUrl}" target="_blank" 
+                <button id="openSchwabLogin" 
                    style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #00ff88, #00d9ff); 
-                          color: #000; font-weight: bold; border-radius: 8px; text-decoration: none;">
-                    🔗 Open Schwab Login
-                </a>
+                          color: #000; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; font-size: 16px;">
+                    🔗 Open Schwab Login (in Browser)
+                </button>
             </div>
             
             <div style="margin-bottom: 20px;">
@@ -1105,6 +1105,21 @@ function showOAuthModal(authUrl, instructions) {
     };
     
     document.body.appendChild(modal);
+    
+    // Add click handler for the button
+    const openBtn = document.getElementById('openSchwabLogin');
+    if (openBtn) {
+        openBtn.onclick = async () => {
+            // In Electron, use system browser. In web, use window.open
+            if (window.electronAPI?.shell?.openExternal) {
+                console.log('[OAuth] Opening in system browser (Electron)');
+                await window.electronAPI.shell.openExternal(authUrl);
+            } else {
+                console.log('[OAuth] Opening in new tab (Web)');
+                window.open(authUrl, '_blank');
+            }
+        };
+    }
 }
 
 async function completeSchwabOAuth() {

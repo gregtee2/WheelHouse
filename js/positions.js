@@ -54,6 +54,10 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // Cache for IV data (refreshed every 5 minutes)
 const ivCache = new Map();
 
+// Cache for spread leg prices (so they persist across re-renders)
+// Key: posId, Value: { shortLegPrice, longLegPrice, timestamp }
+const legPriceCache = new Map();
+
 // Track which spread positions are expanded to show both legs
 const expandedSpreads = new Set();
 
@@ -97,8 +101,20 @@ async function fetchSpreadLegPrices(posId) {
         if (!options || !Array.isArray(options)) return;
         
         // Parse expiry to YYMMDD format for matching
-        const expiryParts = pos.expiry.split('-'); // 2026-02-21
-        const expiryCode = expiryParts[0].slice(2) + expiryParts[1] + expiryParts[2]; // 260221
+        // Handle date offset: Schwab may show Saturday (21st) but options expire Friday (20th)
+        const expiryDate = new Date(pos.expiry + 'T12:00:00');
+        const expiryCode = pos.expiry.replace(/-/g, '').slice(2); // 260221
+        
+        // Also check ±1 day for Friday/Saturday mismatches
+        const prevDay = new Date(expiryDate);
+        prevDay.setDate(prevDay.getDate() - 1);
+        const prevDayCode = prevDay.toISOString().slice(2, 10).replace(/-/g, ''); // 260220
+        
+        const nextDay = new Date(expiryDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const nextDayCode = nextDay.toISOString().slice(2, 10).replace(/-/g, ''); // 260222
+        
+        const validExpiryCodes = [expiryCode, prevDayCode, nextDayCode];
         
         // Find matching options by parsing the OCC symbol format: AAPL260117C00250000
         let shortLegPrice = null;
@@ -112,8 +128,8 @@ async function fetchSpreadLegPrices(posId) {
             const [, , dateStr, type, strikeStr] = match;
             const strike = parseInt(strikeStr) / 1000;
             
-            // Must match our expiry and option type (put/call)
-            if (dateStr !== expiryCode || type !== optionType) continue;
+            // Must match our expiry (±1 day for Friday/Saturday mismatch) and option type (put/call)
+            if (!validExpiryCodes.includes(dateStr) || type !== optionType) continue;
             
             const mid = ((opt.bid || 0) + (opt.ask || 0)) / 2;
             
@@ -131,6 +147,10 @@ async function fetchSpreadLegPrices(posId) {
         const contracts = pos.contracts;
         const netPremiumReceived = pos.premium * 100 * contracts; // Total premium at entry
         
+        // Check if either leg is already closed
+        const shortLegClosed = pos.closedLeg === 'short';
+        const longLegClosed = pos.closedLeg === 'long';
+        
         // Update the UI with leg prices
         const shortPriceEl = document.getElementById(`leg-short-price-${posId}`);
         const longPriceEl = document.getElementById(`leg-long-price-${posId}`);
@@ -141,8 +161,17 @@ async function fetchSpreadLegPrices(posId) {
         const netCloseEl = document.getElementById(`leg-net-close-${posId}`);
         const spreadPnlEl = document.getElementById(`leg-spread-pnl-${posId}`);
         
-        // Short leg: cost to buy back
-        if (shortPriceEl && shortLegPrice !== null) {
+        // Cache the leg prices for re-render persistence
+        if (shortLegPrice !== null || longLegPrice !== null) {
+            legPriceCache.set(posId, {
+                shortLegPrice,
+                longLegPrice,
+                timestamp: Date.now()
+            });
+        }
+        
+        // Short leg: cost to buy back (skip if already closed - it's rendered from saved data)
+        if (!shortLegClosed && shortPriceEl && shortLegPrice !== null) {
             shortPriceEl.textContent = shortLegPrice > 0 ? `$${shortLegPrice.toFixed(2)}` : '—';
             shortPriceEl.style.color = '#ff5252';
             
@@ -154,8 +183,8 @@ async function fetchSpreadLegPrices(posId) {
             }
         }
         
-        // Long leg: value if sold
-        if (longPriceEl && longLegPrice !== null) {
+        // Long leg: value if sold (skip if already closed)
+        if (!longLegClosed && longPriceEl && longLegPrice !== null) {
             longPriceEl.textContent = longLegPrice > 0 ? `$${longLegPrice.toFixed(2)}` : '—';
             longPriceEl.style.color = '#00ff88';
             
@@ -168,7 +197,73 @@ async function fetchSpreadLegPrices(posId) {
         }
         
         // Calculate net to close and spread P&L
-        if (shortLegPrice !== null && longLegPrice !== null) {
+        // Handle partial closes - if one leg is closed, only show remaining leg's cost/value
+        const closedLegPnL = pos.closedLegPnL || 0;
+        
+        if (shortLegClosed && longLegPrice !== null) {
+            // Short leg already closed - only need to close long leg
+            const longValue = longLegPrice * 100 * contracts;
+            
+            if (netCloseEl) {
+                netCloseEl.textContent = `+$${longValue.toFixed(0)}`;
+                netCloseEl.style.color = '#00ff88';
+                netCloseEl.title = `Sell long leg to close: +$${longValue.toFixed(0)}`;
+            }
+            
+            // Total P&L = closed leg realized P&L + remaining leg unrealized value
+            const estLongEntry = pos.premium * 0.3 * 100 * contracts;
+            const longUnrealizedPnL = longValue - estLongEntry;
+            const totalPnL = closedLegPnL + longUnrealizedPnL;
+            
+            if (spreadPnlEl) {
+                const pnlColor = totalPnL >= 0 ? '#00ff88' : '#ff5252';
+                const pnlSign = totalPnL >= 0 ? '+' : '';
+                spreadPnlEl.textContent = `${pnlSign}$${totalPnL.toFixed(0)}`;
+                spreadPnlEl.style.color = pnlColor;
+                spreadPnlEl.title = `Closed leg: ${closedLegPnL >= 0 ? '+' : ''}$${closedLegPnL.toFixed(0)} + Open leg est: ${longUnrealizedPnL >= 0 ? '+' : ''}$${longUnrealizedPnL.toFixed(0)}`;
+            }
+            
+            // Update long leg P&L
+            if (longPnlEl) {
+                const longPnlColor = longUnrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
+                longPnlEl.textContent = longUnrealizedPnL >= 0 ? `+$${longUnrealizedPnL.toFixed(0)}` : `-$${Math.abs(longUnrealizedPnL).toFixed(0)}`;
+                longPnlEl.style.color = longPnlColor;
+                longPnlEl.title = `Unrealized P&L on remaining leg`;
+            }
+            
+        } else if (longLegClosed && shortLegPrice !== null) {
+            // Long leg already closed - only need to close short leg
+            const shortValue = shortLegPrice * 100 * contracts;
+            
+            if (netCloseEl) {
+                netCloseEl.textContent = `-$${shortValue.toFixed(0)}`;
+                netCloseEl.style.color = '#ff5252';
+                netCloseEl.title = `Buy back short leg: -$${shortValue.toFixed(0)}`;
+            }
+            
+            // Total P&L = closed leg realized P&L + remaining leg unrealized value
+            const estShortEntry = pos.premium * 0.7 * 100 * contracts;
+            const shortUnrealizedPnL = estShortEntry - shortValue;
+            const totalPnL = closedLegPnL + shortUnrealizedPnL;
+            
+            if (spreadPnlEl) {
+                const pnlColor = totalPnL >= 0 ? '#00ff88' : '#ff5252';
+                const pnlSign = totalPnL >= 0 ? '+' : '';
+                spreadPnlEl.textContent = `${pnlSign}$${totalPnL.toFixed(0)}`;
+                spreadPnlEl.style.color = pnlColor;
+                spreadPnlEl.title = `Closed leg: ${closedLegPnL >= 0 ? '+' : ''}$${closedLegPnL.toFixed(0)} + Open leg est: ${shortUnrealizedPnL >= 0 ? '+' : ''}$${shortUnrealizedPnL.toFixed(0)}`;
+            }
+            
+            // Update short leg P&L
+            if (shortPnlEl) {
+                const shortPnlColor = shortUnrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
+                shortPnlEl.textContent = shortUnrealizedPnL >= 0 ? `+$${shortUnrealizedPnL.toFixed(0)}` : `-$${Math.abs(shortUnrealizedPnL).toFixed(0)}`;
+                shortPnlEl.style.color = shortPnlColor;
+                shortPnlEl.title = `Unrealized P&L on remaining leg`;
+            }
+            
+        } else if (shortLegPrice !== null && longLegPrice !== null) {
+            // Both legs still open - normal calculation
             const shortValue = shortLegPrice * 100 * contracts; // Cost to buy back short
             const longValue = longLegPrice * 100 * contracts;   // Get back from selling long
             
@@ -2471,17 +2566,27 @@ async function loadOptionChainForAddPosition() {
         // Schwab quote format: { TICKER: { quote: {...}, fundamental: {...} } }
         const quoteInfo = quoteData[ticker] || quoteData[ticker.toUpperCase()] || Object.values(quoteData)[0];
         const quote = quoteInfo?.quote || quoteInfo;
-        const spotPrice = quote?.lastPrice || quote?.mark || quote?.closePrice;
+        
+        // Use extended hours price if available (postMarket or preMarket takes priority)
+        let spotPrice = quote?.lastPrice || quote?.mark || quote?.closePrice;
+        let priceLabel = '';
+        if (quote?.postMarketLastPrice && quote?.postMarketLastPrice > 0) {
+            spotPrice = quote.postMarketLastPrice;
+            priceLabel = ' (AH)';
+        } else if (quote?.preMarketLastPrice && quote?.preMarketLastPrice > 0) {
+            spotPrice = quote.preMarketLastPrice;
+            priceLabel = ' (PM)';
+        }
         
         // Update price status
         if (priceStatus) {
-            priceStatus.innerHTML = `<span style="color:#00ff88;">✓ ${ticker}: $${spotPrice?.toFixed(2)}</span>`;
+            priceStatus.innerHTML = `<span style="color:#00ff88;">✓ ${ticker}: $${spotPrice?.toFixed(2)}${priceLabel}</span>`;
         }
         
         // Update spot price display
         const spotDisplay = document.getElementById('chainSpotPrice');
         if (spotDisplay) {
-            spotDisplay.innerHTML = `Spot: <span style="color:#00d9ff; font-weight:bold;">$${spotPrice?.toFixed(2)}</span>`;
+            spotDisplay.innerHTML = `Spot: <span style="color:#00d9ff; font-weight:bold;">$${spotPrice?.toFixed(2)}${priceLabel}</span>`;
         }
         
         // Populate expiry dropdown
@@ -4216,72 +4321,121 @@ function renderPositionsTable(container, openPositions) {
                 ? 'Received net credit of $' + netPremium.toFixed(2)
                 : 'Paid net debit of $' + netPremium.toFixed(2);
             
+            // Check if either leg is closed
+            const shortLegClosed = pos.closedLeg === 'short';
+            const longLegClosed = pos.closedLeg === 'long';
+            
             // Short leg row (SELL)
             // For credit spread short leg: You SOLD this, want it to decay. Profit = what you sold at - what it costs to buy back
+            const shortLegStyle = shortLegClosed 
+                ? 'background: rgba(100,100,100,0.15); border-left: 4px solid #555; opacity: 0.7;'
+                : 'background: rgba(139,92,246,0.08); border-left: 4px solid #8b5cf6;';
+            const shortStrikeStyle = shortLegClosed
+                ? 'text-decoration: line-through; color: #666;'
+                : 'color: #ff5252;';
             html += `
-            <tr class="spread-leg-row" data-parent-id="${pos.id}" style="background: rgba(139,92,246,0.08); border-left: 4px solid #8b5cf6;">
+            <tr class="spread-leg-row" data-parent-id="${pos.id}" style="${shortLegStyle}">
                 <td></td>
                 <td style="padding: 4px 6px; font-size: 10px; color: #888;">
                     <span style="color:#8b5cf6;">└─</span> 
-                    <span style="color:#ff5252; font-weight:bold;">SELL</span>
+                    <span style="color:${shortLegClosed ? '#666' : '#ff5252'}; font-weight:bold;">${shortLegClosed ? '✓ SOLD' : 'SELL'}</span>
+                    ${shortLegClosed ? `<span style="background:#555; color:#aaa; padding:1px 4px; border-radius:3px; font-size:9px; margin-left:4px;">CLOSED</span>` : ''}
                 </td>
                 <td colspan="2"></td>
-                <td style="padding: 4px 6px; font-size: 10px; color: #aaa;">Short ${optionType}</td>
+                <td style="padding: 4px 6px; font-size: 10px; color: ${shortLegClosed ? '#666' : '#aaa'};">Short ${optionType}</td>
                 <td style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;">—</td>
-                <td style="padding: 4px 6px; text-align: right; font-size: 11px; color: #ff5252;">$${shortStrike}</td>
+                <td style="padding: 4px 6px; text-align: right; font-size: 11px; ${shortStrikeStyle}">$${shortStrike}</td>
                 <td colspan="2"></td>
-                <td id="leg-short-price-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;">⏳</td>
+                <td id="leg-short-price-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: ${shortLegClosed ? '#888' : '#888'};">
+                    ${shortLegClosed 
+                        ? `<span style="color:#888;">$${pos.closedLegPrice?.toFixed(2) || '--'}</span>` 
+                        : (legPriceCache.get(pos.id)?.shortLegPrice != null 
+                            ? `<span style="color:#ff5252;">$${legPriceCache.get(pos.id).shortLegPrice.toFixed(2)}</span>` 
+                            : '⏳')}
+                </td>
                 <td style="padding: 4px 6px; text-align: center; font-size: 10px; color: #888;">${pos.contracts}</td>
                 <td colspan="2"></td>
-                <td id="leg-short-value-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Cost to buy back this leg">⏳</td>
-                <td id="leg-short-pnl-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Leg P&L estimate">⏳</td>
+                <td id="leg-short-value-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="${shortLegClosed ? 'Closed' : 'Cost to buy back this leg'}">
+                    ${shortLegClosed ? '<span style="color:#666;">—</span>' : '⏳'}
+                </td>
+                <td id="leg-short-pnl-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: ${shortLegClosed ? (pos.closedLegPnL >= 0 ? '#00ff88' : '#ff5252') : '#888'};" title="${shortLegClosed ? 'Realized P&L' : 'Leg P&L estimate'}">
+                    ${shortLegClosed ? (pos.closedLegPnL >= 0 ? `+$${pos.closedLegPnL?.toFixed(0)}` : `-$${Math.abs(pos.closedLegPnL)?.toFixed(0)}`) : '⏳'}
+                </td>
                 <td></td>
                 <td style="padding: 4px 6px; text-align: left; font-size: 10px;">
-                    <button onclick="window.closeLeg(${pos.id}, 'short', ${shortStrike})" 
+                    ${shortLegClosed 
+                        ? `<span style="color:#666; font-size:9px;" title="Closed on ${pos.closedLegDate}">@ $${pos.closedLegPrice?.toFixed(2)}</span>`
+                        : `<button onclick="window.closeLeg(${pos.id}, 'short', ${shortStrike})" 
                             style="padding: 2px 8px; background: rgba(255,82,82,0.3); border: 1px solid rgba(255,82,82,0.5); color: #f55; border-radius: 3px; cursor: pointer; font-size: 10px;"
-                            title="Close this leg only (buy back the short)">Close Leg</button>
+                            title="Close this leg only (buy back the short)">Close Leg</button>`
+                    }
                 </td>
             </tr>
             `;
             
             // Long leg row (BUY)
             // For credit spread long leg: You BOUGHT this as protection, it decays against you
+            const longLegStyle = longLegClosed 
+                ? 'background: rgba(100,100,100,0.15); border-left: 4px solid #555; opacity: 0.7;'
+                : 'background: rgba(139,92,246,0.08); border-left: 4px solid #8b5cf6;';
+            const longStrikeStyle = longLegClosed
+                ? 'text-decoration: line-through; color: #666;'
+                : 'color: #00ff88;';
             html += `
-            <tr class="spread-leg-row" data-parent-id="${pos.id}" style="background: rgba(139,92,246,0.08); border-left: 4px solid #8b5cf6;">
+            <tr class="spread-leg-row" data-parent-id="${pos.id}" style="${longLegStyle}">
                 <td></td>
                 <td style="padding: 4px 6px; font-size: 10px; color: #888;">
                     <span style="color:#8b5cf6;">└─</span> 
-                    <span style="color:#00ff88; font-weight:bold;">BUY</span>
+                    <span style="color:${longLegClosed ? '#666' : '#00ff88'}; font-weight:bold;">${longLegClosed ? '✓ BOUGHT' : 'BUY'}</span>
+                    ${longLegClosed ? `<span style="background:#555; color:#aaa; padding:1px 4px; border-radius:3px; font-size:9px; margin-left:4px;">CLOSED</span>` : ''}
                 </td>
                 <td colspan="2"></td>
-                <td style="padding: 4px 6px; font-size: 10px; color: #aaa;">Long ${optionType}</td>
+                <td style="padding: 4px 6px; font-size: 10px; color: ${longLegClosed ? '#666' : '#aaa'};">Long ${optionType}</td>
                 <td style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;">—</td>
-                <td style="padding: 4px 6px; text-align: right; font-size: 11px; color: #00ff88;">$${longStrike}</td>
+                <td style="padding: 4px 6px; text-align: right; font-size: 11px; ${longStrikeStyle}">$${longStrike}</td>
                 <td colspan="2"></td>
-                <td id="leg-long-price-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;">⏳</td>
+                <td id="leg-long-price-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;">
+                    ${longLegClosed 
+                        ? `<span style="color:#888;">$${pos.closedLegPrice?.toFixed(2) || '--'}</span>` 
+                        : (legPriceCache.get(pos.id)?.longLegPrice != null 
+                            ? `<span style="color:#00ff88;">$${legPriceCache.get(pos.id).longLegPrice.toFixed(2)}</span>` 
+                            : '⏳')}
+                </td>
                 <td style="padding: 4px 6px; text-align: center; font-size: 10px; color: #888;">${pos.contracts}</td>
                 <td colspan="2"></td>
-                <td id="leg-long-value-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Value if you sold this leg">⏳</td>
-                <td id="leg-long-pnl-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Leg P&L estimate">⏳</td>
+                <td id="leg-long-value-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="${longLegClosed ? 'Closed' : 'Value if you sold this leg'}">
+                    ${longLegClosed ? '<span style="color:#666;">—</span>' : '⏳'}
+                </td>
+                <td id="leg-long-pnl-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: ${longLegClosed ? (pos.closedLegPnL >= 0 ? '#00ff88' : '#ff5252') : '#888'};" title="${longLegClosed ? 'Realized P&L' : 'Leg P&L estimate'}">
+                    ${longLegClosed ? (pos.closedLegPnL >= 0 ? `+$${pos.closedLegPnL?.toFixed(0)}` : `-$${Math.abs(pos.closedLegPnL)?.toFixed(0)}`) : '⏳'}
+                </td>
                 <td></td>
                 <td style="padding: 4px 6px; text-align: left; font-size: 10px;">
-                    <button onclick="window.closeLeg(${pos.id}, 'long', ${longStrike})" 
+                    ${longLegClosed 
+                        ? `<span style="color:#666; font-size:9px;" title="Closed on ${pos.closedLegDate}">@ $${pos.closedLegPrice?.toFixed(2)}</span>`
+                        : `<button onclick="window.closeLeg(${pos.id}, 'long', ${longStrike})" 
                             style="padding: 2px 8px; background: rgba(0,255,136,0.3); border: 1px solid rgba(0,255,136,0.5); color: #0f8; border-radius: 3px; cursor: pointer; font-size: 10px;"
-                            title="Close this leg only (sell to close the long)">Close Leg</button>
+                            title="Close this leg only (sell to close the long)">Close Leg</button>`
+                    }
                 </td>
             </tr>
             `;
             
             // Net premium info row with close spread summary
+            // Show partial close status if one leg is closed
+            const partialCloseNote = pos.closedLeg 
+                ? `<span style="color:#ffaa00; margin-left:10px;">⚠️ ${pos.closedLeg.toUpperCase()} leg closed @ $${pos.closedLegPrice?.toFixed(2)}</span>`
+                : '';
             html += `
             <tr class="spread-leg-row" data-parent-id="${pos.id}" style="background: rgba(139,92,246,0.05); border-left: 4px solid #8b5cf6;">
                 <td></td>
                 <td colspan="5" style="padding: 4px 6px; font-size: 10px; color: #8b5cf6; font-style: italic;">
                     <span style="color:#8b5cf6;">└─</span> ${legNote} × ${pos.contracts} contracts = $${(netPremium * 100 * pos.contracts).toFixed(0)} ${isCreditSpread ? 'received' : 'paid'}
+                    ${partialCloseNote}
                 </td>
                 <td colspan="6"></td>
-                <td id="leg-net-close-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Net cost to close entire spread">⏳</td>
-                <td id="leg-spread-pnl-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; font-weight: bold; color: #888;" title="Total spread P&L">⏳</td>
+                <td id="leg-net-close-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: #888;" title="Net cost to close ${pos.closedLeg ? 'remaining leg' : 'entire spread'}">⏳</td>
+                <td id="leg-spread-pnl-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; font-weight: bold; color: #888;" title="Total spread P&L (including closed leg)">⏳</td>
                 <td colspan="2"></td>
             </tr>
             `;
@@ -4302,6 +4456,14 @@ function renderPositionsTable(container, openPositions) {
     
     // Sync what-if checkboxes after render (price updates re-render but checkboxes lose state)
     syncWhatIfCheckboxes();
+    
+    // Re-fetch leg prices for all expanded spreads (they reset to ⏳ on re-render)
+    // Use setTimeout to let DOM settle first
+    setTimeout(() => {
+        for (const posId of expandedSpreads) {
+            fetchSpreadLegPrices(posId);
+        }
+    }, 50);
     
     // Release lock only after content is fully painted (delayed)
     setTimeout(() => {
@@ -5671,9 +5833,8 @@ window.updatePortfolioSummary = updatePortfolioSummary;
 window.undoLastAction = undoLastAction;
 
 /**
- * Close a single leg of a spread position ("legging out")
- * This converts the remaining leg into a standalone position
- * 
+ * Close a single leg of a spread (leg out)
+ * Shows a modal with live CBOE prices and option to execute via Schwab
  * @param {number} positionId - The spread position ID
  * @param {string} legType - 'short' or 'long'
  * @param {number} legStrike - Strike of the leg being closed
@@ -5685,115 +5846,414 @@ window.closeLeg = async function(positionId, legType, legStrike) {
         return;
     }
     
-    // Confirm with user
-    const isCreditSpread = pos.type.includes('credit');
-    const isPutSpread = pos.type.includes('put');
-    const optionType = isPutSpread ? 'PUT' : 'CALL';
-    
-    const action = legType === 'short' ? 'buy back' : 'sell';
-    const remainingLegType = legType === 'short' ? 'LONG' : 'SHORT';
-    const remainingStrike = legType === 'short' ? pos.buyStrike : pos.sellStrike;
-    
-    const confirmed = confirm(
-        `🦵 Leg Out of Spread\n\n` +
-        `Position: ${pos.ticker} ${pos.type.replace(/_/g, ' ')}\n` +
-        `Action: ${action.toUpperCase()} the $${legStrike} ${optionType}\n\n` +
-        `⚠️ WARNING: This will:\n` +
-        `1. Close the ${legType.toUpperCase()} leg @ $${legStrike}\n` +
-        `2. Leave you with a naked ${remainingLegType} ${optionType} @ $${remainingStrike}\n\n` +
-        `The remaining position may have different margin requirements!\n\n` +
-        `Continue?`
-    );
-    
-    if (!confirmed) return;
-    
-    // Get current price for the leg being closed (would need CBOE call in production)
-    // For now, prompt user for close price
-    const closePrice = prompt(
-        `Enter the close price for the $${legStrike} ${optionType}:\n\n` +
-        `(What did you ${action} it for?)`,
-        '0.00'
-    );
-    
-    if (closePrice === null) return;
-    
-    const closePriceNum = parseFloat(closePrice);
-    if (isNaN(closePriceNum) || closePriceNum < 0) {
-        showNotification('Invalid close price', 'error');
+    // Check if this leg is already closed
+    if (pos.closedLeg === legType) {
+        showNotification('This leg is already closed', 'error');
         return;
     }
     
-    // Calculate P&L for the closed leg
-    // For credit spreads: short leg was sold at credit, long leg was bought at debit
-    // We don't have individual leg prices stored, so we'll estimate
-    const legPnL = legType === 'short' 
-        ? (pos.premium - closePriceNum) * 100 * pos.contracts  // Sold at premium, bought back at closePrice
-        : (closePriceNum - 0) * 100 * pos.contracts;  // Bought at cost (unknown), sold at closePrice
+    const isCreditSpread = pos.type.includes('credit');
+    const isPutSpread = pos.type.includes('put');
+    const optionType = isPutSpread ? 'P' : 'C';
+    const optionTypeFull = isPutSpread ? 'PUT' : 'CALL';
+    const action = legType === 'short' ? 'BUY TO CLOSE' : 'SELL TO CLOSE';
+    const actionShort = legType === 'short' ? 'Buy Back' : 'Sell';
+    const remainingLegType = legType === 'short' ? 'LONG' : 'SHORT';
+    const remainingStrike = legType === 'short' ? pos.buyStrike : pos.sellStrike;
+    const contracts = pos.contracts;
     
-    // Create a new standalone position for the remaining leg
-    const remainingType = legType === 'short' 
-        ? (isPutSpread ? 'long_put' : 'long_call')  // We're left with what we bought
-        : (isPutSpread ? 'short_put' : 'short_call');  // We're left with what we sold
+    // Create modal
+    const modal = document.createElement('div');
+    modal.id = 'closeLegModal';
+    modal.style.cssText = `
+        position:fixed; top:0; left:0; right:0; bottom:0; 
+        background:rgba(0,0,0,0.85); display:flex; align-items:center; 
+        justify-content:center; z-index:10001;
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     
-    // Archive the original spread as closed
-    const closedSpread = {
-        ...pos,
-        status: 'closed',
-        closeDate: new Date().toISOString().split('T')[0],
-        closeReason: 'legged_out',
-        closePrice: closePriceNum,
-        closedLeg: legType,
-        closedLegStrike: legStrike,
-        realizedPnL: legPnL, // Just the closed leg P&L
-        legOutNote: `Legged out: closed ${legType} $${legStrike} leg, converted remaining to standalone ${remainingType}`
+    modal.innerHTML = `
+        <div style="background:${colors.bgPrimary}; border:1px solid #8b5cf6; border-radius:12px; padding:25px; width:90%; max-width:450px; position:relative;">
+            <button onclick="document.getElementById('closeLegModal').remove()" 
+                    style="position:absolute; top:12px; right:12px; background:none; border:none; color:#888; font-size:24px; cursor:pointer; line-height:1;"
+                    title="Close">×</button>
+            <h3 style="margin:0 0 15px 0; color:#8b5cf6;">✂️ Close ${legType.toUpperCase()} Leg</h3>
+            
+            <div style="background:${colors.bgSecondary}; border-radius:8px; padding:12px; margin-bottom:15px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <span style="color:#888;">Position</span>
+                    <span style="color:white; font-weight:bold;">${pos.ticker} ${pos.type.replace(/_/g, ' ').toUpperCase()}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <span style="color:#888;">Leg to Close</span>
+                    <span style="color:${legType === 'short' ? '#ff5252' : '#00ff88'};">$${legStrike} ${optionTypeFull}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <span style="color:#888;">Contracts</span>
+                    <span style="color:white;">${contracts}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between;">
+                    <span style="color:#888;">Action</span>
+                    <span style="color:#ffaa00; font-weight:bold;">${action}</span>
+                </div>
+            </div>
+            
+            <div style="background:${colors.bgSecondary}; border-radius:8px; padding:12px; margin-bottom:15px;">
+                <div style="color:#888; font-size:11px; margin-bottom:8px;">LIVE MARKET PRICES (CBOE)</div>
+                <div id="closeLegPrices" style="text-align:center; padding:10px;">
+                    <span style="color:#888;">Loading prices...</span>
+                </div>
+            </div>
+            
+            <div style="margin-bottom:15px;">
+                <label style="color:#888; font-size:12px; display:block; margin-bottom:5px;">Close Price (per share)</label>
+                <input type="number" id="closeLegPriceInput" step="0.01" min="0" value=""
+                       style="width:100%; padding:12px; background:#1a1a2e; color:white; border:1px solid #333; border-radius:6px; font-size:16px; box-sizing:border-box;"
+                       placeholder="0.00">
+                <div style="display:flex; gap:8px; margin-top:8px;">
+                    <button id="useBidBtn" style="flex:1; padding:6px; background:#333; color:white; border:1px solid #444; border-radius:4px; cursor:pointer; font-size:11px;">
+                        Use Bid
+                    </button>
+                    <button id="useMidBtn" style="flex:1; padding:6px; background:#444; color:white; border:1px solid #555; border-radius:4px; cursor:pointer; font-size:11px;">
+                        Use Mid
+                    </button>
+                    <button id="useAskBtn" style="flex:1; padding:6px; background:#333; color:white; border:1px solid #444; border-radius:4px; cursor:pointer; font-size:11px;">
+                        Use Ask
+                    </button>
+                </div>
+            </div>
+            
+            <div id="closeLegPnlPreview" style="background:${colors.bgSecondary}; border-radius:8px; padding:12px; margin-bottom:20px; text-align:center;">
+                <div style="color:#888; font-size:11px; margin-bottom:4px;">ESTIMATED P&L</div>
+                <div id="closeLegPnlValue" style="font-size:20px; font-weight:bold; color:#888;">—</div>
+            </div>
+            
+            <div style="background:#1a1a2e; border:1px solid #333; border-radius:8px; padding:10px; margin-bottom:15px;">
+                <div style="color:#888; font-size:11px; margin-bottom:4px;">REMAINING LEG</div>
+                <div style="color:${remainingLegType === 'LONG' ? '#00ff88' : '#ff5252'}; font-weight:bold;">
+                    ${remainingLegType} $${remainingStrike} ${optionTypeFull} × ${contracts}
+                </div>
+            </div>
+            
+            <div style="display:flex; gap:10px;">
+                <button id="closeLegConfirmBtn"
+                        style="flex:1; padding:14px; background:linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:14px;">
+                    ✓ Record Close
+                </button>
+                <button onclick="document.getElementById('closeLegModal').remove()"
+                        style="flex:1; padding:14px; background:#333; color:white; border:none; border-radius:6px; cursor:pointer; font-size:14px;">
+                    Cancel
+                </button>
+            </div>
+            
+            <div style="border-top:1px solid #333; margin-top:15px; padding-top:15px;">
+                <button id="closeLegSchwabBtn"
+                        style="width:100%; padding:12px; background:linear-gradient(135deg, #0066cc 0%, #0052a3 100%); color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
+                    📤 Execute via Schwab
+                </button>
+                <div style="color:#666; font-size:10px; text-align:center; margin-top:6px;">
+                    Sends order to Schwab API (requires connection)
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Fetch live CBOE prices
+    fetchCloseLegPrices(pos, legType, legStrike, optionType, contracts, isCreditSpread);
+    
+    // Add price input listener for P&L preview
+    const priceInput = document.getElementById('closeLegPriceInput');
+    priceInput.addEventListener('input', () => {
+        updateCloseLegPnlPreview(pos, legType, parseFloat(priceInput.value) || 0, isCreditSpread, contracts);
+    });
+    
+    // Quick-fill buttons
+    const setPrice = (val) => {
+        priceInput.value = val;
+        updateCloseLegPnlPreview(pos, legType, parseFloat(val) || 0, isCreditSpread, contracts);
     };
     
-    // Create new position for remaining leg
-    const remainingPos = {
-        id: Date.now(),
-        ticker: pos.ticker,
-        type: remainingType,
-        strike: remainingStrike,
-        premium: 0, // Unknown cost basis for the individual leg
-        contracts: pos.contracts,
-        expiry: pos.expiry,
-        openDate: new Date().toISOString().split('T')[0],
-        broker: pos.broker,
-        leggedFrom: pos.id,
-        leggedNote: `Remaining leg from ${pos.type.replace(/_/g, ' ')} @ $${pos.buyStrike}/$${pos.sellStrike}`
-    };
+    document.getElementById('useBidBtn').addEventListener('click', () => {
+        const bid = document.getElementById('closeLegBid')?.dataset.value;
+        if (bid) setPrice(bid);
+    });
+    document.getElementById('useMidBtn').addEventListener('click', () => {
+        const mid = document.getElementById('closeLegMid')?.dataset.value;
+        if (mid) setPrice(mid);
+    });
+    document.getElementById('useAskBtn').addEventListener('click', () => {
+        const ask = document.getElementById('closeLegAsk')?.dataset.value;
+        if (ask) setPrice(ask);
+    });
     
-    // Update state
-    const posIndex = state.positions.findIndex(p => p.id === pos.id);
-    if (posIndex !== -1) {
-        state.positions.splice(posIndex, 1);
+    // Record Close button
+    document.getElementById('closeLegConfirmBtn').addEventListener('click', () => {
+        window.executeCloseLeg(positionId, legType, legStrike);
+    });
+    
+    // Schwab button
+    document.getElementById('closeLegSchwabBtn').addEventListener('click', () => {
+        window.executeCloseLegSchwab(positionId, legType, legStrike);
+    });
+};
+
+/**
+ * Fetch live CBOE prices for the leg being closed
+ */
+async function fetchCloseLegPrices(pos, legType, legStrike, optionType, contracts, isCreditSpread) {
+    const pricesEl = document.getElementById('closeLegPrices');
+    
+    try {
+        const res = await fetch(`/api/cboe/${pos.ticker}`);
+        if (!res.ok) throw new Error('CBOE fetch failed');
+        const data = await res.json();
+        const options = data?.data?.options || [];
+        
+        // Handle date offset (±1 day for Friday/Saturday)
+        const expiryDate = new Date(pos.expiry + 'T12:00:00');
+        const expiryCode = pos.expiry.replace(/-/g, '').slice(2);
+        const prevDay = new Date(expiryDate);
+        prevDay.setDate(prevDay.getDate() - 1);
+        const prevDayCode = prevDay.toISOString().slice(2, 10).replace(/-/g, '');
+        const nextDay = new Date(expiryDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const nextDayCode = nextDay.toISOString().slice(2, 10).replace(/-/g, '');
+        const validExpiryCodes = [expiryCode, prevDayCode, nextDayCode];
+        
+        // Find our option
+        let bid = null, ask = null, last = null;
+        for (const opt of options) {
+            const match = opt.option.match(/([A-Z]+)(\d{6})([CP])(\d{8})/);
+            if (!match) continue;
+            const [, , dateStr, type, strikeStr] = match;
+            const strike = parseInt(strikeStr) / 1000;
+            if (!validExpiryCodes.includes(dateStr) || type !== optionType || strike !== legStrike) continue;
+            bid = opt.bid || 0;
+            ask = opt.ask || 0;
+            last = opt.last || ((bid + ask) / 2);
+            break;
+        }
+        
+        if (bid !== null) {
+            const mid = (bid + ask) / 2;
+            pricesEl.innerHTML = `
+                <div style="display:flex; justify-content:space-around;">
+                    <div>
+                        <div style="color:#888; font-size:10px;">BID</div>
+                        <div id="closeLegBid" data-value="${bid.toFixed(2)}" style="color:#ff5252; font-size:18px; font-weight:bold;">$${bid.toFixed(2)}</div>
+                    </div>
+                    <div>
+                        <div style="color:#888; font-size:10px;">MID</div>
+                        <div id="closeLegMid" data-value="${mid.toFixed(2)}" style="color:#ffaa00; font-size:18px; font-weight:bold;">$${mid.toFixed(2)}</div>
+                    </div>
+                    <div>
+                        <div style="color:#888; font-size:10px;">ASK</div>
+                        <div id="closeLegAsk" data-value="${ask.toFixed(2)}" style="color:#00ff88; font-size:18px; font-weight:bold;">$${ask.toFixed(2)}</div>
+                    </div>
+                </div>
+                ${last ? `<div style="color:#666; font-size:10px; margin-top:8px;">Last: $${last.toFixed(2)}</div>` : ''}
+            `;
+            
+            // Auto-fill with mid price
+            const priceInput = document.getElementById('closeLegPriceInput');
+            priceInput.value = mid.toFixed(2);
+            updateCloseLegPnlPreview(pos, legType, mid, isCreditSpread, contracts);
+        } else {
+            pricesEl.innerHTML = `<span style="color:#ff5252;">Option not found in CBOE data</span>`;
+        }
+    } catch (e) {
+        console.warn('Failed to fetch CBOE prices:', e);
+        pricesEl.innerHTML = `<span style="color:#ff5252;">Failed to load prices</span>`;
+    }
+}
+
+/**
+ * Update P&L preview as user changes price
+ */
+function updateCloseLegPnlPreview(pos, legType, closePrice, isCreditSpread, contracts) {
+    const pnlEl = document.getElementById('closeLegPnlValue');
+    if (!pnlEl || isNaN(closePrice) || closePrice <= 0) {
+        pnlEl.textContent = '—';
+        pnlEl.style.color = '#888';
+        return;
     }
     
-    // Add to closed
-    state.closedPositions.push(closedSpread);
+    const netPremium = pos.premium;
+    let legRealizedPnL = 0;
     
-    // Add remaining leg as new position
-    state.positions.push(remainingPos);
+    if (isCreditSpread) {
+        if (legType === 'short') {
+            const estimatedSellPrice = netPremium * 1.4;
+            legRealizedPnL = (estimatedSellPrice - closePrice) * 100 * contracts;
+        } else {
+            const estimatedBuyPrice = netPremium * 0.4;
+            legRealizedPnL = (closePrice - estimatedBuyPrice) * 100 * contracts;
+        }
+    } else {
+        if (legType === 'long') {
+            const estimatedBuyPrice = Math.abs(netPremium) * 1.4;
+            legRealizedPnL = (closePrice - estimatedBuyPrice) * 100 * contracts;
+        } else {
+            const estimatedSellPrice = Math.abs(netPremium) * 0.4;
+            legRealizedPnL = (estimatedSellPrice - closePrice) * 100 * contracts;
+        }
+    }
     
-    // Recalculate DTE
-    const expiryDate = new Date(remainingPos.expiry + 'T16:00:00');
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    remainingPos.dte = Math.max(0, Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)));
+    const sign = legRealizedPnL >= 0 ? '+' : '';
+    pnlEl.textContent = `${sign}$${legRealizedPnL.toFixed(0)}`;
+    pnlEl.style.color = legRealizedPnL >= 0 ? '#00ff88' : '#ff5252';
+}
+
+/**
+ * Execute the leg close (record locally)
+ */
+window.executeCloseLeg = function(positionId, legType, legStrike) {
+    const pos = state.positions.find(p => p.id === Number(positionId));
+    if (!pos) {
+        showNotification('Position not found', 'error');
+        return;
+    }
+    
+    const priceInput = document.getElementById('closeLegPriceInput');
+    const closePrice = parseFloat(priceInput.value);
+    
+    if (isNaN(closePrice) || closePrice < 0) {
+        showNotification('Please enter a valid close price', 'error');
+        return;
+    }
+    
+    const isCreditSpread = pos.type.includes('credit');
+    const contracts = pos.contracts;
+    const netPremium = pos.premium;
+    
+    // Calculate realized P&L
+    let legRealizedPnL = 0;
+    if (isCreditSpread) {
+        if (legType === 'short') {
+            const estimatedSellPrice = netPremium * 1.4;
+            legRealizedPnL = (estimatedSellPrice - closePrice) * 100 * contracts;
+        } else {
+            const estimatedBuyPrice = netPremium * 0.4;
+            legRealizedPnL = (closePrice - estimatedBuyPrice) * 100 * contracts;
+        }
+    } else {
+        if (legType === 'long') {
+            const estimatedBuyPrice = Math.abs(netPremium) * 1.4;
+            legRealizedPnL = (closePrice - estimatedBuyPrice) * 100 * contracts;
+        } else {
+            const estimatedSellPrice = Math.abs(netPremium) * 0.4;
+            legRealizedPnL = (estimatedSellPrice - closePrice) * 100 * contracts;
+        }
+    }
+    
+    // Mark the leg as closed
+    pos.closedLeg = legType;
+    pos.closedLegStrike = legStrike;
+    pos.closedLegPrice = closePrice;
+    pos.closedLegDate = new Date().toISOString().split('T')[0];
+    pos.closedLegPnL = legRealizedPnL;
+    pos.legOutNote = `${legType.toUpperCase()} leg closed @ $${closePrice.toFixed(2)} on ${pos.closedLegDate}`;
     
     // Save and refresh
-    savePositions();
+    savePositionsToStorage();
+    
+    // Close modal
+    document.getElementById('closeLegModal')?.remove();
+    
     renderPositions();
+    
+    // Re-expand to show the update
+    if (!expandedSpreads.has(pos.id)) {
+        expandedSpreads.add(pos.id);
+    }
+    fetchSpreadLegPrices(pos.id);
+    
     updatePortfolioSummary();
     
-    // Collapse the expanded state since position changed
-    expandedSpreads.delete(pos.id);
+    const pnlStr = legRealizedPnL >= 0 ? `+$${legRealizedPnL.toFixed(0)}` : `-$${Math.abs(legRealizedPnL).toFixed(0)}`;
+    const remainingLegType = legType === 'short' ? 'LONG' : 'SHORT';
+    const remainingStrike = legType === 'short' ? pos.buyStrike : pos.sellStrike;
     
     showNotification(
-        `✂️ Legged out: Closed ${legType} $${legStrike} leg. ` +
-        `Remaining: ${remainingType.replace(/_/g, ' ')} @ $${remainingStrike}`,
-        'success'
+        `✂️ ${legType.toUpperCase()} leg closed @ $${closePrice.toFixed(2)} (${pnlStr}). ${remainingLegType} $${remainingStrike} remains open.`,
+        legRealizedPnL >= 0 ? 'success' : 'info'
     );
+};
+
+/**
+ * Execute the leg close via Schwab API
+ */
+window.executeCloseLegSchwab = async function(positionId, legType, legStrike) {
+    const pos = state.positions.find(p => p.id === Number(positionId));
+    if (!pos) {
+        showNotification('Position not found', 'error');
+        return;
+    }
+    
+    const priceInput = document.getElementById('closeLegPriceInput');
+    const limitPrice = parseFloat(priceInput.value);
+    
+    if (isNaN(limitPrice) || limitPrice <= 0) {
+        showNotification('Please enter a valid limit price', 'error');
+        return;
+    }
+    
+    const isPutSpread = pos.type.includes('put');
+    const optionType = isPutSpread ? 'PUT' : 'CALL';
+    const instruction = legType === 'short' ? 'BUY_TO_CLOSE' : 'SELL_TO_CLOSE';
+    
+    const btn = document.getElementById('closeLegSchwabBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '⏳ Sending to Schwab...';
+    btn.disabled = true;
+    
+    try {
+        // Build OCC symbol: AAPL  260221P00095000 (ticker padded to 6, date, type, strike*1000 padded to 8)
+        const ticker = pos.ticker.padEnd(6, ' ');
+        const expiry = pos.expiry.replace(/-/g, '').slice(2); // 260221
+        const strikeStr = (legStrike * 1000).toString().padStart(8, '0');
+        const occSymbol = `${ticker}${expiry}${optionType[0]}${strikeStr}`.replace(/ /g, '');
+        
+        const order = {
+            orderType: 'LIMIT',
+            session: 'NORMAL',
+            duration: 'DAY',
+            orderStrategyType: 'SINGLE',
+            price: limitPrice.toFixed(2),
+            orderLegCollection: [{
+                instruction: instruction,
+                quantity: pos.contracts,
+                instrument: {
+                    symbol: occSymbol,
+                    assetType: 'OPTION'
+                }
+            }]
+        };
+        
+        const res = await fetch('/api/schwab/order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(order)
+        });
+        
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.message || 'Order failed');
+        }
+        
+        showNotification(`✅ Order sent to Schwab: ${instruction} ${pos.contracts} ${pos.ticker} $${legStrike} ${optionType} @ $${limitPrice.toFixed(2)}`, 'success');
+        
+        // Also record locally
+        window.executeCloseLeg(positionId, legType, legStrike);
+        
+    } catch (e) {
+        console.error('Schwab order failed:', e);
+        showNotification(`❌ Schwab order failed: ${e.message}`, 'error');
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
 };
 
 // Debug function to check thesis data

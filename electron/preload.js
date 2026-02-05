@@ -76,6 +76,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     
     // ============================================
+    // SHELL (Open URLs in system browser)
+    // ============================================
+    
+    shell: {
+        /**
+         * Open URL in system default browser
+         * @param {string} url - URL to open
+         * @returns {Promise<boolean>}
+         */
+        openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url)
+    },
+    
+    // ============================================
     // PLATFORM INFO
     // ============================================
     

@@ -4248,13 +4248,15 @@ window.loadCCChain = async function(ticker) {
         
         window.ccChainData = chain.calls;
         
-        // Fetch spot price for filtering OTM calls
+        // Fetch spot price for filtering OTM calls - try Schwab first (includes extended hours)
         let spotPrice = null;
         try {
             const quoteRes = await fetch(`/api/schwab/quote/${ticker}`);
             if (quoteRes.ok) {
                 const quoteData = await quoteRes.json();
-                spotPrice = quoteData?.quote?.lastPrice || quoteData?.lastPrice;
+                const quote = quoteData?.quote || quoteData;
+                // Use extended hours price if available
+                spotPrice = quote?.postMarketLastPrice || quote?.preMarketLastPrice || quote?.lastPrice;
             }
         } catch (e) { /* fallback below */ }
         

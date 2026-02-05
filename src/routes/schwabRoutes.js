@@ -167,30 +167,42 @@ async function refreshAccessToken() {
 
     const basicAuth = Buffer.from(`${creds.appKey}:${creds.appSecret}`).toString('base64');
 
-    const response = await schwabFetch(`${SCHWAB_AUTH_URL}/token`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${basicAuth}`
-        },
-        body: new URLSearchParams({
-            grant_type: 'refresh_token',
-            refresh_token: creds.refreshToken
-        }).toString()
-    });
+    try {
+        const response = await schwabFetch(`${SCHWAB_AUTH_URL}/token`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Authorization': `Basic ${basicAuth}`
+            },
+            body: new URLSearchParams({
+                grant_type: 'refresh_token',
+                refresh_token: creds.refreshToken
+            }).toString()
+        });
 
-    // Update cache
-    tokenCache.accessToken = response.access_token;
-    tokenCache.accessExpiry = Date.now() + (response.expires_in * 1000) - 60000; // 1 min buffer
-    
-    // If we got a new refresh token, save it
-    if (response.refresh_token && response.refresh_token !== creds.refreshToken) {
-        updateEnvVar('SCHWAB_REFRESH_TOKEN', response.refresh_token);
-        tokenCache.refreshToken = response.refresh_token;
+        // Update cache
+        tokenCache.accessToken = response.access_token;
+        tokenCache.accessExpiry = Date.now() + (response.expires_in * 1000) - 60000; // 1 min buffer
+        
+        // If we got a new refresh token, save it
+        if (response.refresh_token && response.refresh_token !== creds.refreshToken) {
+            updateEnvVar('SCHWAB_REFRESH_TOKEN', response.refresh_token);
+            tokenCache.refreshToken = response.refresh_token;
+        }
+
+        console.log(`[SCHWAB] ✅ Access token refreshed, expires in ${response.expires_in}s`);
+        return tokenCache.accessToken;
+    } catch (e) {
+        // Log detailed error from Schwab
+        console.error(`[SCHWAB] ❌ Token refresh failed:`, e.error || e.message || e);
+        if (e.status === 401) {
+            throw new Error('Refresh token expired or invalid. Please re-authorize in Settings → Schwab.');
+        }
+        if (e.status === 400) {
+            throw new Error(`Schwab rejected refresh: ${JSON.stringify(e.error)}`);
+        }
+        throw new Error(`Token refresh failed: ${e.message || JSON.stringify(e)}`);
     }
-
-    console.log(`[SCHWAB] ✅ Access token refreshed, expires in ${response.expires_in}s`);
-    return tokenCache.accessToken;
 }
 
 // Get valid access token (refresh if needed)
@@ -238,8 +250,16 @@ router.get('/status', (req, res) => {
 // Get access token for streaming (used by Python streamer)
 router.get('/streaming-token', async (req, res) => {
     try {
-        const token = await getAccessToken();
+        // Pre-check credentials
         const creds = getCredentials();
+        if (!creds.appKey || !creds.appSecret) {
+            return res.status(400).json({ error: 'Schwab API credentials not configured. Go to Settings → Schwab tab.' });
+        }
+        if (!creds.refreshToken) {
+            return res.status(400).json({ error: 'Schwab not authorized. Complete OAuth flow in Settings → Schwab tab.' });
+        }
+        
+        const token = await getAccessToken();
         
         // Get account hash for streaming
         const accountsResp = await schwabApiCall('/accounts/accountNumbers');
@@ -255,8 +275,8 @@ router.get('/streaming-token', async (req, res) => {
             appKey: creds.appKey
         });
     } catch (e) {
-        console.error('[SCHWAB] Streaming token error:', e.message);
-        res.status(500).json({ error: e.message });
+        console.error('[SCHWAB] Streaming token error:', e.message || e);
+        res.status(500).json({ error: e.message || 'Unknown error getting streaming token' });
     }
 });
 

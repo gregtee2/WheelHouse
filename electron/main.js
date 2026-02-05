@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, nativeTheme, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -288,6 +288,17 @@ ipcMain.handle('server:restart', async () => {
     await startServer();
     console.log('[Server] Restart complete!');
     return true;
+});
+
+// Open URL in system browser (for OAuth)
+ipcMain.handle('shell:openExternal', async (event, url) => {
+    try {
+        await shell.openExternal(url);
+        return true;
+    } catch (err) {
+        console.error('[Shell] Failed to open URL:', err);
+        return false;
+    }
 });
 
 // ============================================

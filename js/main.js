@@ -1195,6 +1195,7 @@ StreamingService.on('streamer-status', (status) => {
 /**
  * Fetch and display market internals from Schwab
  * Symbols: $TICK, $ADD, $VOLD, $TRIN, $VIX
+ * Note: Some market breadth symbols may not be available via Schwab API
  */
 window.refreshMarketInternals = async function() {
     const statusEl = document.getElementById('internalsStatus');
@@ -1208,8 +1209,39 @@ window.refreshMarketInternals = async function() {
         const symbols = '$TICK,$ADVN,$DECL,$UVOL,$DVOL,$TRIN,$VIX';
         
         const res = await fetch(`/api/schwab/quotes?symbols=${encodeURIComponent(symbols)}&fields=quote`);
+        
+        // Handle Schwab API not supporting these symbols
         if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
+            // Try just VIX as a simpler fallback
+            const vixRes = await fetch(`/api/schwab/quotes?symbols=$VIX&fields=quote`);
+            if (vixRes.ok) {
+                const vixData = await vixRes.json();
+                // Show VIX only, mark others as N/A
+                showInternalsUnavailable('$TICK');
+                showInternalsUnavailable('$ADD');
+                showInternalsUnavailable('$VOLD');
+                showInternalsUnavailable('$TRIN');
+                updateInternalTile('$VIX', vixData['$VIX'], { 
+                    format: 'decimal',
+                    colorLogic: (v) => v < 15 ? '#00ff88' : v > 25 ? '#ff5252' : '#ffaa00'
+                });
+                if (statusEl) {
+                    statusEl.textContent = 'VIX only';
+                    statusEl.style.color = '#888';
+                }
+                return;
+            }
+            // All failed - show unavailable state
+            showInternalsUnavailable('$TICK');
+            showInternalsUnavailable('$ADD');
+            showInternalsUnavailable('$VOLD');
+            showInternalsUnavailable('$TRIN');
+            showInternalsUnavailable('$VIX');
+            if (statusEl) {
+                statusEl.textContent = 'N/A';
+                statusEl.style.color = '#666';
+            }
+            return;
         }
         
         const data = await res.json();
@@ -1267,13 +1299,34 @@ window.refreshMarketInternals = async function() {
         }
         
     } catch (e) {
-        console.error('[INTERNALS] Fetch failed:', e);
+        // Silently handle - market internals are optional
+        // Schwab may not support NYSE breadth symbols
+        console.warn('[INTERNALS] Market breadth symbols not available via Schwab');
+        showInternalsUnavailable('$TICK');
+        showInternalsUnavailable('$ADD');
+        showInternalsUnavailable('$VOLD');
+        showInternalsUnavailable('$TRIN');
+        showInternalsUnavailable('$VIX');
         if (statusEl) {
-            statusEl.textContent = '❌ Error';
-            statusEl.style.color = '#ff5252';
+            statusEl.textContent = 'N/A';
+            statusEl.style.color = '#666';
         }
     }
 };
+
+/**
+ * Show an internal indicator tile as unavailable
+ */
+function showInternalsUnavailable(symbol) {
+    const tile = document.querySelector(`[data-internal="${symbol}"]`);
+    if (!tile) return;
+    
+    const valueEl = tile.querySelector('.internal-value');
+    if (valueEl) {
+        valueEl.textContent = 'N/A';
+        valueEl.style.color = '#555';
+    }
+}
 
 /**
  * Update a single internal indicator tile
@@ -6627,7 +6680,9 @@ window.checkMarginForTrade = async function(ticker, strike, premium, isCall = fa
         const schwabRes = await fetch(`/api/schwab/quotes?symbols=${ticker}`);
         if (schwabRes.ok) {
             const data = await schwabRes.json();
-            spot = data[ticker]?.quote?.lastPrice || data[ticker]?.quote?.mark;
+            const quote = data[ticker]?.quote;
+            // Use extended hours price if available
+            spot = quote?.postMarketLastPrice || quote?.preMarketLastPrice || quote?.lastPrice || quote?.mark;
         }
         
         // Fallback to Yahoo
@@ -7118,14 +7173,30 @@ window.runPositionCheckup = async function(positionId) {
         
         // Always fetch fresh spot price and IV for accurate Monte Carlo
         try {
-            // Fetch stock quote from Yahoo
-            const quoteRes = await fetch(`/api/yahoo/${pos.ticker}`);
-            const quoteData = await quoteRes.json();
-            // Yahoo returns: { chart: { result: [{ meta: { regularMarketPrice: 123.45 } }] } }
-            const yahooPrice = quoteData.chart?.result?.[0]?.meta?.regularMarketPrice;
-            if (yahooPrice) {
-                spotPrice = yahooPrice;
-                console.log('[Checkup] Got spot price from Yahoo:', spotPrice);
+            // Try Schwab first (includes extended hours)
+            let gotSpot = false;
+            const schwabRes = await fetch(`/api/schwab/quotes?symbols=${pos.ticker}`);
+            if (schwabRes.ok) {
+                const data = await schwabRes.json();
+                const quote = data[pos.ticker]?.quote;
+                // Use extended hours price if available
+                const schwabPrice = quote?.postMarketLastPrice || quote?.preMarketLastPrice || quote?.lastPrice || quote?.mark;
+                if (schwabPrice) {
+                    spotPrice = schwabPrice;
+                    gotSpot = true;
+                    console.log('[Checkup] Got spot price from Schwab:', spotPrice);
+                }
+            }
+            
+            // Fallback to Yahoo if Schwab failed
+            if (!gotSpot) {
+                const quoteRes = await fetch(`/api/yahoo/${pos.ticker}`);
+                const quoteData = await quoteRes.json();
+                const yahooPrice = quoteData.chart?.result?.[0]?.meta?.regularMarketPrice;
+                if (yahooPrice) {
+                    spotPrice = yahooPrice;
+                    console.log('[Checkup] Got spot price from Yahoo:', spotPrice);
+                }
             }
             
             // Fetch IV separately
@@ -11082,15 +11153,17 @@ window.loadPMCCPosition = async function(positionId) {
     document.getElementById('pmccCost').textContent = `$${leapsCost.toFixed(0)}`;
     document.getElementById('pmccBreakevenStrike').textContent = `$${breakevenStrike.toFixed(2)}`;
     
-    // Fetch current spot price - try Schwab first, then Yahoo as fallback
+    // Fetch current spot price - try Schwab first (with extended hours), then Yahoo as fallback
     let spotPrice = 0;
     try {
-        // Try Schwab first (real-time)
+        // Try Schwab first (real-time, includes extended hours)
         const schwabData = await fetch(`/api/schwab/quote/${position.ticker}`).then(r => r.json());
-        spotPrice = schwabData[position.ticker]?.quote?.lastPrice || 0;
+        const quote = schwabData[position.ticker]?.quote;
+        // Use extended hours price if available
+        spotPrice = quote?.postMarketLastPrice || quote?.preMarketLastPrice || quote?.lastPrice || 0;
         
         if (!spotPrice) {
-            // Fallback to Yahoo (15-min delayed)
+            // Fallback to Yahoo (15-min delayed, regular session only)
             const yahooData = await fetch(`/api/yahoo/${position.ticker}`).then(r => r.json());
             spotPrice = yahooData.chart?.result?.[0]?.meta?.regularMarketPrice || 0;
         }

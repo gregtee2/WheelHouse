@@ -65,7 +65,23 @@ async function getQuote(ticker) {
             const data = await schwabApiCall(`/marketdata/v1/quotes?symbols=${symbol}`);
             if (data && data[symbol]?.quote) {
                 const q = data[symbol].quote;
-                const price = q.lastPrice || q.mark;
+                
+                // Use extended hours price if available (postMarket or preMarket)
+                // Schwab provides these as separate fields from lastPrice (regular session)
+                let price = q.lastPrice || q.mark;
+                let priceSource = 'regular';
+                
+                // Check post-market (after 4pm ET)
+                if (q.postMarketLastPrice && q.postMarketLastPrice > 0) {
+                    price = q.postMarketLastPrice;
+                    priceSource = 'postMarket';
+                }
+                // Check pre-market (before 9:30am ET)  
+                else if (q.preMarketLastPrice && q.preMarketLastPrice > 0) {
+                    price = q.preMarketLastPrice;
+                    priceSource = 'preMarket';
+                }
+                
                 const high52 = q['52WeekHigh'];
                 const low52 = q['52WeekLow'];
                 
@@ -76,6 +92,7 @@ async function getQuote(ticker) {
                 return {
                     ticker: symbol,
                     price,
+                    priceSource,  // 'regular', 'postMarket', or 'preMarket'
                     change: q.netChange,
                     changePercent: q.netPercentChangeInDouble,
                     high52,
