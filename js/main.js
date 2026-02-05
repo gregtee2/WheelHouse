@@ -8534,12 +8534,21 @@ window.runStrategyAdvisor = async function() {
         // Show capital efficiency analysis if available
         if (data.selectionRationale) {
             const sr = data.selectionRationale;
+            
+            // Format strike display based on strategy type
+            const strikeDisplay = sr.spreadWidth 
+                ? `$${sr.strike}/$${sr.longStrike} Spread` 
+                : `$${sr.strike} Put`;
+            const strategyLabel = sr.strategyLabel || 'Cash-Secured Put';
+            const capitalLabel = sr.spreadWidth ? `$${sr.spreadWidth} width` : `$${sr.strike} capital`;
+            
             contentHtml += `
                 <div style="background:rgba(34,197,94,0.1); border:1px solid #22c55e; border-radius:8px; padding:12px; margin-bottom:16px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                        <div style="color:#22c55e; font-weight:bold;">📊 Capital Efficiency: $${sr.strike} Put</div>
+                        <div style="color:#22c55e; font-weight:bold;">📊 Capital Efficiency: ${strikeDisplay}</div>
                         <div style="color:#00ff88; font-size:14px; font-weight:bold;">${sr.annualizedROC.toFixed(0)}% Ann. ROC</div>
                     </div>
+                    <div style="color:#888; font-size:11px; margin-bottom:4px;">Strategy: ${strategyLabel} • Capital: ${capitalLabel}</div>
                     <div style="color:#aaa; font-size:12px; margin-bottom:8px;">${sr.summary}</div>
                     ${sr.allCandidates && sr.allCandidates.length > 1 ? `
                         <div style="margin-top:8px;">

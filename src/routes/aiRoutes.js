@@ -338,50 +338,109 @@ router.post('/strategy-advisor', async (req, res) => {
         }
         
         // =============================================================================
-        // CAPITAL EFFICIENCY ANALYSIS - Find best expiry for recommended strike
+        // CAPITAL EFFICIENCY ANALYSIS - Strategy-aware ROC calculations
         // =============================================================================
         let selectionRationale = null;
         let bestExpiry = null;
         
-        // Parse AI's recommended strike from response
-        // Handle various formats:
-        // - "SELL: $19 PUT" (basic)
-        // - "Sell SOFI Mar 14 $19 Put" (Grok with ticker+date)
-        // - "$19/$18 Put Credit Spread" (spreads with "Credit" word)
-        // - "Sell $19/$18 Put Spread" (basic spread)
-        // - "Sell SOFI 2026-03-06 18/17 Put Credit Spread" (Grok v2 - date before strike, no $)
-        const putStrikePatterns = [
-            /\$(\d+(?:\.\d+)?)\s*\/\s*\$\d+\s*Put\s*(?:Credit\s*)?Spread/i,  // Spread: $19/$18 Put Credit Spread
-            /(?:Sell|Buy)\s+\w+\s+\d{4}-\d{2}-\d{2}\s+(\d+(?:\.\d+)?)\/\d+\s*Put/i,  // Grok v2: Sell SOFI 2026-03-06 18/17 Put
-            /(\d+(?:\.\d+)?)\s*\/\s*\d+\s*Put\s*(?:Credit\s*)?Spread/i,      // Spread without $: 18/17 Put Credit Spread
-            /Sell[^$]*\$(\d+(?:\.\d+)?)\s*(?:\/\$\d+)?\s*Put/i,              // Sell ... $19 Put (with optional /spread)
-            /(?:SELL|Sell)[:\s]*\$?(\d+(?:\.\d+)?)\s*(?:PUT|Put)/i,          // SELL: $19 PUT
-            /\$(\d+(?:\.\d+)?)\s*(?:PUT|Put)\s*(?:@|at)/i                    // $19 Put @
+        // Step 1: Detect strategy type from AI response
+        let strategyType = 'csp';  // Default to cash-secured put
+        let spreadWidth = null;
+        
+        const strategyPatterns = [
+            { pattern: /Put\s*Credit\s*Spread|Bull\s*Put\s*Spread/i, type: 'put_credit_spread' },
+            { pattern: /Cash[- ]?Secured\s*Put|CSP/i, type: 'csp' },
+            { pattern: /Covered\s*Call/i, type: 'covered_call' },
+            { pattern: /Call\s*Credit\s*Spread|Bear\s*Call\s*Spread/i, type: 'call_credit_spread' },
+            { pattern: /Iron\s*Condor/i, type: 'iron_condor' },
+            { pattern: /Call\s*Debit\s*Spread|Bull\s*Call\s*Spread/i, type: 'call_debit_spread' },
+            { pattern: /Put\s*Debit\s*Spread|Bear\s*Put\s*Spread/i, type: 'put_debit_spread' },
         ];
         
-        let extractedStrike = null;
-        for (const pattern of putStrikePatterns) {
-            const match = aiResponse.match(pattern);
-            if (match) {
-                extractedStrike = parseFloat(match[1]);
-                console.log(`[STRATEGY-ADVISOR] 🎯 Extracted strike $${extractedStrike} using pattern: ${pattern.source.slice(0, 40)}...`);
+        for (const { pattern, type } of strategyPatterns) {
+            if (pattern.test(aiResponse)) {
+                strategyType = type;
                 break;
             }
         }
+        console.log(`[STRATEGY-ADVISOR] 📋 Detected strategy type: ${strategyType}`);
         
+        // Step 2: Extract strikes (short strike, and long strike for spreads)
+        // Patterns that capture BOTH strikes for spreads
+        const spreadStrikePatterns = [
+            /\$(\d+(?:\.\d+)?)\s*\/\s*\$(\d+(?:\.\d+)?)\s*Put\s*(?:Credit\s*)?Spread/i,  // $19/$18 Put Credit Spread
+            /(?:Sell|Buy)\s+\w+\s+\d{4}-\d{2}-\d{2}\s+(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*Put/i,  // Grok: Sell SOFI 2026-03-06 18/17 Put
+            /(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*Put\s*(?:Credit\s*)?Spread/i,  // 18/17 Put Credit Spread
+        ];
+        
+        // Patterns for single strike (CSP, naked put)
+        const singleStrikePatterns = [
+            /Sell[^$]*\$(\d+(?:\.\d+)?)\s*Put.*(?:cash[- ]?secured|\(csp\))/i,  // $19 Put cash-secured
+            /Sell[^$]*\$(\d+(?:\.\d+)?)\s*Put(?!\s*(?:Credit\s*)?Spread)/i,     // $19 Put (not spread)
+            /(?:SELL|Sell)[:\s]*\$?(\d+(?:\.\d+)?)\s*(?:PUT|Put)(?!\s*Spread)/i, // SELL: $19 PUT
+        ];
+        
+        let extractedStrike = null;
+        let longStrike = null;
+        
+        // First try spread patterns
+        if (strategyType.includes('spread')) {
+            for (const pattern of spreadStrikePatterns) {
+                const match = aiResponse.match(pattern);
+                if (match) {
+                    const strike1 = parseFloat(match[1]);
+                    const strike2 = parseFloat(match[2]);
+                    // For put credit spread: short (higher) / long (lower)
+                    extractedStrike = Math.max(strike1, strike2);
+                    longStrike = Math.min(strike1, strike2);
+                    spreadWidth = extractedStrike - longStrike;
+                    console.log(`[STRATEGY-ADVISOR] 🎯 Spread: $${extractedStrike}/$${longStrike} (width: $${spreadWidth})`);
+                    break;
+                }
+            }
+        }
+        
+        // If no spread found, try single strike patterns
+        if (!extractedStrike) {
+            for (const pattern of singleStrikePatterns) {
+                const match = aiResponse.match(pattern);
+                if (match) {
+                    extractedStrike = parseFloat(match[1]);
+                    console.log(`[STRATEGY-ADVISOR] 🎯 Single strike: $${extractedStrike}`);
+                    break;
+                }
+            }
+        }
+        
+        // Fallback to old patterns if nothing found
+        if (!extractedStrike) {
+            const fallbackPatterns = [
+                /\$(\d+(?:\.\d+)?)\s*\/\s*\$\d+\s*Put/i,
+                /(\d+(?:\.\d+)?)\s*\/\s*\d+\s*Put/i,
+                /\$(\d+(?:\.\d+)?)\s*(?:PUT|Put)/i,
+            ];
+            for (const pattern of fallbackPatterns) {
+                const match = aiResponse.match(pattern);
+                if (match) {
+                    extractedStrike = parseFloat(match[1]);
+                    console.log(`[STRATEGY-ADVISOR] 🎯 Fallback strike: $${extractedStrike}`);
+                    break;
+                }
+            }
+        }
+        
+        // Step 3: Calculate capital efficiency with strategy-appropriate ROC
         if (extractedStrike && chain && chain.puts && chain.puts.length > 0) {
-            console.log(`[STRATEGY-ADVISOR] 📊 Capital efficiency analysis for $${extractedStrike} strike...`);
+            console.log(`[STRATEGY-ADVISOR] 📊 Capital efficiency for $${extractedStrike} ${strategyType}...`);
             
             const today = new Date();
             const candidates = [];
             
-            // Find all expirations where this strike exists (14-60 DTE range)
             for (const exp of (chain.expirations || [])) {
                 const expDate = new Date(exp);
                 const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
                 
                 if (dte >= 14 && dte <= 60) {
-                    // Find the put at this strike and expiry (0.51 tolerance for half-dollar strikes)
                     const putAtStrike = chain.puts.find(p => 
                         p.expiration === exp && 
                         Math.abs(p.strike - extractedStrike) < 0.51
@@ -389,11 +448,23 @@ router.post('/strategy-advisor', async (req, res) => {
                     
                     if (putAtStrike && putAtStrike.bid > 0) {
                         const premium = putAtStrike.bid;
-                        const actualStrike = putAtStrike.strike;  // Use actual strike from chain
-                        const roc = (premium / actualStrike) * 100;
+                        const actualStrike = putAtStrike.strike;
+                        
+                        // Calculate ROC based on strategy type
+                        let capitalRequired, roc;
+                        
+                        if (strategyType === 'put_credit_spread' && spreadWidth) {
+                            // For spreads: capital = spread width
+                            capitalRequired = spreadWidth;
+                            roc = (premium / spreadWidth) * 100;
+                        } else {
+                            // For CSP/naked: capital = strike price
+                            capitalRequired = actualStrike;
+                            roc = (premium / actualStrike) * 100;
+                        }
+                        
                         const annualizedROC = roc * (365 / dte);
                         
-                        // Apply 15% penalty for DTE under 21 (higher gamma risk)
                         const gammaPenalized = dte < 21;
                         const score = annualizedROC * (gammaPenalized ? 0.85 : 1.0);
                         
@@ -401,16 +472,19 @@ router.post('/strategy-advisor', async (req, res) => {
                             expiry: exp,
                             dte,
                             strike: actualStrike,
+                            longStrike: longStrike,
+                            spreadWidth: spreadWidth,
                             premium,
+                            capitalRequired,
                             delta: putAtStrike.delta,
                             iv: putAtStrike.iv,
                             roc,
                             annualizedROC,
-                            score,            // Penalized score (what we actually compare)
-                            gammaPenalized    // Flag for UI
+                            score,
+                            gammaPenalized
                         });
                         
-                        console.log(`[STRATEGY-ADVISOR]   ${exp} (${dte}d): $${actualStrike} @ $${premium.toFixed(2)} → ROC ${roc.toFixed(2)}% → Ann. ${annualizedROC.toFixed(0)}%`);
+                        console.log(`[STRATEGY-ADVISOR]   ${exp} (${dte}d): $${premium.toFixed(2)} / $${capitalRequired} capital → ${annualizedROC.toFixed(0)}% ann.`);
                     }
                 }
             }
@@ -422,14 +496,35 @@ router.post('/strategy-advisor', async (req, res) => {
                 const winner = candidates[0];
                 bestExpiry = winner.expiry;
                 
+                // Build strategy type label for UI
+                const strategyLabels = {
+                    'csp': 'Cash-Secured Put',
+                    'put_credit_spread': 'Put Credit Spread',
+                    'call_credit_spread': 'Call Credit Spread',
+                    'covered_call': 'Covered Call',
+                    'iron_condor': 'Iron Condor',
+                    'call_debit_spread': 'Call Debit Spread',
+                    'put_debit_spread': 'Put Debit Spread'
+                };
+                
                 // Build selection rationale for UI
                 const otherOptions = candidates.slice(1, 4).map(c => 
                     `${c.dte}d: ${c.annualizedROC.toFixed(0)}%`
                 ).join(', ');
                 
+                // Format strike display based on strategy
+                const strikeDisplay = spreadWidth 
+                    ? `$${winner.strike}/$${longStrike} (${strategyLabels[strategyType] || strategyType})`
+                    : `$${winner.strike} ${strategyLabels[strategyType] || 'Put'}`;
+                
                 selectionRationale = {
                     reason: 'best_annualized_roc',
-                    strike: winner.strike,  // Use actual matched strike
+                    strategyType,
+                    strategyLabel: strategyLabels[strategyType] || strategyType,
+                    strike: winner.strike,
+                    longStrike: longStrike,
+                    spreadWidth: spreadWidth,
+                    capitalRequired: winner.capitalRequired,
                     dte: winner.dte,
                     annualizedROC: winner.annualizedROC,
                     roc: winner.roc,
@@ -437,12 +532,12 @@ router.post('/strategy-advisor', async (req, res) => {
                     delta: winner.delta ? Math.abs(winner.delta) * 100 : null,
                     iv: winner.iv,
                     candidatesEvaluated: candidates.length,
-                    allCandidates: candidates.slice(0, 5),  // Top 5 for UI comparison table
-                    summary: `Optimal: $${winner.strike} @ ${winner.dte} DTE for ${winner.annualizedROC.toFixed(0)}% annualized ROC` + 
+                    allCandidates: candidates.slice(0, 5),
+                    summary: `Optimal: ${strikeDisplay} @ ${winner.dte} DTE for ${winner.annualizedROC.toFixed(0)}% annualized ROC` + 
                              (otherOptions ? ` (vs ${otherOptions})` : '')
                 };
                 
-                console.log(`[STRATEGY-ADVISOR] 🏆 BEST: $${winner.strike} @ ${bestExpiry} (${winner.dte} DTE) → ${winner.annualizedROC.toFixed(0)}% annualized ROC`);
+                console.log(`[STRATEGY-ADVISOR] 🏆 BEST: ${strikeDisplay} @ ${bestExpiry} (${winner.dte} DTE) → ${winner.annualizedROC.toFixed(0)}% annualized ROC`);
             } else {
                 console.log(`[STRATEGY-ADVISOR] ⚠️ No valid expirations found for $${extractedStrike} strike`);
             }
