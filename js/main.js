@@ -8551,19 +8551,22 @@ window.runStrategyAdvisor = async function() {
                                         <th style="padding:4px 8px; text-align:right;">Premium</th>
                                         <th style="padding:4px 8px; text-align:right;">ROC</th>
                                         <th style="padding:4px 8px; text-align:right;">Ann. ROC</th>
+                                        <th style="padding:4px 8px; text-align:right;">Score</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     ${sr.allCandidates.map((c, i) => `
                                         <tr style="${i === 0 ? 'background:rgba(34,197,94,0.15); color:#22c55e;' : ''}">
                                             <td style="padding:4px 8px;">${c.expiry}${i === 0 ? ' ✓' : ''}</td>
-                                            <td style="padding:4px 8px; text-align:right;">${c.dte}d</td>
+                                            <td style="padding:4px 8px; text-align:right;">${c.dte}d${c.gammaPenalized ? ' ⚠️' : ''}</td>
                                             <td style="padding:4px 8px; text-align:right;">$${c.premium.toFixed(2)}</td>
                                             <td style="padding:4px 8px; text-align:right;">${c.roc.toFixed(2)}%</td>
-                                            <td style="padding:4px 8px; text-align:right; font-weight:${i === 0 ? 'bold' : 'normal'};">${c.annualizedROC.toFixed(0)}%</td>
+                                            <td style="padding:4px 8px; text-align:right;">${c.annualizedROC.toFixed(0)}%${c.gammaPenalized ? '*' : ''}</td>
+                                            <td style="padding:4px 8px; text-align:right; font-weight:${i === 0 ? 'bold' : 'normal'}; color:${i === 0 ? '#22c55e' : (c.gammaPenalized ? '#f59e0b' : '#aaa')};">${c.score.toFixed(0)}%</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
+                                ${sr.allCandidates.some(c => c.gammaPenalized) ? '<tfoot><tr><td colspan="6" style="padding:4px 8px; font-size:10px; color:#888;">⚠️ *Under 21 DTE = 15% gamma penalty applied to score</td></tr></tfoot>' : ''}
                             </table>
                         </div>
                     ` : ''}

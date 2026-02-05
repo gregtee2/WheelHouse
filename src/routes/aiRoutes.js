@@ -390,6 +390,10 @@ router.post('/strategy-advisor', async (req, res) => {
                         const roc = (premium / actualStrike) * 100;
                         const annualizedROC = roc * (365 / dte);
                         
+                        // Apply 15% penalty for DTE under 21 (higher gamma risk)
+                        const gammaPenalized = dte < 21;
+                        const score = annualizedROC * (gammaPenalized ? 0.85 : 1.0);
+                        
                         candidates.push({
                             expiry: exp,
                             dte,
@@ -398,7 +402,9 @@ router.post('/strategy-advisor', async (req, res) => {
                             delta: putAtStrike.delta,
                             iv: putAtStrike.iv,
                             roc,
-                            annualizedROC
+                            annualizedROC,
+                            score,            // Penalized score (what we actually compare)
+                            gammaPenalized    // Flag for UI
                         });
                         
                         console.log(`[STRATEGY-ADVISOR]   ${exp} (${dte}d): $${actualStrike} @ $${premium.toFixed(2)} → ROC ${roc.toFixed(2)}% → Ann. ${annualizedROC.toFixed(0)}%`);
@@ -406,14 +412,9 @@ router.post('/strategy-advisor', async (req, res) => {
                 }
             }
             
-            // Pick the best candidate (highest annualized ROC, with gamma penalty for short DTE)
+            // Pick the best candidate (highest score - already includes gamma penalty)
             if (candidates.length > 0) {
-                candidates.sort((a, b) => {
-                    // Apply 15% penalty for DTE under 21 (higher gamma risk)
-                    const aScore = a.annualizedROC * (a.dte < 21 ? 0.85 : 1.0);
-                    const bScore = b.annualizedROC * (b.dte < 21 ? 0.85 : 1.0);
-                    return bScore - aScore;  // Descending
-                });
+                candidates.sort((a, b) => b.score - a.score);  // Descending by penalized score
                 
                 const winner = candidates[0];
                 bestExpiry = winner.expiry;
