@@ -8531,6 +8531,46 @@ window.runStrategyAdvisor = async function() {
             `;
         }
         
+        // Show capital efficiency analysis if available
+        if (data.selectionRationale) {
+            const sr = data.selectionRationale;
+            contentHtml += `
+                <div style="background:rgba(34,197,94,0.1); border:1px solid #22c55e; border-radius:8px; padding:12px; margin-bottom:16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <div style="color:#22c55e; font-weight:bold;">📊 Capital Efficiency Analysis</div>
+                        <div style="color:#00ff88; font-size:14px; font-weight:bold;">${sr.annualizedROC.toFixed(0)}% Ann. ROC</div>
+                    </div>
+                    <div style="color:#aaa; font-size:12px; margin-bottom:8px;">${sr.summary}</div>
+                    ${sr.allCandidates && sr.allCandidates.length > 1 ? `
+                        <div style="margin-top:8px;">
+                            <table style="width:100%; font-size:11px; color:#aaa; border-collapse:collapse;">
+                                <thead>
+                                    <tr style="border-bottom:1px solid #333;">
+                                        <th style="padding:4px 8px; text-align:left;">Expiry</th>
+                                        <th style="padding:4px 8px; text-align:right;">DTE</th>
+                                        <th style="padding:4px 8px; text-align:right;">Premium</th>
+                                        <th style="padding:4px 8px; text-align:right;">ROC</th>
+                                        <th style="padding:4px 8px; text-align:right;">Ann. ROC</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${sr.allCandidates.map((c, i) => `
+                                        <tr style="${i === 0 ? 'background:rgba(34,197,94,0.15); color:#22c55e;' : ''}">
+                                            <td style="padding:4px 8px;">${c.expiry}${i === 0 ? ' ✓' : ''}</td>
+                                            <td style="padding:4px 8px; text-align:right;">${c.dte}d</td>
+                                            <td style="padding:4px 8px; text-align:right;">$${c.premium.toFixed(2)}</td>
+                                            <td style="padding:4px 8px; text-align:right;">${c.roc.toFixed(2)}%</td>
+                                            <td style="padding:4px 8px; text-align:right; font-weight:${i === 0 ? 'bold' : 'normal'};">${c.annualizedROC.toFixed(0)}%</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+        
         // Format response and inject Stage buttons after each trade section
         let formattedResponse = formatAIResponse(data.recommendation);
         

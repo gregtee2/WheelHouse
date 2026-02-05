@@ -337,6 +337,97 @@ router.post('/strategy-advisor', async (req, res) => {
             }
         }
         
+        // =============================================================================
+        // CAPITAL EFFICIENCY ANALYSIS - Find best expiry for recommended strike
+        // =============================================================================
+        let selectionRationale = null;
+        let bestExpiry = null;
+        
+        // Parse AI's recommended strike from response
+        // Patterns: "SELL: $XX PUT", "Sell $XX Put", "$XX/$YY Put Spread"
+        const putStrikeMatch = aiResponse.match(/(?:SELL|Sell)[:\s]*\$?(\d+(?:\.\d+)?)\s*(?:PUT|Put)/i) ||
+                               aiResponse.match(/\$(\d+(?:\.\d+)?)\s*(?:PUT|Put)\s*(?:@|at)/i) ||
+                               aiResponse.match(/\$(\d+(?:\.\d+)?)\s*\/\s*\$\d+\s*Put\s*Spread/i);
+        
+        const extractedStrike = putStrikeMatch ? parseFloat(putStrikeMatch[1]) : null;
+        
+        if (extractedStrike && chain && chain.puts && chain.puts.length > 0) {
+            console.log(`[STRATEGY-ADVISOR] 📊 Capital efficiency analysis for $${extractedStrike} strike...`);
+            
+            const today = new Date();
+            const candidates = [];
+            
+            // Find all expirations where this strike exists (14-60 DTE range)
+            for (const exp of (chain.expirations || [])) {
+                const expDate = new Date(exp);
+                const dte = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+                
+                if (dte >= 14 && dte <= 60) {
+                    // Find the put at this strike and expiry
+                    const putAtStrike = chain.puts.find(p => 
+                        p.expiration === exp && 
+                        Math.abs(p.strike - extractedStrike) < 0.01
+                    );
+                    
+                    if (putAtStrike && putAtStrike.bid > 0) {
+                        const premium = putAtStrike.bid;
+                        const roc = (premium / extractedStrike) * 100;
+                        const annualizedROC = roc * (365 / dte);
+                        
+                        candidates.push({
+                            expiry: exp,
+                            dte,
+                            strike: extractedStrike,
+                            premium,
+                            delta: putAtStrike.delta,
+                            iv: putAtStrike.iv,
+                            roc,
+                            annualizedROC
+                        });
+                        
+                        console.log(`[STRATEGY-ADVISOR]   ${exp} (${dte}d): $${premium.toFixed(2)} → ROC ${roc.toFixed(2)}% → Ann. ${annualizedROC.toFixed(0)}%`);
+                    }
+                }
+            }
+            
+            // Pick the best candidate (highest annualized ROC, with gamma penalty for short DTE)
+            if (candidates.length > 0) {
+                candidates.sort((a, b) => {
+                    // Apply 15% penalty for DTE under 21 (higher gamma risk)
+                    const aScore = a.annualizedROC * (a.dte < 21 ? 0.85 : 1.0);
+                    const bScore = b.annualizedROC * (b.dte < 21 ? 0.85 : 1.0);
+                    return bScore - aScore;  // Descending
+                });
+                
+                const winner = candidates[0];
+                bestExpiry = winner.expiry;
+                
+                // Build selection rationale for UI
+                const otherOptions = candidates.slice(1, 4).map(c => 
+                    `${c.dte}d: ${c.annualizedROC.toFixed(0)}%`
+                ).join(', ');
+                
+                selectionRationale = {
+                    reason: 'best_annualized_roc',
+                    strike: extractedStrike,
+                    dte: winner.dte,
+                    annualizedROC: winner.annualizedROC,
+                    roc: winner.roc,
+                    premium: winner.premium,
+                    delta: winner.delta ? Math.abs(winner.delta) * 100 : null,
+                    iv: winner.iv,
+                    candidatesEvaluated: candidates.length,
+                    allCandidates: candidates.slice(0, 5),  // Top 5 for UI comparison table
+                    summary: `Optimal: ${winner.dte} DTE for ${winner.annualizedROC.toFixed(0)}% annualized ROC` + 
+                             (otherOptions ? ` (vs ${otherOptions})` : '')
+                };
+                
+                console.log(`[STRATEGY-ADVISOR] 🏆 BEST EXPIRY: ${bestExpiry} (${winner.dte} DTE) → ${winner.annualizedROC.toFixed(0)}% annualized ROC`);
+            } else {
+                console.log(`[STRATEGY-ADVISOR] ⚠️ No valid expirations found for $${extractedStrike} strike`);
+            }
+        }
+        
         res.json({
             success: true,
             ticker,
@@ -348,6 +439,8 @@ router.post('/strategy-advisor', async (req, res) => {
             expertMode: !!expertMode,
             recommendation: aiResponse,
             rangeWarning,
+            selectionRationale,
+            bestExpiry,
             model: selectedModel
         });
         
