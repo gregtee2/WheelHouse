@@ -545,28 +545,11 @@ class StreamingServiceClass {
     }
     
     /**
-     * Check if we're in extended hours (pre-market or after-hours)
-     * Pre-market: 4:00 AM - 9:30 AM ET
-     * After-hours: 4:00 PM - 8:00 PM ET
+     * Check if we're outside regular market hours
+     * Returns true for pre-market, after-hours, overnight, and weekends
      */
-    isExtendedHours() {
-        const now = new Date();
-        // Convert to Eastern Time
-        const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-        const day = et.getDay();
-        const hour = et.getHours();
-        const minute = et.getMinutes();
-        const timeInMinutes = hour * 60 + minute;
-        
-        // Only Mon-Fri have extended hours
-        if (day < 1 || day > 5) return false;
-        
-        // Pre-market: 4:00 AM (240) to 9:30 AM (570)
-        // After-hours: 4:00 PM (960) to 8:00 PM (1200)
-        const isPreMarket = timeInMinutes >= 240 && timeInMinutes < 570;
-        const isAfterHours = timeInMinutes >= 960 && timeInMinutes < 1200;
-        
-        return isPreMarket || isAfterHours;
+    isOutsideMarketHours() {
+        return !this.isMarketOpen();
     }
     
     /**
@@ -585,8 +568,26 @@ class StreamingServiceClass {
     }
     
     /**
+     * Get current market session type for logging
+     */
+    getMarketSession() {
+        const now = new Date();
+        const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        const day = et.getDay();
+        const hour = et.getHours();
+        const minute = et.getMinutes();
+        const timeInMinutes = hour * 60 + minute;
+        
+        if (day < 1 || day > 5) return 'weekend';
+        if (timeInMinutes >= 570 && timeInMinutes < 960) return 'regular';
+        if (timeInMinutes >= 240 && timeInMinutes < 570) return 'preMarket';
+        if (timeInMinutes >= 960 && timeInMinutes < 1200) return 'afterHours';
+        return 'overnight';
+    }
+    
+    /**
      * Start extended hours polling if needed
-     * Schwab streaming only provides regular session prices - during extended hours,
+     * Schwab streaming only provides regular session prices - outside market hours,
      * we need to poll the REST API periodically for updated prices.
      */
     startExtendedHoursPolling() {
@@ -596,20 +597,22 @@ class StreamingServiceClass {
             this.extendedHoursPollingInterval = null;
         }
         
-        // Check every minute whether we need extended hours polling
+        // Check and poll outside market hours
         const checkAndPoll = async () => {
-            if (this.isExtendedHours() && this.trackedTickers.size > 0) {
-                console.log('[STREAMING] Extended hours - polling REST API for prices');
+            const session = this.getMarketSession();
+            if (this.isOutsideMarketHours() && this.trackedTickers.size > 0) {
+                console.log(`[STREAMING] Outside market hours (${session}) - polling REST API for ${this.trackedTickers.size} tickers`);
                 await this.pollExtendedHoursPrices();
             }
         };
         
-        // Start immediately if in extended hours
+        // Start immediately
         checkAndPoll();
         
-        // Then poll every 30 seconds during extended hours
+        // Then poll every 30 seconds
         this.extendedHoursPollingInterval = setInterval(checkAndPoll, this.extendedHoursPollingDelay);
-        console.log('[STREAMING] Extended hours polling started (30 sec interval)');
+        const session = this.getMarketSession();
+        console.log(`[STREAMING] Polling started (30 sec interval) - current session: ${session}`);
     }
     
     /**
@@ -635,10 +638,19 @@ class StreamingServiceClass {
                 const res = await fetch(`/api/schwab/quote/${ticker}`);
                 const data = await res.json();
                 
-                if (data.error) continue;
+                if (data.error) {
+                    console.warn(`[STREAMING] ${ticker}: API error - ${data.error}`);
+                    continue;
+                }
                 
-                // Extract extended hours price if available
-                const quote = data.quote || data;
+                // Schwab returns { SYMBOL: { quote: { ... } } }
+                const tickerData = data[ticker] || data[ticker.toUpperCase()];
+                if (!tickerData) {
+                    console.warn(`[STREAMING] ${ticker}: No data in response`);
+                    continue;
+                }
+                
+                const quote = tickerData.quote || tickerData;
                 let price = quote.lastPrice;
                 let priceSource = 'regular';
                 
@@ -652,6 +664,8 @@ class StreamingServiceClass {
                 }
                 
                 if (price && typeof price === 'number' && !isNaN(price)) {
+                    console.log(`[STREAMING] ${ticker}: $${price.toFixed(2)} (${priceSource})`);
+                    
                     // Create a quote object similar to streaming format
                     const extendedQuote = {
                         symbol: ticker,
@@ -668,9 +682,11 @@ class StreamingServiceClass {
                     
                     // Emit event
                     this._emit('equity-quote', extendedQuote);
+                } else {
+                    console.warn(`[STREAMING] ${ticker}: Invalid price - ${price}`);
                 }
             } catch (e) {
-                console.warn(`[STREAMING] Failed to poll extended hours for ${ticker}:`, e.message);
+                console.warn(`[STREAMING] Failed to poll for ${ticker}:`, e.message);
             }
         }
     }
@@ -704,7 +720,7 @@ class StreamingServiceClass {
             cachedOptions: this.optionQuotes.size,
             cachedEquities: this.equityQuotes.size,
             cachedFutures: this.futuresQuotes.size,
-            isExtendedHours: this.isExtendedHours(),
+            marketSession: this.getMarketSession(),
             isMarketOpen: this.isMarketOpen(),
             trackedTickers: this.trackedTickers.size
         };
