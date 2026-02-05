@@ -2675,10 +2675,20 @@ Keep it to 3-4 sentences. Use "we" not "you". Make a 10-year-old understand it.]
 
 ## 🥇 PRIMARY RECOMMENDATION: [Strategy Name]
 
-**Trade:** [Exact order, e.g., "Sell ${ticker} $XX/$XX Put Credit Spread, [date] expiry"]
+**Trade:** [EXACT FORMAT REQUIRED - see examples below]
 **Contracts:** [Number]
 **Net Credit/Debit:** $X.XX per share ($XXX per contract)
 **Probability of Profit:** ~XX%
+
+⚠️ TRADE LINE FORMAT - USE EXACTLY:
+• Spreads: "Sell ${ticker} $XX/$XX Put Credit Spread, YYYY-MM-DD expiry"
+• CSP: "Sell ${ticker} $XX Put, YYYY-MM-DD expiry (cash-secured)"
+• Covered Call: "Sell ${ticker} $XX Call, YYYY-MM-DD expiry (covered)"
+• Bull Call Spread: "Buy ${ticker} $XX/$XX Call Debit Spread, YYYY-MM-DD expiry"
+• Iron Condor: "Sell ${ticker} $XX/$XX Put Spread + $XX/$XX Call Spread, YYYY-MM-DD expiry"
+
+CRITICAL: Always use DOLLAR SIGNS before strikes (e.g., $18/$17 not 18/17)
+CRITICAL: Put expiry date at END of trade line (not middle)
 
 | Metric | Per Contract | Total ([N] contracts) |
 |--------|--------------|----------------------|
@@ -2700,7 +2710,7 @@ Keep it to 3-4 sentences. Use "we" not "you". Make a 10-year-old understand it.]
 
 ## 🥈 ALTERNATIVE #1: [Strategy Name]
 
-**Trade:** [Exact order]
+**Trade:** [Same format as PRIMARY - use $XX/$XX with dollar signs, date at end]
 **Contracts:** [Number]
 **Net Credit/Debit:** $X.XX per share
 **Probability of Profit:** ~XX%
@@ -2717,7 +2727,7 @@ Keep it to 3-4 sentences. Use "we" not "you". Make a 10-year-old understand it.]
 
 ## 🥉 ALTERNATIVE #2: [Strategy Name] (Optional - include if meaningfully different)
 
-**Trade:** [Exact order]
+**Trade:** [Same format as PRIMARY - use $XX/$XX with dollar signs, date at end]
 **Net Credit/Debit:** $X.XX per share
 **Probability of Profit:** ~XX%
 **Max Profit / Max Loss:** $XXX / $XXX per contract
