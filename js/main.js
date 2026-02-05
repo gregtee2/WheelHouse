@@ -1428,13 +1428,15 @@ function startInternalsRefresh() {
     if (internalsInterval) clearInterval(internalsInterval);
     internalsInterval = setInterval(() => {
         // Only refresh during market hours (9:30 AM - 4:00 PM ET, weekdays)
-        const now = new Date();
-        const day = now.getDay();
-        const hour = now.getHours();
-        const minute = now.getMinutes();
+        // IMPORTANT: Use Eastern Time, not local time!
+        const nowET = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+        const etDate = new Date(nowET);
+        const day = etDate.getDay();
+        const hour = etDate.getHours();
+        const minute = etDate.getMinutes();
         const timeInMinutes = hour * 60 + minute;
         
-        // Market hours: 9:30 AM (570 min) to 4:00 PM (960 min), Mon-Fri
+        // Market hours: 9:30 AM (570 min) to 4:00 PM (960 min), Mon-Fri (ET)
         const isMarketHours = day >= 1 && day <= 5 && timeInMinutes >= 570 && timeInMinutes <= 960;
         
         if (isMarketHours) {
