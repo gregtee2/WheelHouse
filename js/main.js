@@ -1195,7 +1195,6 @@ StreamingService.on('streamer-status', (status) => {
 /**
  * Fetch and display market internals from Schwab
  * Symbols: $TICK, $ADD, $VOLD, $TRIN, $VIX
- * Note: Some market breadth symbols may not be available via Schwab API
  */
 window.refreshMarketInternals = async function() {
     const statusEl = document.getElementById('internalsStatus');
@@ -1209,39 +1208,8 @@ window.refreshMarketInternals = async function() {
         const symbols = '$TICK,$ADVN,$DECL,$UVOL,$DVOL,$TRIN,$VIX';
         
         const res = await fetch(`/api/schwab/quotes?symbols=${encodeURIComponent(symbols)}&fields=quote`);
-        
-        // Handle Schwab API not supporting these symbols
         if (!res.ok) {
-            // Try just VIX as a simpler fallback
-            const vixRes = await fetch(`/api/schwab/quotes?symbols=$VIX&fields=quote`);
-            if (vixRes.ok) {
-                const vixData = await vixRes.json();
-                // Show VIX only, mark others as N/A
-                showInternalsUnavailable('$TICK');
-                showInternalsUnavailable('$ADD');
-                showInternalsUnavailable('$VOLD');
-                showInternalsUnavailable('$TRIN');
-                updateInternalTile('$VIX', vixData['$VIX'], { 
-                    format: 'decimal',
-                    colorLogic: (v) => v < 15 ? '#00ff88' : v > 25 ? '#ff5252' : '#ffaa00'
-                });
-                if (statusEl) {
-                    statusEl.textContent = 'VIX only';
-                    statusEl.style.color = '#888';
-                }
-                return;
-            }
-            // All failed - show unavailable state
-            showInternalsUnavailable('$TICK');
-            showInternalsUnavailable('$ADD');
-            showInternalsUnavailable('$VOLD');
-            showInternalsUnavailable('$TRIN');
-            showInternalsUnavailable('$VIX');
-            if (statusEl) {
-                statusEl.textContent = 'N/A';
-                statusEl.style.color = '#666';
-            }
-            return;
+            throw new Error(`HTTP ${res.status}`);
         }
         
         const data = await res.json();
@@ -1299,34 +1267,13 @@ window.refreshMarketInternals = async function() {
         }
         
     } catch (e) {
-        // Silently handle - market internals are optional
-        // Schwab may not support NYSE breadth symbols
-        console.warn('[INTERNALS] Market breadth symbols not available via Schwab');
-        showInternalsUnavailable('$TICK');
-        showInternalsUnavailable('$ADD');
-        showInternalsUnavailable('$VOLD');
-        showInternalsUnavailable('$TRIN');
-        showInternalsUnavailable('$VIX');
+        console.error('[INTERNALS] Fetch failed:', e);
         if (statusEl) {
-            statusEl.textContent = 'N/A';
-            statusEl.style.color = '#666';
+            statusEl.textContent = '⚠ Error';
+            statusEl.style.color = '#ff5252';
         }
     }
 };
-
-/**
- * Show an internal indicator tile as unavailable
- */
-function showInternalsUnavailable(symbol) {
-    const tile = document.querySelector(`[data-internal="${symbol}"]`);
-    if (!tile) return;
-    
-    const valueEl = tile.querySelector('.internal-value');
-    if (valueEl) {
-        valueEl.textContent = 'N/A';
-        valueEl.style.color = '#555';
-    }
-}
 
 /**
  * Update a single internal indicator tile
