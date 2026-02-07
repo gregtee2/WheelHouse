@@ -5,8 +5,75 @@
 A powerful Monte Carlo-based options analysis tool with **real-time Schwab & CBOE pricing**, AI-powered trade analysis, position tracking, and portfolio analytics - built specifically for traders running The Wheel Strategy.
 
 ![License](https://img.shields.io/badge/license-Proprietary-red)
-![Version](https://img.shields.io/badge/version-1.19.71-blue)
+![Version](https://img.shields.io/badge/version-1.19.92-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)
+
+---
+
+## 🆕 What's New in v1.19.92
+
+### 🏗️ Major Code Refactor — main.js Modularization
+The monolithic `main.js` (11,600 lines) has been refactored down to **3,662 lines** (68% reduction!) by extracting 8 focused modules:
+
+| Module | Lines | Responsibility |
+|--------|-------|---------------|
+| `aiFunctions.js` | 1,471 | Deep Dive, Discord analysis, trade parsing, AI insights |
+| `aiHelpers.js` | 582 | Model warmup, SSE streaming, prompt builders |
+| `coach.js` | 576 | Trading Coach UI, pattern display, danger zones |
+| `monteCarlo.js` | 455 | Monte Carlo simulation, probability cone charts |
+| `pmccCalculator.js` | 373 | PMCC/LEAPS calculator with strategy analysis |
+| `positionCheckup.js` | 399 | Position checkup, analysis history, thesis comparison |
+| `strategyAdvisor.js` | 750 | Multi-strategy analysis, alternative tile rendering |
+| `tradeStaging.js` | 516 | Pending trades management, staging flow |
+| `wheelScanner.js` | 472 | Oversold scanner, ticker screening |
+
+Every module uses the same `import/export` pattern — no global function leaks. All cross-module calls go through clean exports.
+
+### 📈 Spark Charts for Market Internals & Futures
+- **Inline SVG sparklines** on every Market Internals tile (TICK, A/D, VOL Δ, TRIN, VIX)
+- **Futures tiles** (ES, NQ, YM, RTY) now show 2-hour intraday trend sparklines
+- **2-minute data buckets** — last 60 data points rendered as smooth area charts
+- **Color-matched** — green for positive trend, red for negative, gradient fill
+- **SparkChartService** — new shared service handles all sparkline rendering
+
+### 🏋️ Trading Coach (CoachingService)
+A new AI-powered coaching system that learns from your closed trade history:
+
+| Feature | Description |
+|---------|-------------|
+| **Pattern Analysis** | Win rates by ticker, strategy type, DTE range, and delta |
+| **Sweet Spots** | Identifies your most profitable setups (e.g., "PLTR 30-45 DTE puts: 85% win rate") |
+| **Danger Zones** | Flags losing patterns (e.g., "TSLA < 14 DTE: 30% win rate - avoid!") |
+| **AI Prompt Injection** | Coach insights are automatically included in all AI trade analysis |
+| **Portfolio Tab Button** | New "🏋️ Trading Coach" button shows your personalized patterns |
+
+### 💰 Decimal Place Fixes
+- All dollar amounts across the app now display **2 decimal places** (e.g., `$1,234.56` not `$1,235`)
+- Affected: Portfolio balances, P&L figures, premium displays, challenge progress, and CSV exports
+
+### 🔧 Covered Call Modal — Strike Range Selection
+- CC modal now supports **Strike Range dropdown** (±5, ±10, ±15, ±20 strikes from spot)
+- `fetchOptionsChain` properly passes `strikeCount` through to API
+- No more missing strikes when browsing far OTM or ITM calls
+
+### 📊 Week Summary — Compact Card Redesign
+- Week Summary results now display in **compact cards** matching the saved/historical view
+- Collapsible sections: At-Risk Positions, Position Checkups, Portfolio Audit, Synthesis
+- Cleaner layout with consistent styling across fresh and historical reports
+
+### 🔄 Schwab Dividend Integration Fixes
+- Fixed 4 bugs in dividend sync from Schwab transaction history
+- Dividends now correctly attributed to positions and reflected in P&L calculations
+
+### 🔧 Reconcile Modal Rewrite
+- Position reconciliation modal rebuilt with cleaner UI and proper state persistence
+- Fixes issues where reconciliation choices weren't saved between sessions
+
+### 🐛 Bug Fixes
+- Fixed `analyzeDiscordTrade2` → `analyzeDiscordTrade` function name mismatch
+- Fixed mismatched element IDs for several "Get Insight" buttons
+- Fixed CC strike range not loading enough strikes from API
+- Unified all `?v=` cache-busting versions in index.html (were mixed 1.19.41–1.19.92b)
 
 ---
 
