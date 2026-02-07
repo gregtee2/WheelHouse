@@ -8,6 +8,7 @@
  */
 
 const { parseExpiryDate } = require('../utils/dateHelpers');
+const CoachingService = require('./CoachingService');
 const { searchWisdom } = require('./WisdomService');
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1011,7 +1012,7 @@ Use the REAL strikes/premiums from the alternatives section above.` : ''}
  * @returns {string} Formatted prompt
  */
 function buildCritiquePrompt(data) {
-    const { ticker, chainHistory, totalPremium, totalDays, finalOutcome } = data;
+    const { ticker, chainHistory, totalPremium, totalDays, finalOutcome, openingThesis, analysisHistory } = data;
     
     if (!chainHistory || chainHistory.length === 0) {
         return `No trade history provided for ${ticker}. Cannot critique.`;
@@ -1053,7 +1054,21 @@ Final outcome: ${finalOutcome || 'Unknown'}
 
 ═══ TRADE TIMELINE ═══
 ${timeline}
-
+${openingThesis ? `═══ ORIGINAL ENTRY THESIS ═══
+When this trade was opened, the AI analysis concluded:
+${openingThesis.aiSummary?.bottomLine ? `Bottom line: ${openingThesis.aiSummary.bottomLine}` : ''}
+${openingThesis.priceAtAnalysis ? `Stock price at entry: $${openingThesis.priceAtAnalysis}` : ''}
+${openingThesis.iv ? `IV at entry: ${openingThesis.iv}%` : ''}
+${openingThesis.rangePosition !== undefined ? `Range position at entry: ${openingThesis.rangePosition}% (0%=3-month low, 100%=high)` : ''}
+${openingThesis.aiSummary?.probability ? `Estimated win probability at entry: ${openingThesis.aiSummary.probability}%` : ''}
+${openingThesis.aiSummary?.conservative ? `Conservative view: ${openingThesis.aiSummary.conservative.substring(0, 300)}` : ''}
+` : ''}
+${analysisHistory && analysisHistory.length > 0 ? `═══ AI CHECKUP HISTORY (${analysisHistory.length} checkups during trade) ═══
+${analysisHistory.map((a, i) => {
+    const date = a.timestamp ? new Date(a.timestamp).toLocaleDateString() : 'Unknown';
+    return `${i + 1}. ${date} - Recommendation: ${a.recommendation || 'N/A'} (${a.model || 'unknown model'})\n   Spot was $${a.snapshot?.spot || '?'} | DTE: ${a.snapshot?.dte || '?'}\n   ${a.insight || ''}`;
+}).join('\n\n')}
+` : ''}
 ═══ YOUR ANALYSIS ═══
 Provide a thoughtful critique in this format:
 
@@ -1061,9 +1076,13 @@ Provide a thoughtful critique in this format:
 
 2. **What could improve** - Identify 1-2 areas for improvement. Be specific - "rolled too early" or "strike was too aggressive" with reasoning.
 
-3. **Key lesson** - One actionable takeaway for future trades.
+3. **Thesis evaluation** - Did the original entry thesis play out as expected? Was the reasoning sound even if the outcome was bad (or lucky)?${analysisHistory && analysisHistory.length > 0 ? `
 
-4. **Grade** - Rate this trade: A (excellent), B (good), C (acceptable), D (poor), F (disaster)
+4. **AI consistency** - The AI gave ${analysisHistory.length} checkup(s) during this trade. Were the recommendations consistent and well-timed? Did the trader follow them?` : ''}
+
+${analysisHistory && analysisHistory.length > 0 ? '5' : '4'}. **Key lesson** - One actionable takeaway for future trades.
+
+${analysisHistory && analysisHistory.length > 0 ? '6' : '5'}. **Grade** - Rate this trade: A (excellent), B (good), C (acceptable), D (poor), F (disaster)
 
 Be honest but constructive. Focus on the PROCESS, not just the outcome. A losing trade can still have good process, and a winning trade can have poor process.`;
 }
@@ -1086,6 +1105,8 @@ async function buildTradePrompt(data, isLargeModel = false) {
         spot, costBasis, breakeven, maxProfit, maxLoss,
         iv, riskPercent, winProbability, costToClose,
         rollOptions, expertRecommendation, previousAnalysis,
+        openingThesis,     // Original entry thesis
+        analysisHistory,   // Array of prior AI checkups
         portfolioContext,  // Portfolio context from audit
         chainHistory,      // Array of previous positions in this chain
         totalPremiumCollected,  // Net premium across all rolls
@@ -1142,62 +1163,10 @@ At the END of your response, include:
     const isCoveredCall = positionType === 'covered_call' || positionType === 'buy_write';
     const isShortPut = positionType === 'short_put';
     
-    // Generate historical pattern context if closed summary is available
+    // Generate coaching context from historical closed trades (via CoachingService)
     let patternContext = '';
     if (closedSummary && closedSummary.length > 0) {
-        const tickerUpper = ticker?.toUpperCase();
-        const typeNormalized = positionType?.toLowerCase().replace(/\s+/g, '_') || '';
-        
-        // Find matching trades
-        const sameTickerType = closedSummary.filter(p => 
-            p.ticker?.toUpperCase() === tickerUpper && 
-            p.type?.toLowerCase().replace(/\s+/g, '_') === typeNormalized
-        );
-        const sameTicker = closedSummary.filter(p => p.ticker?.toUpperCase() === tickerUpper);
-        const sameType = closedSummary.filter(p => p.type?.toLowerCase().replace(/\s+/g, '_') === typeNormalized);
-        
-        const calcStats = (trades) => {
-            if (trades.length === 0) return null;
-            const totalPnL = trades.reduce((sum, p) => sum + (p.pnl || 0), 0);
-            const winners = trades.filter(p => (p.pnl || 0) >= 0);
-            return { count: trades.length, totalPnL, winRate: (winners.length / trades.length * 100), avgPnL: totalPnL / trades.length };
-        };
-        
-        const tickerTypeStats = calcStats(sameTickerType);
-        const tickerStats = calcStats(sameTicker);
-        const typeStats = calcStats(sameType);
-        
-        let patternText = '';
-        const warnings = [];
-        const encouragements = [];
-        
-        if (tickerTypeStats && tickerTypeStats.count >= 2) {
-            patternText += `• ${tickerUpper} ${typeNormalized.replace(/_/g,' ')}: ${tickerTypeStats.count} trades, ${tickerTypeStats.winRate.toFixed(0)}% win, $${tickerTypeStats.totalPnL.toFixed(0)} total\n`;
-            if (tickerTypeStats.winRate < 40) warnings.push(`LOW WIN RATE on ${tickerUpper} ${typeNormalized.replace(/_/g,' ')}`);
-            if (tickerTypeStats.totalPnL < -500) warnings.push(`NET LOSING on this exact setup (-$${Math.abs(tickerTypeStats.totalPnL).toFixed(0)})`);
-            if (tickerTypeStats.winRate >= 75) encouragements.push(`STRONG WIN RATE (${tickerTypeStats.winRate.toFixed(0)}%) on this setup`);
-            if (tickerTypeStats.avgPnL > 100) encouragements.push(`PROFITABLE pattern ($${tickerTypeStats.avgPnL.toFixed(0)} avg)`);
-        }
-        
-        if (tickerStats && tickerStats.count >= 3 && !tickerTypeStats) {
-            patternText += `• All ${tickerUpper}: ${tickerStats.count} trades, ${tickerStats.winRate.toFixed(0)}% win rate\n`;
-            if (tickerStats.winRate < 40) warnings.push(`${tickerUpper} HAS BEEN DIFFICULT overall`);
-            if (tickerStats.winRate >= 70) encouragements.push(`${tickerUpper} WORKS WELL for you`);
-        }
-        
-        if (typeStats && typeStats.count >= 5) {
-            patternText += `• All ${typeNormalized.replace(/_/g,' ')}: ${typeStats.count} trades, ${typeStats.winRate.toFixed(0)}% win rate\n`;
-            if (typeStats.winRate < 50 && typeNormalized.includes('long')) warnings.push(`${typeNormalized.replace(/_/g,' ')} UNDERPERFORMING`);
-            if (typeStats.winRate >= 70) encouragements.push(`${typeNormalized.replace(/_/g,' ')} IS YOUR STRENGTH`);
-        }
-        
-        if (patternText || warnings.length > 0 || encouragements.length > 0) {
-            patternContext = `
-═══ YOUR HISTORICAL PATTERNS ═══
-${patternText}${warnings.length > 0 ? '⚠️ WARNINGS: ' + warnings.join(', ') + '\n' : ''}${encouragements.length > 0 ? '✅ POSITIVE: ' + encouragements.join(', ') + '\n' : ''}
-**Use this history to inform your recommendation!**
-`;
-        }
+        patternContext = CoachingService.buildCoachingContext(closedSummary, ticker, positionType);
     }
     
     // Calculate assignment scenario for covered calls
@@ -1467,6 +1436,22 @@ ${expertRecommendation || 'No system recommendation'}
 ${wisdomSection}
 ${portfolioContext ? `═══ PORTFOLIO CONTEXT ═══
 ${portfolioContext}
+` : ''}${openingThesis ? `═══ ORIGINAL ENTRY THESIS ═══
+This trade was opened based on AI analysis:
+${openingThesis.aiSummary?.bottomLine ? `Bottom line: ${openingThesis.aiSummary.bottomLine}` : ''}
+${openingThesis.priceAtAnalysis ? `Entry price: $${openingThesis.priceAtAnalysis}` : ''}${openingThesis.iv ? ` | Entry IV: ${openingThesis.iv}%` : ''}${openingThesis.rangePosition !== undefined ? ` | Range position: ${openingThesis.rangePosition}%` : ''}
+${openingThesis.aiSummary?.probability ? `Win probability at entry: ${openingThesis.aiSummary.probability}%` : ''}
+${openingThesis.aiSummary?.conservative ? `Conservative view at entry: ${openingThesis.aiSummary.conservative.substring(0, 250)}` : ''}
+
+⚠️ EVALUATE: Is the original thesis still intact? Has the scenario changed materially since entry?
+` : ''}${analysisHistory && analysisHistory.length > 0 ? `═══ AI CHECKUP HISTORY (${analysisHistory.length} prior checkups) ═══
+${analysisHistory.slice(-3).map((a, i) => {
+    const date = a.timestamp ? new Date(a.timestamp).toLocaleDateString() : '?';
+    return `${i + 1}. ${date}: ${a.recommendation || 'N/A'} (${a.model || '?'}) | Spot $${a.snapshot?.spot || '?'} | DTE ${a.snapshot?.dte || '?'}${a.snapshot?.iv ? ` | IV ${a.snapshot.iv}%` : ''}
+   "${(a.insight || '').substring(0, 200)}"`;
+}).join('\n')}
+
+⚠️ CONSISTENCY: Are you being consistent with prior checkup recommendations? If changing recommendation, explain WHY conditions changed.
 ` : ''}${previousAnalysis ? `═══ PREVIOUS ANALYSIS ═══
 On ${new Date(previousAnalysis.timestamp).toLocaleDateString()}, you recommended: ${previousAnalysis.recommendation}
 
@@ -1609,6 +1594,12 @@ PRIORITIZE variety across sectors. Use the real data above.`;
 // ═══════════════════════════════════════════════════════════════════════════
 function buildStrategyAdvisorPrompt(context) {
     const { ticker, spot, stockData, ivRank, expirations, sampleOptions, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, dataSource } = context;
+    
+    // Extract technical analysis if available
+    const technicalAnalysis = stockData?.technicalAnalysis;
+    const fibonacci = technicalAnalysis?.fibonacci;
+    const trendlines = technicalAnalysis?.trendlines;
+    const confluence = technicalAnalysis?.confluence;
     
     // =========================================================================
     // HELPER: Round strike to valid increment ($1 for stocks > $50, $0.50 for < $50)
@@ -2012,6 +2003,63 @@ function buildStrategyAdvisorPrompt(context) {
         else ivDesc = `High (${ivRank}%) - options are expensive, strongly favor SELLING`;
     }
     
+    // Build technical analysis section
+    let technicalContext = '';
+    if (technicalAnalysis) {
+        technicalContext = `
+═══════════════════════════════════════════════════════════════════════════
+📊 TECHNICAL ANALYSIS (Algorithmic - for entry pricing guidance):
+═══════════════════════════════════════════════════════════════════════════
+`;
+        // Fibonacci levels
+        if (fibonacci && fibonacci.levels) {
+            technicalContext += `\n🔢 FIBONACCI RETRACEMENT LEVELS:\n`;
+            fibonacci.levels.forEach(level => {
+                const isCurrent = fibonacci.position?.currentLevel?.level === level.level;
+                const isSupport = level.price < spot;
+                const marker = isCurrent ? ' ← CURRENT' : (isSupport ? ' (support)' : ' (resistance)');
+                technicalContext += `   • ${level.level}: $${level.price.toFixed(2)}${marker}\n`;
+            });
+            if (fibonacci.suggestedStrike) {
+                technicalContext += `   🎯 Fib-suggested strike: $${fibonacci.suggestedStrike}\n`;
+            }
+        }
+        
+        // Trendline support
+        if (trendlines && trendlines.longestValidTrendline) {
+            const tl = trendlines.longestValidTrendline;
+            technicalContext += `\n📈 TRENDLINE SUPPORT:\n`;
+            technicalContext += `   • Current trendline value: ~$${tl.projections?.['0d']?.toFixed(2) || '?'}\n`;
+            if (tl.projections?.['30d']) {
+                technicalContext += `   • 30-day projection: ~$${tl.projections['30d'].toFixed(2)}\n`;
+            }
+            if (trendlines.suggestedStrike) {
+                technicalContext += `   🎯 Trendline-suggested strike: $${trendlines.suggestedStrike}\n`;
+            }
+        }
+        
+        // Confluence zone (strongest signal)
+        if (confluence) {
+            technicalContext += `\n⭐ CONFLUENCE ZONE (HIGH CONFIDENCE):\n`;
+            technicalContext += `   • Price: $${confluence.price.toFixed(2)}\n`;
+            technicalContext += `   • Trendline: $${confluence.trendlineSupport?.toFixed(2)} + Fib: $${confluence.fibSupport?.toFixed(2)}\n`;
+            technicalContext += `   • Confidence: ${confluence.confidence}\n`;
+        }
+        
+        // Summary suggestion
+        if (technicalAnalysis.suggestedStrike) {
+            technicalContext += `\n� TECHNICAL SUGGESTED STRIKE: $${technicalAnalysis.suggestedStrike}\n`;
+            technicalContext += `   This strike is backed by Fibonacci/trendline support - STRONGLY PREFER this for put selling!\n`;
+            technicalContext += `   If you recommend a HIGHER strike, explain WHY you're ignoring technical support.\n`;
+        }
+    }
+
+    // Generate coaching context from closed trade history
+    let coachingContext = '';
+    if (context.closedSummary && context.closedSummary.length > 0) {
+        coachingContext = CoachingService.buildCoachingContext(context.closedSummary, ticker, null);
+    }
+
     const promptText = `You are an expert options strategist helping a trader who is NEW to complex strategies beyond basic puts and calls.
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -2025,6 +2073,7 @@ MARKET CONTEXT:
 • Position in Range: ${stockData.rangePosition || '?'}% (${rangeDesc})
 • IV Rank: ${ivDesc}
 • Available Expirations: ${expirations?.slice(0, 4).join(', ') || 'Unknown'}
+${technicalContext}
 
 REAL OPTIONS CHAIN DATA (USE THESE EXACT STRIKES AND PREMIUMS!):
 ⚠️ STRIKE = the price level where option activates (near current price of $${spot.toFixed(2)})
@@ -2041,7 +2090,7 @@ ${positionsContext}
 🏦 PROP DESK RISK CHECKS:
 ═══════════════════════════════════════════════════════════════════════════
 ${propDeskWarnings.join('\n')}
-
+${coachingContext ? `\n${coachingContext}` : ''}
 ═══════════════════════════════════════════════════════════════════════════
 PRE-CALCULATED SPREAD VALUES (USE THESE EXACT NUMBERS!):
 ═══════════════════════════════════════════════════════════════════════════

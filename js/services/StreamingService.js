@@ -18,6 +18,7 @@
  */
 
 import { formatPnLPercent, formatPnLDollar, getPnLColor, getPnLStyle } from '../utils/formatters.js';
+import SparkChartService from './SparkChartService.js';
 
 class StreamingServiceClass {
     constructor() {
@@ -280,7 +281,7 @@ class StreamingServiceClass {
             
             // Format: show dollars with cents if under $1
             const absTheta = Math.abs(totalTheta);
-            const thetaDisplay = absTheta < 1 ? `$${absTheta.toFixed(2)}` : `$${absTheta.toFixed(0)}`;
+            const thetaDisplay = `$${absTheta.toFixed(2)}`;
             const thetaSign = totalTheta >= 0 ? '+' : '-';
             
             const thetaTooltip = isShort 
@@ -457,6 +458,12 @@ class StreamingServiceClass {
         const askEl = tile.querySelector('.futures-ask');
         if (bidEl && quote.bid) bidEl.textContent = quote.bid.toFixed(2);
         if (askEl && quote.ask) askEl.textContent = quote.ask.toFixed(2);
+        
+        // Push to spark chart history (uses price for change-based bars)
+        const sparkPrice = quote.last || quote.mark || quote.bid;
+        if (sparkPrice && quote.symbol) {
+            SparkChartService.update(quote.symbol, sparkPrice);
+        }
     }
     
     /**

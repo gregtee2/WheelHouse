@@ -1002,11 +1002,32 @@ If >65% win probability, it's probably fine to hold.
     
     for (const pos of atRiskPositions) {
         const urgencyIcon = pos.urgency === 'URGENT' ? '🔴' : pos.urgency === 'ACTION' ? '🟠' : '🟡';
+        
+        // Include thesis context if available
+        let thesisLine = '';
+        if (pos.openingThesis) {
+            const thesis = pos.openingThesis;
+            const parts = [];
+            if (thesis.priceAtAnalysis) parts.push(`entry price $${thesis.priceAtAnalysis}`);
+            if (thesis.iv) parts.push(`entry IV ${thesis.iv}%`);
+            if (thesis.aiSummary?.probability) parts.push(`${thesis.aiSummary.probability}% win prob at entry`);
+            if (thesis.aiSummary?.bottomLine) parts.push(`thesis: "${thesis.aiSummary.bottomLine.substring(0, 120)}"`);
+            if (parts.length > 0) thesisLine = `\n- Entry context: ${parts.join(' | ')}`;
+        }
+        
+        // Include last checkup if available
+        let checkupLine = '';
+        if (pos.analysisHistory && pos.analysisHistory.length > 0) {
+            const last = pos.analysisHistory[pos.analysisHistory.length - 1];
+            const date = last.timestamp ? new Date(last.timestamp).toLocaleDateString() : '?';
+            checkupLine = `\n- Last AI checkup (${date}): ${last.recommendation || 'N/A'} - ${(last.insight || '').substring(0, 150)}`;
+        }
+        
         prompt += `### ${urgencyIcon} ${pos.ticker} ${pos.type?.replace('_', ' ')} $${pos.strike} x${pos.contracts || 1}
 - Spot: $${pos.currentSpot?.toFixed(2) || '?'} | Strike: $${pos.strike} | Buffer: ${pos.bufferPct?.toFixed(1) || '?'}%
 - P&L: ${pos.unrealizedPnL >= 0 ? '+' : ''}$${pos.unrealizedPnL} (${pos.pnlPercent}%)
 - DTE: ${pos.dte || '?'} days
-- Why flagged: ${pos.riskReasons.join('; ')}
+- Why flagged: ${pos.riskReasons.join('; ')}${thesisLine}${checkupLine}
 
 `;
     }

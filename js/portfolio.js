@@ -2663,7 +2663,8 @@ export function renderHoldings() {
             netBasis,
             maxProfit,
             isBuyWrite,
-            linkedPositionId: h.linkedPositionId
+            linkedPositionId: h.linkedPositionId,
+            acquiredDate: h.acquiredDate || h.assignedDate || null
         });
         
         // Unique IDs for async updates
@@ -2673,6 +2674,7 @@ export function renderHoldings() {
         const totalReturnId = `htr-${h.id}`;
         const onTableId = `hot-${h.id}`;
         const actionId = `hact-${h.id}`;
+        const dividendId = `hdiv-${h.id}`;
         
         const strikeDisplay = strike ? `$${strike.toFixed(2)}` : '—';
         
@@ -2755,13 +2757,20 @@ export function renderHoldings() {
                     </div>
                 </div>
                 
-                <!-- Row 2: The Option -->
-                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; text-align:center; margin-top:8px;">
+                <!-- Row 2: The Option + Dividends -->
+                <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; text-align:center; margin-top:8px;">
                     <!-- Premium Collected -->
                     <div style="background:rgba(0,255,136,0.08); padding:10px; border-radius:6px; border:1px solid rgba(0,255,136,0.2);">
                         <div style="font-size:9px; color:#00ff88; margin-bottom:4px;">✅ CALL PREMIUM</div>
                         <div style="font-size:16px; font-weight:bold; color:#00ff88;">+$${premiumTotal.toFixed(0)}</div>
                         <div style="font-size:10px; color:#666;">yours to keep</div>
+                    </div>
+                    
+                    <!-- Dividends Received -->
+                    <div id="${dividendId}" style="background:rgba(139,92,246,0.08); padding:10px; border-radius:6px; border:1px solid rgba(139,92,246,0.2);">
+                        <div style="font-size:9px; color:#8b5cf6; margin-bottom:4px;">💰 DIVIDENDS</div>
+                        <div style="font-size:16px; font-weight:bold; color:#888;">—</div>
+                        <div style="font-size:10px; color:#666;">loading...</div>
                     </div>
                     
                     <!-- Max Profit (if called) -->
@@ -2792,7 +2801,7 @@ export function renderHoldings() {
     html += `
         <div id="holdingsSummary" style="margin-top:12px; padding:12px; background:rgba(255,140,0,0.1); border-radius:8px; border:1px solid rgba(255,140,0,0.3);">
             <div style="font-size:10px; color:#fa0; margin-bottom:8px; font-weight:bold;">📊 PORTFOLIO TOTALS</div>
-            <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; text-align:center;">
+            <div style="display:grid; grid-template-columns:repeat(6, 1fr); gap:12px; text-align:center;">
                 <div>
                     <div style="color:#888; font-size:10px;">Capital Invested</div>
                     <div id="sumCapital" style="color:#fa0; font-weight:bold; font-size:14px;">—</div>
@@ -2808,6 +2817,10 @@ export function renderHoldings() {
                 <div>
                     <div style="color:#888; font-size:10px;">Premium Banked</div>
                     <div id="sumPremium" style="color:#00ff88; font-weight:bold; font-size:14px;">—</div>
+                </div>
+                <div>
+                    <div style="color:#888; font-size:10px;">Dividends</div>
+                    <div id="sumDividends" style="color:#8b5cf6; font-weight:bold; font-size:14px;">—</div>
                 </div>
                 <div>
                     <div style="color:#888; font-size:10px;">Total Return</div>
@@ -2871,32 +2884,42 @@ async function fetchHoldingPrices(holdingData) {
     
     const tickers = [...new Set(holdingData.map(h => h.ticker))];
     
-    // BATCH fetch all prices in ONE request!
-    const priceMap = await fetchStockPricesBatch(tickers);
-    if (VERBOSE_PRICE_LOGS) console.log(`[HOLDINGS] Fetched ${Object.keys(priceMap).length} prices for holdings`);
+    // BATCH fetch prices AND dividends in parallel!
+    const [priceMap, dividendMap] = await Promise.all([
+        fetchStockPricesBatch(tickers),
+        fetchHoldingDividends(holdingData)
+    ]);
+    if (VERBOSE_PRICE_LOGS) console.log(`[HOLDINGS] Fetched ${Object.keys(priceMap).length} prices, ${Object.keys(dividendMap).length} dividend records`);
     
     // Summary totals
     let sumCapital = 0;
     let sumCurrentValue = 0;
     let sumStockPnL = 0;
     let sumPremium = 0;
+    let sumDividends = 0;
     let sumOnTable = 0;
     let hasPrices = false;  // Track if we got any valid prices
     
     // Update each holding row with calculated metrics
     for (const h of holdingData) {
         const currentPrice = priceMap[h.ticker] || 0;
+        const divData = dividendMap[h.ticker?.toUpperCase()] || { total: 0, payments: [] };
+        const dividendTotal = divData.total || 0;
         
-        // Always add capital and premium to summary (we know these)
+        // Always add capital, premium, dividends to summary (we know these)
         sumCapital += h.totalCost;
         sumPremium += h.premium;
+        sumDividends += dividendTotal;
+        
+        // Update dividend cell regardless of price
+        updateHoldingDividendCell(h, dividendTotal, divData.payments || []);
         
         // Only calculate current value metrics if we have a valid price
         if (currentPrice > 0) {
             hasPrices = true;
             const currentValue = currentPrice * h.shares;
             const stockPnL = currentValue - h.totalCost;
-            const totalReturn = stockPnL + h.premium;
+            const totalReturn = stockPnL + h.premium + dividendTotal;
             const moneyOnTable = h.strike > 0 && currentPrice > h.strike 
                 ? (currentPrice - h.strike) * h.shares 
                 : 0;
@@ -2905,8 +2928,8 @@ async function fetchHoldingPrices(holdingData) {
             sumStockPnL += stockPnL;
             sumOnTable += moneyOnTable;
             
-            // Update row with calculated values
-            updateHoldingRow(h, currentPrice, currentValue, stockPnL, totalReturn, moneyOnTable);
+            // Update row with calculated values (now includes dividends)
+            updateHoldingRow(h, currentPrice, currentValue, stockPnL, totalReturn, moneyOnTable, dividendTotal);
         } else {
             // Price fetch failed - show error state
             showHoldingError(h);
@@ -2914,13 +2937,85 @@ async function fetchHoldingPrices(holdingData) {
     }
     
     // Update summary row (only if we have prices)
-    updateHoldingSummary(sumCapital, sumCurrentValue, sumStockPnL, sumPremium, sumOnTable, hasPrices);
+    updateHoldingSummary(sumCapital, sumCurrentValue, sumStockPnL, sumPremium, sumDividends, sumOnTable, hasPrices);
+}
+
+/**
+ * Fetch dividend history for all holdings from Schwab
+ * Returns { TICKER: { total, payments[] } }
+ */
+async function fetchHoldingDividends(holdingData) {
+    try {
+        const tickers = [...new Set(holdingData.map(h => h.ticker).filter(Boolean))];
+        if (tickers.length === 0) return {};
+        
+        // Find earliest acquisition date across all holdings
+        let earliestDate = null;
+        for (const h of holdingData) {
+            const d = h.acquiredDate;
+            if (d) {
+                const dt = new Date(d);
+                if (!earliestDate || dt < earliestDate) earliestDate = dt;
+            }
+        }
+        // Default to 2 years ago if no dates
+        const since = earliestDate 
+            ? earliestDate.toISOString() 
+            : new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString();
+        
+        const response = await fetch('/api/schwab/dividends', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tickers, since })
+        });
+        
+        if (!response.ok) {
+            if (VERBOSE_PRICE_LOGS) console.log('[HOLDINGS] Dividend fetch failed:', response.status);
+            return {};
+        }
+        
+        return await response.json();
+    } catch (e) {
+        // Schwab may not be connected - fail silently
+        if (VERBOSE_PRICE_LOGS) console.log('[HOLDINGS] Dividend fetch error:', e.message);
+        return {};
+    }
+}
+
+/**
+ * Update the dividend cell for a single holding
+ */
+function updateHoldingDividendCell(h, dividendTotal, payments) {
+    const divEl = document.getElementById(`hdiv-${h.id}`);
+    if (!divEl) return;
+    
+    if (dividendTotal > 0) {
+        const paymentCount = payments.length;
+        const lastPayment = payments[0]; // Already sorted newest first
+        const lastDateStr = lastPayment?.date 
+            ? new Date(lastPayment.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : '';
+        
+        divEl.innerHTML = `
+            <div style="font-size:9px; color:#8b5cf6; margin-bottom:4px;">💰 DIVIDENDS</div>
+            <div style="font-size:16px; font-weight:bold; color:#8b5cf6;">+$${dividendTotal.toFixed(2)}</div>
+            <div style="font-size:10px; color:#666;">${paymentCount} payment${paymentCount !== 1 ? 's' : ''}${lastDateStr ? ' · last ' + lastDateStr : ''}</div>
+        `;
+        divEl.style.background = 'rgba(139,92,246,0.12)';
+        divEl.style.borderColor = 'rgba(139,92,246,0.35)';
+    } else {
+        divEl.innerHTML = `
+            <div style="font-size:9px; color:#8b5cf6; margin-bottom:4px;">💰 DIVIDENDS</div>
+            <div style="font-size:16px; font-weight:bold; color:#555;">$0</div>
+            <div style="font-size:10px; color:#555;">none received</div>
+        `;
+    }
 }
 
 /**
  * Update a single holding row with calculated values
  */
-function updateHoldingRow(h, currentPrice, currentValue, stockPnL, totalReturn, moneyOnTable) {
+function updateHoldingRow(h, currentPrice, currentValue, stockPnL, totalReturn, moneyOnTable, dividendTotal = 0) {
     // Common calculations
     const stockPnLSign = stockPnL >= 0 ? '+' : '';
     const stockPnLColor = stockPnL >= 0 ? '#00ff88' : '#ff5252';
@@ -2939,16 +3034,17 @@ function updateHoldingRow(h, currentPrice, currentValue, stockPnL, totalReturn, 
         stockPnLEl.style.color = stockPnLColor;
     }
     
-    // TOTAL RETURN bar at bottom
+    // TOTAL RETURN bar at bottom (now includes dividends)
     const totalReturnEl = document.getElementById(`htr-${h.id}`);
     if (totalReturnEl) {
         const trColor = totalReturn >= 0 ? '#00ff88' : '#ff5252';
         const trSign = totalReturn >= 0 ? '+' : '';
         const trPct = h.totalCost > 0 ? ((totalReturn / h.totalCost) * 100).toFixed(1) : 0;
+        const divPart = dividendTotal > 0 ? ` + Div +$${dividendTotal.toFixed(0)}` : '';
         totalReturnEl.innerHTML = `
             <span style="color:#888; font-size:11px;">TOTAL RETURN: </span>
             <span style="font-weight:bold; font-size:14px; color:${trColor};">${trSign}$${totalReturn.toFixed(0)} (${trSign}${trPct}%)</span>
-            <span style="color:#666; font-size:10px; margin-left:10px;">= Stock ${stockPnLSign}$${stockPnL.toFixed(0)} + Premium +$${h.premium.toFixed(0)}</span>
+            <span style="color:#666; font-size:10px; margin-left:10px;">= Stock ${stockPnLSign}$${stockPnL.toFixed(0)} + Premium +$${h.premium.toFixed(0)}${divPart}</span>
         `;
     }
     
@@ -3179,7 +3275,7 @@ window.showOpportunityCostModal = function(holdingId, missedUpside, capital, mon
 /**
  * Update the holdings summary row
  */
-function updateHoldingSummary(sumCapital, sumCurrentValue, sumStockPnL, sumPremium, sumOnTable, hasPrices) {
+function updateHoldingSummary(sumCapital, sumCurrentValue, sumStockPnL, sumPremium, sumDividends, sumOnTable, hasPrices) {
     const updateSum = (id, value, color) => {
         const el = document.getElementById(id);
         if (el) {
@@ -3190,9 +3286,10 @@ function updateHoldingSummary(sumCapital, sumCurrentValue, sumStockPnL, sumPremi
     
     updateSum('sumCapital', `$${sumCapital.toFixed(0)}`, '#fa0');
     updateSum('sumPremium', `+$${sumPremium.toFixed(0)}`, '#00ff88');
+    updateSum('sumDividends', sumDividends > 0 ? `+$${sumDividends.toFixed(0)}` : '$0', sumDividends > 0 ? '#8b5cf6' : '#555');
     
     if (hasPrices) {
-        const sumTotalReturn = sumStockPnL + sumPremium;
+        const sumTotalReturn = sumStockPnL + sumPremium + sumDividends;
         const returnPct = sumCapital > 0 ? ((sumTotalReturn / sumCapital) * 100).toFixed(1) : 0;
         
         updateSum('sumValue', `$${sumCurrentValue.toFixed(0)}`, '#fff');
@@ -4160,13 +4257,21 @@ export function sellCallAgainstShares(holdingId) {
                 <div style="color:#666; font-size:11px; margin-top:4px;">🔗 Links to wheel chain (premium reduces cost basis)</div>
             </div>
             
-            <!-- Load Chain Button -->
+            <!-- Strike Range + Load Chain -->
             <div style="margin-bottom:16px;">
-                <button onclick="window.loadCCChain('${holding.ticker}')" 
-                        style="width:100%; padding:10px; background:rgba(0,217,255,0.2); border:1px solid #00d9ff; color:#00d9ff; border-radius:6px; cursor:pointer; font-size:13px; font-weight:bold;">
-                    🔄 Load Options Chain
-                </button>
-                <div id="ccChainStatus" style="text-align:center; font-size:11px; color:#888; margin-top:6px;">Click to load live strikes & premiums</div>
+                <div style="display:flex; gap:8px; margin-bottom:8px;">
+                    <select id="ccStrikeRange" style="flex:0 0 auto; padding:8px; background:#0d0d1a; border:1px solid #333; color:#aaa; border-radius:6px; font-size:12px; cursor:pointer;" title="How many strikes to fetch from Schwab">
+                        <option value="30">Nearby (30)</option>
+                        <option value="60" selected>Wide (60)</option>
+                        <option value="100">Extra Wide (100)</option>
+                        <option value="ALL">All Strikes</option>
+                    </select>
+                    <button onclick="window.loadCCChain('${holding.ticker}')" 
+                            style="flex:1; padding:10px; background:rgba(0,217,255,0.2); border:1px solid #00d9ff; color:#00d9ff; border-radius:6px; cursor:pointer; font-size:13px; font-weight:bold;">
+                        🔄 Load Options Chain
+                    </button>
+                </div>
+                <div id="ccChainStatus" style="text-align:center; font-size:11px; color:#888;">Click to load live strikes & premiums</div>
             </div>
             
             <div style="margin-bottom:12px;">
@@ -4240,7 +4345,10 @@ window.loadCCChain = async function(ticker) {
     statusEl.style.color = '#00d9ff';
     
     try {
-        const chain = await window.fetchOptionsChain(ticker);
+        // Get user's selected strike range
+        const rangeVal = document.getElementById('ccStrikeRange')?.value || '60';
+        const chainOptions = rangeVal === 'ALL' ? { range: 'ALL' } : { strikeCount: rangeVal };
+        const chain = await window.fetchOptionsChain(ticker, chainOptions);
         
         if (!chain || !chain.calls || chain.calls.length === 0) {
             throw new Error('No call options available');
@@ -4312,12 +4420,13 @@ window.onCCExpiryChange = function(costBasis) {
     // Get spot price (fetched during chain load) - fallback to cost basis if unavailable
     const spotPrice = window.ccSpotPrice || costBasis;
     
-    // Filter to selected expiry, show strikes above current price (OTM calls for covered calls)
-    // Also show some ITM strikes in case user wants aggressive premium
+    // Filter to selected expiry, show strikes from 10% below spot UP TO at least cost basis + 10%
+    // This ensures users can always see strikes at/above their cost basis for profitable assignment
+    const minStrike = spotPrice * 0.90;
+    const maxStrike = Math.max(costBasis * 1.10, spotPrice * 1.30);  // Whichever is higher
     const callsAtExpiry = window.ccChainData
-        .filter(c => c.expiration === expiry && c.strike >= spotPrice * 0.90)  // Show from 10% below spot
-        .sort((a, b) => a.strike - b.strike)
-        .slice(0, 30);  // Limit to 30 strikes
+        .filter(c => c.expiration === expiry && c.strike >= minStrike && c.strike <= maxStrike)
+        .sort((a, b) => a.strike - b.strike);
     
     const strikeSelect = document.getElementById('ccStrike');
     

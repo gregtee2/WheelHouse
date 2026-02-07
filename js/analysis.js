@@ -2776,6 +2776,8 @@ async function getAIInsight() {
             expertRecommendation: expertRec,
             model: selectedModel,  // Include selected model
             previousAnalysis: previousAnalysis,  // Include previous analysis for comparison
+            openingThesis: state.currentPositionContext?.openingThesis || null,  // Entry thesis for context
+            analysisHistory: state.currentPositionContext?.analysisHistory || null,  // All prior AI checkups
             portfolioContext: formatPortfolioContextForAI(),  // Include portfolio context from audit
             chainHistory: chainHistory.length > 1 ? chainHistory : null,  // Only include if rolled
             totalPremiumCollected: totalPremiumCollected,  // Net premium across all rolls

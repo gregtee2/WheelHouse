@@ -246,7 +246,7 @@ window.fetchCalendarData = fetchCalendarData;
  * @param {string} ticker - Stock ticker symbol (e.g., "AAPL")
  * @returns {object} - { calls: [], puts: [], expirations: [], timestamp: string }
  */
-export async function fetchOptionsChain(ticker) {
+export async function fetchOptionsChain(ticker, options = {}) {
     const tickerUpper = ticker.toUpperCase();
     
     // Try Schwab first if authenticated (real-time options!)
@@ -255,7 +255,7 @@ export async function fetchOptionsChain(ticker) {
             const status = await window.SchwabAPI.getStatus();
             if (status.hasRefreshToken) {
                 if (VERBOSE_PRICE_LOGS) console.log(`[OPTIONS] Trying Schwab real-time for ${tickerUpper}...`);
-                const schwabChain = await window.SchwabAPI.getOptionsChain(tickerUpper);
+                const schwabChain = await window.SchwabAPI.getOptionsChain(tickerUpper, options);
                 
                 if (schwabChain && (schwabChain.callExpDateMap || schwabChain.putExpDateMap)) {
                     // Parse Schwab format into our standard format

@@ -231,97 +231,49 @@ class WeeklySummaryService {
                     </div>
                 </div>
                 
-                <!-- Winners & Losers -->
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:25px;">
-                    ${summary.biggestLoser && summary.biggestLoser.pnl < 0 ? `
-                    <div style="background:rgba(255,82,82,0.1); border:1px solid rgba(255,82,82,0.3); border-radius:8px; padding:15px;">
-                        <div style="font-size:12px; color:#ff5252; text-transform:uppercase; margin-bottom:8px;">🔴 Biggest Loser</div>
-                        <div style="font-size:20px; font-weight:600; color:#fff;">${summary.biggestLoser.ticker}</div>
-                        <div style="font-size:12px; color:#888;">${summary.biggestLoser.type} $${summary.biggestLoser.strike}</div>
-                        <div style="font-size:18px; color:#ff5252; margin-top:8px;">-$${Math.abs(summary.biggestLoser.pnl).toLocaleString()}</div>
-                        <div style="font-size:11px; color:#888;">${summary.biggestLoser.pnlPercent}% of entry</div>
-                    </div>
-                    ` : '<div></div>'}
-                    
-                    ${summary.biggestWinner && summary.biggestWinner.pnl > 0 ? `
-                    <div style="background:rgba(0,255,136,0.1); border:1px solid rgba(0,255,136,0.3); border-radius:8px; padding:15px;">
-                        <div style="font-size:12px; color:#00ff88; text-transform:uppercase; margin-bottom:8px;">🟢 Biggest Winner</div>
-                        <div style="font-size:20px; font-weight:600; color:#fff;">${summary.biggestWinner.ticker}</div>
-                        <div style="font-size:12px; color:#888;">${summary.biggestWinner.type} $${summary.biggestWinner.strike}</div>
-                        <div style="font-size:18px; color:#00ff88; margin-top:8px;">+$${summary.biggestWinner.pnl.toLocaleString()}</div>
-                        <div style="font-size:11px; color:#888;">+${summary.biggestWinner.pnlPercent}% of entry</div>
-                    </div>
-                    ` : '<div></div>'}
-                </div>
-                
                 <!-- Closed This Week (if any) -->
                 ${(summary.closedThisWeek || []).length > 0 ? `
                 <div style="margin-bottom:20px;">
                     <h3 style="color:#00ff88; font-size:13px; text-transform:uppercase; margin-bottom:10px;">💰 Realized This Week (${summary.closedThisWeek.length} trades)</h3>
-                    <div style="background:rgba(0,255,136,0.05); border:1px solid rgba(0,255,136,0.2); border-radius:8px; overflow:hidden;">
-                        <table style="width:100%; border-collapse:collapse; font-size:12px;">
-                            <thead>
-                                <tr style="background:rgba(0,0,0,0.3);">
-                                    <th style="text-align:left; padding:10px; color:#888;">Ticker</th>
-                                    <th style="text-align:left; padding:10px; color:#888;">Type</th>
-                                    <th style="text-align:right; padding:10px; color:#888;">Strike</th>
-                                    <th style="text-align:right; padding:10px; color:#888;">Close Date</th>
-                                    <th style="text-align:right; padding:10px; color:#888;">Reason</th>
-                                    <th style="text-align:right; padding:10px; color:#888;">Realized P&L</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${summary.closedThisWeek.map(pos => `
-                                    <tr style="border-top:1px solid #222;">
-                                        <td style="padding:10px; color:#fff; font-weight:600;">${pos.ticker}</td>
-                                        <td style="padding:10px; color:#888;">${this.formatType(pos.type)}</td>
-                                        <td style="padding:10px; text-align:right; color:#888;">$${pos.strike}</td>
-                                        <td style="padding:10px; text-align:right; color:#888;">${pos.closeDate || '—'}</td>
-                                        <td style="padding:10px; text-align:right; color:#888;">${pos.closeReason || 'closed'}</td>
-                                        <td style="padding:10px; text-align:right; font-weight:600; color:${pos.realizedPnL >= 0 ? '#00ff88' : '#ff5252'};">
-                                            ${pos.realizedPnL >= 0 ? '+' : ''}$${(pos.realizedPnL || 0).toLocaleString()}
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
+                    <div style="display:grid; gap:8px;">
+                        ${summary.closedThisWeek.map(pos => `
+                            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,255,136,0.05); border-radius:6px; padding:10px 15px; border-left:3px solid ${(pos.realizedPnL || 0) >= 0 ? '#00ff88' : '#ff5252'};">
+                                <div>
+                                    <span style="font-weight:600; color:#fff;">${pos.ticker}</span>
+                                    <span style="color:#888; font-size:12px; margin-left:8px;">$${pos.strike} ${this.formatType(pos.type)}</span>
+                                    <span style="color:#666; font-size:11px; margin-left:8px;">${pos.closeReason || 'closed'}</span>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="font-weight:600; color:${(pos.realizedPnL || 0) >= 0 ? '#00ff88' : '#ff5252'};">
+                                        ${(pos.realizedPnL || 0) >= 0 ? '+' : ''}$${(pos.realizedPnL || 0).toLocaleString()}
+                                    </div>
+                                    <div style="font-size:11px; color:#888;">${pos.closeDate || ''}</div>
+                                </div>
+                            </div>
+                        `).join('')}
                     </div>
                 </div>
                 ` : ''}
                 
-                <!-- Position Breakdown (Open) -->
+                <!-- Open Positions (compact cards) -->
                 <div style="margin-bottom:20px;">
-                    <h3 style="color:#888; font-size:13px; text-transform:uppercase; margin-bottom:10px;">📋 Open Positions (sorted by P&L)</h3>
-                    <div style="background:rgba(0,0,0,0.2); border-radius:8px; overflow:hidden;">
-                        <table style="width:100%; border-collapse:collapse; font-size:12px;">
-                            <thead>
-                                <tr style="background:rgba(0,0,0,0.3);">
-                                    <th style="text-align:left; padding:10px; color:#888;">Ticker</th>
-                                    <th style="text-align:left; padding:10px; color:#888;">Type</th>
-                                    <th style="text-align:right; padding:10px; color:#888;">Strike</th>
-                                    <th style="text-align:right; padding:10px; color:#888;">DTE</th>
-                                    <th style="text-align:right; padding:10px; color:#888;">Entry</th>
-                                    <th style="text-align:right; padding:10px; color:#888;">Current</th>
-                                    <th style="text-align:right; padding:10px; color:#888;">P&L</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${sorted.map(pos => `
-                                    <tr style="border-top:1px solid #222;">
-                                        <td style="padding:10px; color:#fff; font-weight:600;">${pos.ticker}</td>
-                                        <td style="padding:10px; color:#888;">${this.formatType(pos.type)}</td>
-                                        <td style="padding:10px; text-align:right; color:#888;">$${pos.strike}</td>
-                                        <td style="padding:10px; text-align:right; color:${pos.dte <= 7 ? '#ff5252' : pos.dte <= 21 ? '#ffaa00' : '#888'};">${pos.dte || '—'}</td>
-                                        <td style="padding:10px; text-align:right; color:#888;">$${pos.entryValue?.toLocaleString()}</td>
-                                        <td style="padding:10px; text-align:right; color:#888;">$${pos.currentValue?.toLocaleString()}</td>
-                                        <td style="padding:10px; text-align:right; font-weight:600; color:${pos.unrealizedPnL >= 0 ? '#00ff88' : '#ff5252'};">
-                                            ${pos.unrealizedPnL >= 0 ? '+' : ''}$${pos.unrealizedPnL?.toLocaleString()}
-                                            <span style="font-weight:normal; color:#888;">(${pos.unrealizedPnL >= 0 ? '+' : ''}${pos.pnlPercent}%)</span>
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
+                    <h3 style="color:#888; font-size:13px; text-transform:uppercase; margin-bottom:10px;">📋 Open Positions (${sorted.length})</h3>
+                    <div style="display:grid; gap:8px;">
+                        ${sorted.map(pos => `
+                            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.2); border-radius:6px; padding:10px 15px; border-left:3px solid ${pos.unrealizedPnL >= 0 ? '#00ff88' : '#ff5252'};">
+                                <div>
+                                    <span style="font-weight:600; color:#fff;">${pos.ticker}</span>
+                                    <span style="color:#888; font-size:12px; margin-left:8px;">$${pos.strike} ${this.formatType(pos.type)}</span>
+                                    <span style="color:${pos.dte <= 7 ? '#ff5252' : pos.dte <= 21 ? '#ffaa00' : '#666'}; font-size:11px; margin-left:8px;">${pos.dte || '—'} DTE</span>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="font-weight:600; color:${pos.unrealizedPnL >= 0 ? '#00ff88' : '#ff5252'};">
+                                        ${pos.unrealizedPnL >= 0 ? '+' : ''}$${(pos.unrealizedPnL || 0).toLocaleString()}
+                                    </div>
+                                    <div style="font-size:11px; color:#888;">${pos.pnlPercent || 0}%</div>
+                                </div>
+                            </div>
+                        `).join('')}
                     </div>
                 </div>
                 

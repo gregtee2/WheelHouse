@@ -31,6 +31,7 @@ const aiRoutes = require('./src/routes/aiRoutes');
 const scannerRoutes = require('./src/routes/scannerRoutes');
 const streamingRoutes = require('./src/routes/streamingRoutes');
 const summaryRoutes = require('./src/routes/summaryRoutes');
+const coachingRoutes = require('./src/routes/coachingRoutes');
 
 // ============================================================================
 // UTILITY MODULES (extracted for modularity)
@@ -48,6 +49,7 @@ const WisdomService = require('./src/services/WisdomService');
 const promptBuilders = require('./src/services/promptBuilders');
 const DataService = require('./src/services/DataService');
 const TechnicalService = require('./src/services/TechnicalService');
+const CoachingService = require('./src/services/CoachingService');
 
 // Destructure AI functions for backward compatibility (used throughout server.js)
 const { callAI, callGrok, callOllama, callMoE } = AIService;
@@ -152,6 +154,7 @@ aiRoutes.init({
     promptBuilders,
     MarketDataService,
     TechnicalService,
+    CoachingService,
     formatExpiryForCBOE,
     detectGPU,
     fetchJsonHttp,
@@ -166,6 +169,10 @@ app.use('/api/scanner', scannerRoutes);
 // Initialize and mount Summary routes (weekly summaries)
 summaryRoutes.init({ AIService, promptBuilders });
 app.use('/api/summary', summaryRoutes);
+
+// Initialize and mount Coaching routes (trading coach)
+coachingRoutes.init({ CoachingService });
+app.use('/api/coaching', coachingRoutes);
 
 
 // Main request handler (converted to Express middleware)

@@ -75,7 +75,7 @@ export function formatWholeDollar(amount) {
  */
 export function formatCredit(amount) {
     if (amount === null || amount === undefined || isNaN(amount)) return '—';
-    return `$${Math.abs(amount).toFixed(0)}`;
+    return `$${Math.abs(amount).toFixed(2)}`;
 }
 
 /**

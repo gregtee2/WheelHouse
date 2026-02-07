@@ -177,9 +177,9 @@ async function fetchSpreadLegPrices(posId) {
             
             const shortValue = shortLegPrice * 100 * contracts;
             if (shortValueEl) {
-                shortValueEl.textContent = `-$${shortValue.toFixed(0)}`;
+                shortValueEl.textContent = `-$${shortValue.toFixed(2)}`;
                 shortValueEl.style.color = '#ff5252';
-                shortValueEl.title = `Cost to buy back: $${shortValue.toFixed(0)}`;
+                shortValueEl.title = `Cost to buy back: $${shortValue.toFixed(2)}`;
             }
         }
         
@@ -190,9 +190,9 @@ async function fetchSpreadLegPrices(posId) {
             
             const longValue = longLegPrice * 100 * contracts;
             if (longValueEl) {
-                longValueEl.textContent = `+$${longValue.toFixed(0)}`;
+                longValueEl.textContent = `+$${longValue.toFixed(2)}`;
                 longValueEl.style.color = '#00ff88';
-                longValueEl.title = `Value if sold: $${longValue.toFixed(0)}`;
+                longValueEl.title = `Value if sold: $${longValue.toFixed(2)}`;
             }
         }
         
@@ -205,9 +205,9 @@ async function fetchSpreadLegPrices(posId) {
             const longValue = longLegPrice * 100 * contracts;
             
             if (netCloseEl) {
-                netCloseEl.textContent = `+$${longValue.toFixed(0)}`;
+                netCloseEl.textContent = `+$${longValue.toFixed(2)}`;
                 netCloseEl.style.color = '#00ff88';
-                netCloseEl.title = `Sell long leg to close: +$${longValue.toFixed(0)}`;
+                netCloseEl.title = `Sell long leg to close: +$${longValue.toFixed(2)}`;
             }
             
             // Total P&L = closed leg realized P&L + remaining leg unrealized value
@@ -218,15 +218,15 @@ async function fetchSpreadLegPrices(posId) {
             if (spreadPnlEl) {
                 const pnlColor = totalPnL >= 0 ? '#00ff88' : '#ff5252';
                 const pnlSign = totalPnL >= 0 ? '+' : '';
-                spreadPnlEl.textContent = `${pnlSign}$${totalPnL.toFixed(0)}`;
+                spreadPnlEl.textContent = `${pnlSign}$${totalPnL.toFixed(2)}`;
                 spreadPnlEl.style.color = pnlColor;
-                spreadPnlEl.title = `Closed leg: ${closedLegPnL >= 0 ? '+' : ''}$${closedLegPnL.toFixed(0)} + Open leg est: ${longUnrealizedPnL >= 0 ? '+' : ''}$${longUnrealizedPnL.toFixed(0)}`;
+                spreadPnlEl.title = `Closed leg: ${closedLegPnL >= 0 ? '+' : ''}$${closedLegPnL.toFixed(2)} + Open leg est: ${longUnrealizedPnL >= 0 ? '+' : ''}$${longUnrealizedPnL.toFixed(2)}`;
             }
             
             // Update long leg P&L
             if (longPnlEl) {
                 const longPnlColor = longUnrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
-                longPnlEl.textContent = longUnrealizedPnL >= 0 ? `+$${longUnrealizedPnL.toFixed(0)}` : `-$${Math.abs(longUnrealizedPnL).toFixed(0)}`;
+                longPnlEl.textContent = longUnrealizedPnL >= 0 ? `+$${longUnrealizedPnL.toFixed(2)}` : `-$${Math.abs(longUnrealizedPnL).toFixed(2)}`;
                 longPnlEl.style.color = longPnlColor;
                 longPnlEl.title = `Unrealized P&L on remaining leg`;
             }
@@ -236,9 +236,9 @@ async function fetchSpreadLegPrices(posId) {
             const shortValue = shortLegPrice * 100 * contracts;
             
             if (netCloseEl) {
-                netCloseEl.textContent = `-$${shortValue.toFixed(0)}`;
+                netCloseEl.textContent = `-$${shortValue.toFixed(2)}`;
                 netCloseEl.style.color = '#ff5252';
-                netCloseEl.title = `Buy back short leg: -$${shortValue.toFixed(0)}`;
+                netCloseEl.title = `Buy back short leg: -$${shortValue.toFixed(2)}`;
             }
             
             // Total P&L = closed leg realized P&L + remaining leg unrealized value
@@ -249,15 +249,15 @@ async function fetchSpreadLegPrices(posId) {
             if (spreadPnlEl) {
                 const pnlColor = totalPnL >= 0 ? '#00ff88' : '#ff5252';
                 const pnlSign = totalPnL >= 0 ? '+' : '';
-                spreadPnlEl.textContent = `${pnlSign}$${totalPnL.toFixed(0)}`;
+                spreadPnlEl.textContent = `${pnlSign}$${totalPnL.toFixed(2)}`;
                 spreadPnlEl.style.color = pnlColor;
-                spreadPnlEl.title = `Closed leg: ${closedLegPnL >= 0 ? '+' : ''}$${closedLegPnL.toFixed(0)} + Open leg est: ${shortUnrealizedPnL >= 0 ? '+' : ''}$${shortUnrealizedPnL.toFixed(0)}`;
+                spreadPnlEl.title = `Closed leg: ${closedLegPnL >= 0 ? '+' : ''}$${closedLegPnL.toFixed(2)} + Open leg est: ${shortUnrealizedPnL >= 0 ? '+' : ''}$${shortUnrealizedPnL.toFixed(2)}`;
             }
             
             // Update short leg P&L
             if (shortPnlEl) {
                 const shortPnlColor = shortUnrealizedPnL >= 0 ? '#00ff88' : '#ff5252';
-                shortPnlEl.textContent = shortUnrealizedPnL >= 0 ? `+$${shortUnrealizedPnL.toFixed(0)}` : `-$${Math.abs(shortUnrealizedPnL).toFixed(0)}`;
+                shortPnlEl.textContent = shortUnrealizedPnL >= 0 ? `+$${shortUnrealizedPnL.toFixed(2)}` : `-$${Math.abs(shortUnrealizedPnL).toFixed(2)}`;
                 shortPnlEl.style.color = shortPnlColor;
                 shortPnlEl.title = `Unrealized P&L on remaining leg`;
             }
@@ -278,19 +278,19 @@ async function fetchSpreadLegPrices(posId) {
             
             if (netCloseEl) {
                 const netCloseSign = netToClose >= 0 ? '-' : '+';
-                netCloseEl.textContent = `${netCloseSign}$${Math.abs(netToClose).toFixed(0)}`;
+                netCloseEl.textContent = `${netCloseSign}$${Math.abs(netToClose).toFixed(2)}`;
                 netCloseEl.style.color = netToClose >= 0 ? '#ff5252' : '#00ff88';
                 netCloseEl.title = netToClose >= 0 
-                    ? `Net debit to close: $${netToClose.toFixed(0)}`
-                    : `Net credit to close: $${Math.abs(netToClose).toFixed(0)}`;
+                    ? `Net debit to close: $${netToClose.toFixed(2)}`
+                    : `Net credit to close: $${Math.abs(netToClose).toFixed(2)}`;
             }
             
             if (spreadPnlEl) {
                 const pnlColor = spreadPnL >= 0 ? '#00ff88' : '#ff5252';
                 const pnlSign = spreadPnL >= 0 ? '+' : '';
-                spreadPnlEl.textContent = `${pnlSign}$${spreadPnL.toFixed(0)}`;
+                spreadPnlEl.textContent = `${pnlSign}$${spreadPnL.toFixed(2)}`;
                 spreadPnlEl.style.color = pnlColor;
-                spreadPnlEl.title = `Total spread P&L: ${pnlSign}$${spreadPnL.toFixed(0)}`;
+                spreadPnlEl.title = `Total spread P&L: ${pnlSign}$${spreadPnL.toFixed(2)}`;
             }
             
             // Estimate individual leg P&L (rough estimate - assumes 50/50 split of net premium)
@@ -300,7 +300,7 @@ async function fetchSpreadLegPrices(posId) {
                 const estShortEntry = pos.premium * 0.7;
                 const shortPnL = (estShortEntry - shortLegPrice) * 100 * contracts;
                 const shortPnlColor = shortPnL >= 0 ? '#00ff88' : '#ff5252';
-                shortPnlEl.textContent = shortPnL >= 0 ? `+$${shortPnL.toFixed(0)}` : `-$${Math.abs(shortPnL).toFixed(0)}`;
+                shortPnlEl.textContent = shortPnL >= 0 ? `+$${shortPnL.toFixed(2)}` : `-$${Math.abs(shortPnL).toFixed(2)}`;
                 shortPnlEl.style.color = shortPnlColor;
                 shortPnlEl.title = `Est. leg P&L (assumes ~70% of premium)`;
             }
@@ -311,7 +311,7 @@ async function fetchSpreadLegPrices(posId) {
                 const estLongEntry = pos.premium * 0.3; // Rough estimate
                 const longPnL = (longLegPrice - estLongEntry) * 100 * contracts;
                 const longPnlColor = longPnL >= 0 ? '#00ff88' : '#ff5252';
-                longPnlEl.textContent = longPnL >= 0 ? `+$${longPnL.toFixed(0)}` : `-$${Math.abs(longPnL).toFixed(0)}`;
+                longPnlEl.textContent = longPnL >= 0 ? `+$${longPnL.toFixed(2)}` : `-$${Math.abs(longPnL).toFixed(2)}`;
                 longPnlEl.style.color = longPnlColor;
                 longPnlEl.title = `Est. leg P&L (assumes ~30% of premium)`;
             }
@@ -1250,6 +1250,11 @@ window.getCritique = async function(chainId) {
         // Get selected model (global with local override)
         const selectedModel = window.getSelectedAIModel?.('aiModelSelect') || 'qwen2.5:14b';
         
+        // Find thesis and analysis history from the chain
+        const firstPosition = chainPositions[0];
+        const openingThesis = firstPosition?.openingThesis || null;
+        const analysisHistory = firstPosition?.analysisHistory || [];
+        
         // Call the critique API
         const response = await fetch('/api/ai/critique', {
             method: 'POST',
@@ -1260,6 +1265,8 @@ window.getCritique = async function(chainId) {
                 totalPremium,
                 totalDays,
                 finalOutcome,
+                openingThesis,
+                analysisHistory,
                 model: selectedModel
             })
         });
@@ -3664,7 +3671,7 @@ export function renderPositions() {
         const totalPremium = openPositions.reduce((sum, p) => sum + ((p.premium || 0) * 100 * (p.contracts || 1)), 0);
         summaryEl.innerHTML = `
             <span>${openPositions.length} position${openPositions.length !== 1 ? 's' : ''}</span>
-            <span class="value positive">$${totalPremium.toFixed(0)} premium</span>
+            <span class="value positive">$${totalPremium.toFixed(2)} premium</span>
         `;
     }
     
@@ -4184,7 +4191,7 @@ function renderPositionsTable(container, openPositions) {
                         return `<td data-col="pl-day" style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">—</span></td>`;
                     }
                     return `<td data-col="pl-day" style="padding: 6px; text-align: right; font-size: 11px;" title="Option day change: ${dayChange >= 0 ? '+' : ''}$${dayChange.toFixed(2)}/share">
-                        <span style="color:${pnlDayColor}">${pnlDay >= 0 ? '+' : ''}$${pnlDay.toFixed(0)}</span>
+                        <span style="color:${pnlDayColor}">${pnlDay >= 0 ? '+' : ''}$${pnlDay.toFixed(2)}</span>
                     </td>`;
                 })()}
                 ${(() => {
@@ -4229,10 +4236,10 @@ function renderPositionsTable(container, openPositions) {
                         ${isSpread ? '<span style="margin-left:2px;font-size:9px;opacity:0.6;">ⓘ</span>' : ''}
                     </td>`;
                 })()}
-                <td style="padding: 6px; text-align: right; color: ${isLongPosition ? '#ffaa00' : '#00ff88'};" title="${isLongPosition ? `Paid: $${credit.toFixed(0)}` : (isChainCredit ? `Chain NET: $${displayCredit.toFixed(0)}` : `Premium: $${credit.toFixed(0)}`)}">
+                <td style="padding: 6px; text-align: right; color: ${isLongPosition ? '#ffaa00' : '#00ff88'};" title="${isLongPosition ? `Paid: $${credit.toFixed(2)}` : (isChainCredit ? `Chain NET: $${displayCredit.toFixed(2)}` : `Premium: $${credit.toFixed(2)}`)}">
                     ${isLongPosition 
-                        ? `<span style="color:#ffaa00">-$${credit.toFixed(0)}</span>`
-                        : (isSkip ? '-' : '') + '$' + (isSkip ? pos.totalInvestment?.toFixed(0) : displayCredit.toFixed(0)) + (isChainCredit ? '<span style="margin-left:2px;font-size:9px;color:#00d9ff;" title="Chain NET credit (includes roll history)">🔗</span>' : '')
+                        ? `<span style="color:#ffaa00">-$${credit.toFixed(2)}</span>`
+                        : (isSkip ? '-' : '') + '$' + (isSkip ? pos.totalInvestment?.toFixed(2) : displayCredit.toFixed(2)) + (isChainCredit ? '<span style="margin-left:2px;font-size:9px;color:#00d9ff;" title="Chain NET credit (includes roll history)">🔗</span>' : '')
                     }
                 </td>
                 <td style="padding: 6px; text-align: right; color: ${annualRocColor}; font-weight: bold;" title="${isLongPosition ? (currentOptionPrice !== null ? `Return: ${longReturnPct.toFixed(1)}% | Annualized: ${longAnnualReturn.toFixed(0)}%` : 'Mark current price to calculate') : `Annual ROC: ${annualRoc.toFixed(0)}%`}">
@@ -4407,7 +4414,7 @@ function renderPositionsTable(container, openPositions) {
                     ${longLegClosed ? '<span style="color:#666;">—</span>' : '⏳'}
                 </td>
                 <td id="leg-long-pnl-${pos.id}" style="padding: 4px 6px; text-align: right; font-size: 10px; color: ${longLegClosed ? (pos.closedLegPnL >= 0 ? '#00ff88' : '#ff5252') : '#888'};" title="${longLegClosed ? 'Realized P&L' : 'Leg P&L estimate'}">
-                    ${longLegClosed ? (pos.closedLegPnL >= 0 ? `+$${pos.closedLegPnL?.toFixed(0)}` : `-$${Math.abs(pos.closedLegPnL)?.toFixed(0)}`) : '⏳'}
+                    ${longLegClosed ? (pos.closedLegPnL >= 0 ? `+$${pos.closedLegPnL?.toFixed(2)}` : `-$${Math.abs(pos.closedLegPnL)?.toFixed(2)}`) : '⏳'}
                 </td>
                 <td></td>
                 <td style="padding: 4px 6px; text-align: left; font-size: 10px;">
@@ -4430,7 +4437,7 @@ function renderPositionsTable(container, openPositions) {
             <tr class="spread-leg-row" data-parent-id="${pos.id}" style="background: rgba(139,92,246,0.05); border-left: 4px solid #8b5cf6;">
                 <td></td>
                 <td colspan="5" style="padding: 4px 6px; font-size: 10px; color: #8b5cf6; font-style: italic;">
-                    <span style="color:#8b5cf6;">└─</span> ${legNote} × ${pos.contracts} contracts = $${(netPremium * 100 * pos.contracts).toFixed(0)} ${isCreditSpread ? 'received' : 'paid'}
+                    <span style="color:#8b5cf6;">└─</span> ${legNote} × ${pos.contracts} contracts = $${(netPremium * 100 * pos.contracts).toFixed(2)} ${isCreditSpread ? 'received' : 'paid'}
                     ${partialCloseNote}
                 </td>
                 <td colspan="6"></td>
@@ -6676,6 +6683,7 @@ async function loadReconcileAccounts() {
 
 /**
  * Run the reconciliation - fetch Schwab transactions and compare
+ * Groups multiple fills before comparing to avoid false discrepancies
  */
 window.runReconciliation = async function() {
     const resultsDiv = document.getElementById('reconcileResults');
@@ -6701,7 +6709,6 @@ window.runReconciliation = async function() {
             throw new Error('Please select an account to reconcile.');
         }
         
-        // Log which account we're using
         console.log('[Reconcile] Using account:', accountNumber, 'hash:', accountHash);
         
         const response = await fetch(`/api/schwab/accounts/${accountHash}/transactions?types=TRADE&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`);
@@ -6713,51 +6720,69 @@ window.runReconciliation = async function() {
         
         const transactions = await response.json();
         console.log('[Reconcile] Raw transactions count:', transactions?.length || 0);
-        console.log('[Reconcile] Raw transactions:', transactions);
-        
-        // Debug: log what asset types we're seeing
-        const assetTypes = (transactions || []).map(t => {
-            const inst = t.transactionItem?.instrument;
-            return inst?.assetType || t.type || 'NO_ASSET_TYPE';
-        });
-        console.log('[Reconcile] Asset types found:', [...new Set(assetTypes)]);
-        
-        // Also log first transaction structure for debugging
-        if (transactions?.length > 0) {
-            console.log('[Reconcile] First transaction structure:', JSON.stringify(transactions[0], null, 2));
-        }
         
         // Filter to option trades only
-        // Schwab API stores option data in transferItems array, not transactionItem
         const optionTrades = (transactions || []).map(t => {
-            // Find the OPTION item in transferItems
             const optionItem = (t.transferItems || []).find(item => 
                 item.instrument?.assetType === 'OPTION'
             );
             if (!optionItem) return null;
-            
-            // Return transaction with extracted option data for easy access
-            return {
-                ...t,
-                _optionItem: optionItem,
-                _inst: optionItem.instrument
-            };
+            return { ...t, _optionItem: optionItem, _inst: optionItem.instrument };
         }).filter(t => t !== null);
         
         console.log('[Reconcile] Option trades after filter:', optionTrades.length);
-        if (optionTrades.length > 0) {
-            console.log('[Reconcile] First option trade instrument:', optionTrades[0]._inst);
-        }
         
-        // Group transactions by underlying symbol
-        const bySymbol = {};
+        // =====================================================
+        // KEY FIX: Group Schwab transactions by position before comparing
+        // Multiple fills for the same trade should be aggregated
+        // =====================================================
+        const groupKey = (t) => {
+            const inst = t._inst;
+            const underlying = inst?.underlyingSymbol || 'UNKNOWN';
+            const strike = parseFloat(inst?.strikePrice || 0);
+            const putCall = inst?.putCall || '';
+            const expiry = inst?.expirationDate?.split('T')[0] || '';
+            const effect = t._optionItem?.positionEffect || 'UNKNOWN';
+            return `${underlying}|${strike}|${putCall}|${expiry}|${effect}`;
+        };
+        
+        const grouped = {};
         optionTrades.forEach(t => {
-            const underlying = t._inst?.underlyingSymbol || 'UNKNOWN';
-            if (!bySymbol[underlying]) bySymbol[underlying] = [];
-            bySymbol[underlying].push(t);
+            const key = groupKey(t);
+            if (!grouped[key]) {
+                grouped[key] = {
+                    ticker: t._inst?.underlyingSymbol || 'UNKNOWN',
+                    strike: parseFloat(t._inst?.strikePrice || 0),
+                    type: t._inst?.putCall || '',
+                    expiry: t._inst?.expirationDate?.split('T')[0] || '',
+                    positionEffect: t._optionItem?.positionEffect || 'UNKNOWN',
+                    totalPremium: 0,
+                    totalContracts: 0,
+                    fills: [],
+                    tradeDates: []
+                };
+            }
+            const g = grouped[key];
+            const qty = Math.abs(t._optionItem?.amount || 0);
+            const price = Math.abs(t._optionItem?.price || 0);
+            const fillPremium = price * qty * 100;
+            g.totalPremium += fillPremium;
+            g.totalContracts += qty;
+            g.fills.push({
+                date: t.tradeDate?.split('T')[0],
+                qty,
+                price,
+                premium: fillPremium,
+                description: t.description || '',
+                netAmount: t.netAmount || 0
+            });
+            if (t.tradeDate) g.tradeDates.push(t.tradeDate.split('T')[0]);
         });
         
-        // Get WheelHouse positions and closed positions for comparison
+        const groupedTrades = Object.values(grouped);
+        console.log('[Reconcile] Grouped into', groupedTrades.length, 'unique positions');
+        
+        // Get WheelHouse positions for comparison
         const whPositions = [...(state.positions || []), ...(state.closedPositions || [])];
         
         // Build comparison results
@@ -6768,139 +6793,111 @@ window.runReconciliation = async function() {
             discrepancies: []
         };
         
-        // Check each Schwab transaction
-        optionTrades.forEach(t => {
-            const inst = t._inst;
-            const underlying = inst?.underlyingSymbol;
-            const strike = parseFloat(inst?.strikePrice || 0);
-            const putCall = inst?.putCall; // PUT or CALL
-            const expiry = inst?.expirationDate?.split('T')[0]; // YYYY-MM-DD
-            const qty = Math.abs(t._optionItem?.amount || 0);
-            const price = Math.abs(t._optionItem?.price || 0);
-            const positionEffect = t._optionItem?.positionEffect || 'UNKNOWN'; // OPENING or CLOSING
-            const tradeDate = t.tradeDate?.split('T')[0];
-            const description = t.description || '';
-            
-            // Calculate raw premium (price * contracts * 100) - excludes fees
-            const schwabPremium = price * qty * 100;
-            
+        // Check each grouped Schwab trade
+        groupedTrades.forEach(g => {
             // Try to find matching WheelHouse position
             const matchingPos = whPositions.find(p => {
-                const tickerMatch = p.ticker === underlying;
-                const strikeMatch = Math.abs((p.strike || 0) - strike) < 0.01;
-                const expiryMatch = p.expiry === expiry;
-                const typeMatch = putCall === 'PUT' ? 
+                const tickerMatch = p.ticker === g.ticker;
+                const strikeMatch = Math.abs((p.strike || 0) - g.strike) < 0.01;
+                const expiryMatch = p.expiry === g.expiry;
+                const typeMatch = g.type === 'PUT' ? 
                     (p.type?.includes('put') || p.type === 'short_put') :
                     (p.type?.includes('call') || p.type === 'covered_call' || p.type === 'buy_write');
                 return tickerMatch && strikeMatch && expiryMatch && typeMatch;
             });
             
             if (matchingPos) {
-                // For OPENING trades, compare to WH opening premium
-                // For CLOSING trades, compare to WH closePrice (if position is closed)
-                const isClosingTrade = positionEffect === 'CLOSING';
+                const isClosingTrade = g.positionEffect === 'CLOSING';
                 
                 let whValue, comparisonType;
                 if (isClosingTrade) {
-                    // Closing trade - compare to closePrice if position is closed
                     if (matchingPos.status === 'closed' && matchingPos.closePrice != null) {
                         whValue = matchingPos.closePrice * 100 * matchingPos.contracts;
                         comparisonType = 'close';
                     } else {
-                        // Position still open in WH but Schwab shows it closed - that's a matched close
                         results.matched.push({
-                            ticker: underlying,
-                            strike,
-                            expiry,
-                            type: putCall,
-                            positionEffect,
-                            schwabPremium,
-                            note: 'Closing trade - position may need to be closed in WH',
-                            position: matchingPos
+                            ...g,
+                            position: matchingPos,
+                            note: 'Closing trade matched'
                         });
-                        return; // Skip further processing
+                        return;
                     }
                 } else {
-                    // Opening trade - compare to WH opening premium
                     whValue = matchingPos.premium * 100 * matchingPos.contracts;
                     comparisonType = 'open';
                 }
                 
-                const premiumDiff = Math.abs(whValue - schwabPremium);
+                const premiumDiff = Math.abs(whValue - g.totalPremium);
                 
-                if (premiumDiff > 5) { // More than $5 difference (allows for rounding)
+                if (premiumDiff > 5) {
+                    // Determine likely cause
+                    let likelyCause = '';
+                    const contractMismatch = g.totalContracts !== matchingPos.contracts;
+                    const multipleFills = g.fills.length > 1;
+                    
+                    if (contractMismatch) {
+                        likelyCause = `Contract mismatch: Schwab shows ${g.totalContracts} contracts, WH has ${matchingPos.contracts}`;
+                    } else if (multipleFills) {
+                        const avgPrice = g.totalPremium / g.totalContracts / 100;
+                        const whPerContract = isClosingTrade ? matchingPos.closePrice : matchingPos.premium;
+                        likelyCause = `Multiple fills (${g.fills.length} orders) averaged $${avgPrice.toFixed(2)}/share. WH shows $${whPerContract?.toFixed(2)}/share`;
+                    } else {
+                        const schwabPerContract = g.totalPremium / g.totalContracts / 100;
+                        const whPerContract = isClosingTrade ? matchingPos.closePrice : matchingPos.premium;
+                        likelyCause = `Per-share price: Schwab $${schwabPerContract.toFixed(2)} vs WH $${whPerContract?.toFixed(2)}`;
+                    }
+                    
                     results.discrepancies.push({
-                        ticker: underlying,
-                        strike,
-                        expiry,
-                        type: putCall,
-                        tradeDate,
-                        positionEffect,
-                        comparisonType, // 'open' or 'close'
-                        schwabPremium,
+                        ...g,
+                        comparisonType,
+                        schwabPremium: g.totalPremium,
                         whPremium: whValue,
-                        diff: schwabPremium - whValue,
+                        diff: g.totalPremium - whValue,
                         position: matchingPos,
-                        transaction: t
+                        likelyCause,
+                        contractMismatch,
+                        multipleFills,
+                        // For the "fix" button
+                        correctPerShare: g.totalPremium / g.totalContracts / 100
                     });
                 } else {
                     results.matched.push({
-                        ticker: underlying,
-                        strike,
-                        expiry,
-                        type: putCall,
-                        positionEffect,
-                        schwabPremium,
+                        ...g,
+                        schwabPremium: g.totalPremium,
+                        whPremium: whValue,
                         position: matchingPos
                     });
                 }
             } else {
-                // Schwab has it, WheelHouse doesn't
-                results.schwabOnly.push({
-                    ticker: underlying,
-                    strike,
-                    expiry,
-                    type: putCall,
-                    tradeDate,
-                    positionEffect,
-                    schwabPremium,
-                    qty,
-                    price,
-                    description,
-                    transaction: t
-                });
+                results.schwabOnly.push(g);
             }
         });
         
         // Check for WheelHouse positions not in Schwab (within date range)
-        // Exclude positions that already matched or had discrepancies
         const matchedPositionIds = new Set([
             ...results.matched.map(m => m.position?.id),
             ...results.discrepancies.map(d => d.position?.id)
         ]);
         
         whPositions.forEach(p => {
-            // Skip if already matched or had discrepancy
             if (matchedPositionIds.has(p.id)) return;
-            
             const openDate = new Date(p.openDate);
             if (openDate >= startDate && openDate <= endDate) {
-                const inSchwab = optionTrades.some(t => {
-                    const inst = t._inst;
-                    return inst?.underlyingSymbol === p.ticker &&
-                           Math.abs((inst?.strikePrice || 0) - (p.strike || 0)) < 0.01 &&
-                           inst?.expirationDate?.split('T')[0] === p.expiry;
-                });
+                const inSchwab = groupedTrades.some(g =>
+                    g.ticker === p.ticker &&
+                    Math.abs(g.strike - (p.strike || 0)) < 0.01 &&
+                    g.expiry === p.expiry
+                );
                 if (!inSchwab && p.broker !== 'manual') {
                     results.wheelHouseOnly.push(p);
                 }
             }
         });
         
-        // Render results with account info
         renderReconcileResults(results, optionTrades.length, days, {
             accountNumber: accountNumber,
-            rawTransactionCount: transactions?.length || 0
+            rawTransactionCount: transactions?.length || 0,
+            groupedCount: groupedTrades.length
         });
         
     } catch (e) {
@@ -6918,7 +6915,57 @@ window.runReconciliation = async function() {
 };
 
 /**
- * Render reconciliation results
+ * Fix a discrepancy by updating the WH position to match Schwab
+ * @param {number} positionId
+ * @param {object} updates - e.g. { premium: 0.95, contracts: 6 }
+ */
+window.fixReconcileDiscrepancy = function(positionId, updates) {
+    // Check BOTH arrays and remember which one it's in
+    const inOpen = state.positions.find(p => p.id === positionId);
+    const inClosed = !inOpen ? state.closedPositions.find(p => p.id === positionId) : null;
+    const pos = inOpen || inClosed;
+    
+    if (!pos) {
+        showNotification('Position not found', 'error');
+        console.error('[Reconcile Fix] Position ID not found:', positionId, typeof positionId);
+        return;
+    }
+    
+    const changes = [];
+    for (const [field, newValue] of Object.entries(updates)) {
+        const oldValue = pos[field];
+        if (oldValue !== newValue) {
+            pos[field] = newValue;
+            const oldStr = typeof oldValue === 'number' ? oldValue.toFixed(2) : String(oldValue);
+            const newStr = typeof newValue === 'number' ? newValue.toFixed(2) : String(newValue);
+            changes.push(`${field}: ${oldStr} → ${newStr}`);
+        }
+    }
+    
+    if (changes.length === 0) {
+        showNotification(`${pos.ticker} already matches — no changes needed`, 'info');
+        return;
+    }
+    
+    // Save to the CORRECT storage based on where the position lives
+    if (inOpen) {
+        savePositionsToStorage();
+    } else {
+        saveClosedToStorage();
+    }
+    
+    // Also re-render the positions table so it reflects the change
+    renderPositions();
+    
+    console.log(`[Reconcile Fix] Updated ${pos.ticker}:`, changes, '| Saved to:', inOpen ? 'positions' : 'closedPositions');
+    showNotification(`Updated ${pos.ticker}: ${changes.join(', ')}`, 'success');
+    
+    // Re-run reconciliation to refresh
+    window.runReconciliation();
+};
+
+/**
+ * Render reconciliation results with explanations and fix buttons
  */
 function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
     const resultsDiv = document.getElementById('reconcileResults');
@@ -6961,38 +7008,105 @@ function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
         `;
     }
     
-    // Show discrepancies
+    // Show discrepancies - now with explanations and fix buttons
     if (discrepCount > 0) {
-        html += `<h3 style="color:#ff5252; margin:20px 0 10px;">⚠️ Premium Discrepancies</h3>`;
-        html += `<div style="font-size:11px; color:#888; margin-bottom:10px;">These trades matched by ticker/strike/expiry but the value differs by more than $5. Comparing: OPEN trades → WH opening premium, CLOSE trades → WH close price.</div>`;
-        html += `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12px;">
-            <tr style="background:#1a1a2e;">
-                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Ticker</th>
-                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Strike</th>
-                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Expiry</th>
-                <th style="padding:8px; text-align:left; border-bottom:1px solid #333;">Action</th>
-                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Schwab</th>
-                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">WH (${`open/close`})</th>
-                <th style="padding:8px; text-align:right; border-bottom:1px solid #333;">Diff</th>
-            </tr>`;
-        results.discrepancies.forEach(d => {
+        html += `<h3 style="color:#ff5252; margin:20px 0 5px;">⚠️ Premium Discrepancies</h3>`;
+        html += `<div style="font-size:11px; color:#888; margin-bottom:15px;">
+            The total premium recorded in WheelHouse doesn't match what Schwab shows. This usually happens when a trade was filled across multiple orders at different prices, or when the premium was entered manually.
+        </div>`;
+        
+        results.discrepancies.forEach((d, i) => {
             const diffColor = d.diff > 0 ? '#00ff88' : '#ff5252';
-            const actionLabel = d.positionEffect === 'OPENING' ? '🟢 OPEN' : 
-                                d.positionEffect === 'CLOSING' ? '🔴 CLOSE' : '⚪ ???';
-            const whLabel = d.comparisonType === 'close' ? 'close' : 'open';
+            const diffSign = d.diff > 0 ? '+' : '';
+            const actionLabel = d.positionEffect === 'OPENING' ? '🟢 OPENED' : '🔴 CLOSED';
+            const whLabel = d.comparisonType === 'close' ? 'Close Price' : 'Opening Premium';
+            const field = d.comparisonType === 'close' ? 'closePrice' : 'premium';
+            const posId = d.position?.id;
+            const schwabPerShare = d.correctPerShare;
+            const whPerShare = d.comparisonType === 'close' ? d.position?.closePrice : d.position?.premium;
+            const contracts = d.position?.contracts || d.totalContracts;
+            
             html += `
-                <tr style="border-bottom:1px solid #222;">
-                    <td style="padding:8px; color:#00d9ff; font-weight:bold;">${d.ticker}</td>
-                    <td style="padding:8px;">$${d.strike}</td>
-                    <td style="padding:8px;">${d.expiry}</td>
-                    <td style="padding:8px; font-size:10px;">${actionLabel}</td>
-                    <td style="padding:8px; text-align:right;">$${d.schwabPremium.toFixed(2)}</td>
-                    <td style="padding:8px; text-align:right;">$${d.whPremium.toFixed(2)} <span style="font-size:9px;color:#888;">(${whLabel})</span></td>
-                    <td style="padding:8px; text-align:right; color:${diffColor};">${d.diff > 0 ? '+' : ''}$${d.diff.toFixed(2)}</td>
-                </tr>
-            `;
+            <div style="background:#1a1a2e; border:1px solid #333; border-radius:8px; margin-bottom:12px; overflow:hidden;">
+                <!-- Header -->
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 15px; border-bottom:1px solid #222;">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <span style="font-size:16px; font-weight:bold; color:#00d9ff;">${d.ticker}</span>
+                        <span style="color:#888; font-size:12px;">$${d.strike} ${d.type} · ${d.expiry}</span>
+                        <span style="font-size:10px; padding:2px 6px; background:${d.positionEffect === 'OPENING' ? 'rgba(0,255,136,0.15)' : 'rgba(255,82,82,0.15)'}; border-radius:3px;">${actionLabel}</span>
+                    </div>
+                    <span style="font-size:14px; font-weight:bold; color:${diffColor};">${diffSign}$${d.diff.toFixed(2)}</span>
+                </div>
+                
+                <!-- Comparison -->
+                <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:10px; padding:12px 15px; align-items:center;">
+                    <div style="text-align:center;">
+                        <div style="font-size:9px; color:#888; margin-bottom:4px;">SCHWAB (${d.totalContracts} contract${d.totalContracts !== 1 ? 's' : ''})</div>
+                        <div style="font-size:18px; font-weight:bold; color:#00ff88;">$${d.schwabPremium.toFixed(2)}</div>
+                        <div style="font-size:10px; color:#666;">$${schwabPerShare.toFixed(2)}/share</div>
+                    </div>
+                    <div style="color:#555; font-size:16px;">vs</div>
+                    <div style="text-align:center;">
+                        <div style="font-size:9px; color:#888; margin-bottom:4px;">WHEELHOUSE (${whLabel})</div>
+                        <div style="font-size:18px; font-weight:bold; color:#ffaa00;">$${d.whPremium.toFixed(2)}</div>
+                        <div style="font-size:10px; color:#666;">$${whPerShare?.toFixed(2)}/share</div>
+                    </div>
+                </div>
+                
+                <!-- Likely cause -->
+                <div style="padding:8px 15px; background:rgba(255,170,0,0.08); border-top:1px solid #222;">
+                    <span style="font-size:10px; color:#ffaa00;">💡 Likely cause:</span>
+                    <span style="font-size:11px; color:#ccc;"> ${d.likelyCause}</span>
+                </div>`;
+            
+            // Show individual fills if there were multiple
+            if (d.multipleFills && d.fills.length > 1) {
+                html += `
+                <div style="padding:8px 15px; border-top:1px solid #222;">
+                    <div style="font-size:10px; color:#888; margin-bottom:6px;">📋 Individual fills from Schwab:</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:6px;">`;
+                d.fills.forEach(f => {
+                    html += `
+                        <div style="padding:4px 8px; background:#0d0d1a; border-radius:4px; font-size:10px; color:#ccc; border:1px solid #333;">
+                            ${f.date} · ${f.qty} ct × $${f.price.toFixed(2)} = <span style="color:#00d9ff;">$${f.premium.toFixed(2)}</span>
+                        </div>`;
+                });
+                html += `</div></div>`;
+            }
+            
+            // Fix button - build the updates object based on what's actually different
+            if (posId) {
+                const updates = {};
+                const descParts = [];
+                const priceDiff = Math.abs((whPerShare || 0) - schwabPerShare) > 0.005;
+                const ctDiff = d.contractMismatch;
+                
+                if (priceDiff) {
+                    updates[field] = schwabPerShare;
+                    descParts.push(`${whLabel.toLowerCase()} $${whPerShare?.toFixed(2)} → $${schwabPerShare.toFixed(2)}/share`);
+                }
+                if (ctDiff) {
+                    updates.contracts = d.totalContracts;
+                    descParts.push(`contracts ${d.position?.contracts} → ${d.totalContracts}`);
+                }
+                
+                const updatesJson = JSON.stringify(updates).replace(/"/g, '&quot;');
+                const descText = descParts.length > 0 ? descParts.join(' and ') : 'No fixable differences found';
+                
+                html += `
+                <div style="padding:10px 15px; border-top:1px solid #222; display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:10px; color:#666;">
+                        Update WH: ${descText}
+                    </span>
+                    <button onclick='window.fixReconcileDiscrepancy(${posId}, ${JSON.stringify(updates)})'
+                            style="padding:5px 12px; background:#00d9ff; border:none; border-radius:4px; color:#000; cursor:pointer; font-size:11px; font-weight:bold;">
+                        ✅ Fix to Match Schwab
+                    </button>
+                </div>`;
+            }
+            
+            html += `</div>`; // close card
         });
-        html += `</table></div>`;
     }
     
     // Show Schwab-only trades
@@ -7013,17 +7127,29 @@ function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
         results.schwabOnly.forEach(s => {
             const actionLabel = s.positionEffect === 'OPENING' ? '🟢 OPEN' : 
                                 s.positionEffect === 'CLOSING' ? '🔴 CLOSE' : '⚪ ???';
+            const dateStr = s.tradeDates.length > 0 ? s.tradeDates[0] : '';
+            const fillNote = s.fills.length > 1 ? ` (${s.fills.length} fills)` : '';
             html += `
                 <tr style="border-bottom:1px solid #222;">
-                    <td style="padding:8px; color:#888;">${s.tradeDate}</td>
+                    <td style="padding:8px; color:#888;">${dateStr}</td>
                     <td style="padding:8px; color:#00d9ff; font-weight:bold;">${s.ticker}</td>
                     <td style="padding:8px;">${s.type}</td>
                     <td style="padding:8px;">$${s.strike}</td>
                     <td style="padding:8px;">${s.expiry}</td>
-                    <td style="padding:8px; font-size:10px;">${actionLabel}</td>
-                    <td style="padding:8px; text-align:right; color:#00ff88;">$${s.schwabPremium.toFixed(2)}</td>
+                    <td style="padding:8px; font-size:10px;">${actionLabel}${fillNote}</td>
+                    <td style="padding:8px; text-align:right; color:#00ff88;">$${s.totalPremium.toFixed(2)}</td>
                     <td style="padding:8px;">
-                        <button onclick="window.importSchwabTrade(${JSON.stringify(s).replace(/"/g, '&quot;')})" 
+                        <button onclick="window.importSchwabTrade(${JSON.stringify({
+                            ticker: s.ticker,
+                            strike: s.strike,
+                            type: s.type,
+                            expiry: s.expiry,
+                            tradeDate: s.tradeDates[0] || '',
+                            schwabPremium: s.totalPremium,
+                            qty: s.totalContracts,
+                            price: s.totalContracts > 0 ? s.totalPremium / s.totalContracts / 100 : 0,
+                            positionEffect: s.positionEffect
+                        }).replace(/"/g, '&quot;')})" 
                                 style="padding:4px 8px; background:#ffaa00; border:none; border-radius:4px; color:#000; cursor:pointer; font-size:10px;">
                             ➕ Import
                         </button>
@@ -7037,7 +7163,7 @@ function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
     // Show WheelHouse-only
     if (whOnlyCount > 0) {
         html += `<h3 style="color:#8b5cf6; margin:20px 0 10px;">📋 In WheelHouse Only (not in Schwab)</h3>`;
-        html += `<div style="font-size:11px; color:#888; margin-bottom:10px;">These positions were opened in the last ${days} days but no matching Schwab trade was found. They may have been added manually or imported from another source.</div>`;
+        html += `<div style="font-size:11px; color:#888; margin-bottom:10px;">These positions were opened in the last ${days} days but no matching Schwab trade was found. They may have been added manually or imported from CSV.</div>`;
         html += `<ul style="color:#ccc; font-size:12px;">`;
         results.wheelHouseOnly.forEach(p => {
             html += `<li>${p.ticker} $${p.strike} ${p.type} exp ${p.expiry}</li>`;
@@ -7045,12 +7171,13 @@ function renderReconcileResults(results, totalTrades, days, accountInfo = {}) {
         html += `</ul>`;
     }
     
-    // Summary footer with account info
+    // Summary footer
     const acctDisplay = accountInfo.accountNumber ? `...${accountInfo.accountNumber.slice(-4)}` : 'Unknown';
     const rawCount = accountInfo.rawTransactionCount || 0;
+    const groupedCount = accountInfo.groupedCount || 0;
     html += `
         <div style="margin-top:20px; padding:15px; background:#0d0d1a; border-radius:8px; font-size:11px; color:#666;">
-            📊 Analyzed ${totalTrades} option trades from Schwab over the last ${days} days.<br>
+            📊 Analyzed ${totalTrades} option trades from Schwab (grouped into ${groupedCount} unique positions) over the last ${days} days.<br>
             🏦 Account queried: <span style="color:#00d9ff;">${acctDisplay}</span> (${rawCount} total transactions, ${totalTrades} were options)<br>
             Last reconciled: ${new Date().toLocaleString()}
         </div>

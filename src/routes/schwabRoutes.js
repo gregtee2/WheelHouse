@@ -746,6 +746,153 @@ router.get('/accounts/:accountHash/transactions', async (req, res) => {
     }
 });
 
+// Get dividends for specific tickers (aggregated)
+// POST body: { tickers: ['NVDA', 'PLTR'], since: '2025-01-01' }
+// Searches ALL accounts and matches by company description (Schwab doesn't put
+// ticker symbol in dividend transactions — instrument.symbol is always CURRENCY_USD)
+router.post('/dividends', async (req, res) => {
+    try {
+        const { tickers, since } = req.body;
+        if (!tickers || !Array.isArray(tickers) || tickers.length === 0) {
+            return res.status(400).json({ error: 'tickers array required' });
+        }
+
+        // Get ALL account hashes (dividends could be in any account)
+        const accountNumbers = await schwabApiCall('/accounts/accountNumbers');
+        const accounts = Array.isArray(accountNumbers) ? accountNumbers : [];
+        if (accounts.length === 0) {
+            return res.status(400).json({ error: 'No Schwab accounts found' });
+        }
+
+        const tickerSet = new Set(tickers.map(t => t.toUpperCase()));
+
+        // Step 1: Build a description→ticker mapping using Schwab quotes
+        // Schwab dividend transactions only have company name (e.g. "PROSHARES BITCOIN ETF"),
+        // not the ticker symbol. We need to look up each ticker's official description.
+        const descToTicker = {};  // "PROSHARES BITCOIN ETF" → "BITO"
+        for (const ticker of tickerSet) {
+            try {
+                const quoteData = await schwabApiCall(`/marketdata/v1/${ticker}/quotes?fields=quote,reference`);
+                const entry = quoteData?.[ticker];
+                const desc = entry?.reference?.description || entry?.description || '';
+                if (desc) {
+                    descToTicker[desc.toUpperCase()] = ticker;
+                }
+            } catch (e) {
+                // Non-fatal: we'll still try fuzzy matching
+                console.log(`[SCHWAB] Could not get description for ${ticker}:`, e.message);
+            }
+        }
+
+        // Step 2: Calculate date range (Schwab max is 1 year per request)
+        const now = new Date();
+        const endDate = now.toISOString();
+        const sinceDate = since ? new Date(since) : new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+
+        // Build yearly chunks to respect Schwab's 1-year limit
+        const chunks = [];
+        let chunkStart = new Date(sinceDate);
+        const endDateObj = new Date(endDate);
+        while (chunkStart < endDateObj) {
+            const chunkEnd = new Date(Math.min(
+                chunkStart.getTime() + 364 * 24 * 60 * 60 * 1000, // 364 days (safe margin)
+                endDateObj.getTime()
+            ));
+            chunks.push({ start: chunkStart.toISOString(), end: chunkEnd.toISOString() });
+            chunkStart = new Date(chunkEnd.getTime() + 1); // next ms
+        }
+
+        // Step 3: Fetch dividend transactions from ALL accounts, ALL date chunks
+        const allTxns = [];
+        for (const acct of accounts) {
+            const hash = acct.hashValue;
+            if (!hash) continue;
+            for (const chunk of chunks) {
+                try {
+                    const url = `/accounts/${hash}/transactions?types=DIVIDEND_OR_INTEREST&startDate=${chunk.start}&endDate=${chunk.end}`;
+                    const txns = await schwabApiCall(url);
+                    if (Array.isArray(txns)) {
+                        allTxns.push(...txns);
+                    }
+                } catch (e) {
+                    // Some accounts may not support transactions; skip
+                }
+            }
+        }
+
+        // Step 4: Match transactions to tickers using description
+        const result = {};
+        for (const ticker of tickerSet) {
+            result[ticker] = { total: 0, payments: [] };
+        }
+
+        // Helper: find which ticker a transaction description matches
+        function matchTicker(txnDescription) {
+            const desc = (txnDescription || '').toUpperCase().trim();
+            if (!desc) return null;
+
+            // Try exact match against quote descriptions
+            if (descToTicker[desc]) return descToTicker[desc];
+
+            // Try contains match (txn description might be truncated or slightly different)
+            for (const [quoteDesc, ticker] of Object.entries(descToTicker)) {
+                if (desc.includes(quoteDesc) || quoteDesc.includes(desc)) {
+                    return ticker;
+                }
+            }
+
+            // Try normalized match (strip multiple spaces, remove special chars)
+            const normalize = s => s.replace(/[^A-Z0-9]/g, '');
+            const descNorm = normalize(desc);
+            for (const [quoteDesc, ticker] of Object.entries(descToTicker)) {
+                if (descNorm.includes(normalize(quoteDesc)) || normalize(quoteDesc).includes(descNorm)) {
+                    return ticker;
+                }
+            }
+
+            // Try matching ticker symbol directly in description (e.g. "NVDA DIVIDEND")
+            for (const ticker of tickerSet) {
+                if (desc.includes(ticker)) return ticker;
+            }
+
+            return null;
+        }
+
+        // Deduplicate by activityId (same txn from multiple chunk queries)
+        const seenIds = new Set();
+        for (const txn of allTxns) {
+            const activityId = txn.activityId;
+            if (activityId && seenIds.has(activityId)) continue;
+            if (activityId) seenIds.add(activityId);
+
+            const matchedTicker = matchTicker(txn.description);
+            if (matchedTicker && result[matchedTicker]) {
+                const amount = txn.netAmount || 0;
+                if (amount !== 0) {
+                    result[matchedTicker].total += amount;
+                    result[matchedTicker].payments.push({
+                        date: txn.tradeDate || txn.settlementDate || txn.time,
+                        amount: amount,
+                        description: txn.description || '',
+                        account: txn.accountNumber || ''
+                    });
+                }
+            }
+        }
+
+        // Round totals and sort payments (newest first)
+        for (const ticker of Object.keys(result)) {
+            result[ticker].total = Math.round(result[ticker].total * 100) / 100;
+            result[ticker].payments.sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
+
+        res.json(result);
+    } catch (e) {
+        console.error('[SCHWAB] Dividends error:', e.message || e);
+        res.status(e.status || 500).json({ error: e.error || e.message });
+    }
+});
+
 // ============================================================
 // MARKET DATA ROUTES
 // ============================================================

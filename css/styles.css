@@ -1033,3 +1033,19 @@ body.resizing-columns {
 #strategyAdvisorResult:hover {
     box-shadow: 0 0 20px rgba(147, 51, 234, 0.2);
 }
+
+/* ─── Spark Charts (inline mini-bar charts in internals/futures strips) ─── */
+.spark-chart {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 2px;
+    line-height: 0;
+    opacity: 0.9;
+    transition: opacity 0.2s;
+}
+.spark-chart:hover {
+    opacity: 1;
+}
+.spark-chart svg {
+    display: block;
+}

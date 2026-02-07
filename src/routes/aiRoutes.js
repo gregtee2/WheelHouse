@@ -32,6 +32,7 @@ let DiscoveryService;    // fetchWheelCandidatePrices
 let promptBuilders;      // All prompt builder functions
 let MarketDataService;   // Centralized market data
 let TechnicalService;    // Trendlines, Fibonacci analysis
+let CoachingService;     // Trading coach pattern analysis
 let formatExpiryForCBOE; // Date helper
 let detectGPU;           // GPU detection
 let fetchJsonHttp;       // HTTP fetch helper
@@ -47,6 +48,7 @@ function init(deps) {
     promptBuilders = deps.promptBuilders;
     MarketDataService = deps.MarketDataService;
     TechnicalService = deps.TechnicalService;
+    CoachingService = deps.CoachingService;
     formatExpiryForCBOE = deps.formatExpiryForCBOE;
     detectGPU = deps.detectGPU;
     fetchJsonHttp = deps.fetchJsonHttp;
@@ -71,6 +73,24 @@ router.post('/critique', async (req, res) => {
         const prompt = promptBuilders.buildCritiquePrompt(data);
         const response = await AIService.callAI(prompt, selectedModel, 500);
         
+        // Auto-save coaching insight from critique
+        if (CoachingService && data.ticker && response) {
+            try {
+                // Extract the "Key lesson" from the response (best-effort parse)
+                const lessonMatch = response.match(/Key lesson[:\s]*(.+?)(?:\n\n|\n\d|\n\*\*|$)/is);
+                const lesson = lessonMatch ? lessonMatch[1].trim().substring(0, 500) : response.substring(0, 300);
+                CoachingService.saveCoachingInsight({
+                    ticker: data.ticker,
+                    type: data.chainHistory?.[0]?.type || 'unknown',
+                    lesson,
+                    source: 'critique',
+                    pnl: data.totalPremium || 0
+                });
+            } catch (e) {
+                // Non-critical - don't fail the critique
+            }
+        }
+        
         res.json({ 
             success: true, 
             critique: response,
@@ -90,7 +110,7 @@ router.post('/critique', async (req, res) => {
 router.post('/strategy-advisor', async (req, res) => {
     try {
         const data = req.body;
-        const { ticker, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, model, expertMode, sharesOwned, costBasis } = data;
+        const { ticker, buyingPower, accountValue, kellyBase, riskTolerance, existingPositions, model, expertMode, sharesOwned, costBasis, closedSummary } = data;
         const selectedModel = model || 'qwen2.5:32b';
         
         console.log(`[STRATEGY-ADVISOR] Analyzing ${ticker} with model ${selectedModel}${expertMode ? ' (EXPERT MODE)' : ''}`);
@@ -100,13 +120,23 @@ router.post('/strategy-advisor', async (req, res) => {
         if (sharesOwned > 0) {
             console.log(`[STRATEGY-ADVISOR] 📦 User owns ${sharesOwned} shares @ $${costBasis?.toFixed(2) || '?'} cost basis`);
         }        
-        // 1. Get stock quote
-        const quote = await MarketDataService.getQuote(ticker);
+        // 1. Get stock quote + technical analysis in parallel
+        const [quote, technicalAnalysis] = await Promise.all([
+            MarketDataService.getQuote(ticker),
+            TechnicalService ? TechnicalService.analyzeAll(ticker).catch(e => {
+                console.log(`[STRATEGY-ADVISOR] ⚠️ Technical analysis failed: ${e.message}`);
+                return null;
+            }) : Promise.resolve(null)
+        ]);
+        
         if (!quote) {
             return res.status(400).json({ error: `Could not fetch price for ${ticker}` });
         }
         
         console.log(`[STRATEGY-ADVISOR] ✅ Quote from ${quote.source}: $${quote.price}`);
+        if (technicalAnalysis) {
+            console.log(`[STRATEGY-ADVISOR] 📊 Technical: ${technicalAnalysis.summary}`);
+        }
         
         // 2. Get options chain
         const chain = await MarketDataService.getOptionsChain(ticker, { strikeCount: 40, range: 'ALL' });
@@ -197,7 +227,8 @@ router.post('/strategy-advisor', async (req, res) => {
             high3mo: quote.high3mo,
             low3mo: quote.low3mo,
             volume: quote.volume,
-            rangePosition: quote.rangePosition
+            rangePosition: quote.rangePosition,
+            technicalAnalysis: technicalAnalysis  // Fibonacci + trendlines
         };
         
         const context = {
@@ -215,7 +246,8 @@ router.post('/strategy-advisor', async (req, res) => {
             sharesOwned: sharesOwned || 0,       // NEW: Enables covered call recommendations
             costBasis: costBasis || 0,           // NEW: For breakeven calculations
             dataSource,
-            model: selectedModel  // For Expert Mode to decide lite vs full prompt
+            model: selectedModel,  // For Expert Mode to decide lite vs full prompt
+            closedSummary: closedSummary || null  // For coaching context
         };
         
         // 4. Build AI prompt - Expert Mode or Guided Mode
@@ -429,12 +461,20 @@ router.post('/strategy-advisor', async (req, res) => {
             }
         }
         
-        // Step 3: Calculate capital efficiency with strategy-appropriate ROC
+        // Step 3: Calculate capital efficiency for MULTIPLE strategies
+        // This lets users compare ROC across different approaches
         if (extractedStrike && chain && chain.puts && chain.puts.length > 0) {
-            console.log(`[STRATEGY-ADVISOR] 📊 Capital efficiency for $${extractedStrike} ${strategyType}...`);
+            console.log(`[STRATEGY-ADVISOR] 📊 Capital efficiency for $${extractedStrike} (detected: ${strategyType})...`);
             
             const today = new Date();
-            const candidates = [];
+            
+            // Build candidates for each strategy type
+            const strategyComparisons = [];
+            
+            // Always calculate CSP (baseline comparison)
+            const cspCandidates = [];
+            // Calculate spread if we have spread width
+            const spreadCandidates = spreadWidth ? [] : null;
             
             for (const exp of (chain.expirations || [])) {
                 const expDate = new Date(exp);
@@ -449,45 +489,95 @@ router.post('/strategy-advisor', async (req, res) => {
                     if (putAtStrike && putAtStrike.bid > 0) {
                         const premium = putAtStrike.bid;
                         const actualStrike = putAtStrike.strike;
-                        
-                        // Calculate ROC based on strategy type
-                        let capitalRequired, roc;
-                        
-                        if (strategyType === 'put_credit_spread' && spreadWidth) {
-                            // For spreads: capital = spread width
-                            capitalRequired = spreadWidth;
-                            roc = (premium / spreadWidth) * 100;
-                        } else {
-                            // For CSP/naked: capital = strike price
-                            capitalRequired = actualStrike;
-                            roc = (premium / actualStrike) * 100;
-                        }
-                        
-                        const annualizedROC = roc * (365 / dte);
-                        
                         const gammaPenalized = dte < 21;
-                        const score = annualizedROC * (gammaPenalized ? 0.85 : 1.0);
                         
-                        candidates.push({
+                        // CSP calculation
+                        const cspROC = (premium / actualStrike) * 100;
+                        const cspAnnualized = cspROC * (365 / dte);
+                        const cspScore = cspAnnualized * (gammaPenalized ? 0.85 : 1.0);
+                        
+                        cspCandidates.push({
                             expiry: exp,
                             dte,
                             strike: actualStrike,
-                            longStrike: longStrike,
-                            spreadWidth: spreadWidth,
                             premium,
-                            capitalRequired,
+                            capitalRequired: actualStrike,
                             delta: putAtStrike.delta,
                             iv: putAtStrike.iv,
-                            roc,
-                            annualizedROC,
-                            score,
+                            roc: cspROC,
+                            annualizedROC: cspAnnualized,
+                            score: cspScore,
                             gammaPenalized
                         });
                         
-                        console.log(`[STRATEGY-ADVISOR]   ${exp} (${dte}d): $${premium.toFixed(2)} / $${capitalRequired} capital → ${annualizedROC.toFixed(0)}% ann.`);
+                        // Spread calculation (if applicable)
+                        if (spreadCandidates && spreadWidth) {
+                            const spreadROC = (premium / spreadWidth) * 100;
+                            const spreadAnnualized = spreadROC * (365 / dte);
+                            const spreadScore = spreadAnnualized * (gammaPenalized ? 0.85 : 1.0);
+                            
+                            spreadCandidates.push({
+                                expiry: exp,
+                                dte,
+                                strike: actualStrike,
+                                longStrike: longStrike,
+                                spreadWidth: spreadWidth,
+                                premium,
+                                capitalRequired: spreadWidth,
+                                delta: putAtStrike.delta,
+                                iv: putAtStrike.iv,
+                                roc: spreadROC,
+                                annualizedROC: spreadAnnualized,
+                                score: spreadScore,
+                                gammaPenalized
+                            });
+                        }
                     }
                 }
             }
+            
+            // Sort each strategy's candidates by score
+            cspCandidates.sort((a, b) => b.score - a.score);
+            if (spreadCandidates) spreadCandidates.sort((a, b) => b.score - a.score);
+            
+            // Build comparison objects
+            if (cspCandidates.length > 0) {
+                const winner = cspCandidates[0];
+                strategyComparisons.push({
+                    strategyType: 'csp',
+                    strategyLabel: 'Cash-Secured Put',
+                    strike: winner.strike,
+                    capitalRequired: winner.capitalRequired,
+                    dte: winner.dte,
+                    annualizedROC: winner.annualizedROC,
+                    roc: winner.roc,
+                    premium: winner.premium,
+                    allCandidates: cspCandidates.slice(0, 5),
+                    summary: `$${winner.strike} Put @ ${winner.dte} DTE → ${winner.annualizedROC.toFixed(0)}% ann.`
+                });
+            }
+            
+            if (spreadCandidates && spreadCandidates.length > 0) {
+                const winner = spreadCandidates[0];
+                strategyComparisons.push({
+                    strategyType: 'put_credit_spread',
+                    strategyLabel: 'Put Credit Spread',
+                    strike: winner.strike,
+                    longStrike: winner.longStrike,
+                    spreadWidth: winner.spreadWidth,
+                    capitalRequired: winner.capitalRequired,
+                    dte: winner.dte,
+                    annualizedROC: winner.annualizedROC,
+                    roc: winner.roc,
+                    premium: winner.premium,
+                    allCandidates: spreadCandidates.slice(0, 5),
+                    summary: `$${winner.strike}/$${winner.longStrike} @ ${winner.dte} DTE → ${winner.annualizedROC.toFixed(0)}% ann.`
+                });
+            }
+            
+            // Pick the recommended one (matching AI's detected strategy) as primary
+            const primaryStrategy = strategyComparisons.find(s => s.strategyType === strategyType) || strategyComparisons[0];
+            const candidates = primaryStrategy?.allCandidates || [];
             
             // Pick the best candidate (highest score - already includes gamma penalty)
             if (candidates.length > 0) {
@@ -533,11 +623,19 @@ router.post('/strategy-advisor', async (req, res) => {
                     iv: winner.iv,
                     candidatesEvaluated: candidates.length,
                     allCandidates: candidates.slice(0, 5),
+                    // NEW: Include all strategy comparisons for multi-strategy UI
+                    strategyComparisons: strategyComparisons,
                     summary: `Optimal: ${strikeDisplay} @ ${winner.dte} DTE for ${winner.annualizedROC.toFixed(0)}% annualized ROC` + 
                              (otherOptions ? ` (vs ${otherOptions})` : '')
                 };
                 
                 console.log(`[STRATEGY-ADVISOR] 🏆 BEST: ${strikeDisplay} @ ${bestExpiry} (${winner.dte} DTE) → ${winner.annualizedROC.toFixed(0)}% annualized ROC`);
+                if (strategyComparisons.length > 1) {
+                    console.log(`[STRATEGY-ADVISOR] 📊 Multi-strategy comparison:`);
+                    strategyComparisons.forEach(s => {
+                        console.log(`[STRATEGY-ADVISOR]   • ${s.strategyLabel}: ${s.summary}`);
+                    });
+                }
             } else {
                 console.log(`[STRATEGY-ADVISOR] ⚠️ No valid expirations found for $${extractedStrike} strike`);
             }
@@ -556,6 +654,7 @@ router.post('/strategy-advisor', async (req, res) => {
             rangeWarning,
             selectionRationale,
             bestExpiry,
+            technicalAnalysis: stockData.technicalAnalysis || null,  // Return to frontend
             model: selectedModel
         });
         
@@ -1900,22 +1999,10 @@ router.post('/parse-trade', async (req, res) => {
         // Step 4: Generate AI analysis (use analysisModel - the user's selected model, including R1)
         sendProgress(4, `Generating AI analysis with ${analysisModel}...`);
         
-        // Build pattern context from closed positions
+        // Build coaching context from closed positions (via CoachingService)
         let patternContext = null;
-        if (closedSummary && closedSummary.length > 0) {
-            // ... pattern analysis logic (abbreviated for space)
-            const ticker = parsed.ticker?.toUpperCase();
-            const strategyType = parsed.strategy?.toLowerCase().replace(/\s+/g, '_') || '';
-            const sameTickerType = closedSummary.filter(p => 
-                p.ticker?.toUpperCase() === ticker && 
-                p.type?.toLowerCase().replace(/\s+/g, '_') === strategyType
-            );
-            
-            if (sameTickerType.length >= 2) {
-                const totalPnL = sameTickerType.reduce((sum, p) => sum + (p.pnl || 0), 0);
-                const winRate = sameTickerType.filter(p => (p.pnl || 0) >= 0).length / sameTickerType.length * 100;
-                patternContext = `### ${ticker} ${strategyType} History\n- ${sameTickerType.length} trades, ${winRate.toFixed(0)}% win rate, $${totalPnL.toFixed(0)} total P&L\n`;
-            }
+        if (closedSummary && closedSummary.length > 0 && CoachingService) {
+            patternContext = CoachingService.buildCoachingContext(closedSummary, parsed.ticker, parsed.strategy);
         }
         
         const analysisPrompt = promptBuilders.buildDiscordTradeAnalysisPrompt(parsed, tickerData, premium, patternContext, alternativeStrikes);

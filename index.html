@@ -20,8 +20,8 @@
             "api": "./js/api.js?v=1.19.64",
             "pricing": "./js/pricing.js?v=1.19.64",
             "simulation": "./js/simulation.js?v=1.19.64",
-            "positions": "./js/positions.js?v=1.19.77",
-            "portfolio": "./js/portfolio.js?v=1.19.64",
+            "positions": "./js/positions.js?v=1.19.91",
+            "portfolio": "./js/portfolio.js?v=1.19.88",
             "analysis": "./js/analysis.js?v=1.19.64",
             "challenges": "./js/challenges.js?v=1.19.64",
             "ui": "./js/ui.js?v=1.19.64",
@@ -29,13 +29,23 @@
             "broker-import": "./js/broker-import.js?v=1.19.64",
             "schwab": "./js/schwab.js?v=1.19.64",
             "theme": "./js/theme.js?v=1.19.64",
-            "formatters": "./js/utils/formatters.js?v=1.19.64",
+            "formatters": "./js/utils/formatters.js?v=1.19.91",
             "AccountService": "./js/services/AccountService.js?v=1.19.64",
             "PositionsService": "./js/services/PositionsService.js?v=1.19.64",
-            "StreamingService": "./js/services/StreamingService.js?v=1.19.64",
+            "StreamingService": "./js/services/StreamingService.js?v=1.19.92",
             "TradeCardService": "./js/services/TradeCardService.js?v=1.19.64",
             "WeeklySummaryService": "./js/services/WeeklySummaryService.js?v=1.19.64",
-            "AlertService": "./js/services/AlertService.js?v=1.19.64"
+            "AlertService": "./js/services/AlertService.js?v=1.19.64",
+            "SparkChartService": "./js/services/SparkChartService.js?v=1.19.92b",
+            "tradeStaging": "./js/tradeStaging.js?v=1.19.88",
+            "aiHelpers": "./js/aiHelpers.js?v=1.19.88",
+            "aiFunctions": "./js/aiFunctions.js?v=1.19.88",
+            "positionCheckup": "./js/positionCheckup.js?v=1.19.88",
+            "strategyAdvisor": "./js/strategyAdvisor.js?v=1.19.88",
+            "monteCarlo": "./js/monteCarlo.js?v=1.19.88",
+            "wheelScanner": "./js/wheelScanner.js?v=1.19.88",
+            "pmccCalculator": "./js/pmccCalculator.js?v=1.19.88",
+            "coach": "./js/coach.js?v=1.19.88"
         }
     }
     </script>
@@ -106,21 +116,25 @@
                 <span style="font-weight:bold; color:#00d9ff; font-size:12px;">S&P 500</span>
                 <span class="futures-price" style="font-family:monospace; font-size:12px; color:#fff;">--</span>
                 <span class="futures-change" style="font-size:11px;"></span>
+                <span data-spark="/ES" class="spark-chart" title="15-min /ES history"></span>
             </div>
             <div data-futures-symbol="/NQ" class="futures-tile" style="display:inline-flex; align-items:center; gap:8px; padding:4px 10px; background:rgba(139,92,246,0.1); border-radius:5px; border:1px solid rgba(139,92,246,0.2);">
                 <span style="font-weight:bold; color:#8b5cf6; font-size:12px;">Nasdaq</span>
                 <span class="futures-price" style="font-family:monospace; font-size:12px; color:#fff;">--</span>
                 <span class="futures-change" style="font-size:11px;"></span>
+                <span data-spark="/NQ" class="spark-chart" title="15-min /NQ history"></span>
             </div>
             <div data-futures-symbol="/YM" class="futures-tile" style="display:inline-flex; align-items:center; gap:8px; padding:4px 10px; background:rgba(0,255,136,0.1); border-radius:5px; border:1px solid rgba(0,255,136,0.2);">
                 <span style="font-weight:bold; color:#00ff88; font-size:12px;">Dow</span>
                 <span class="futures-price" style="font-family:monospace; font-size:12px; color:#fff;">--</span>
                 <span class="futures-change" style="font-size:11px;"></span>
+                <span data-spark="/YM" class="spark-chart" title="15-min /YM history"></span>
             </div>
             <div data-futures-symbol="/RTY" class="futures-tile" style="display:inline-flex; align-items:center; gap:8px; padding:4px 10px; background:rgba(255,170,0,0.1); border-radius:5px; border:1px solid rgba(255,170,0,0.2);">
                 <span style="font-weight:bold; color:#ffaa00; font-size:12px;">Russell</span>
                 <span class="futures-price" style="font-family:monospace; font-size:12px; color:#fff;">--</span>
                 <span class="futures-change" style="font-size:11px;"></span>
+                <span data-spark="/RTY" class="spark-chart" title="15-min /RTY history"></span>
             </div>
             <button onclick="window.subscribeFutures()" style="margin-left:auto; padding:3px 10px; font-size:10px; background:rgba(0,217,255,0.2); color:#00d9ff; border:1px solid rgba(0,217,255,0.4); border-radius:4px; cursor:pointer;" title="Subscribe to real-time futures">▶ Live</button>
             <span id="futuresStatus" style="font-size:10px; color:#666;">Disconnected</span>
@@ -134,30 +148,35 @@
             <div data-internal="$TICK" class="internal-tile" style="display:inline-flex; align-items:center; gap:8px; padding:5px 12px; background:rgba(0,217,255,0.1); border-radius:5px; border:1px solid rgba(0,217,255,0.25);">
                 <span style="font-weight:bold; color:#00d9ff; font-size:12px;" title="NYSE TICK - Upticks minus downticks. Extreme: ±1000">TICK</span>
                 <span class="internal-value" style="font-family:monospace; font-size:14px; font-weight:bold; color:#fff;">--</span>
+                <span data-spark="$TICK" class="spark-chart" title="15-min TICK history"></span>
             </div>
             
             <!-- ADD - Advances minus Declines -->
             <div data-internal="$ADD" class="internal-tile" style="display:inline-flex; align-items:center; gap:8px; padding:5px 12px; background:rgba(0,255,136,0.1); border-radius:5px; border:1px solid rgba(0,255,136,0.25);">
                 <span style="font-weight:bold; color:#00ff88; font-size:12px;" title="NYSE A/D Line - Advancing minus Declining stocks">A/D</span>
                 <span class="internal-value" style="font-family:monospace; font-size:14px; font-weight:bold; color:#fff;">--</span>
+                <span data-spark="$ADD" class="spark-chart" title="15-min A/D history"></span>
             </div>
             
             <!-- VOLD - Up Volume minus Down Volume -->
             <div data-internal="$VOLD" class="internal-tile" style="display:inline-flex; align-items:center; gap:8px; padding:5px 12px; background:rgba(139,92,246,0.1); border-radius:5px; border:1px solid rgba(139,92,246,0.25);">
                 <span style="font-weight:bold; color:#8b5cf6; font-size:12px;" title="NYSE Volume Diff - Up volume minus Down volume (in millions)">VOL Δ</span>
                 <span class="internal-value" style="font-family:monospace; font-size:14px; font-weight:bold; color:#fff;">--</span>
+                <span data-spark="$VOLD" class="spark-chart" title="15-min Volume Δ history"></span>
             </div>
             
             <!-- TRIN - Arms Index -->
             <div data-internal="$TRIN" class="internal-tile" style="display:inline-flex; align-items:center; gap:8px; padding:5px 12px; background:rgba(255,170,0,0.1); border-radius:5px; border:1px solid rgba(255,170,0,0.25);">
                 <span style="font-weight:bold; color:#ffaa00; font-size:12px;" title="Arms Index (TRIN) - <1.0 bullish, >1.0 bearish">TRIN</span>
                 <span class="internal-value" style="font-family:monospace; font-size:14px; font-weight:bold; color:#fff;">--</span>
+                <span data-spark="$TRIN" class="spark-chart" title="15-min TRIN history"></span>
             </div>
             
             <!-- VIX - Volatility Index -->
             <div data-internal="$VIX" class="internal-tile" style="display:inline-flex; align-items:center; gap:8px; padding:5px 12px; background:rgba(255,82,82,0.1); border-radius:5px; border:1px solid rgba(255,82,82,0.25);">
                 <span style="font-weight:bold; color:#ff5252; font-size:12px;" title="CBOE Volatility Index - Fear gauge. >20 = elevated fear">VIX</span>
                 <span class="internal-value" style="font-family:monospace; font-size:14px; font-weight:bold; color:#fff;">--</span>
+                <span data-spark="$VIX" class="spark-chart" title="15-min VIX history"></span>
             </div>
             
             <!-- Market Mood Summary -->
@@ -346,7 +365,7 @@
                             <span style="color:#8a9aa8; font-weight:bold; font-size:14px;">📋 Paste Trade Callout</span>
                             <a href="docs/help.html#discord-analyzer" target="_blank" class="help-link" title="Learn how to use the Discord Analyzer">?</a>
                             <div style="display:flex; align-items:center; gap:8px;">
-                                <select id="discordModelSelect2" style="font-size:11px; padding:4px 8px; background:#1a1a2e; color:#ddd; border:1px solid #444; border-radius:4px;" title="Override global model for Discord analysis">
+                                <select id="discordModelSelect" style="font-size:11px; padding:4px 8px; background:#1a1a2e; color:#ddd; border:1px solid #444; border-radius:4px;" title="Override global model for Discord analysis">
                                     <option value="">(global)</option>
                                     <option value="qwen2.5:7b">7B ⚡</option>
                                     <option value="qwen2.5:14b">14B</option>
@@ -357,10 +376,10 @@
                                     <option value="grok-4-1-fast">⚡ Grok 4.1 Fast</option>
                                     <option value="grok-3-mini">🚀 Grok Mini</option>
                                 </select>
-                                <button onclick="window.analyzeDiscordTrade2()" class="btn-primary" style="padding:6px 14px;" title="AI analyzes the trade with live CBOE pricing and gives verdict (Aggressive/Moderate/Conservative)">🔍 Analyze Trade</button>
+                                <button onclick="window.analyzeDiscordTrade()" class="btn-primary" style="padding:6px 14px;" title="AI analyzes the trade with live CBOE pricing and gives verdict (Aggressive/Moderate/Conservative)">🔍 Analyze Trade</button>
                             </div>
                         </div>
-                        <textarea id="pasteTradeInput2" placeholder="Paste a trade from Discord, Twitter, or any callout...
+                        <textarea id="pasteTradeInput" placeholder="Paste a trade from Discord, Twitter, or any callout...
 
 Examples:
 • TSLA $400P Feb 27 for $3.75
@@ -1411,6 +1430,7 @@ Examples:
                         <h3 style="color:var(--accent-cyan); margin:0;">💼 Holdings & Trade History</h3>
                         <div style="display:flex; gap:12px; align-items:center;">
                             <button id="weekSummaryBtn" onclick="window.showWeekSummary()" class="btn-primary" style="padding:6px 12px; background:linear-gradient(135deg, rgba(0,217,255,0.25), rgba(0,217,255,0.15)); border-color:rgba(0,217,255,0.5); color:#00d9ff;" title="Generate AI weekly performance summary">📊 Week Summary</button>
+                            <button id="coachBtn" onclick="window.showCoachPanel()" class="btn-primary" style="padding:6px 12px; background:linear-gradient(135deg, rgba(255,170,0,0.25), rgba(255,170,0,0.15)); border-color:rgba(255,170,0,0.5); color:#ffaa00;" title="View your trading patterns, win rates, and coaching insights">🎯 Trading Coach</button>
                             <button id="refreshPortfolioBtn" class="btn-primary" style="padding:6px 12px;" title="Fetch latest spot prices for all tickers in your portfolio">🔄 Refresh Prices</button>
                         </div>
                     </div>
@@ -1945,6 +1965,6 @@ Examples:
     <script src="js/services/WeeklySummaryService.js?v=1.19.64"></script>
     
     <!-- ES6 Module Entry Point -->
-    <script type="module" src="js/main.js?v=1.19.82"></script>
+    <script type="module" src="js/main.js?v=1.19.92"></script>
 </body>
 </html>
