@@ -96,11 +96,16 @@ class StreamingServiceClass {
         
         // Option quote updates (the good stuff!)
         this.socket.on('option-quote', (data) => {
-            this.optionQuotes.set(data.symbol, data);
-            this._emit('option-quote', data);
+            // MERGE with cached quote (Schwab sends incremental field updates,
+            // e.g. only bid changes — we need to keep the last known ask/mark/last
+            // so mid price calculation doesn't fail on partial updates)
+            const existing = this.optionQuotes.get(data.symbol) || {};
+            const merged = { ...existing, ...data };
+            this.optionQuotes.set(data.symbol, merged);
+            this._emit('option-quote', merged);
             
-            // Queue DOM update
-            this.queueDOMUpdate('option', data);
+            // Queue DOM update with the full merged quote
+            this.queueDOMUpdate('option', merged);
         });
         
         // Equity quote updates
@@ -309,7 +314,7 @@ class StreamingServiceClass {
         // P/L columns: P/L %, P/L Day, P/L Open
         
         // Calculate unrealized P/L
-        const isLong = ['long_call', 'long_put', 'call_debit_spread', 'put_debit_spread'].includes(pos.type);
+        const isLong = ['long_call', 'long_put', 'long_call_leaps', 'skip_call', 'call_debit_spread', 'put_debit_spread'].includes(pos.type);
         const priceDiff = isLong ? (newPrice - pos.premium) : (pos.premium - newPrice);
         const unrealizedPnL = priceDiff * 100 * pos.contracts;
         const unrealizedPnLPct = (priceDiff / pos.premium) * 100;
