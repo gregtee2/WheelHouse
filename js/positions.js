@@ -4948,19 +4948,10 @@ async function updatePositionGreeksDisplay(positions, spotPrices, ivData = {}) {
             const longGreeks = calculateGreeks(spot, buyStrike, T, 0.05, iv, isPutSpread, contracts);
             
             // Net Greeks: short leg is negative (we're short), long leg is positive (we're long)
-            // For credit spreads: short the higher-premium option, long the lower-premium (protection)
-            // For debit spreads: long the higher-premium option, short the lower-premium
-            let netDelta, netTheta;
-            if (isCredit) {
-                // Credit spread: short sellStrike, long buyStrike
-                netDelta = -shortGreeks.delta + longGreeks.delta;
-                netTheta = -shortGreeks.theta + longGreeks.theta;
-            } else {
-                // Debit spread: long sellStrike (confusing naming), short buyStrike
-                // Actually for debit spreads, we buy the more expensive option
-                netDelta = shortGreeks.delta - longGreeks.delta;
-                netTheta = shortGreeks.theta - longGreeks.theta;
-            }
+            // Regardless of credit/debit, sellStrike = our SHORT leg, buyStrike = our LONG leg
+            // The credit/debit distinction is about net premium flow, not which leg is long/short
+            let netDelta = -shortGreeks.delta + longGreeks.delta;
+            let netTheta = -shortGreeks.theta + longGreeks.theta;
             
             // Delta tooltip for spreads
             const deltaTooltip = `Net spread delta: If ${pos.ticker} moves $1, P&L changes by ~$${Math.abs(netDelta).toFixed(0)}`;
