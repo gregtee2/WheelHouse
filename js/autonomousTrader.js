@@ -143,6 +143,9 @@
         // Sync auto trades into main Positions tab
         syncAutoTradesToPositions(autoState.openTrades);
 
+        // Sync closed auto trades into Portfolio closed positions
+        await syncClosedAutoTrades();
+
         renderPerfCards();
         renderOpenPositions();
         renderRules();
@@ -333,6 +336,89 @@
             try { window.StreamingService.subscribePositions(window.state.positions); } catch (e) { /* streaming may not be active */ }
         }
     }
+
+    // ─── Sync Closed Auto Trades to Portfolio ────────────────────────────
+
+    async function syncClosedAutoTrades() {
+        if (!window.state) return;
+
+        // Only sync when viewing Paper Trading account
+        if (window.state.accountMode !== 'paper') {
+            // Remove any stale auto closed trades if user switched accounts
+            if (state.closedPositions?.some(p => p._autoTrade)) {
+                state.closedPositions = state.closedPositions.filter(p => !p._autoTrade);
+            }
+            return;
+        }
+
+        const res = await apiCall('/trades?status=closed&limit=500');
+        if (res.error || !res.trades) return;
+
+        const AUTO_ID_OFFSET = 9000000000000;
+
+        // Remove old auto-synced closed positions
+        if (!state.closedPositions) state.closedPositions = [];
+        state.closedPositions = state.closedPositions.filter(p => !p._autoTrade);
+
+        // Convert each closed auto trade to the standard closed position format
+        for (const t of res.trades) {
+            const entryPrice = t.entry_price || 0;
+            const exitPrice = t.exit_price || 0;
+            const contracts = t.contracts || 1;
+            const isSpread = t.strategy === 'credit_spread';
+
+            // Calculate days held
+            const openDate = t.entry_date ? new Date(t.entry_date) : new Date();
+            const closeDate = t.exit_date ? new Date(t.exit_date) : new Date();
+            const daysHeld = Math.max(0, Math.ceil((closeDate - openDate) / (1000 * 60 * 60 * 24)));
+
+            // Use the P&L from the database (already calculated correctly)
+            const realizedPnL = t.pnl_dollars || 0;
+
+            const closedPos = {
+                id: AUTO_ID_OFFSET + t.id,
+                chainId: AUTO_ID_OFFSET + t.id,
+                ticker: t.ticker,
+                type: isSpread ? 'put_credit_spread' : (t.strategy || 'short_put'),
+                strike: t.strike,
+                buyStrike: t.strike_buy || null,
+                sellStrike: t.strike_sell || t.strike,
+                spreadWidth: t.spread_width || null,
+                premium: entryPrice,
+                contracts: contracts,
+                expiry: t.expiry,
+                openDate: t.entry_date,
+                status: 'closed',
+                broker: '\u{1F916} Auto',
+                delta: t.entry_delta || null,
+                entrySpot: t.entry_spot || null,
+                currentSpot: t.exit_spot || t.entry_spot || null,
+                closeDate: t.exit_date,
+                closingPrice: exitPrice,
+                closeReason: t.exit_reason || 'unknown',
+                daysHeld: daysHeld,
+                realizedPnL: realizedPnL,
+                closePnL: realizedPnL,
+                maxProfit: t.max_profit || null,
+                maxLoss: t.max_loss || null,
+                sector: t.sector || null,
+                aiRationale: t.ai_rationale || null,
+                aiConfidence: t.ai_confidence || null,
+                _autoTrade: true,
+                _autoTradeId: t.id
+            };
+
+            state.closedPositions.push(closedPos);
+        }
+
+        // Re-render closed positions if portfolio tab is visible
+        if (typeof window.renderClosedPositions === 'function') {
+            try { window.renderClosedPositions(); } catch (e) { /* tab may not be active */ }
+        }
+    }
+
+    // Expose for external callers (e.g., portfolio refresh)
+    window.syncClosedAutoTrades = syncClosedAutoTrades;
 
     // ─── Open Positions ──────────────────────────────────────────────────
 

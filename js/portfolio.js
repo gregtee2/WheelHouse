@@ -1218,6 +1218,11 @@ function normalCDF(x) {
 export async function renderPortfolio(fetchPrices = false) {
     const loadingEl = document.getElementById('portfolioLoading');
     
+    // Sync closed auto trades into closedPositions (if paper account)
+    if (typeof window.syncClosedAutoTrades === 'function') {
+        try { await window.syncClosedAutoTrades(); } catch (e) { /* auto trader may not be loaded */ }
+    }
+
     // Show loading if fetching prices for holdings
     if (fetchPrices && loadingEl) {
         loadingEl.style.display = 'block';
@@ -2851,6 +2856,7 @@ export function renderHoldings() {
     fetchHoldingPrices(holdingData);
 }
 window.renderHoldings = renderHoldings;
+window.renderClosedPositions = renderClosedPositions;
 
 /**
  * Edit the cost basis for a holding
