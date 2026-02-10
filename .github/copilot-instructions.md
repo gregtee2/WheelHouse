@@ -4,7 +4,7 @@
 
 **WheelHouse** is a Wheel Strategy Options Analyzer & Position Tracker built with vanilla JavaScript (ES6 modules) and Node.js. It provides Monte Carlo-based options pricing, real-time CBOE quotes, position tracking, and portfolio analytics.
 
-**Version**: 1.19.0  
+**Version**: 1.19.92  
 **Repository**: https://github.com/gregtee2/WheelHouse  
 **Branches**: `main` (development), `stable` (releases)
 
@@ -56,7 +56,7 @@ WheelHouse/
 ├── css/
 │   └── styles.css      # Dark theme styling
 └── js/
-    ├── main.js         # Entry point, tab switching, initialization
+    ├── main.js         # Entry point, tab switching, initialization (3,576 lines after v1.19.92 refactor)
     ├── state.js        # Global state object (singleton)
     ├── api.js          # CBOE & Yahoo Finance API calls
     ├── pricing.js      # Black-Scholes, Monte Carlo pricing
@@ -69,9 +69,30 @@ WheelHouse/
     ├── broker-import.js# Schwab CSV import
     ├── settings.js     # Settings tab logic, security status check
     ├── ui.js           # Sliders, date pickers, UI bindings
+    ├── schwab.js       # Schwab sync, account switching
+    ├── theme.js        # Theme management
+    │
+    │   # ── Extracted Modules (v1.19.92 refactor from main.js) ──
+    ├── aiFunctions.js      # Deep Dive, Discord analysis, trade parsing, AI insights (2,090 lines)
+    ├── aiHelpers.js        # Model warmup, SSE streaming, prompt builders (210 lines)
+    ├── coach.js            # Trading Coach UI, pattern display, danger zones (294 lines)
+    ├── monteCarlo.js       # Monte Carlo simulation, probability cone charts (458 lines)
+    ├── pmccCalculator.js   # PMCC/LEAPS calculator with strategy analysis (774 lines)
+    ├── positionCheckup.js  # Position checkup, analysis history, thesis comparison (802 lines)
+    ├── strategyAdvisor.js  # Multi-strategy analysis, alternative tile rendering (974 lines)
+    ├── tradeStaging.js     # Pending trades management, staging flow (2,365 lines)
+    ├── wheelScanner.js     # Oversold scanner, ticker screening (176 lines)
+    │
+    ├── utils/
+    │   └── formatters.js   # Shared formatting: $, %, DTE, dates, delta (109 lines)
     └── services/
-        ├── AccountService.js   # Schwab account balances (single source of truth)
-        └── MarketDataService.js # Stock/options data (Schwab→CBOE→Yahoo)
+        ├── AccountService.js       # Schwab account balances (single source of truth)
+        ├── AlertService.js         # Price alert system
+        ├── PositionsService.js     # Centralized position CRUD
+        ├── SparkChartService.js    # Inline SVG sparkline charts (179 lines)
+        ├── StreamingService.js     # Schwab real-time streaming client
+        ├── TradeCardService.js     # Shared trade card UI + staging
+        └── WeeklySummaryService.js # Week Summary AI pipeline (1,361 lines)
 ```
 
 ---
@@ -267,6 +288,153 @@ module.exports.init = init;
 // server.js
 myRoutes.init({ AIService, CacheService, DataService, promptBuilders, secureStore });
 ```
+
+---
+
+## 🏗️ Frontend Modularization (v1.19.92 — February 2026)
+
+**Status**: ✅ COMPLETE — `main.js` reduced from 11,600 → 3,576 lines (68% reduction!)
+
+### Why This Was Done
+`main.js` was a monolithic 11,600-line file containing ALL AI features, Monte Carlo simulation, trade staging, coaching, position checkups, and strategy analysis. It was impossible to navigate and caused merge conflicts constantly.
+
+### Architecture After Refactor
+```
+main.js (3,576 lines) — Entry point, tab switching, initialization, event bindings
+    │
+    ├── js/aiFunctions.js (2,090 lines) — Deep Dive, Discord analysis, trade parsing, AI insights
+    ├── js/aiHelpers.js (210 lines) — Model warmup, SSE streaming, prompt formatting
+    ├── js/coach.js (294 lines) — Trading Coach UI, pattern display, sweet spots, danger zones
+    ├── js/monteCarlo.js (458 lines) — Monte Carlo simulation, probability cone charts
+    ├── js/pmccCalculator.js (774 lines) — PMCC/LEAPS calculator with strategy analysis
+    ├── js/positionCheckup.js (802 lines) — Position checkup, analysis history, thesis comparison
+    ├── js/strategyAdvisor.js (974 lines) — Multi-strategy analysis, alternative tile rendering
+    ├── js/tradeStaging.js (2,365 lines) — Pending trades management, staging flow
+    ├── js/wheelScanner.js (176 lines) — Oversold scanner, ticker screening
+    │
+    ├── js/utils/formatters.js (109 lines) — Shared formatting: $, %, DTE, dates, delta
+    │
+    └── js/services/
+        ├── SparkChartService.js (179 lines) — Inline SVG sparkline charts
+        ├── WeeklySummaryService.js (1,361 lines) — Week Summary AI pipeline
+        └── (existing services: AccountService, AlertService, PositionsService, etc.)
+```
+
+### Module Import/Export Pattern
+All extracted modules use clean ES6 `import`/`export`:
+
+```javascript
+// In aiFunctions.js — exports specific functions
+export { analyzeDiscordTrade, runDeepDive, runTradeIdeas, ... };
+
+// In main.js — imports what it needs
+import { analyzeDiscordTrade, runDeepDive } from './aiFunctions.js';
+
+// Some functions are exposed globally for onclick handlers
+window.analyzeDiscordTrade = analyzeDiscordTrade;
+```
+
+### ⚠️ CRITICAL: Where to Add New Code
+
+| What You're Adding | Where It Goes | NOT Here |
+|-------------------|---------------|----------|
+| New AI analysis feature | `aiFunctions.js` | ~~main.js~~ |
+| AI prompt helpers, SSE | `aiHelpers.js` | ~~main.js~~ |
+| Monte Carlo / simulation | `monteCarlo.js` | ~~main.js~~ |
+| Position checkup/thesis | `positionCheckup.js` | ~~main.js~~ |
+| Strategy scoring/tiles | `strategyAdvisor.js` | ~~main.js~~ |
+| Trade staging/pending | `tradeStaging.js` | ~~main.js~~ |
+| Coaching patterns | `coach.js` | ~~main.js~~ |
+| PMCC/LEAPS calculator | `pmccCalculator.js` | ~~main.js~~ |
+| Scanner/screening | `wheelScanner.js` | ~~main.js~~ |
+| Dollar/percent formatting | `utils/formatters.js` | Inline in each file |
+| Sparkline charts | `services/SparkChartService.js` | ~~charts.js~~ |
+| Tab init, event bindings | `main.js` | Only if truly global |
+
+### Shared Formatting (formatters.js)
+
+All dollar amounts, percentages, and DTE formatting should use the shared formatters:
+
+```javascript
+import { formatDollars, formatPercent, formatDTE, formatDate, formatDelta } from './utils/formatters.js';
+
+formatDollars(1234.5);    // "$1,234.50" (always 2 decimal places)
+formatDollars(-500);       // "-$500.00"
+formatPercent(0.156);      // "15.6%"
+formatDTE(30);             // "30d"
+formatDate('2026-02-21');  // "Feb 21"
+formatDelta(-0.25);        // "-0.25Δ"
+```
+
+**⚠️ ALWAYS use `formatDollars()` for money** — never `Math.round()` or `.toFixed(0)` on dollar amounts. This was a bug that showed `$1,235` instead of `$1,234.50`.
+
+---
+
+## 📈 SparkChartService — Inline SVG Sparklines
+
+**Location**: `js/services/SparkChartService.js`
+
+### Why This Exists
+Market Internals tiles (TICK, A/D, VOL Δ, TRIN, VIX) and Futures tiles (ES, NQ, YM, RTY) needed small inline trend charts. Canvas is overkill for 50×20px charts — SVG is lighter and auto-scales.
+
+### How It Works
+1. Data arrives every 30 seconds from Schwab streaming
+2. `SparkChartService.addDataPoint(key, value)` stores in a ring buffer (60 data points = 2 hours at 2-min buckets)
+3. `SparkChartService.renderSpark(key, width, height)` returns an SVG string
+4. SVG injected into tile's `.spark-container` element
+
+### Usage
+```javascript
+import SparkChartService from './services/SparkChartService.js';
+
+// Add data point (called on each market data update)
+SparkChartService.addDataPoint('TICK', 523);
+SparkChartService.addDataPoint('ES', 5892.50);
+
+// Render sparkline (returns SVG HTML string)
+const svg = SparkChartService.renderSpark('TICK', 60, 20);
+document.querySelector('#tick-spark').innerHTML = svg;
+```
+
+### Visual Style
+- **Green area fill** for positive trend (value > start)
+- **Red area fill** for negative trend
+- **Gradient opacity** from bottom to line
+- **No axes, labels, or gridlines** — just the shape
+
+---
+
+## 🏋️ Trading Coach (coach.js)
+
+**Location**: `js/coach.js` (UI) — trading pattern analysis powered by closed position history
+
+### What It Does
+Analyzes your closed trade history to find **patterns** in your wins and losses:
+
+| Pattern Type | Example |
+|-------------|---------|
+| **Win Rate by Ticker** | "PLTR: 85% win rate (11/13 trades)" |
+| **Win Rate by Strategy** | "Short puts: 78% win rate, Covered calls: 62%" |
+| **Sweet Spots** | "Your best setup: 30-45 DTE puts on PLTR at 25-30 delta" |
+| **Danger Zones** | "⚠️ TSLA < 14 DTE: 30% win rate — avoid!" |
+| **DTE Performance** | "14-30 DTE: 82% win rate vs 0-14 DTE: 55%" |
+
+### AI Integration
+Coach insights are automatically injected into AI prompts via `promptBuilders.js`:
+```javascript
+// In AI trade analysis prompts:
+"TRADER'S PATTERN DATA:
+- Win rate on PLTR puts: 85% (11/13)
+- Danger: TSLA < 14 DTE has 30% win rate
+- Sweet spot: 30-45 DTE, 25-30 delta, PLTR/MSTX"
+```
+
+This makes the AI aware of your personal trading history when giving advice.
+
+### UI Access
+- **Portfolio tab** → "🏋️ Trading Coach" button
+- Shows patterns in a modal with categorized sections
+- Automatically refreshes when closed positions change
 
 ---
 
@@ -1033,9 +1201,52 @@ git push origin main:stable
 
 ---
 
-## 📋 Recent Features (January 2026)
+## 📋 Recent Features (January–February 2026)
 
-### v1.19.0 (Current)
+### v1.19.92 (Current)
+- **🏗️ Frontend Modularization**: `main.js` reduced from 11,600 → 3,576 lines (68% reduction!)
+  - Extracted 9 modules: `aiFunctions.js`, `aiHelpers.js`, `coach.js`, `monteCarlo.js`, `pmccCalculator.js`, `positionCheckup.js`, `strategyAdvisor.js`, `tradeStaging.js`, `wheelScanner.js`
+  - Clean ES6 `import`/`export` with `window.*` exposure for onclick handlers
+  - See "Frontend Modularization" section above for full architecture
+
+- **📊 SparkChartService**: Inline SVG sparkline charts for Market Internals & Futures tiles
+  - Ring buffer (60 data points, 2-hour window at 2-min buckets)
+  - Green/red area fills based on trend direction
+  - Used by TICK, A/D, VOL Δ, TRIN, VIX, ES, NQ, YM, RTY tiles
+
+- **🏋️ Trading Coach**: AI-powered pattern analysis from closed trade history
+  - Win rate by ticker, strategy, DTE range
+  - Sweet spot detection (best setups) and danger zone warnings
+  - Coach insights auto-injected into AI prompts via `promptBuilders.js`
+
+- **💲 Shared Formatters**: `utils/formatters.js` centralizes `$`, `%`, DTE, date, delta formatting
+  - `formatDollars()` always shows 2 decimal places (fixes `$1,235` → `$1,234.50` bug)
+  - All extracted modules import from this shared source
+
+- **📊 Week Summary Compact Redesign**: Replaced verbose AI output with compact card layout
+  - DTE urgency badges, sparkline-style risk indicators
+  - Collapsible detail sections, cleaner visual hierarchy
+
+- **🔧 Schwab Dividend Fixes**: Proper handling of dividend transactions in broker import
+  - Dividends tracked separately from option P&L
+  - Account-specific storage keys prevent cross-account data bleed
+
+- **🔄 Reconcile Modal Rewrite**: Improved position reconciliation UI
+  - Side-by-side comparison of local vs broker positions
+  - Batch resolve/skip actions
+
+- **📈 CC Modal Strike Range Fix**: Covered call modal now shows correct strike range
+  - Uses actual stock price for ITM/OTM boundary
+  - No longer shows strikes far outside practical range
+
+- **🔢 Decimal Place Fixes**: Dollar amounts throughout app now consistently use 2 decimal places
+  - P&L, premium, account balances all use `formatDollars()`
+
+- **🏷️ Button Typo & Label Fixes**: Various UI button label corrections across tabs
+
+- **🔖 Cache-Busting Unification**: All `index.html` script/CSS tags use consistent `?v=1.19.92` parameter
+
+### v1.19.0
 - **📊 Week Summary Report**: Comprehensive weekly portfolio review
   - 4-step AI pipeline with SSE progress streaming:
     1. Identify At-Risk Positions (DTE-based urgency)
@@ -1252,6 +1463,14 @@ git push origin main:stable
 12. **analysisHistory tracks AI over time** - Array of { timestamp, recommendation, snapshot }
 13. **Secrets go in secureStore** - Never store API keys in .env when Electron is available
 14. **Use `WheelHouse.bat`** - Not `start.bat` or `npm start` for normal use
+15. **Never add AI features to `main.js`** - Use extracted modules (`aiFunctions.js`, `positionCheckup.js`, `strategyAdvisor.js`, etc.)
+16. **Always use `formatDollars()` for money** - Never `Math.round()` or `.toFixed(0)` on dollar amounts (import from `utils/formatters.js`)
+17. **Use SparkChartService for sparklines** - Not `charts.js` — SVG sparklines go through `js/services/SparkChartService.js`
+18. **New backend endpoints go in `src/routes/`** - Never add logic directly to `server.js` (see Backend Architecture section)
+19. **AI prompts go in `promptBuilders.js`** - Never inline prompts in route handlers
+20. **Use AccountService for balances** - Never fetch `/api/schwab/accounts` directly or scrape DOM elements
+21. **Use PositionsService for positions** - Never access `localStorage['wheelhouse_positions']` directly
+22. **Use TradeCardService for trade cards** - Never duplicate trade card HTML or staging logic
 
 ---
 
