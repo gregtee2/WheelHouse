@@ -736,9 +736,16 @@ async function checkPositions() {
             }
 
             // Check 21 DTE management rule (close before gamma risk spikes)
+            // Grace period: skip if trade was OPENED with DTE already inside the management window
+            // (e.g., trade opened at 10 DTE should not be immediately closed by a 21 DTE rule)
             const manageDTE = TraderDB.getConfigNum('manage_dte') || 21;
             const currentDTE = calculateDTE(trade.expiry);
-            if (manageDTE > 0 && currentDTE <= manageDTE && currentDTE > 0) {
+            const entryDTE = trade.dte || 0; // DTE at time of entry
+            const wasOpenedInsideWindow = entryDTE > 0 && entryDTE <= manageDTE;
+            if (wasOpenedInsideWindow && currentDTE <= manageDTE && currentDTE > 0) {
+                log(`⏭️ DTE SKIP: ${trade.ticker} opened at ${entryDTE}d (inside ${manageDTE}d window) — grace period, not closing`);
+            }
+            if (manageDTE > 0 && currentDTE <= manageDTE && currentDTE > 0 && !wasOpenedInsideWindow) {
                 const totalPnl = pnlPerContract * trade.contracts;
                 const quote = await MarketDataService.getQuote(trade.ticker).catch(() => null);
                 const reason = pnlPercent >= 0 ? 'Profit' : 'Loss';
