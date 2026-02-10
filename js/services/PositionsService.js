@@ -371,7 +371,10 @@ class PositionsService {
             // Load open positions
             const positionsJson = localStorage.getItem(getPositionsKey());
             if (positionsJson) {
-                state.positions = JSON.parse(positionsJson).map(p => this._normalize(p));
+                // Filter out any stale _autoTrade positions that were persisted before the filter existed
+                state.positions = JSON.parse(positionsJson)
+                    .filter(p => !p._autoTrade)
+                    .map(p => this._normalize(p));
             } else {
                 state.positions = [];
             }
@@ -379,7 +382,9 @@ class PositionsService {
             // Load closed positions
             const closedJson = localStorage.getItem(getClosedKey());
             if (closedJson) {
-                state.closedPositions = JSON.parse(closedJson).map(p => this._normalize(p));
+                state.closedPositions = JSON.parse(closedJson)
+                    .filter(p => !p._autoTrade)
+                    .map(p => this._normalize(p));
             } else {
                 state.closedPositions = [];
             }
@@ -453,7 +458,9 @@ class PositionsService {
      */
     static _saveOpen() {
         try {
-            localStorage.setItem(getPositionsKey(), JSON.stringify(state.positions));
+            // Filter out auto-synced autonomous trades — they live in SQLite, not localStorage
+            const persistable = (state.positions || []).filter(p => !p._autoTrade);
+            localStorage.setItem(getPositionsKey(), JSON.stringify(persistable));
         } catch (e) {
             console.error('[PositionsService] Save error (open):', e);
         }
@@ -465,7 +472,9 @@ class PositionsService {
      */
     static _saveClosed() {
         try {
-            localStorage.setItem(getClosedKey(), JSON.stringify(state.closedPositions));
+            // Filter out auto-synced autonomous trades — they live in SQLite, not localStorage
+            const persistable = (state.closedPositions || []).filter(p => !p._autoTrade);
+            localStorage.setItem(getClosedKey(), JSON.stringify(persistable));
         } catch (e) {
             console.error('[PositionsService] Save error (closed):', e);
         }

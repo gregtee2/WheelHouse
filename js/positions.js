@@ -4184,13 +4184,29 @@ function renderPositionsTable(container, openPositions) {
                     // P/L Day column - today's change in option value
                     // For SHORT positions: option price going DOWN = profit, so negate the change
                     // For LONG positions: option price going UP = profit, so keep the change
-                    const dayChange = pos.dayChange || 0;
+                    let dayChange = pos.dayChange || 0;
+                    
+                    // For positions opened today, P/L Day = P/L Open
+                    // Because entry price IS today's open, so all movement is today's movement
+                    // CBOE's netChange measures from yesterday's close, which is wrong for same-day trades
+                    const today = new Date().toISOString().split('T')[0];
+                    const isOpenedToday = pos.openDate && (pos.openDate === today || pos.openDate.startsWith(today));
+                    
+                    if (isOpenedToday && currentOptionPrice !== null && pos.premium > 0) {
+                        // Same-day trade: P/L Day = P/L Open (entry = today's price)
+                        dayChange = currentOptionPrice - pos.premium;
+                    } else if (!pos.dayChange && currentOptionPrice !== null && pos.premium > 0) {
+                        // No dayChange from CBOE/streaming at all: best-effort from CBOE price vs entry
+                        dayChange = currentOptionPrice - pos.premium;
+                    }
+                    
                     const pnlDay = isLongPosition ? (dayChange * 100 * pos.contracts) : (-dayChange * 100 * pos.contracts);
                     const pnlDayColor = pnlDay >= 0 ? '#00ff88' : '#ff5252';
-                    if (dayChange === 0 && !pos.priceUpdatedAt) {
+                    if (!pos.dayChange && !isOpenedToday && currentOptionPrice === null) {
                         return `<td data-col="pl-day" style="padding: 6px; text-align: right; font-size: 11px;"><span style="color:#666">—</span></td>`;
                     }
-                    return `<td data-col="pl-day" style="padding: 6px; text-align: right; font-size: 11px;" title="Option day change: ${dayChange >= 0 ? '+' : ''}$${dayChange.toFixed(2)}/share">
+                    const sourceLabel = isOpenedToday ? ' (same-day)' : (!pos.dayChange ? ' (est.)' : '');
+                    return `<td data-col="pl-day" style="padding: 6px; text-align: right; font-size: 11px;" title="Option day change: ${dayChange >= 0 ? '+' : ''}$${dayChange.toFixed(2)}/share${sourceLabel}">
                         <span style="color:${pnlDayColor}">${pnlDay >= 0 ? '+' : ''}$${pnlDay.toFixed(2)}</span>
                     </td>`;
                 })()}
@@ -5413,23 +5429,29 @@ function buildLeverageGauge(capitalAtRisk, simulatedCapitalAtRisk, isWhatIfMode)
     let accountValue = 0;
     let buyingPower = 0;
     
-    // Try to get from AccountService (imported module)
-    if (window.AccountService) {
-        accountValue = window.AccountService.getAccountValue() || 0;
-        buyingPower = window.AccountService.getBuyingPower() || 0;
-    }
-    
-    // Fallback: try to parse from DOM (Portfolio tab elements)
-    if (!accountValue) {
-        const valEl = document.getElementById('balAccountValue');
-        if (valEl && valEl.textContent && valEl.textContent !== '—') {
-            accountValue = parseFloat(valEl.textContent.replace(/[$,]/g, '')) || 0;
+    // In Paper mode, use paper account balance — NOT real Schwab account
+    if (window.state?.accountMode === 'paper') {
+        accountValue = window.state.paperAccountBalance || 100000;
+        buyingPower = accountValue;
+    } else {
+        // Try to get from AccountService (imported module)
+        if (window.AccountService) {
+            accountValue = window.AccountService.getAccountValue() || 0;
+            buyingPower = window.AccountService.getBuyingPower() || 0;
         }
-    }
-    if (!buyingPower) {
-        const bpEl = document.getElementById('balBuyingPower');
-        if (bpEl && bpEl.textContent && bpEl.textContent !== '—') {
-            buyingPower = parseFloat(bpEl.textContent.replace(/[$,]/g, '')) || 0;
+        
+        // Fallback: try to parse from DOM (Portfolio tab elements)
+        if (!accountValue) {
+            const valEl = document.getElementById('balAccountValue');
+            if (valEl && valEl.textContent && valEl.textContent !== '—') {
+                accountValue = parseFloat(valEl.textContent.replace(/[$,]/g, '')) || 0;
+            }
+        }
+        if (!buyingPower) {
+            const bpEl = document.getElementById('balBuyingPower');
+            if (bpEl && bpEl.textContent && bpEl.textContent !== '—') {
+                buyingPower = parseFloat(bpEl.textContent.replace(/[$,]/g, '')) || 0;
+            }
         }
     }
     

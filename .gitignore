@@ -36,3 +36,6 @@ dist/
 # Secure credential storage
 .secure-store
 server_output.txt
+
+# Autonomous trader database (contains trade data)
+data/

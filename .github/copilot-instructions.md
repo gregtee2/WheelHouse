@@ -4,7 +4,7 @@
 
 **WheelHouse** is a Wheel Strategy Options Analyzer & Position Tracker built with vanilla JavaScript (ES6 modules) and Node.js. It provides Monte Carlo-based options pricing, real-time CBOE quotes, position tracking, and portfolio analytics.
 
-**Version**: 1.19.92  
+**Version**: 1.20.0  
 **Repository**: https://github.com/gregtee2/WheelHouse  
 **Branches**: `main` (development), `stable` (releases)
 
@@ -41,6 +41,7 @@ WheelHouse/
 │   ├── routes/         # API route handlers
 │   │   ├── settingsRoutes.js  # Settings API
 │   │   ├── schwabRoutes.js    # Schwab broker API
+│   │   ├── autonomousRoutes.js # Autonomous trader REST API
 │   │   └── wisdomRoutes.js    # Trading wisdom RAG API
 │   ├── utils/          # Utility modules
 │   │   ├── dateHelpers.js     # Date formatting utilities
@@ -52,7 +53,9 @@ WheelHouse/
 │       ├── WisdomService.js   # Trading wisdom + embeddings
 │       ├── promptBuilders.js  # AI prompt templates (~1100 lines)
 │       ├── DataService.js     # Market data fetching
-│       └── MarketDataService.js # Schwab→CBOE→Yahoo fallback
+│       ├── MarketDataService.js # Schwab→CBOE→Yahoo fallback
+│       ├── AutonomousTraderService.js # 🤖 Autonomous AI trading engine
+│       └── TraderDatabase.js  # SQLite database for auto trades
 ├── css/
 │   └── styles.css      # Dark theme styling
 └── js/
@@ -82,6 +85,7 @@ WheelHouse/
     ├── strategyAdvisor.js  # Multi-strategy analysis, alternative tile rendering (974 lines)
     ├── tradeStaging.js     # Pending trades management, staging flow (2,365 lines)
     ├── wheelScanner.js     # Oversold scanner, ticker screening (176 lines)
+    ├── autonomousTrader.js # 🤖 Auto trader dashboard UI + position sync (908 lines)
     │
     ├── utils/
     │   └── formatters.js   # Shared formatting: $, %, DTE, dates, delta (109 lines)
@@ -1203,7 +1207,42 @@ git push origin main:stable
 
 ## 📋 Recent Features (January–February 2026)
 
-### v1.19.92 (Current)
+### v1.20.0 (Current)
+- **🤖 Autonomous AI Trader**: Full 5-phase autonomous paper trading system
+  - **Phase 1**: Grok-4 scans X/Twitter for market sentiment and breaking news
+  - **Phase 2**: DeepSeek-R1:70b analyzes 40+ candidates, selects up to 5 trades
+  - **Phase 3**: Executes trades with live CBOE pricing validation
+  - **Phase 4**: End-of-day review, closes expired positions
+  - **Phase 5**: AI self-reflection, writes learned rules for future use
+  - **Real-time Monitor**: 30-second checks during market hours (stop-loss + profit target)
+  - **SQLite Database**: `data/autonomous-trader.db` stores trades, scans, rules, reflections
+  - **Paper Trading Only**: $100K paper balance, completely isolated from real accounts
+  - See "Autonomous AI Trader" section below for full architecture
+
+- **🛡️ Capital Preservation System**: Multi-layer margin protection
+  - `max_margin_pct` config (default 70%) — hard cap on total portfolio margin
+  - Per-trade margin check — each new trade tested against remaining capacity
+  - AI prompt awareness — DeepSeek sees current margin utilization, prefers smaller trades when high
+  - Real-time margin warning — logs when approaching 90% of cap
+  - Margin gauge card in Auto tab UI with color-coded bar
+
+- **🏢 Sector Diversification**: Prevents correlated blowups
+  - `SECTOR_MAP` maps ~60 tickers to 7 sectors (Tech, Finance, Energy, Consumer, Healthcare, ETF, High IV)
+  - `max_per_sector` config (default 2) — hard enforcement in Phase 3
+  - AI prompt requires picks from at least 3 different sectors
+  - `sector` column in trades table, displayed in UI
+
+- **📊 Credit Spread Preference**: AI defaults to defined-risk strategies
+  - Prompt mandates at least 3 of 5 picks be credit spreads
+  - Naked puts require justification ("explain WHY the premium is worth the extra risk")
+  - Example trade in prompt shows spread format, not naked put
+
+- **📈 P/L Day Fix**: Schwab streaming now sends NET_CHANGE for options
+  - Python streamer (`streamer.py`) was missing `NET_CHANGE`, `NET_CHANGE_PERCENT`, `CLOSE_PRICE` for options
+  - `StreamingService.js` now reads `quote.netChange` to set `pos.dayChange`
+  - Same-day trade detection: P/L Day = P/L Open for trades opened today
+
+### v1.19.92
 - **🏗️ Frontend Modularization**: `main.js` reduced from 11,600 → 3,576 lines (68% reduction!)
   - Extracted 9 modules: `aiFunctions.js`, `aiHelpers.js`, `coach.js`, `monteCarlo.js`, `pmccCalculator.js`, `positionCheckup.js`, `strategyAdvisor.js`, `tradeStaging.js`, `wheelScanner.js`
   - Clean ES6 `import`/`export` with `window.*` exposure for onclick handlers
@@ -1471,6 +1510,12 @@ git push origin main:stable
 20. **Use AccountService for balances** - Never fetch `/api/schwab/accounts` directly or scrape DOM elements
 21. **Use PositionsService for positions** - Never access `localStorage['wheelhouse_positions']` directly
 22. **Use TradeCardService for trade cards** - Never duplicate trade card HTML or staging logic
+23. **Auto trades use SQLite** - `data/autonomous-trader.db` via `TraderDatabase.js`, NOT localStorage
+24. **Auto trades sync to paper account only** - `syncAutoTradesToPositions()` filters by `state.accountMode === 'paper'`
+25. **Auto trade positions have `_autoTrade: true` marker** - Filter with `p._autoTrade` to identify them
+26. **SECTOR_MAP is lazy-loaded** - `ensureSectorMap()` must be called before accessing it (DiscoveryService isn't available at module load)
+27. **Margin cap enforcement** - `calculatePortfolioMargin()` checks total committed margin; Phase 3 skips trades that would exceed `max_margin_pct`
+28. **Prefer credit spreads over naked puts** - AI prompt mandates at least 3 of 5 picks be credit spreads for capital preservation
 
 ---
 

@@ -17,9 +17,11 @@ const MODEL_MAP = {
     '7b': 'qwen2.5:7b',
     '14b': 'qwen2.5:14b', 
     '32b': 'deepseek-r1:32b',
+    '70b': 'deepseek-r1:70b',
     'deepseek': 'deepseek-r1:32b',
     'deepseek-r1': 'deepseek-r1:32b',
     'deepseek-r1:32b': 'deepseek-r1:32b',
+    'deepseek-r1:70b': 'deepseek-r1:70b',
     'qwen2.5:7b': 'qwen2.5:7b',
     'qwen2.5:14b': 'qwen2.5:14b',
     'llama3.1:8b': 'llama3.1:8b',
@@ -437,7 +439,11 @@ function extractFormattedAnswer(text) {
         '## 🏆 RECOMMENDED',
         '### THE TRADE',
         '🏆 RECOMMENDED:',
-        '**RECOMMENDED:**'
+        '**RECOMMENDED:**',
+        '===TRADE_1===',
+        '===TRADE_',
+        '===REVIEW===',
+        '===MARKET_MOOD==='
     ];
     
     for (const marker of markers) {

@@ -2608,6 +2608,9 @@ function setupTabs() {
                         window.restoreSavedIdeas?.();
                     }
                 }
+            } else if (targetId === 'autonomous') {
+                // Autonomous Trader tab - refresh dashboard
+                window.refreshAutoTraderDashboard?.();
             }
         });
     });

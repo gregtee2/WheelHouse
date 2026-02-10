@@ -166,6 +166,9 @@ async def handle_option_quote(msg):
                 'timeValue': item.get('TIME_VALUE'),
                 'theoreticalValue': item.get('THEORETICAL_OPTION_VALUE'),
                 'mark': item.get('MARK'),
+                'close': item.get('CLOSE_PRICE'),
+                'netChange': item.get('NET_CHANGE'),
+                'netChangePercent': item.get('NET_CHANGE_PERCENT'),
                 'quoteTime': item.get('QUOTE_TIME_MILLIS'),
                 'tradeTime': item.get('TRADE_TIME_MILLIS'),
             }

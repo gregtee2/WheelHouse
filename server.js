@@ -32,6 +32,7 @@ const scannerRoutes = require('./src/routes/scannerRoutes');
 const streamingRoutes = require('./src/routes/streamingRoutes');
 const summaryRoutes = require('./src/routes/summaryRoutes');
 const coachingRoutes = require('./src/routes/coachingRoutes');
+const autonomousRoutes = require('./src/routes/autonomousRoutes');
 
 // ============================================================================
 // UTILITY MODULES (extracted for modularity)
@@ -50,6 +51,8 @@ const promptBuilders = require('./src/services/promptBuilders');
 const DataService = require('./src/services/DataService');
 const TechnicalService = require('./src/services/TechnicalService');
 const CoachingService = require('./src/services/CoachingService');
+const AutonomousTraderService = require('./src/services/AutonomousTraderService');
+const TraderDatabase = require('./src/services/TraderDatabase');
 
 // Destructure AI functions for backward compatibility (used throughout server.js)
 const { callAI, callGrok, callOllama, callMoE } = AIService;
@@ -174,6 +177,10 @@ app.use('/api/summary', summaryRoutes);
 coachingRoutes.init({ CoachingService });
 app.use('/api/coaching', coachingRoutes);
 
+// Initialize and mount Autonomous Trader routes
+autonomousRoutes.init({ AutonomousTrader: AutonomousTraderService, TraderDB: TraderDatabase });
+app.use('/api/autonomous', autonomousRoutes);
+
 
 // Main request handler (converted to Express middleware)
 // Now only handles static file serving - all API routes moved to route modules
@@ -262,6 +269,16 @@ const io = new SocketIOServer(server, {
 
 // Initialize streaming routes with Socket.IO
 streamingRoutes.init({ app, socketIO: io });
+
+// Initialize Autonomous Trader (after Socket.IO is ready)
+AutonomousTraderService.init({
+    AIService,
+    MarketDataService,
+    DataService,
+    DiscoveryService,
+    promptBuilders,
+    socketIO: io
+});
 
 // Handle uncaught exceptions to prevent server crash
 process.on('uncaughtException', (err) => {

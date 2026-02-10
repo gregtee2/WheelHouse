@@ -20,7 +20,7 @@
             "api": "./js/api.js?v=1.19.92",
             "pricing": "./js/pricing.js?v=1.19.92",
             "simulation": "./js/simulation.js?v=1.19.92",
-            "positions": "./js/positions.js?v=1.19.92",
+            "positions": "./js/positions.js?v=1.19.94",
             "portfolio": "./js/portfolio.js?v=1.19.92",
             "analysis": "./js/analysis.js?v=1.19.92",
             "challenges": "./js/challenges.js?v=1.19.92",
@@ -31,8 +31,8 @@
             "theme": "./js/theme.js?v=1.19.92",
             "formatters": "./js/utils/formatters.js?v=1.19.92",
             "AccountService": "./js/services/AccountService.js?v=1.19.92",
-            "PositionsService": "./js/services/PositionsService.js?v=1.19.92",
-            "StreamingService": "./js/services/StreamingService.js?v=1.19.92",
+            "PositionsService": "./js/services/PositionsService.js?v=1.19.93",
+            "StreamingService": "./js/services/StreamingService.js?v=1.19.94",
             "TradeCardService": "./js/services/TradeCardService.js?v=1.19.92",
             "WeeklySummaryService": "./js/services/WeeklySummaryService.js?v=1.19.92",
             "AlertService": "./js/services/AlertService.js?v=1.19.92",
@@ -96,6 +96,7 @@
                     <button class="tab-btn" data-tab="pnl" title="Roll calculator and trade analysis">💰 P&L</button>
                     <button class="tab-btn active" data-tab="positions" title="Open positions with live pricing">📋 Positions</button>
                     <button class="tab-btn" data-tab="portfolio" title="Closed trades, P&L history, and analytics">💼 Portfolio</button>
+                    <button class="tab-btn" data-tab="autonomous" title="Autonomous AI Trader - DeepSeek R1 + Grok powered">🤖 Auto</button>
                     <button class="tab-btn" data-tab="challenges" title="Trading challenges and goals">🏆</button>
                     <button class="tab-btn" data-tab="settings" title="API keys, broker integration, and preferences">⚙️ Settings</button>
                     
@@ -1697,6 +1698,159 @@ Examples:
             </div>
         </div>
 
+        <!-- AUTONOMOUS TRADER TAB -->
+        <div class="tab-content" id="autonomous">
+            <!-- Top Controls Bar -->
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
+                <div style="display:flex; align-items:center; gap:15px;">
+                    <h2 style="color:var(--accent-cyan); margin:0;">🤖 Autonomous Trader</h2>
+                    <span id="autoTraderStatusBadge" style="font-size:12px; padding:4px 10px; border-radius:12px; background:rgba(255,82,82,0.2); color:#ff5252; border:1px solid rgba(255,82,82,0.4);">● DISABLED</span>
+                    <span id="autoTraderPhaseBadge" style="font-size:11px; color:#888;">Phase: Idle</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <button id="autoTraderToggleBtn" onclick="window.toggleAutonomousTrader()" class="btn-action" style="background:rgba(0,255,136,0.15); border:1px solid rgba(0,255,136,0.4); color:#00ff88; padding:8px 16px; border-radius:8px; cursor:pointer; font-size:13px;">▶ Enable Trader</button>
+                    <button id="autoTraderRunPhaseBtn" onclick="window.showRunPhaseMenu()" class="btn-action" style="background:rgba(0,217,255,0.15); border:1px solid rgba(0,217,255,0.4); color:#00d9ff; padding:8px 16px; border-radius:8px; cursor:pointer; font-size:13px;">⚡ Run Phase</button>
+                    <button onclick="window.showAutoTraderConfig()" class="btn-action" style="background:rgba(100,100,100,0.2); border:1px solid rgba(100,100,100,0.4); color:#aaa; padding:8px 16px; border-radius:8px; cursor:pointer; font-size:13px;">⚙️ Config</button>
+                    <button id="autoTraderKillSwitch" onclick="window.killSwitchAutonomous()" class="btn-action" style="background:rgba(255,0,0,0.15); border:1px solid rgba(255,0,0,0.4); color:#ff5252; padding:8px 16px; border-radius:8px; cursor:pointer; font-size:13px;">🛑 Kill Switch</button>
+                </div>
+            </div>
+
+            <!-- Performance Dashboard Row -->
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:20px;" id="autoPerfCards">
+                <div class="auto-perf-card">
+                    <div class="auto-perf-label">Paper Balance</div>
+                    <div class="auto-perf-value" id="autoPaperBalance">$100,000</div>
+                </div>
+                <div class="auto-perf-card">
+                    <div class="auto-perf-label">Total P&L</div>
+                    <div class="auto-perf-value" id="autoTotalPnl">$0.00</div>
+                </div>
+                <div class="auto-perf-card">
+                    <div class="auto-perf-label">Win Rate</div>
+                    <div class="auto-perf-value" id="autoWinRate">—</div>
+                </div>
+                <div class="auto-perf-card">
+                    <div class="auto-perf-label">Total Trades</div>
+                    <div class="auto-perf-value" id="autoTotalTrades">0</div>
+                </div>
+                <div class="auto-perf-card">
+                    <div class="auto-perf-label">Open Positions</div>
+                    <div class="auto-perf-value" id="autoOpenCount">0 / 5</div>
+                </div>
+                <div class="auto-perf-card">
+                    <div class="auto-perf-label">Avg P&L / Trade</div>
+                    <div class="auto-perf-value" id="autoAvgPnl">—</div>
+                </div>
+                <div class="auto-perf-card">
+                    <div class="auto-perf-label">Best Trade</div>
+                    <div class="auto-perf-value" id="autoBestTrade">—</div>
+                </div>
+                <div class="auto-perf-card">
+                    <div class="auto-perf-label">Worst Trade</div>
+                    <div class="auto-perf-value" id="autoWorstTrade">—</div>
+                </div>
+                <div class="auto-perf-card" id="autoMarginCard" style="border-color:rgba(0,217,255,0.3);">
+                    <div class="auto-perf-label">🛡️ Margin Used</div>
+                    <div class="auto-perf-value" id="autoMarginPct">0%</div>
+                    <div style="margin-top:4px; height:4px; background:#222; border-radius:2px; overflow:hidden;">
+                        <div id="autoMarginBar" style="height:100%; width:0%; background:#00ff88; border-radius:2px; transition:width 0.5s, background 0.5s;"></div>
+                    </div>
+                    <div style="font-size:9px; color:#555; margin-top:3px;" id="autoMarginDetail">$0 / $70,000</div>
+                </div>
+            </div>
+
+            <!-- Two-Column Layout: Positions + Activity -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px;">
+                <!-- Open Positions Panel -->
+                <div style="background:#1a1a2e; border-radius:12px; padding:16px; border:1px solid #333;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h3 style="color:#00ff88; margin:0; font-size:15px;">📊 Open Positions</h3>
+                        <span id="autoOpenPnlTotal" style="font-size:13px; color:#888;">Unrealized: $0</span>
+                    </div>
+                    <div id="autoPositionsContainer" style="max-height:350px; overflow-y:auto;">
+                        <div style="color:#555; text-align:center; padding:40px 0; font-size:13px;">
+                            No open positions. Enable trader to begin.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Activity Log Panel -->
+                <div style="background:#1a1a2e; border-radius:12px; padding:16px; border:1px solid #333;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h3 style="color:#00d9ff; margin:0; font-size:15px;">📝 Activity Log</h3>
+                        <button onclick="window.clearAutoLog()" style="background:none; border:1px solid #444; color:#888; padding:3px 8px; border-radius:4px; cursor:pointer; font-size:11px;">Clear</button>
+                    </div>
+                    <div id="autoActivityLog" style="max-height:350px; overflow-y:auto; font-family:monospace; font-size:12px;">
+                        <div style="color:#555; text-align:center; padding:40px 0;">
+                            Activity will appear here when trader is running.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Equity Curve Chart -->
+            <div style="background:#1a1a2e; border-radius:12px; padding:16px; border:1px solid #333; margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <h3 style="color:#ffaa00; margin:0; font-size:15px;">📈 Equity Curve</h3>
+                    <div style="display:flex; gap:8px;">
+                        <button onclick="window.refreshEquityCurve()" style="background:none; border:1px solid #444; color:#888; padding:3px 8px; border-radius:4px; cursor:pointer; font-size:11px;">🔄 Refresh</button>
+                    </div>
+                </div>
+                <canvas id="autoEquityCanvas" width="900" height="250" style="width:100%; max-height:250px; border-radius:8px;"></canvas>
+            </div>
+
+            <!-- Three-Column Bottom: Journal + Rules + Market Scans -->
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; margin-bottom:20px;">
+                <!-- Trade Journal -->
+                <div style="background:#1a1a2e; border-radius:12px; padding:16px; border:1px solid #333;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h3 style="color:#bb86fc; margin:0; font-size:15px;">📖 Trade Journal</h3>
+                        <select id="autoJournalFilter" onchange="window.filterAutoJournal(this.value)" style="background:#0d0d1a; color:#aaa; border:1px solid #444; padding:3px 6px; border-radius:4px; font-size:11px;">
+                            <option value="all">All</option>
+                            <option value="win">Wins</option>
+                            <option value="loss">Losses</option>
+                        </select>
+                    </div>
+                    <div id="autoJournalContainer" style="max-height:300px; overflow-y:auto;">
+                        <div style="color:#555; text-align:center; padding:30px 0; font-size:12px;">No closed trades yet.</div>
+                    </div>
+                </div>
+
+                <!-- Learned Rules -->
+                <div style="background:#1a1a2e; border-radius:12px; padding:16px; border:1px solid #333;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h3 style="color:#ff9800; margin:0; font-size:15px;">🧠 Learned Rules</h3>
+                        <span id="autoRulesCount" style="color:#888; font-size:11px;">0 rules</span>
+                    </div>
+                    <div id="autoRulesContainer" style="max-height:300px; overflow-y:auto;">
+                        <div style="color:#555; text-align:center; padding:30px 0; font-size:12px;">AI will learn rules from trades.</div>
+                    </div>
+                </div>
+
+                <!-- Market Scans -->
+                <div style="background:#1a1a2e; border-radius:12px; padding:16px; border:1px solid #333;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h3 style="color:#4fc3f7; margin:0; font-size:15px;">🌐 Market Scans</h3>
+                        <span id="autoLastScan" style="color:#888; font-size:11px;">Last: Never</span>
+                    </div>
+                    <div id="autoScansContainer" style="max-height:300px; overflow-y:auto;">
+                        <div style="color:#555; text-align:center; padding:30px 0; font-size:12px;">Grok scans market daily at 6 AM.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Daily Summaries (Collapsible) -->
+            <div style="background:#1a1a2e; border-radius:12px; padding:16px; border:1px solid #333; margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="document.getElementById('autoDailySummaries').style.display = document.getElementById('autoDailySummaries').style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-icon').textContent = document.getElementById('autoDailySummaries').style.display === 'none' ? '▶' : '▼';">
+                    <h3 style="color:#ce93d8; margin:0; font-size:15px;">📅 Daily Summaries</h3>
+                    <span class="toggle-icon" style="color:#888;">▶</span>
+                </div>
+                <div id="autoDailySummaries" style="display:none; margin-top:12px; max-height:400px; overflow-y:auto;">
+                    <div style="color:#555; text-align:center; padding:30px 0; font-size:12px;">Daily reflections will appear after trading days.</div>
+                </div>
+            </div>
+        </div>
+
         <!-- SETTINGS TAB -->
         <div class="tab-content" id="settings">
             <div style="max-width:800px; margin:0 auto;">
@@ -1963,6 +2117,9 @@ Examples:
     
     <!-- Services (before ES6 modules) -->
     <script src="js/services/WeeklySummaryService.js?v=1.19.92"></script>
+    
+    <!-- Autonomous Trader Frontend -->
+    <script src="js/autonomousTrader.js?v=1.19.93"></script>
     
     <!-- ES6 Module Entry Point -->
     <script type="module" src="js/main.js?v=1.19.92"></script>

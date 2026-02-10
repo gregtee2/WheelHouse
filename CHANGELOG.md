@@ -3,6 +3,53 @@
 All notable changes to WheelHouse will be documented in this file.
 
 
+## [1.20.0] - 2026-02-08
+
+### Added
+- **🤖 Autonomous AI Trader** - Full 5-phase autonomous paper trading system
+  - **Phase 1**: Grok-4 scans X/Twitter for market sentiment and breaking news
+  - **Phase 2**: DeepSeek-R1:70b analyzes 40+ candidates, selects up to 5 trades per day
+  - **Phase 3**: Executes trades with live CBOE pricing validation
+  - **Phase 4**: End-of-day review, closes expired positions automatically
+  - **Phase 5**: AI self-reflection, writes learned rules for future improvement
+  - **Real-time Monitor**: 30-second checks during market hours (stop-loss + profit target)
+  - **SQLite Database**: Persistent storage for trades, scans, AI rules, and reflections
+  - **Paper Trading Only**: $100K paper balance, completely isolated from real accounts
+  - **Auto tab UI**: Full dashboard with performance cards, trade log, and controls
+
+- **🛡️ Capital Preservation System** - Multi-layer margin protection
+  - `max_margin_pct` config (default 70%) — hard cap on total portfolio margin
+  - Per-trade margin check — each new trade tested against remaining capacity
+  - AI prompt awareness — DeepSeek sees current margin utilization
+  - Real-time margin warning — logs when approaching 90% of cap
+  - Margin gauge card in Auto tab UI with color-coded bar
+
+- **🏢 Sector Diversification** - Prevents correlated blowups
+  - SECTOR_MAP maps ~60 tickers to 7 sectors (Tech, Finance, Energy, Consumer, Healthcare, ETF, High IV)
+  - `max_per_sector` config (default 2) — hard enforcement in Phase 3
+  - AI prompt requires picks from at least 3 different sectors
+
+- **📊 Credit Spread Preference** - AI defaults to defined-risk strategies
+  - Prompt mandates at least 3 of 5 picks be credit spreads
+  - Naked puts require justification from AI
+  - Example trade in prompt shows spread format
+
+### Fixed
+- **📈 P/L Day Column** - Schwab streaming now sends NET_CHANGE for options
+  - Python streamer was missing NET_CHANGE, NET_CHANGE_PERCENT, CLOSE_PRICE for options
+  - StreamingService.js now reads netChange to set pos.dayChange
+- **SECTOR_MAP Crash** - Fixed lazy initialization for DiscoveryService dependency
+  - SECTOR_MAP was built at module load time before DiscoveryService was injected
+  - Changed to lazy initialization via `ensureSectorMap()` function
+
+### Technical
+- New files: `AutonomousTraderService.js`, `TraderDatabase.js`, `autonomousRoutes.js`, `autonomousTrader.js`
+- SQLite database at `data/autonomous-trader.db` (added to .gitignore)
+- `calculatePortfolioMargin()` helper: computes margin across all open auto trades
+- Auto trade positions synced to paper account with `_autoTrade: true` marker
+
+---
+
 ## [1.19.68] - 2026-02-04
 
 ### Fixed

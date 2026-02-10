@@ -186,6 +186,11 @@ function handleStreamerMessage(message) {
                     serverTimestamp: timestamp
                 });
             }
+            // Feed to Autonomous Trader for real-time monitoring
+            try {
+                const AutonomousTrader = require('../services/AutonomousTraderService');
+                AutonomousTrader.onStreamingQuote('option', data);
+            } catch (e) { /* not initialized yet */ }
             break;
             
         case 'equity_quote':
@@ -195,6 +200,11 @@ function handleStreamerMessage(message) {
                     serverTimestamp: timestamp
                 });
             }
+            // Feed to Autonomous Trader for real-time monitoring
+            try {
+                const AutonomousTrader = require('../services/AutonomousTraderService');
+                AutonomousTrader.onStreamingQuote('equity', data);
+            } catch (e) { /* not initialized yet */ }
             break;
             
         case 'futures_quote':

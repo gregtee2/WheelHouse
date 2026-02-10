@@ -236,6 +236,11 @@ class StreamingServiceClass {
                 if (quote.delta !== undefined) pos.delta = quote.delta;
                 if (quote.theta !== undefined) pos.theta = quote.theta;
                 
+                // Update dayChange from Schwab streaming (real-time net change from previous close)
+                if (quote.netChange !== undefined) {
+                    pos.dayChange = quote.netChange;
+                }
+                
                 // Update P/L cells (calculated from lastOptionPrice)
                 this._updatePLCells(row, pos, oldPrice, midPrice);
             }
@@ -332,6 +337,23 @@ class StreamingServiceClass {
                 void pctCell.offsetWidth;
                 pctCell.classList.add(newPrice < oldPrice ? 'flash-green' : 'flash-red'); // Short positions profit when price goes down
             }
+        }
+        
+        // P/L Day is at thetaIndex + 2
+        const dayCell = cells[thetaIndex + 2];
+        if (dayCell) {
+            let dayChange = pos.dayChange || 0;
+            
+            // For positions opened today, P/L Day = P/L Open (entry IS today's price)
+            const today = new Date().toISOString().split('T')[0];
+            const isOpenedToday = pos.openDate && (pos.openDate === today || pos.openDate.startsWith(today));
+            if (isOpenedToday && pos.premium > 0) {
+                dayChange = newPrice - pos.premium;
+            }
+            
+            const pnlDay = isLong ? (dayChange * 100 * pos.contracts) : (-dayChange * 100 * pos.contracts);
+            const dayColor = pnlDay >= 0 ? '#00ff88' : '#ff5252';
+            dayCell.innerHTML = `<span style="color:${dayColor}">${pnlDay >= 0 ? '+' : ''}$${pnlDay.toFixed(2)}</span>`;
         }
         
         // P/L Open is at thetaIndex + 3

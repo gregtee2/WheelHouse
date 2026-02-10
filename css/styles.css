@@ -1049,3 +1049,51 @@ body.resizing-columns {
 .spark-chart svg {
     display: block;
 }
+
+/* ─── Autonomous Trader Tab ───────────────────────────────────────── */
+
+.auto-perf-card {
+    background: #1a1a2e;
+    border-radius: 10px;
+    padding: 14px 16px;
+    border: 1px solid #333;
+    text-align: center;
+    transition: border-color 0.2s;
+}
+.auto-perf-card:hover {
+    border-color: #555;
+}
+.auto-perf-label {
+    color: #888;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+.auto-perf-value {
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    font-family: 'Segoe UI', monospace;
+}
+
+.auto-position-row {
+    background: #0d0d1a;
+    border: 1px solid #222;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    transition: border-color 0.2s;
+}
+.auto-position-row:hover {
+    border-color: #00d9ff44;
+}
+
+#autoActivityLog > div {
+    transition: opacity 0.3s;
+}
+
+#autoEquityCanvas {
+    background: #0d0d1a;
+    border-radius: 8px;
+}
