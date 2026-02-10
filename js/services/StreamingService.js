@@ -95,6 +95,7 @@ class StreamingServiceClass {
         });
         
         // Option quote updates (the good stuff!)
+        this._optionQuoteCount = 0;
         this.socket.on('option-quote', (data) => {
             // MERGE with cached quote (Schwab sends incremental field updates,
             // e.g. only bid changes — we need to keep the last known ask/mark/last
@@ -103,6 +104,14 @@ class StreamingServiceClass {
             const merged = { ...existing, ...data };
             this.optionQuotes.set(data.symbol, merged);
             this._emit('option-quote', merged);
+            
+            // Diagnostic: log every 10th quote + always log the first few
+            this._optionQuoteCount++;
+            if (this._optionQuoteCount <= 5 || this._optionQuoteCount % 50 === 0) {
+                const mid = (merged.bid !== undefined && merged.ask !== undefined)
+                    ? ((merged.bid + merged.ask) / 2).toFixed(3) : 'N/A';
+                console.log(`[OPTION-QUOTE #${this._optionQuoteCount}] ${data.symbol} bid=${merged.bid} ask=${merged.ask} mid=${mid} mark=${merged.mark} last=${merged.last} netChg=${merged.netChange}`);
+            }
             
             // Queue DOM update with the full merged quote
             this.queueDOMUpdate('option', merged);
@@ -220,7 +229,15 @@ class StreamingServiceClass {
     updatePositionRow(quote) {
         // Find row by OCC symbol data attribute
         const row = document.querySelector(`tr[data-occ-symbol="${quote.symbol}"]`);
-        if (!row) return;
+        if (!row) {
+            // Log once per symbol to help diagnose OCC mismatch issues
+            if (!this._missingRowWarned) this._missingRowWarned = new Set();
+            if (!this._missingRowWarned.has(quote.symbol)) {
+                this._missingRowWarned.add(quote.symbol);
+                console.warn(`[STREAMING] No table row found for OCC symbol: "${quote.symbol}" — check data-occ-symbol attributes`);
+            }
+            return;
+        }
         
         const positionId = row.dataset.positionId;
         
@@ -767,6 +784,39 @@ class StreamingServiceClass {
         };
     }
     
+    /**
+     * Replay all cached quotes to the current DOM.
+     * Call this AFTER renderPositions() rebuilds the positions table,
+     * so the latest streaming data is immediately applied to new DOM elements.
+     * Without this, the rebuilt table shows stale values from state until
+     * the next streaming quote arrives (which may be infrequent for illiquid options).
+     */
+    replayQuotes() {
+        if (this.optionQuotes.size === 0 && this.equityQuotes.size === 0) return;
+        
+        let optionReplayed = 0;
+        let equityReplayed = 0;
+        
+        // Replay all cached option quotes
+        for (const [symbol, quote] of this.optionQuotes) {
+            const row = document.querySelector(`tr[data-occ-symbol="${symbol}"]`);
+            if (row) {
+                this.updatePositionRow(quote);
+                optionReplayed++;
+            }
+        }
+        
+        // Replay all cached equity quotes
+        for (const [ticker, quote] of this.equityQuotes) {
+            this.updateSpotPrice(quote);
+            equityReplayed++;
+        }
+        
+        if (optionReplayed > 0 || equityReplayed > 0) {
+            console.log(`[STREAMING] Replayed ${optionReplayed} option + ${equityReplayed} equity quotes after table re-render`);
+        }
+    }
+
     /**
      * Force fetch status from server
      */

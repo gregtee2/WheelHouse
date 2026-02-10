@@ -921,6 +921,7 @@ window.refreshAllPositionPrices = refreshAllPositionPrices;
 // ============================================================
 
 let autoRefreshPricesInterval = null;
+let streamingSkipCount = 0;  // Counter for REST catch-up cycles during streaming
 let lastPriceRefreshTime = null;
 const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
 
@@ -962,14 +963,20 @@ function startAutoRefreshPrices() {
             return;
         }
         
-        // Skip polling if streaming is connected (streaming updates cells directly)
+        // When streaming is connected, do a REST catch-up every 4th cycle (~2 min)
+        // to ensure illiquid options with rare streaming updates stay fresh
         if (StreamingService.isConnected()) {
-            // Just update the timestamp to show streaming is working
-            updatePriceLastUpdated();
-            return;
+            streamingSkipCount++;
+            if (streamingSkipCount % 4 !== 0) {
+                // Just update the timestamp to show streaming is working
+                updatePriceLastUpdated();
+                return;
+            }
+            console.log('🔄 REST catch-up refresh (streaming connected, periodic sync)...');
+        } else {
+            console.log('🔄 Auto-refreshing prices (streaming not connected)...');
         }
         
-        console.log('🔄 Auto-refreshing prices (streaming not connected)...');
         try {
             await refreshAllPositionPrices();
             updatePriceLastUpdated();

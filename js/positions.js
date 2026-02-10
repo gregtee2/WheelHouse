@@ -3702,6 +3702,16 @@ export function renderPositions() {
     
     // Then fetch spot prices and update risk status asynchronously
     updatePositionRiskStatuses(openPositions);
+    
+    // Replay cached streaming quotes to the freshly-rebuilt DOM.
+    // Without this, the table shows stale values from pos.lastOptionPrice/dayChange
+    // until the next streaming quote arrives (which may be very infrequent for illiquid LEAPS).
+    if (window.StreamingService?.isConnected()) {
+        // Small delay to let DOM settle after innerHTML assignment
+        setTimeout(() => {
+            window.StreamingService.replayQuotes();
+        }, 100);
+    }
 }
 
 /**
