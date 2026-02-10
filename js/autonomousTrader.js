@@ -578,7 +578,22 @@
             return;
         }
 
-        container.innerHTML = trades.map(t => `
+        container.innerHTML = trades.map(t => {
+            const exitReasonBadge = {
+                'profit_target': '💰 Target',
+                'stop_loss': '🛑 Stop',
+                'expiry': '📋 Expired',
+                'dte_manage': '⏰ DTE Mgmt',
+                'manual': '✋ Manual'
+            }[t.exit_reason] || t.exit_reason || '';
+            const exitColor = {
+                'profit_target': '#00ff88',
+                'stop_loss': '#ff5252',
+                'expiry': '#00d9ff',
+                'dte_manage': '#ffaa00',
+                'manual': '#888'
+            }[t.exit_reason] || '#888';
+            return `
             <div style="padding:8px 0; border-bottom:1px solid #222;">
                 <div style="display:flex; justify-content:space-between;">
                     <span style="color:#00d9ff; font-weight:600;">${t.ticker}</span>
@@ -586,10 +601,11 @@
                 </div>
                 <div style="font-size:11px; color:#888; margin-top:2px;">
                     ${(t.strategy || '').replace(/_/g, ' ')} · ${fmtDate(t.opened_at)} → ${fmtDate(t.closed_at)}
+                    <span style="color:${exitColor}; margin-left:6px; font-size:10px;">${exitReasonBadge}</span>
                 </div>
                 ${t.ai_review ? `<div style="font-size:10px; color:#bb86fc; margin-top:4px; cursor:pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none';">💭 AI Review ▸</div><div style="display:none; font-size:11px; color:#aaa; margin-top:4px; padding:6px; background:#111; border-radius:4px;">${t.ai_review}</div>` : ''}
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     }
 
     window.filterAutoJournal = function (filter) {
@@ -842,6 +858,11 @@
                     <input id="cfgMaxMarginPct" type="number" value="${cfg.max_margin_pct || 70}" min="20" max="100" style="width:100%; background:#0d0d1a; border:1px solid #444; color:#fff; padding:6px; border-radius:4px;">
                     <div style="font-size:9px; color:#555; margin-top:2px;">Stops new trades above this % of paper balance</div>
                 </div>
+                <div>
+                    <label style="color:#888; font-size:11px; display:block; margin-bottom:4px;">⏰ Manage at DTE</label>
+                    <input id="cfgManageDte" type="number" value="${cfg.manage_dte || 21}" min="0" max="30" style="width:100%; background:#0d0d1a; border:1px solid #444; color:#fff; padding:6px; border-radius:4px;">
+                    <div style="font-size:9px; color:#555; margin-top:2px;">Auto-close positions at this DTE (0 = disabled). Avoids gamma risk.</div>
+                </div>
                 <div style="grid-column:1/-1;">
                     <label style="color:#888; font-size:11px; display:block; margin-bottom:4px;">DeepSeek Model</label>
                     <input id="cfgDeepseekModel" type="text" value="${cfg.deepseek_model || 'deepseek-r1:70b'}" style="width:100%; background:#0d0d1a; border:1px solid #444; color:#fff; padding:6px; border-radius:4px;">
@@ -875,6 +896,7 @@
             profit_target_pct: Number(document.getElementById('cfgProfitTarget').value),
             max_daily_capital_pct: Number(document.getElementById('cfgMaxCapital').value),
             max_margin_pct: Number(document.getElementById('cfgMaxMarginPct').value),
+            manage_dte: Number(document.getElementById('cfgManageDte').value),
             deepseek_model: document.getElementById('cfgDeepseekModel').value
         };
 

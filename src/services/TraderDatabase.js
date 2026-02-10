@@ -80,7 +80,7 @@ function createTables() {
             exit_price REAL,
             exit_date TEXT,
             exit_spot REAL,
-            exit_reason TEXT,                  -- 'profit_target', 'stop_loss', 'expiry', 'manual', 'dte_close'
+            exit_reason TEXT,                  -- 'profit_target', 'stop_loss', 'expiry', 'manual', 'dte_manage'
             
             -- P&L
             pnl_dollars REAL,
@@ -250,6 +250,7 @@ function seedDefaults() {
         'monitor_interval_sec': '30',          // real-time monitor check interval
         'max_per_sector': '2',                  // max positions per sector (diversification)
         'max_margin_pct': '70',                    // max % of paper balance that can be committed (capital preservation)
+        'manage_dte': '21',                            // close positions at this DTE to avoid gamma risk
         'deepseek_model': 'deepseek-r1:70b',
         'grok_model': 'grok-4'
     };

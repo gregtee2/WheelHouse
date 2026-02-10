@@ -520,28 +520,29 @@ async function runPhase4_EndOfDay() {
                 continue;
             }
 
-            // Check if DTE is very low and we should close to avoid assignment risk
-            if (dte <= 1 && trade.strategy === 'short_put') {
+            // Check if DTE is at or below manage threshold (safety net — monitor should catch this during market hours)
+            const manageDTE = TraderDB.getConfigNum('manage_dte') || 21;
+            if (manageDTE > 0 && dte <= manageDTE && dte > 0) {
                 try {
-                    const quote = await MarketDataService.getQuote(trade.ticker);
-                    if (quote && quote.price < trade.strike) {
-                        // ITM — close to avoid assignment
-                        const currentPrice = await getOptionMidPrice(trade);
+                    const currentPrice = await getOptionMidPrice(trade);
+                    if (currentPrice !== null) {
                         const pnl = (trade.entry_price - currentPrice) * 100 * trade.contracts;
+                        const pnlPct = ((trade.entry_price - currentPrice) / trade.entry_price * 100);
+                        const quote = await MarketDataService.getQuote(trade.ticker).catch(() => null);
                         TraderDB.closeTrade(trade.id, {
                             exitPrice: currentPrice,
                             exitDate: today,
-                            exitSpot: quote.price,
-                            exitReason: 'dte_close',
+                            exitSpot: quote?.price || null,
+                            exitReason: 'dte_manage',
                             pnlDollars: pnl,
-                            pnlPercent: ((trade.entry_price - currentPrice) / trade.entry_price * 100)
+                            pnlPercent: pnlPct
                         });
-                        log(`📋 Closed at 1 DTE (ITM risk): ${trade.ticker} P&L: $${pnl.toFixed(2)}`);
+                        log(`⏰ EOD DTE Management (${dte}d left): ${trade.ticker} ${trade.strategy} — P&L: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`);
                         emitTradeUpdate('closed', trade.id);
                         closed++;
                     }
                 } catch (e) {
-                    logError(`Failed to check ${trade.ticker} for EOD close`, e);
+                    logError(`Failed EOD DTE manage for ${trade.ticker}`, e);
                 }
             }
         }
@@ -734,6 +735,27 @@ async function checkPositions() {
                 continue;
             }
 
+            // Check 21 DTE management rule (close before gamma risk spikes)
+            const manageDTE = TraderDB.getConfigNum('manage_dte') || 21;
+            const currentDTE = calculateDTE(trade.expiry);
+            if (manageDTE > 0 && currentDTE <= manageDTE && currentDTE > 0) {
+                const totalPnl = pnlPerContract * trade.contracts;
+                const quote = await MarketDataService.getQuote(trade.ticker).catch(() => null);
+                const reason = pnlPercent >= 0 ? 'Profit' : 'Loss';
+                log(`⏰ DTE MANAGEMENT (${currentDTE}d left): Closing ${trade.ticker} ${trade.strategy} @ $${currentPrice.toFixed(2)} — ${reason}: ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}% ($${totalPnl.toFixed(2)})`);
+
+                TraderDB.closeTrade(trade.id, {
+                    exitPrice: currentPrice,
+                    exitDate: new Date().toISOString().split('T')[0],
+                    exitSpot: quote?.price || null,
+                    exitReason: 'dte_manage',
+                    pnlDollars: totalPnl,
+                    pnlPercent
+                });
+                emitTradeUpdate('dte_manage', trade.id);
+                continue;
+            }
+
             // Check profit target (50% of max profit = option price drops to 50% of entry)
             if (trade.profit_target_price && currentPrice <= trade.profit_target_price) {
                 const totalPnl = pnlPerContract * trade.contracts;
@@ -817,7 +839,8 @@ Consumer: [bullish|bearish|neutral]
 function buildTradeSelectionPrompt(scan, candidateData, performanceContext, config, cautionFlags, portfolioMargin) {
     const allowedStrategies = config.allowed_strategies || ['short_put', 'credit_spread', 'covered_call'];
     const maxDTE = config.max_dte || 45;
-    const minDTE = config.min_dte || 1;
+    const manageDTE = config.manage_dte || 21;
+    const minDTE = Math.max(config.min_dte || 1, manageDTE + 7); // Must be > manage_dte so trades have active time
     const minSpreadWidth = config.min_spread_width || 5;
     const paperBalance = config.paper_balance || 100000;
     const maxPositions = config.max_positions || 5;
@@ -847,6 +870,9 @@ CONSTRAINTS:
 - Min spread width: $${minSpreadWidth} (for credit spreads)
 - Stop loss: ${config.stop_loss_multiplier || 2}x credit received
 - Profit target: ${config.profit_target_pct || 50}% of max profit
+- **DTE MANAGEMENT**: Positions are AUTO-CLOSED at ${config.manage_dte || 21} DTE to avoid gamma risk.
+  So with a 45 DTE entry, the trade has ~24 active days. Plan strike/premium accordingly.
+  Do NOT pick expirations shorter than ${config.manage_dte || 21} DTE — they'd be closed immediately.
 - AVOID tickers with earnings within DTE range
 - Optimize for CAPITAL EFFICIENCY (max return per dollar of risk)
 - **SECTOR DIVERSIFICATION IS MANDATORY**: Pick trades from at LEAST 3 different sectors.
