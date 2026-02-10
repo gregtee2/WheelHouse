@@ -521,8 +521,11 @@ async function runPhase4_EndOfDay() {
             }
 
             // Check if DTE is at or below manage threshold (safety net — monitor should catch this during market hours)
+            // Grace period: skip trades opened with DTE already inside the management window
             const manageDTE = TraderDB.getConfigNum('manage_dte') || 21;
-            if (manageDTE > 0 && dte <= manageDTE && dte > 0) {
+            const entryDTE = trade.dte || 0;
+            const wasOpenedInsideWindow = entryDTE > 0 && entryDTE <= manageDTE;
+            if (manageDTE > 0 && dte <= manageDTE && dte > 0 && !wasOpenedInsideWindow) {
                 try {
                     const currentPrice = await getOptionMidPrice(trade);
                     if (currentPrice !== null) {
