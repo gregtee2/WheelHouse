@@ -110,7 +110,7 @@ class StreamingServiceClass {
             if (this._optionQuoteCount <= 5 || this._optionQuoteCount % 50 === 0) {
                 const mid = (merged.bid !== undefined && merged.ask !== undefined)
                     ? ((merged.bid + merged.ask) / 2).toFixed(3) : 'N/A';
-                console.log(`[OPTION-QUOTE #${this._optionQuoteCount}] ${data.symbol} bid=${merged.bid} ask=${merged.ask} mid=${mid} mark=${merged.mark} last=${merged.last} netChg=${merged.netChange}`);
+                console.log(`[OPTION-QUOTE #${this._optionQuoteCount}] ${data.symbol} bid=${merged.bid} ask=${merged.ask} mid=${mid} mark=${merged.mark} last=${merged.last} close=${merged.close} netChg=${merged.netChange}`);
             }
             
             // Queue DOM update with the full merged quote
@@ -261,6 +261,14 @@ class StreamingServiceClass {
                 // Update dayChange from Schwab streaming (real-time net change from previous close)
                 if (quote.netChange !== undefined) {
                     pos.dayChange = quote.netChange;
+                } else if (midPrice !== undefined) {
+                    // Schwab often doesn't send NET_CHANGE for illiquid options.
+                    // Compute it ourselves from midPrice - previousClose.
+                    // previousClose is set by REST fetch in refreshAllPositionPrices().
+                    const prevClose = quote.close ?? pos.previousClose;
+                    if (prevClose !== undefined && prevClose > 0) {
+                        pos.dayChange = midPrice - prevClose;
+                    }
                 }
                 
                 // Update P/L cells (calculated from lastOptionPrice)

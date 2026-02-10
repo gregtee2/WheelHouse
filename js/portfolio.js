@@ -845,6 +845,8 @@ async function refreshAllPositionPrices() {
                             pos.buyLegPrice = buyMid;
                             // Store daily change for P/L Day column
                             pos.dayChange = spreadDayChange;
+                            // Store previous close so streaming can compute dayChange
+                            pos.previousClose = netSpreadValue - spreadDayChange;
                             updated++;
                             // Always log spread updates so we can verify they're happening
                             console.log(`[REFRESH] ${ticker} $${pos.sellStrike}/$${pos.buyStrike} spread: $${oldPrice?.toFixed(2) || '?'} → $${netSpreadValue.toFixed(2)} (sell: $${sellMid.toFixed(2)}, buy: $${buyMid.toFixed(2)}, day: ${spreadDayChange >= 0 ? '+' : ''}$${spreadDayChange.toFixed(2)})`);
@@ -872,6 +874,9 @@ async function refreshAllPositionPrices() {
                             pos.markedPrice = price;
                             pos.priceUpdatedAt = new Date().toISOString();
                             pos.dayChange = dayChange;
+                            // Store previous close so streaming can compute dayChange
+                            // when Schwab doesn't send NET_CHANGE for illiquid options
+                            pos.previousClose = price - dayChange;
                             updated++;
                             // Debug: always log CIFR to diagnose P/L Day issue
                             if (ticker === 'CIFR') {
