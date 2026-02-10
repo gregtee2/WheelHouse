@@ -802,6 +802,10 @@ class StreamingServiceClass {
     replayQuotes() {
         if (this.optionQuotes.size === 0 && this.equityQuotes.size === 0) return;
         
+        // Clear the missing-row warning set so we can detect new mismatches
+        // after the table has been rebuilt
+        if (this._missingRowWarned) this._missingRowWarned.clear();
+        
         let optionReplayed = 0;
         let equityReplayed = 0;
         
