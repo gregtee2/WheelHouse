@@ -386,20 +386,49 @@ async function runPhase3_Execute() {
                 }
 
                 // Fetch option pricing
-                let optionData;
+                let entryPrice = 0;
+                let optionData = null;
+                const optType = pick.strategy === 'covered_call' ? 'C' : 'P';
                 try {
-                    optionData = await MarketDataService.getOptionPremium(
-                        pick.ticker, pick.strike, pick.expiry, 
-                        pick.strategy === 'short_put' ? 'P' : 'C'
-                    );
+                    if (pick.strategy === 'credit_spread' && pick.strikeSell && pick.strikeBuy) {
+                        // Credit spread: fetch BOTH legs and use net credit
+                        const [sellLeg, buyLeg] = await Promise.all([
+                            MarketDataService.getOptionPremium(pick.ticker, pick.strikeSell, pick.expiry, optType),
+                            MarketDataService.getOptionPremium(pick.ticker, pick.strikeBuy, pick.expiry, optType)
+                        ]);
+                        optionData = sellLeg; // Use sell leg for IV/delta tracking
+                        const sellMid = sellLeg?.mid ?? sellLeg?.ask ?? 0;
+                        const buyMid = buyLeg?.mid ?? buyLeg?.ask ?? 0;
+                        entryPrice = sellMid - buyMid;
+                        log(`📐 ${pick.ticker} spread: sell ${pick.strikeSell} @ $${sellMid.toFixed(2)} - buy ${pick.strikeBuy} @ $${buyMid.toFixed(2)} = net $${entryPrice.toFixed(2)}`);
+                    } else {
+                        // Single-leg option
+                        optionData = await MarketDataService.getOptionPremium(
+                            pick.ticker, pick.strike, pick.expiry, optType
+                        );
+                        entryPrice = optionData?.mid || optionData?.ask || pick.estimatedPremium || 0;
+                    }
                 } catch (e) {
                     log(`⚠️ Can't get option price for ${pick.ticker} ${pick.strike} — skipping`);
                     continue;
                 }
 
-                const entryPrice = optionData?.mid || optionData?.ask || pick.estimatedPremium || 0;
                 if (entryPrice <= 0.05) {
-                    log(`⚠️ ${pick.ticker} premium too low ($${entryPrice}) — skipping`);
+                    log(`⚠️ ${pick.ticker} premium too low ($${entryPrice.toFixed(2)}) — skipping`);
+                    continue;
+                }
+
+                // Sanity check: credit spread net credit should not exceed spread width
+                if (pick.strategy === 'credit_spread') {
+                    const width = pick.spreadWidth || 5;
+                    if (entryPrice > width) {
+                        log(`⚠️ ${pick.ticker} net credit $${entryPrice.toFixed(2)} > spread width $${width} — price error, skipping`);
+                        continue;
+                    }
+                }
+                // Sanity check: single option premium > $50/share is almost certainly a data error
+                if (pick.strategy !== 'credit_spread' && entryPrice > 50) {
+                    log(`⚠️ ${pick.ticker} premium $${entryPrice.toFixed(2)} > $50 — likely stock price, not option premium. Skipping`);
                     continue;
                 }
 
@@ -698,6 +727,9 @@ function onStreamingQuote(type, data) {
     }
 }
 
+// Track which trades have already had their DTE grace skip logged
+const dteSkipLogged = new Set();
+
 async function checkPositions() {
     const openTrades = TraderDB.getOpenTrades();
     if (!openTrades.length) return;
@@ -746,7 +778,10 @@ async function checkPositions() {
             const entryDTE = trade.dte || 0; // DTE at time of entry
             const wasOpenedInsideWindow = entryDTE > 0 && entryDTE <= manageDTE;
             if (wasOpenedInsideWindow && currentDTE <= manageDTE && currentDTE > 0) {
-                log(`⏭️ DTE SKIP: ${trade.ticker} opened at ${entryDTE}d (inside ${manageDTE}d window) — grace period, not closing`);
+                if (!dteSkipLogged.has(trade.id)) {
+                    log(`⏭️ DTE SKIP: ${trade.ticker} opened at ${entryDTE}d (inside ${manageDTE}d window) — grace period, not closing`);
+                    dteSkipLogged.add(trade.id);
+                }
             }
             if (manageDTE > 0 && currentDTE <= manageDTE && currentDTE > 0 && !wasOpenedInsideWindow) {
                 const totalPnl = pnlPerContract * trade.contracts;
@@ -1268,6 +1303,17 @@ function calculateDTE(expiry) {
 async function getOptionMidPrice(trade) {
     try {
         const optType = trade.strategy === 'covered_call' ? 'C' : 'P';
+        if (trade.strategy === 'credit_spread' && trade.strike_sell && trade.strike_buy) {
+            // Credit spread: net mid = sell leg mid - buy leg mid
+            const [sellLeg, buyLeg] = await Promise.all([
+                MarketDataService.getOptionPremium(trade.ticker, trade.strike_sell, trade.expiry, optType),
+                MarketDataService.getOptionPremium(trade.ticker, trade.strike_buy, trade.expiry, optType)
+            ]);
+            if (!sellLeg || !buyLeg) return null;
+            const sellMid = (sellLeg.bid + sellLeg.ask) / 2;
+            const buyMid = (buyLeg.bid + buyLeg.ask) / 2;
+            return sellMid - buyMid;
+        }
         const data = await MarketDataService.getOptionPremium(
             trade.ticker, trade.strike, trade.expiry, optType
         );
