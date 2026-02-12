@@ -1516,6 +1516,8 @@ git push origin main:stable
 26. **SECTOR_MAP is lazy-loaded** - `ensureSectorMap()` must be called before accessing it (DiscoveryService isn't available at module load)
 27. **Margin cap enforcement** - `calculatePortfolioMargin()` checks total committed margin; Phase 3 skips trades that would exceed `max_margin_pct`
 28. **Prefer credit spreads over naked puts** - AI prompt mandates at least 3 of 5 picks be credit spreads for capital preservation
+29. **NEVER call `getOptionPremium()` directly for trade pricing** - Always use `getStrategyPrice(opts)` which handles both credit spreads (two-leg net credit) and single-leg options. Calling `getOptionPremium()` with just the sell strike was a real bug that stored $95.40 instead of ~$1.50 net credit. The helper lives in `AutonomousTraderService.js` and accepts both camelCase (`strikeSell`) and snake_case (`strike_sell`) field names.
+30. **Credit spread net credit can NEVER exceed spread width** - If `entryPrice > spreadWidth`, it's a data error. Phase 3 has a sanity check that skips such trades.
 
 ---
 

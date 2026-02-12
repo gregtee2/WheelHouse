@@ -385,29 +385,17 @@ async function runPhase3_Execute() {
                     continue;
                 }
 
-                // Fetch option pricing
+                // Fetch option pricing (uses centralized helper for all strategies)
                 let entryPrice = 0;
                 let optionData = null;
-                const optType = pick.strategy === 'covered_call' ? 'C' : 'P';
                 try {
+                    const priceResult = await getStrategyPrice(pick);
+                    entryPrice = priceResult.price ?? 0;
+                    optionData = priceResult.optionData;
                     if (pick.strategy === 'credit_spread' && pick.strikeSell && pick.strikeBuy) {
-                        // Credit spread: fetch BOTH legs and use net credit
-                        const [sellLeg, buyLeg] = await Promise.all([
-                            MarketDataService.getOptionPremium(pick.ticker, pick.strikeSell, pick.expiry, optType),
-                            MarketDataService.getOptionPremium(pick.ticker, pick.strikeBuy, pick.expiry, optType)
-                        ]);
-                        optionData = sellLeg; // Use sell leg for IV/delta tracking
-                        const sellMid = sellLeg?.mid ?? sellLeg?.ask ?? 0;
-                        const buyMid = buyLeg?.mid ?? buyLeg?.ask ?? 0;
-                        entryPrice = sellMid - buyMid;
-                        log(`📐 ${pick.ticker} spread: sell ${pick.strikeSell} @ $${sellMid.toFixed(2)} - buy ${pick.strikeBuy} @ $${buyMid.toFixed(2)} = net $${entryPrice.toFixed(2)}`);
-                    } else {
-                        // Single-leg option
-                        optionData = await MarketDataService.getOptionPremium(
-                            pick.ticker, pick.strike, pick.expiry, optType
-                        );
-                        entryPrice = optionData?.mid || optionData?.ask || pick.estimatedPremium || 0;
+                        log(`📐 ${pick.ticker} spread: sell ${pick.strikeSell} - buy ${pick.strikeBuy} = net $${entryPrice.toFixed(2)}`);
                     }
+                    if (entryPrice <= 0) entryPrice = pick.estimatedPremium || 0;
                 } catch (e) {
                     log(`⚠️ Can't get option price for ${pick.ticker} ${pick.strike} — skipping`);
                     continue;
@@ -1300,27 +1288,53 @@ function calculateDTE(expiry) {
     return Math.max(0, Math.ceil((exp - now) / (1000 * 60 * 60 * 24)));
 }
 
-async function getOptionMidPrice(trade) {
+/**
+ * Centralized option pricing for ANY strategy. Handles:
+ *   - credit_spread: fetches BOTH legs, returns net credit (sell - buy)
+ *   - short_put / covered_call / single-leg: fetches one leg
+ *
+ * NEVER call getOptionPremium() directly for trade pricing — always use this.
+ *
+ * @param {object} opts - { ticker, strategy, strikeSell|strike_sell, strikeBuy|strike_buy, strike, expiry }
+ * @returns {{ price: number|null, optionData: object|null }} price = mid or net credit
+ */
+async function getStrategyPrice(opts) {
     try {
-        const optType = trade.strategy === 'covered_call' ? 'C' : 'P';
-        if (trade.strategy === 'credit_spread' && trade.strike_sell && trade.strike_buy) {
-            // Credit spread: net mid = sell leg mid - buy leg mid
+        const ticker = opts.ticker;
+        const strategy = opts.strategy;
+        const expiry = opts.expiry;
+        const optType = strategy === 'covered_call' ? 'C' : 'P';
+
+        // Normalize field names (camelCase from AI parser, snake_case from DB)
+        const strikeSell = opts.strikeSell || opts.strike_sell;
+        const strikeBuy = opts.strikeBuy || opts.strike_buy;
+
+        if (strategy === 'credit_spread' && strikeSell && strikeBuy) {
             const [sellLeg, buyLeg] = await Promise.all([
-                MarketDataService.getOptionPremium(trade.ticker, trade.strike_sell, trade.expiry, optType),
-                MarketDataService.getOptionPremium(trade.ticker, trade.strike_buy, trade.expiry, optType)
+                MarketDataService.getOptionPremium(ticker, strikeSell, expiry, optType),
+                MarketDataService.getOptionPremium(ticker, strikeBuy, expiry, optType)
             ]);
-            if (!sellLeg || !buyLeg) return null;
-            const sellMid = (sellLeg.bid + sellLeg.ask) / 2;
-            const buyMid = (buyLeg.bid + buyLeg.ask) / 2;
-            return sellMid - buyMid;
+            if (!sellLeg || !buyLeg) return { price: null, optionData: null };
+            const sellMid = sellLeg.mid ?? ((sellLeg.bid + sellLeg.ask) / 2);
+            const buyMid = buyLeg.mid ?? ((buyLeg.bid + buyLeg.ask) / 2);
+            return { price: sellMid - buyMid, optionData: sellLeg }; // optionData = sell leg (for IV/delta)
         }
-        const data = await MarketDataService.getOptionPremium(
-            trade.ticker, trade.strike, trade.expiry, optType
-        );
-        return data ? (data.bid + data.ask) / 2 : null;
+
+        // Single-leg
+        const strike = opts.strike || strikeSell;
+        const data = await MarketDataService.getOptionPremium(ticker, strike, expiry, optType);
+        if (!data) return { price: null, optionData: null };
+        const mid = data.mid ?? ((data.bid + data.ask) / 2);
+        return { price: mid, optionData: data };
     } catch {
-        return null;
+        return { price: null, optionData: null };
     }
+}
+
+// Convenience wrapper for position monitoring (returns just the price)
+async function getOptionMidPrice(trade) {
+    const { price } = await getStrategyPrice(trade);
+    return price;
 }
 
 function isMarketHours() {
